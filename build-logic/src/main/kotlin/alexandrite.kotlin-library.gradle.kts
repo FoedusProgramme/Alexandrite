@@ -3,6 +3,7 @@ import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
 plugins {
     `java-library`
     kotlin("jvm")
+    id("com.diffplug.spotless")
 }
 
 group = "org.foedusprogramme.alexandrite"
@@ -41,4 +42,15 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+
+spotless {
+    val ktlintVersion = libs.findVersion("ktlint").get().requiredVersion
+    kotlin {
+        target("src/**/*.kt")
+        ktlint(ktlintVersion)
+    }
+    kotlinGradle {
+        ktlint(ktlintVersion)
+    }
 }

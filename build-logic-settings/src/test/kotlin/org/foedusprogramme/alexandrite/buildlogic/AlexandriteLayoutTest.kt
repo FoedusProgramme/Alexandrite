@@ -35,7 +35,8 @@ class AlexandriteLayoutTest {
     private fun assertForbidden(from: String, to: String, configuration: String = "implementation") =
         assertNotNull(violation(from, to, configuration), "$from -> $to ($configuration) should be forbidden")
 
-    private class FakeTree(private val buildFiles: Set<String>, emptyDirectories: Set<String> = emptySet()) : ModuleTree {
+    private class FakeTree(private val buildFiles: Set<String>, emptyDirectories: Set<String> = emptySet()) :
+        ModuleTree {
         private val directories = (buildFiles + emptyDirectories).flatMap { directory ->
             directory.split('/').runningReduce { parent, name -> "$parent/$name" }
         }.toSet()
@@ -142,7 +143,8 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `a child without a build file is ignored`() {
-        val discovery = discoverIn(today, emptyDirectories = setOf("libraries/providers/empty", "libraries/channels/wip/src"))
+        val discovery =
+            discoverIn(today, emptyDirectories = setOf("libraries/providers/empty", "libraries/channels/wip/src"))
         assertNull(discovery.failure)
         assertEquals(all.sorted(), discovery.modules.map { it.path })
     }
@@ -285,7 +287,7 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `a forbidden dependency names the project, the dependency, the configuration, the allowed set and the layout`() {
+    fun `a forbidden dependency names the project, dependency, configuration, allowed set and layout`() {
         val message = assertNotNull(violation(telegram, agent, "implementation"))
         assertContains(message, "'$telegram'")
         assertContains(message, "'$agent'")

@@ -1,5 +1,6 @@
 plugins {
     `kotlin-dsl`
+    alias(libs.plugins.spotless)
 }
 
 kotlin {
@@ -8,6 +9,16 @@ kotlin {
 
 group = "org.foedusprogramme.alexandrite.buildlogic"
 version = "1.0"
+
+spotless {
+    kotlin {
+        target("src/**/*.kt", "src/**/*.kts")
+        ktlint(libs.versions.ktlint.get()).setEditorConfigPath("../.editorconfig")
+    }
+    kotlinGradle {
+        ktlint(libs.versions.ktlint.get()).setEditorConfigPath("../.editorconfig")
+    }
+}
 
 dependencies {
     testImplementation(kotlin("test"))

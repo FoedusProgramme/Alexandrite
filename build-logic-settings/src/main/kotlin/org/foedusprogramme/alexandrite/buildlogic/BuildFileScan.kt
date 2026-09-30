@@ -17,7 +17,8 @@ abstract class BuildFileScan : ValueSource<List<String>, BuildFileScan.Parameter
     override fun obtain(): List<String> {
         val root = parameters.rootDirectory.get().asFile
         return AlexandriteLayout.scan(object : ModuleTree {
-            override fun hasBuildFile(directory: String) = File(root, "$directory/${AlexandriteLayout.BUILD_FILE}").isFile
+            override fun hasBuildFile(directory: String) =
+                File(root, "$directory/${AlexandriteLayout.BUILD_FILE}").isFile
 
             override fun subdirectories(directory: String) =
                 File(root, directory).listFiles(File::isDirectory)?.map { it.name }.orEmpty()

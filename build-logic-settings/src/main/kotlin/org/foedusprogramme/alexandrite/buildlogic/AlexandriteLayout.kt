@@ -36,11 +36,7 @@ sealed class Location {
         val jarName: String = "alexandrite-" + directory.substringAfterLast('/'),
     ) : Location()
 
-    data class Family(
-        override val directory: String,
-        override val layer: Layer,
-        val jarPrefix: String,
-    ) : Location()
+    data class Family(override val directory: String, override val layer: Layer, val jarPrefix: String) : Location()
 }
 
 data class AlexandriteModule(val path: String, val layer: Layer, val jarName: String)
@@ -109,8 +105,12 @@ object AlexandriteLayout {
         val path = ":" + directory.replace('/', ':')
         for (location in LOCATIONS) {
             when (location) {
-                is Location.Slot ->
-                    if (directory == location.directory) return AlexandriteModule(path, location.layer, location.jarName)
+                is Location.Slot -> {
+                    if (directory == location.directory) {
+                        return AlexandriteModule(path, location.layer, location.jarName)
+                    }
+                }
+
                 is Location.Family -> {
                     val name = directory.removePrefix(location.directory + "/")
                     if (name != directory && name.isNotEmpty() && '/' !in name) {
