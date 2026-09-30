@@ -1,0 +1,44 @@
+import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
+
+plugins {
+    `java-library`
+    kotlin("jvm")
+}
+
+group = "org.foedusprogramme.alexandrite"
+version = "0.1.0-SNAPSHOT"
+
+val libs = the<VersionCatalogsExtension>().named("libs")
+
+val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
+
+base {
+    archivesName = module.jarName
+}
+
+// Fail as soon as a forbidden project dependency is declared
+configurations.configureEach {
+    val configurationName = name
+    dependencies.withType<ProjectDependency>().configureEach {
+        AlexandriteLayout.dependencyViolation(module, dependencyPath = path, configurationName)
+            ?.let { throw GradleException(it) }
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+    compilerOptions {
+        allWarningsAsErrors = true
+    }
+}
+
+dependencies {
+    testImplementation(libs.findLibrary("kotlin-test").get())
+    testImplementation(platform(libs.findLibrary("junit-bom").get()))
+    testImplementation(libs.findLibrary("junit-jupiter").get())
+    testRuntimeOnly(libs.findLibrary("junit-platform-launcher").get())
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}

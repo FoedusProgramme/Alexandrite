@@ -1,12 +1,19 @@
-.gradle
+### Gradle / Kotlin ###
+.gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
-.kotlin
+.kotlin/
+local.properties
+
+### Local databases ###
+*.db
+*.db-wal
+*.db-shm
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
