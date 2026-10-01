@@ -103,6 +103,37 @@ class AlexandriteLayoutTest {
     }
 
     @Test
+    fun `config roots come from the location`() {
+        val expected = mapOf(
+            sdk to null,
+            common to null,
+            agent to "agent",
+            tools to "tools",
+            telegram to "channels.telegram",
+            openAi to "providers.openai-compatible",
+            anthropic to "providers.anthropic",
+            ksp to null,
+            app to null,
+        )
+        assertEquals(expected, all.associateWith { module(it).configRoot })
+    }
+
+    @Test
+    fun `a new channel or provider gets its config root from its directory`() {
+        assertEquals("providers.example", module(":libraries:providers:example").configRoot)
+        assertEquals("channels.discord", module(":libraries:channels:discord").configRoot)
+    }
+
+    @Test
+    fun `exactly the modules of indexed layers have a config root`() {
+        assertEquals(setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER), AlexandriteLayout.INDEXED_LAYERS)
+        for (path in all + ":libraries:channels:discord" + ":libraries:providers:example") {
+            val module = module(path)
+            assertEquals(module.layer in AlexandriteLayout.INDEXED_LAYERS, module.configRoot != null, path)
+        }
+    }
+
+    @Test
     fun `no two locations share a directory and every layer has one`() {
         val directories = AlexandriteLayout.LOCATIONS.map { it.directory }
         assertEquals(directories.distinct(), directories)
@@ -278,6 +309,25 @@ class AlexandriteLayoutTest {
     }
 
     @Test
+    fun `the KSP processor's tests may use the SDK`() {
+        for (configuration in listOf("testImplementation", "testCompileOnly", "testRuntimeOnly")) {
+            assertAllowed(ksp, sdk, configuration)
+        }
+        for (configuration in listOf("implementation", "api", "compileOnly", "runtimeOnly", "ksp", "kspTest")) {
+            assertForbidden(ksp, sdk, configuration)
+        }
+        for (to in libraries - sdk + app) assertForbidden(ksp, to, "testImplementation")
+    }
+
+    @Test
+    fun `a test configuration does not widen the other layer rules`() {
+        assertForbidden(sdk, common, "testImplementation")
+        assertForbidden(common, sdk, "testImplementation")
+        assertForbidden(telegram, agent, "testImplementation")
+        assertForbidden(agent, tools, "testRuntimeOnly")
+    }
+
+    @Test
     fun `a project may depend on itself in any configuration`() {
         for (path in all) {
             for (configuration in listOf("implementation", "testImplementation", "ksp")) {
@@ -295,6 +345,10 @@ class AlexandriteLayoutTest {
         assertContains(message, "$sdk, $common;")
         assertContains(message, AlexandriteLayout.LAYOUT_LOCATION)
         assertContains(assertNotNull(violation(app, ksp)), ":libraries:channels:*, :libraries:providers:*;")
+        assertContains(
+            assertNotNull(violation(ksp, common)),
+            "none; $sdk only from configurations named test*; $ksp only from configurations named ksp*.",
+        )
     }
 
     @Test

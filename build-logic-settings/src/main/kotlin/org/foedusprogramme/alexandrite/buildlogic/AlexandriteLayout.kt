@@ -34,12 +34,18 @@ sealed class Location {
         override val directory: String,
         override val layer: Layer,
         val jarName: String = "alexandrite-" + directory.substringAfterLast('/'),
+        val configRoot: String? = null,
     ) : Location()
 
-    data class Family(override val directory: String, override val layer: Layer, val jarPrefix: String) : Location()
+    data class Family(
+        override val directory: String,
+        override val layer: Layer,
+        val jarPrefix: String,
+        val configRootPrefix: String = directory.substringAfterLast('/') + ".",
+    ) : Location()
 }
 
-data class AlexandriteModule(val path: String, val layer: Layer, val jarName: String)
+data class AlexandriteModule(val path: String, val layer: Layer, val jarName: String, val configRoot: String?)
 
 data class Discovery(
     val modules: List<AlexandriteModule>,
@@ -67,6 +73,9 @@ object AlexandriteLayout {
     /** Configurations whose name starts with this may depend on a [Layer.KSP] project */
     const val KSP_CONFIGURATION_PREFIX = "ksp"
 
+    /** Configurations whose name starts with this may also depend on the layers of [TEST_LAYER_DEPENDENCIES] */
+    const val TEST_CONFIGURATION_PREFIX = "test"
+
     /** The file that makes a directory a module */
     const val BUILD_FILE = "build.gradle.kts"
 
@@ -77,8 +86,8 @@ object AlexandriteLayout {
     val LOCATIONS: List<Location> = listOf(
         Location.Slot("libraries/plugin-sdk", Layer.SDK),
         Location.Slot("libraries/common", Layer.COMMON),
-        Location.Slot("libraries/agent", Layer.AGENT),
-        Location.Slot("libraries/tools", Layer.TOOLS),
+        Location.Slot("libraries/agent", Layer.AGENT, configRoot = "agent"),
+        Location.Slot("libraries/tools", Layer.TOOLS, configRoot = "tools"),
         Location.Family("libraries/channels", Layer.CHANNEL, jarPrefix = "alexandrite-channel-"),
         Location.Family("libraries/providers", Layer.PROVIDER, jarPrefix = "alexandrite-provider-"),
         Location.Slot("build-ksp-plugin", Layer.KSP, jarName = "alexandrite-ksp"),
@@ -96,6 +105,11 @@ object AlexandriteLayout {
         Layer.APP to setOf(Layer.SDK, Layer.COMMON, Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER),
     )
 
+    val TEST_LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(Layer.KSP to setOf(Layer.SDK))
+
+    /** Layers whose modules get a generated `ModuleIndex` */
+    val INDEXED_LAYERS: Set<Layer> = setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER)
+
     private val slots: List<Location.Slot> = LOCATIONS.filterIsInstance<Location.Slot>()
 
     fun moduleAt(path: String): AlexandriteModule? =
@@ -107,14 +121,19 @@ object AlexandriteLayout {
             when (location) {
                 is Location.Slot -> {
                     if (directory == location.directory) {
-                        return AlexandriteModule(path, location.layer, location.jarName)
+                        return AlexandriteModule(path, location.layer, location.jarName, location.configRoot)
                     }
                 }
 
                 is Location.Family -> {
                     val name = directory.removePrefix(location.directory + "/")
                     if (name != directory && name.isNotEmpty() && '/' !in name) {
-                        return AlexandriteModule(path, location.layer, location.jarPrefix + name)
+                        return AlexandriteModule(
+                            path,
+                            location.layer,
+                            location.jarPrefix + name,
+                            location.configRootPrefix + name,
+                        )
                     }
                 }
             }
@@ -170,20 +189,28 @@ object AlexandriteLayout {
      */
     fun dependencyViolation(module: AlexandriteModule, dependencyPath: String, configurationName: String): String? {
         if (dependencyPath == module.path) return null
+        val testLayers = TEST_LAYER_DEPENDENCIES[module.layer].orEmpty()
         val dependency = moduleAt(dependencyPath)
         if (dependency != null) {
             if (dependency.layer in LAYER_DEPENDENCIES.getValue(module.layer)) return null
             if (dependency.layer == Layer.KSP && configurationName.startsWith(KSP_CONFIGURATION_PREFIX)) return null
+            if (dependency.layer in testLayers && configurationName.startsWith(TEST_CONFIGURATION_PREFIX)) return null
         }
-        val allowedLayers = LAYER_DEPENDENCIES.getValue(module.layer)
-        val allowed = LOCATIONS.filter { it.layer in allowedLayers }.joinToString { pathPattern(it) }.ifEmpty { "none" }
-        val kspModules = LOCATIONS.filter { it.layer == Layer.KSP }.joinToString { pathPattern(it) }
+        val allowed = pathPatterns(LAYER_DEPENDENCIES.getValue(module.layer)).ifEmpty { "none" }
+        val testOnly = if (testLayers.isEmpty()) {
+            ""
+        } else {
+            "${pathPatterns(testLayers)} only from configurations named $TEST_CONFIGURATION_PREFIX*; "
+        }
         return "Forbidden project dependency: '${module.path}' (${module.layer}) may not depend on '$dependencyPath' " +
             "(${dependency?.layer ?: "at no location of the layout"}) in configuration '$configurationName'. " +
-            "Allowed project dependencies of '${module.path}': $allowed; " +
-            "$kspModules only from configurations named $KSP_CONFIGURATION_PREFIX*. " +
+            "Allowed project dependencies of '${module.path}': $allowed; " + testOnly +
+            "${pathPatterns(setOf(Layer.KSP))} only from configurations named $KSP_CONFIGURATION_PREFIX*. " +
             "See the layout in $LAYOUT_LOCATION."
     }
+
+    private fun pathPatterns(layers: Set<Layer>): String =
+        LOCATIONS.filter { it.layer in layers }.joinToString { pathPattern(it) }
 
     /** `:libraries:agent` for a slot, `:libraries:providers:*` for a family. */
     private fun pathPattern(location: Location): String {

@@ -33,6 +33,10 @@ kotlin {
     }
 }
 
+if (module.layer in AlexandriteLayout.INDEXED_LAYERS) {
+    apply(plugin = "alexandrite.ksp")
+}
+
 dependencies {
     testImplementation(libs.findLibrary("kotlin-test").get())
     testImplementation(platform(libs.findLibrary("junit-bom").get()))
