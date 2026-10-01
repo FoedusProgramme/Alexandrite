@@ -42,8 +42,8 @@ class Compiled(private val compilation: KotlinCompilation, private val result: J
 
     fun service(): String = resources.resolve("META-INF/services/${ModuleIndex::class.java.name}").readText()
 
-    fun generated(className: String): String =
-        compilation.kspSourcesDir.resolve("kotlin/${GENERATED_PACKAGE.replace('.', '/')}/$className.kt").readText()
+    fun generated(qualifiedName: String): String =
+        compilation.kspSourcesDir.resolve("kotlin/${qualifiedName.replace('.', '/')}.kt").readText()
 
     fun assertSucceeded() = assertTrue(succeeded, messages)
 }

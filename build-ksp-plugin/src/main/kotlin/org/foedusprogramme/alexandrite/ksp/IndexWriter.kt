@@ -1,18 +1,25 @@
 package org.foedusprogramme.alexandrite.ksp
 
-internal class IndexWriter(private val module: String, private val configRoot: String) {
-    val className = module.split('-', '_').joinToString("") { it.replaceFirstChar(Char::uppercaseChar) } + "Index"
+internal class IndexWriter(
+    private val module: String,
+    private val configRoot: String,
+    private val packageName: String,
+) {
+    val className = module.split('-').joinToString("") { it.replaceFirstChar(Char::uppercaseChar) } + "Index"
 
     fun source(sections: Collection<Section>, components: Collection<Component>): String {
-        val bindings = sections.sortedBy { it.name }.map(::sectionBinding) +
-            components.sortedBy { it.name }.flatMap(::componentBindings)
-        val imports = when {
-            bindings.isEmpty() -> listOf("$DI.Binding", MODULE_INDEX)
-            sections.isEmpty() -> IMPORTS - CONFIG_SOURCE
-            else -> IMPORTS
+        val bindings = components.sortedBy { it.name }.flatMap(::componentBindings)
+        val specs = sections.sortedBy { it.path }.map(::sectionSpec)
+        val imports = buildList {
+            if (specs.isNotEmpty()) add(CONFIG_SECTION_SPEC)
+            add("$DI.Binding")
+            if (bindings.isNotEmpty()) addAll(listOf("$DI.Dependency", "$DI.DependencyKind"))
+            add(MODULE_INDEX)
+            if (bindings.isNotEmpty()) addAll(listOf("$DI.Scope", "$DI.binding"))
+            if (bindings.isNotEmpty() || specs.isNotEmpty()) add("$DI.key")
         }
         return buildString {
-            appendLine("package $GENERATED_PACKAGE")
+            appendLine("package ${sourceName(packageName)}")
             appendLine()
             imports.forEach { appendLine("import $it") }
             appendLine()
@@ -21,27 +28,32 @@ internal class IndexWriter(private val module: String, private val configRoot: S
             appendLine()
             appendLine("    override val configRoot: String = ${literal(configRoot)}")
             appendLine()
-            if (bindings.isEmpty()) {
-                appendLine("    override fun bindings(): List<Binding<*>> = emptyList()")
-            } else {
-                appendLine("    override fun bindings(): List<Binding<*>> = listOf(")
-                bindings.forEach { appendLine(it.prependIndent("        ") + ",") }
-                appendLine("    )")
+            appendList("override fun bindings(): List<Binding<*>>", bindings)
+            if (specs.isNotEmpty()) {
+                appendLine()
+                appendList("override fun configSections(): List<ConfigSectionSpec<*>>", specs)
             }
             appendLine("}")
         }
     }
 
-    private fun sectionBinding(section: Section): String {
-        val source = Key(CONFIG_SOURCE.substringAfterLast('.'), null)
-        return binding(
-            Key(section.type, null),
-            section.name,
-            channelScoped = false,
-            dependencies = listOf(Dependency(source, Kind.INSTANCE, "configSource")),
-            create = "{ r -> r.get(${source.code}).section(${literal(section.path)}, ${section.type}.serializer()) }",
-            flags = listOf("managed = false"),
-        )
+    private fun StringBuilder.appendList(declaration: String, elements: List<String>) {
+        if (elements.isEmpty()) {
+            appendLine("    $declaration = emptyList()")
+            return
+        }
+        appendLine("    $declaration = listOf(")
+        elements.forEach { appendLine(it.prependIndent("        ") + ",") }
+        appendLine("    )")
+    }
+
+    private fun sectionSpec(section: Section): String = buildString {
+        appendLine("ConfigSectionSpec(")
+        appendLine("    ${Key(section.type, null).code},")
+        appendLine("    path = ${literal(section.path)},")
+        appendLine("    deserializer = ${section.type}.serializer(),")
+        appendLine("    origin = ${origin(section.name)},")
+        append(")")
     }
 
     private fun componentBindings(component: Component): List<String> {
@@ -81,7 +93,7 @@ internal class IndexWriter(private val module: String, private val configRoot: S
     ): String = buildString {
         appendLine("binding(")
         appendLine("    ${key.code},")
-        appendLine("    origin = ${literal("$name (module $module)")},")
+        appendLine("    origin = ${origin(name)},")
         appendLine("    scope = Scope.${if (channelScoped) "CHANNEL" else "SINGLETON"},")
         if (dependencies.isNotEmpty()) {
             appendLine("    dependencies = listOf(")
@@ -94,15 +106,6 @@ internal class IndexWriter(private val module: String, private val configRoot: S
         flags.forEach { appendLine("    $it,") }
         append(") $create")
     }
-}
 
-private val IMPORTS = listOf(
-    CONFIG_SOURCE,
-    "$DI.Binding",
-    "$DI.Dependency",
-    "$DI.DependencyKind",
-    MODULE_INDEX,
-    "$DI.Scope",
-    "$DI.binding",
-    "$DI.key",
-)
+    private fun origin(name: String): String = literal("$name (module $module)")
+}

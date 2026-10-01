@@ -7,6 +7,9 @@ enum class Layer {
     /** Internal shared utilities. */
     COMMON,
 
+    /** Embeddable engine. */
+    RUNTIME,
+
     /** The turn pipeline, permissions, store and automation. */
     AGENT,
 
@@ -19,8 +22,14 @@ enum class Layer {
     /** Model back ends. */
     PROVIDER,
 
+    /** Doubles for plugin authors. */
+    TESTKIT,
+
     /** KSP symbol processor. */
     KSP,
+
+    /** Sample third-party plugins. */
+    EXAMPLE,
 
     /** Entry executable. */
     APP,
@@ -35,6 +44,8 @@ sealed class Location {
         override val layer: Layer,
         val jarName: String = "alexandrite-" + directory.substringAfterLast('/'),
         val configRoot: String? = null,
+        val packageName: String? = null,
+        val moduleName: String = jarName,
     ) : Location()
 
     data class Family(
@@ -42,10 +53,23 @@ sealed class Location {
         override val layer: Layer,
         val jarPrefix: String,
         val configRootPrefix: String = directory.substringAfterLast('/') + ".",
+        val packagePrefix: String? = null,
+        val moduleNamePrefix: String = jarPrefix,
+        val builtIn: Boolean = true,
     ) : Location()
 }
 
-data class AlexandriteModule(val path: String, val layer: Layer, val jarName: String, val configRoot: String?)
+data class AlexandriteModule(
+    val path: String,
+    val layer: Layer,
+    val jarName: String,
+    val configRoot: String?,
+    /** The name its `ModuleIndex` carries */
+    val moduleName: String,
+    /** The package of its `ModuleIndex`, null when the convention passes none */
+    val packageName: String?,
+    val builtIn: Boolean,
+)
 
 data class Discovery(
     val modules: List<AlexandriteModule>,
@@ -79,36 +103,81 @@ object AlexandriteLayout {
     /** The file that makes a directory a module */
     const val BUILD_FILE = "build.gradle.kts"
 
-    /** The tree [scan] walks for misplaced modules */
-    const val LIBRARIES = "libraries"
+    /** The trees [scan] walks for misplaced modules */
+    val SCANNED_TREES: List<String> = listOf("libraries", "examples")
+
+    private const val PACKAGE = "org.foedusprogramme.alexandrite"
 
     /** Location Map */
     val LOCATIONS: List<Location> = listOf(
         Location.Slot("libraries/plugin-sdk", Layer.SDK),
         Location.Slot("libraries/common", Layer.COMMON),
-        Location.Slot("libraries/agent", Layer.AGENT, configRoot = "agent"),
-        Location.Slot("libraries/tools", Layer.TOOLS, configRoot = "tools"),
-        Location.Family("libraries/channels", Layer.CHANNEL, jarPrefix = "alexandrite-channel-"),
-        Location.Family("libraries/providers", Layer.PROVIDER, jarPrefix = "alexandrite-provider-"),
+        Location.Slot("libraries/runtime", Layer.RUNTIME),
+        Location.Slot("libraries/agent", Layer.AGENT, configRoot = "agent", packageName = "$PACKAGE.agent"),
+        Location.Slot("libraries/tools", Layer.TOOLS, configRoot = "tools", packageName = "$PACKAGE.tools"),
+        Location.Family(
+            "libraries/channels",
+            Layer.CHANNEL,
+            jarPrefix = "alexandrite-channel-",
+            packagePrefix = "$PACKAGE.channel.",
+        ),
+        Location.Family(
+            "libraries/providers",
+            Layer.PROVIDER,
+            jarPrefix = "alexandrite-provider-",
+            packagePrefix = "$PACKAGE.provider.",
+        ),
+        Location.Slot("libraries/testkit", Layer.TESTKIT),
         Location.Slot("build-ksp-plugin", Layer.KSP, jarName = "alexandrite-ksp"),
-        Location.Slot("app", Layer.APP, jarName = "alexandrite"),
+        Location.Family(
+            "examples",
+            Layer.EXAMPLE,
+            jarPrefix = "example-",
+            configRootPrefix = "plugins.",
+            moduleNamePrefix = "",
+            builtIn = false,
+        ),
+        Location.Slot(
+            "app",
+            Layer.APP,
+            jarName = "alexandrite",
+            configRoot = "app",
+            packageName = "$PACKAGE.app",
+            moduleName = "alexandrite-app",
+        ),
     )
 
     val LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(
         Layer.SDK to emptySet(),
         Layer.COMMON to emptySet(),
         Layer.KSP to emptySet(),
+        Layer.RUNTIME to setOf(Layer.SDK, Layer.COMMON),
         Layer.AGENT to setOf(Layer.SDK, Layer.COMMON),
         Layer.TOOLS to setOf(Layer.SDK, Layer.COMMON),
         Layer.CHANNEL to setOf(Layer.SDK, Layer.COMMON),
         Layer.PROVIDER to setOf(Layer.SDK, Layer.COMMON),
-        Layer.APP to setOf(Layer.SDK, Layer.COMMON, Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER),
+        Layer.TESTKIT to setOf(Layer.SDK, Layer.COMMON, Layer.RUNTIME),
+        Layer.EXAMPLE to setOf(Layer.SDK),
+        Layer.APP to setOf(
+            Layer.SDK,
+            Layer.COMMON,
+            Layer.RUNTIME,
+            Layer.AGENT,
+            Layer.TOOLS,
+            Layer.CHANNEL,
+            Layer.PROVIDER,
+        ),
     )
 
-    val TEST_LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(Layer.KSP to setOf(Layer.SDK))
+    val TEST_LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(
+        Layer.KSP to setOf(Layer.SDK),
+        Layer.EXAMPLE to setOf(Layer.TESTKIT),
+        Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
+    )
 
     /** Layers whose modules get a generated `ModuleIndex` */
-    val INDEXED_LAYERS: Set<Layer> = setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER)
+    val INDEXED_LAYERS: Set<Layer> =
+        setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.EXAMPLE, Layer.APP)
 
     private val slots: List<Location.Slot> = LOCATIONS.filterIsInstance<Location.Slot>()
 
@@ -121,7 +190,15 @@ object AlexandriteLayout {
             when (location) {
                 is Location.Slot -> {
                     if (directory == location.directory) {
-                        return AlexandriteModule(path, location.layer, location.jarName, location.configRoot)
+                        return AlexandriteModule(
+                            path,
+                            location.layer,
+                            location.jarName,
+                            location.configRoot,
+                            location.moduleName,
+                            location.packageName,
+                            builtIn = true,
+                        )
                     }
                 }
 
@@ -133,6 +210,9 @@ object AlexandriteLayout {
                             location.layer,
                             location.jarPrefix + name,
                             location.configRootPrefix + name,
+                            location.moduleNamePrefix + name,
+                            location.packagePrefix?.plus(name.lowercase().replace("-", "")),
+                            location.builtIn,
                         )
                     }
                 }
@@ -153,7 +233,7 @@ object AlexandriteLayout {
                 if (name != "build" && !name.startsWith(".")) walk("$directory/$name")
             }
         }
-        walk(LIBRARIES)
+        SCANNED_TREES.forEach(::walk)
         return found.toList()
     }
 
@@ -173,7 +253,7 @@ object AlexandriteLayout {
         return "Modules are out of place:\n" +
             problems.joinToString("\n") { "  - $it" } + "\n" +
             "Modules may live only at:\n" + locationList() + "\n" +
-            "Every slot must hold its module; a channel or provider is added by creating its directory. " +
+            "Every slot must hold its module; a channel, provider or example is added by creating its directory. " +
             "A new kind of module needs a new slot or family in the location map, with its layer's dependency " +
             "rules, in $LAYOUT_LOCATION."
     }

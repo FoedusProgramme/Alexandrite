@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class JsonConfigSourceTest {
@@ -23,6 +24,45 @@ class JsonConfigSourceTest {
 
     private fun ConfigSource.failure(path: String, deserializer: DeserializationStrategy<*>) =
         assertFailsWith<ConfigException> { section(path, deserializer) }
+
+    // Trees.
+
+    @Test
+    fun `a tree is the raw object at the path`() {
+        val source = source("""{"tools": {"exec": {"command": "make", "extra": [1]}}}""")
+
+        val exec = Json.parseToJsonElement("""{"command": "make", "extra": [1]}""").jsonObject
+        assertEquals(exec, source.tree("tools.exec"))
+        assertEquals(setOf("exec"), source.tree("tools")?.keys)
+    }
+
+    @Test
+    fun `a missing tree is null`() {
+        val source = source("""{"tools": {"exec": {"command": "make"}}}""")
+
+        assertNull(source.tree("tools.web"))
+        assertNull(source.tree("channels.web"))
+    }
+
+    @Test
+    fun `a non-object at the path fails naming it`() {
+        val source = source("""{"tools": {"exec": "make", "web": null}, "channels": []}""")
+        val offenders = mapOf("tools.exec" to "tools.exec", "tools.web" to "tools.web", "channels.web" to "channels")
+
+        for ((path, prefix) in offenders) {
+            val error = assertFailsWith<ConfigException> { source.tree(path) }
+            assertEquals(path, error.path)
+            assertEquals("Invalid config at '$path': '$prefix' is not an object", error.message)
+        }
+    }
+
+    @Test
+    fun `a malformed path is rejected`() {
+        assertFailsWith<IllegalArgumentException> { source("{}").tree("tools..exec") }
+        assertFailsWith<IllegalArgumentException> { source("{}").tree("") }
+    }
+
+    // Decoding helper.
 
     @Test
     fun `a nested section decodes its subtree`() {
@@ -52,34 +92,10 @@ class JsonConfigSourceTest {
     }
 
     @Test
-    fun `a non-object at the path fails`() {
-        val source = source("""{"tools": {"exec": "make", "web": null}, "channels": []}""")
-
-        assertEquals(
-            "Invalid config at 'tools.exec': 'tools.exec' is not an object",
-            source.failure("tools.exec", ExecConfig.serializer()).message,
-        )
-        assertEquals(
-            "Invalid config at 'tools.web': 'tools.web' is not an object",
-            source.failure("tools.web", WebConfig.serializer()).message,
-        )
-        assertEquals(
-            "Invalid config at 'channels.web': 'channels' is not an object",
-            source.failure("channels.web", WebConfig.serializer()).message,
-        )
-    }
-
-    @Test
     fun `a decoding error does not quote the config`() {
         val error = source("""{"bot": {"token": "s3cr3t", "tokn": "s3cr3t"}}""").failure("bot", BotConfig.serializer())
 
         assertTrue("unknown key 'tokn'" in error.message!!)
         assertTrue(generateSequence<Throwable>(error) { it.cause }.none { "s3cr3t" in it.message.orEmpty() })
-    }
-
-    @Test
-    fun `a malformed path is rejected`() {
-        assertFailsWith<IllegalArgumentException> { source("{}").section("tools..exec", WebConfig.serializer()) }
-        assertFailsWith<IllegalArgumentException> { source("{}").section("", WebConfig.serializer()) }
     }
 }

@@ -5,8 +5,28 @@ internal object Messages {
         "plugin, or set the module name in the build file: ksp { arg(\"$MODULE_OPTION\", \"my-plugin\") }."
 
     fun malformedModule(module: String): String =
-        "The KSP option '$MODULE_OPTION' is '$module'. Use a name that starts with a letter and holds only letters, " +
-            "digits, '-' and '_', such as \"my-plugin\"."
+        "The KSP option '$MODULE_OPTION' is '$module'. Use lowercase letters and digits, starting with a letter, " +
+            "with single hyphens between words, such as \"my-plugin\"."
+
+    fun reservedModule(module: String): String =
+        "Module name '$module' starts with '$RESERVED_PREFIX', which is reserved for the built-in modules of " +
+            "Alexandrite. Choose another name, such as \"my-plugin\"."
+
+    fun missingConfigRoot(module: String): String = "Built-in module '$module' needs the KSP option " +
+        "'$CONFIG_ROOT_OPTION', which the alexandrite.ksp convention plugin sets from the layout."
+
+    fun thirdPartyRoot(module: String, configRoot: String): String =
+        "The KSP option '$CONFIG_ROOT_OPTION' is '$configRoot', but the config root of module '$module' is always " +
+            "'$THIRD_PARTY_ROOT.$module'. Remove the option."
+
+    fun malformedPackage(packageName: String): String =
+        "The KSP option '$PACKAGE_OPTION' is '$packageName'. Use a package name of dot-separated identifiers, " +
+            "such as \"com.example.myplugin\"."
+
+    fun missingPackage(module: String): String =
+        "The index of module '$module' has no package: the KSP option '$PACKAGE_OPTION' is not set and the " +
+            "module's annotated classes share no package. Set it in the build file: " +
+            "ksp { arg(\"$PACKAGE_OPTION\", \"com.example.${module.replace("-", "")}\") }."
 
     fun interfaceComponent(name: String, simpleName: String): String =
         "$name is an interface, so the container cannot create it. " +
@@ -85,8 +105,13 @@ internal object Messages {
     fun notSerializable(name: String): String = "@ConfigSection class $name is not annotated @Serializable. " +
         "Annotate it with @kotlinx.serialization.Serializable so its section can be decoded."
 
-    fun malformedPath(name: String, path: String): String =
-        "The @ConfigSection path '$path' of $name is malformed. Use dot-separated names, such as \"tools.exec\"."
+    fun malformedPath(name: String, path: String): String = "The @ConfigSection path '$path' of $name is malformed. " +
+        "Use \"\" for the module's config root, or dot-separated names that start with a letter and hold only " +
+        "letters, digits, '-' and '_', such as \"cache.disk\"."
+
+    fun reservedPath(name: String, path: String): String =
+        "The @ConfigSection path '$path' of $name lies under '$ENABLED', which switches the module on and off. " +
+            "Choose another path."
 
     fun duplicatePath(path: String, first: String, second: String): String =
         "Config section '$path' is declared by both $first and $second. Give each class its own path."

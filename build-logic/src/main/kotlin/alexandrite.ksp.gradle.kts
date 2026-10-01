@@ -15,6 +15,8 @@ dependencies {
 }
 
 ksp {
-    arg("alexandrite.module", module.jarName)
+    arg("alexandrite.module", module.moduleName)
     arg("alexandrite.configRoot", configRoot)
+    module.packageName?.let { arg("alexandrite.package", it) }
+    if (module.builtIn) arg("alexandrite.builtIn", "true")
 }

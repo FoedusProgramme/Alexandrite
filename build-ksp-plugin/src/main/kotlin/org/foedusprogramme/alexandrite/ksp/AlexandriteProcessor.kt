@@ -14,15 +14,11 @@ import com.google.devtools.ksp.validate
 
 class AlexandriteProcessorProvider : SymbolProcessorProvider {
     override fun create(environment: SymbolProcessorEnvironment): SymbolProcessor {
-        val module = environment.options[MODULE_OPTION]
-        if (module != null && MODULE_NAME.matches(module)) {
-            val configRoot = environment.options[CONFIG_ROOT_OPTION] ?: "plugins.$module"
-            return AlexandriteProcessor(environment.codeGenerator, environment.logger, IndexWriter(module, configRoot))
-        }
-        environment.logger.error(if (module == null) Messages.missingModule() else Messages.malformedModule(module))
-        return object : SymbolProcessor {
-            override fun process(resolver: Resolver): List<KSAnnotated> = emptyList()
-        }
+        val options = moduleOptions(environment.options, environment.logger)
+            ?: return object : SymbolProcessor {
+                override fun process(resolver: Resolver): List<KSAnnotated> = emptyList()
+            }
+        return AlexandriteProcessor(environment.codeGenerator, environment.logger, options)
     }
 }
 
@@ -30,10 +26,11 @@ class AlexandriteProcessorProvider : SymbolProcessorProvider {
 internal class AlexandriteProcessor(
     private val codeGenerator: CodeGenerator,
     private val logger: KSPLogger,
-    private val writer: IndexWriter,
+    private val options: ModuleOptions,
 ) : SymbolProcessor {
     private val sections = mutableMapOf<String, Section>()
     private val components = mutableListOf<Component>()
+    private val packages = mutableSetOf<String>()
     private var files = emptyList<KSFile>()
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
@@ -41,6 +38,7 @@ internal class AlexandriteProcessor(
         val sectionClasses = annotatedClasses(resolver, listOf(CONFIG_SECTION))
         val componentClasses = annotatedClasses(resolver, COMPONENT_ANNOTATIONS)
         val deferred = (sectionClasses + componentClasses).filterNot { it.validate() }.toSet()
+        (sectionClasses + componentClasses - deferred).mapTo(packages) { it.packageName.asString() }
         for (declaration in sectionClasses - deferred) {
             val section = ClassReader(declaration, logger).section() ?: continue
             val first = sections.putIfAbsent(section.path, section)
@@ -53,12 +51,18 @@ internal class AlexandriteProcessor(
     }
 
     override fun finish() {
+        val packageName = options.packageName ?: commonPackage(packages)
+        if (packageName == null) {
+            logger.error(Messages.missingPackage(options.module))
+            return
+        }
+        val writer = IndexWriter(options.module, options.configRoot, packageName)
         val dependencies = Dependencies(aggregating = true, *files.toTypedArray())
-        codeGenerator.createNewFile(dependencies, GENERATED_PACKAGE, writer.className).writer().use {
+        codeGenerator.createNewFile(dependencies, packageName, writer.className).writer().use {
             it.write(writer.source(sections.values, components))
         }
         codeGenerator.createNewFileByPath(dependencies, "META-INF/services/$MODULE_INDEX", "").writer().use {
-            it.write("$GENERATED_PACKAGE.${writer.className}\n")
+            it.write("$packageName.${writer.className}\n")
         }
     }
 
@@ -69,4 +73,39 @@ internal class AlexandriteProcessor(
         .sortedBy { it.name }
 }
 
-private val MODULE_NAME = Regex("[A-Za-z][A-Za-z0-9_-]*")
+/** The options of the module, or null after reporting why they are unusable. */
+private fun moduleOptions(options: Map<String, String>, logger: KSPLogger): ModuleOptions? {
+    val module = options[MODULE_OPTION]
+    val configRoot = options[CONFIG_ROOT_OPTION]
+    val packageName = options[PACKAGE_OPTION]
+    val reserved = module?.startsWith(RESERVED_PREFIX) == true
+    val problem = when {
+        module == null -> Messages.missingModule()
+
+        !MODULE_NAME.matches(module) -> Messages.malformedModule(module)
+
+        reserved && options[BUILT_IN_OPTION] != "true" -> Messages.reservedModule(module)
+
+        reserved && configRoot == null -> Messages.missingConfigRoot(module)
+
+        !reserved && configRoot != null && configRoot != "$THIRD_PARTY_ROOT.$module" ->
+            Messages.thirdPartyRoot(module, configRoot)
+
+        packageName != null && !PACKAGE_NAME.matches(packageName) -> Messages.malformedPackage(packageName)
+
+        else -> return ModuleOptions(module, configRoot ?: "$THIRD_PARTY_ROOT.$module", packageName)
+    }
+    logger.error(problem)
+    return null
+}
+
+/** The longest package that all of [packages] lie in, null when there is none. */
+private fun commonPackage(packages: Collection<String>): String? = packages
+    .map { it.split('.') }
+    .reduceOrNull { common, segments -> common.zip(segments).takeWhile { (a, b) -> a == b }.map { it.first } }
+    ?.joinToString(".")
+    ?.ifEmpty { null }
+
+private val MODULE_NAME = Regex("[a-z][a-z0-9]*(-[a-z0-9]+)*")
+
+private val PACKAGE_NAME = Regex("[\\p{L}_][\\p{L}\\p{N}_]*(\\.[\\p{L}_][\\p{L}\\p{N}_]*)*")

@@ -217,7 +217,7 @@ class ErrorTest {
 
     @Test
     fun `a config section that is not serializable is rejected`() {
-        val messages = errors("@ConfigSection(\"tools.exec\") class ExecConfig(val command: String)")
+        val messages = errors("@ConfigSection(\"exec\") class ExecConfig(val command: String)")
 
         assertReported(messages, "@ConfigSection class sample.ExecConfig is not annotated @Serializable")
     }
@@ -226,28 +226,52 @@ class ErrorTest {
     fun `two config sections with one path are rejected`() {
         val messages = errors(
             """
-            @ConfigSection("tools.exec") @Serializable class First(val command: String = "")
-            @ConfigSection("tools.exec") @Serializable class Second(val command: String = "")
+            @ConfigSection("exec") @Serializable class First(val command: String = "")
+            @ConfigSection("exec") @Serializable class Second(val command: String = "")
+            @ConfigSection @Serializable class Root(val name: String = "")
+            @ConfigSection("") @Serializable class OtherRoot(val name: String = "")
             """,
         )
 
-        assertReported(messages, "Config section 'tools.exec' is declared by both sample.First and sample.Second")
+        assertReported(messages, "Config section 'exec' is declared by both sample.First and sample.Second")
+        assertReported(messages, "Config section '' is declared by both sample.OtherRoot and sample.Root")
     }
 
     @Test
     fun `a malformed config section path is rejected`() {
-        val messages =
-            errors("@ConfigSection(\"tools..exec\") @Serializable class ExecConfig(val command: String = \"\")")
+        val paths = listOf("tools..exec", ".exec", "exec.", "1exec", "_exec", "exec.-x", "my exec", "exec/x")
+        val messages = errors(
+            paths.withIndex().joinToString("\n") { (index, path) ->
+                "@ConfigSection(\"$path\") @Serializable class S$index(val command: String = \"\")"
+            },
+        )
 
-        assertReported(messages, "The @ConfigSection path 'tools..exec' of sample.ExecConfig is malformed")
+        for ((index, path) in paths.withIndex()) {
+            assertReported(
+                messages,
+                "The @ConfigSection path '$path' of sample.S$index is malformed",
+                "Use \"\" for the module's config root",
+            )
+        }
+    }
+
+    @Test
+    fun `a config section under the enabled switch is rejected`() {
+        val messages = errors(
+            """
+            @ConfigSection("enabled") @Serializable class Switch(val on: Boolean = true)
+            @ConfigSection("enabled.extra") @Serializable class Extra(val on: Boolean = true)
+            """,
+        )
+
+        assertReported(messages, "The @ConfigSection path 'enabled' of sample.Switch lies under 'enabled'")
+        assertReported(messages, "The @ConfigSection path 'enabled.extra' of sample.Extra lies under 'enabled'")
     }
 
     @Test
     fun `a config section cannot also be a component`() {
         val messages =
-            errors(
-                "@Singleton @ConfigSection(\"tools.exec\") @Serializable class ExecConfig(val command: String = \"\")",
-            )
+            errors("@Singleton @ConfigSection(\"exec\") @Serializable class ExecConfig(val command: String = \"\")")
 
         assertReported(messages, "sample.ExecConfig is a @ConfigSection, so it cannot also be a component")
     }

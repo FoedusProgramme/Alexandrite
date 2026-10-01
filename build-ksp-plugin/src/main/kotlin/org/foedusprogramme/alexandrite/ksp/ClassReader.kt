@@ -40,9 +40,12 @@ internal class ClassReader(private val declaration: KSClassDeclaration, private 
             error(it)
             return null
         }
-        val path = declaration.annotation(CONFIG_SECTION)?.value as String
+        val path = declaration.annotation(CONFIG_SECTION)?.value as String? ?: ""
         if (declaration.annotation(SERIALIZABLE) == null) error(Messages.notSerializable(name))
-        if (path.split('.').any(String::isEmpty)) error(Messages.malformedPath(name, path))
+        when {
+            !SECTION_PATH.matches(path) -> error(Messages.malformedPath(name, path))
+            path.substringBefore('.') == ENABLED -> error(Messages.reservedPath(name, path))
+        }
         return if (valid) Section(name, declaration.asStarProjectedType().render(), path) else null
     }
 
@@ -170,6 +173,8 @@ internal class ClassReader(private val declaration: KSClassDeclaration, private 
         logger.error(message, symbol)
     }
 }
+
+private val SECTION_PATH = Regex("([A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*)?")
 
 private val QUALIFIED_ONLY = setOf(
     "kotlin.String", "kotlin.Boolean", "kotlin.Char", "kotlin.Number", "kotlin.Byte", "kotlin.Short", "kotlin.Int",

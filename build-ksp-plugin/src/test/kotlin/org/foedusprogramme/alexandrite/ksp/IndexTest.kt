@@ -2,8 +2,8 @@ package org.foedusprogramme.alexandrite.ksp
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
+import org.foedusprogramme.alexandrite.sdk.config.configBindings
 import org.foedusprogramme.alexandrite.sdk.di.Binding
 import org.foedusprogramme.alexandrite.sdk.di.Container
 import org.foedusprogramme.alexandrite.sdk.di.DiException
@@ -24,24 +24,38 @@ class IndexTest {
     @TempDir
     lateinit var workingDir: File
 
+    private val sampleConfig = source(
+        "Config.kt",
+        """
+        package sample.plugin.config
+
+        import kotlinx.serialization.Serializable
+        import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+
+        @ConfigSection
+        @Serializable
+        data class SampleConfig(val loud: Boolean = false)
+
+        @ConfigSection("greeting")
+        @Serializable
+        data class GreetingConfig(val word: String = "Hello")
+        """,
+    )
+
     private val sample = source(
         "Sample.kt",
         """
-        package sample
+        package sample.plugin
 
-        import kotlinx.serialization.Serializable
         import org.foedusprogramme.alexandrite.ksp.Probe
-        import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
         import org.foedusprogramme.alexandrite.sdk.di.Binds
         import org.foedusprogramme.alexandrite.sdk.di.ChannelScoped
         import org.foedusprogramme.alexandrite.sdk.di.Contribute
         import org.foedusprogramme.alexandrite.sdk.di.Inject
         import org.foedusprogramme.alexandrite.sdk.di.Named
         import org.foedusprogramme.alexandrite.sdk.di.Singleton
-
-        @ConfigSection("sample.greeting")
-        @Serializable
-        data class GreetingConfig(val word: String = "Hello")
+        import sample.plugin.config.GreetingConfig
+        import sample.plugin.config.SampleConfig
 
         interface Clock {
             fun now(): String
@@ -59,8 +73,13 @@ class IndexTest {
         @Singleton
         @Named("polite")
         @Binds(Greeter::class)
-        class PoliteGreeter(private val config: GreetingConfig, private val clock: () -> Clock) : Greeter {
-            override fun greet(name: String): String = config.word + " " + name + ", it is " + clock().now()
+        class PoliteGreeter(
+            private val config: GreetingConfig,
+            private val sample: SampleConfig,
+            private val clock: () -> Clock,
+        ) : Greeter {
+            override fun greet(name: String): String =
+                config.word + " " + name + ", it is " + clock().now() + if (sample.loud) "!" else ""
         }
 
         @Contribute(Probe::class)
@@ -103,40 +122,42 @@ class IndexTest {
         """,
     )
 
-    private val config =
-        JsonConfigSource(Json.parseToJsonElement("""{"sample": {"greeting": {"word": "Hi"}}}""").jsonObject)
-
-    private val overrides = listOf(
-        instanceBinding(key<ConfigSource>(), config, "test"),
-        instanceBinding(key<String>("user"), "Ada", "test"),
+    private val config = JsonConfigSource(
+        Json.parseToJsonElement(
+            """{"plugins": {"sample-plugin": {"enabled": true, "loud": true, "greeting": {"word": "Hi"}}}}""",
+        ).jsonObject,
     )
 
-    private fun sampleIndex(): ModuleIndex {
-        val compiled = compile(
-            workingDir,
-            sample,
-            options = mapOf(MODULE_OPTION to "sample-plugin", CONFIG_ROOT_OPTION to "channels.sample"),
-        )
-        compiled.assertSucceeded()
-        return compiled.indexes().single()
-    }
+    private fun compileSample(): Compiled =
+        compile(workingDir, sampleConfig, sample, options = mapOf(MODULE_OPTION to "sample-plugin")).also {
+            it.assertSucceeded()
+        }
+
+    private fun sampleIndex(): ModuleIndex = compileSample().indexes().single()
+
+    private fun overrides(index: ModuleIndex): List<Binding<*>> =
+        configBindings(index, config) + instanceBinding(key<String>("user"), "Ada", "test")
 
     // End to end.
 
     @Test
-    fun `ServiceLoader finds the generated index with the module name and config root`() {
-        val index = sampleIndex()
+    fun `ServiceLoader finds the generated index in the plugin's package`() {
+        val compiled = compileSample()
+        val index = compiled.indexes().single()
 
-        assertEquals("$GENERATED_PACKAGE.SamplePluginIndex", index.javaClass.name)
+        assertEquals("sample.plugin.SamplePluginIndex", index.javaClass.name)
+        assertEquals("sample.plugin.SamplePluginIndex\n", compiled.service())
         assertEquals("sample-plugin", index.module)
-        assertEquals("channels.sample", index.configRoot)
+        assertEquals("plugins.sample-plugin", index.configRoot)
     }
 
     @Test
-    fun `the container resolves the generated graph`() {
-        Container.build(listOf(sampleIndex()), overrides).use { container ->
+    fun `the container resolves the generated graph with the decoded config sections`() {
+        val index = sampleIndex()
+
+        Container.build(listOf(index), overrides(index)).use { container ->
             assertEquals(
-                "Hi Ada, it is noon; tools=[echo, time noon]; audit=null; rounds=3",
+                "Hi Ada, it is noon!; tools=[echo, time noon]; audit=null; rounds=3",
                 container.get(key<Probe>("app")).report(),
             )
             assertEquals(listOf("echo", "time noon"), container.getAll(key<Probe>()).map { it.report() })
@@ -145,7 +166,9 @@ class IndexTest {
 
     @Test
     fun `a channel container creates its own channel-scoped instance`() {
-        Container.build(listOf(sampleIndex()), overrides).use { container ->
+        val index = sampleIndex()
+
+        Container.build(listOf(index), overrides(index)).use { container ->
             val telegram = container.child("telegram")
             val session = telegram.get(key<Probe>("session"))
 
@@ -157,115 +180,137 @@ class IndexTest {
     }
 
     @Test
+    fun `the index binds no config section itself`() {
+        val index = sampleIndex()
+
+        val error = assertFailsWith<DiException> {
+            Container.build(listOf(index), listOf(instanceBinding(key<String>("user"), "Ada", "test")))
+        }
+        assertContains(error.message!!, "nothing binds sample.plugin.config.GreetingConfig")
+    }
+
+    // Generated index.
+
+    @Test
     fun `the index declares every binding with its origin, scope, flags and dependencies`() {
         val probe = Probe::class.java.name
 
         assertEquals(
             mapOf(
-                "sample.GreetingConfig" to listOf(
-                    "sample.GreetingConfig SINGLETON unmanaged <- configSource: INSTANCE ${ConfigSource::class.java.name}",
-                ),
-                "sample.App" to listOf(
-                    "@Named(\"app\") sample.App SINGLETON <- greeter: INSTANCE @Named(\"polite\") sample.Greeter, " +
+                "App" to listOf(
+                    "@Named(\"app\") sample.plugin.App SINGLETON <- " +
+                        "greeter: INSTANCE @Named(\"polite\") sample.plugin.Greeter, " +
                         "user: INSTANCE @Named(\"user\") kotlin.String, tools: ALL $probe, " +
-                        "audit: OPTIONAL sample.Audit, limits: INSTANCE kotlin.collections.Map<kotlin.String, kotlin.Int>",
-                    "@Named(\"app\") $probe SINGLETON unmanaged <- @Binds: INSTANCE @Named(\"app\") sample.App",
+                        "audit: OPTIONAL sample.plugin.Audit, " +
+                        "limits: INSTANCE kotlin.collections.Map<kotlin.String, kotlin.Int>",
+                    "@Named(\"app\") $probe SINGLETON unmanaged <- @Binds: INSTANCE @Named(\"app\") sample.plugin.App",
                 ),
-                "sample.EchoTool" to listOf(
-                    "sample.EchoTool SINGLETON <- ",
-                    "$probe SINGLETON multi unmanaged <- @Contribute: INSTANCE sample.EchoTool",
+                "EchoTool" to listOf(
+                    "sample.plugin.EchoTool SINGLETON <- ",
+                    "$probe SINGLETON multi unmanaged <- @Contribute: INSTANCE sample.plugin.EchoTool",
                 ),
-                "sample.FixedClock" to listOf(
-                    "sample.FixedClock SINGLETON <- ",
-                    "sample.Clock SINGLETON unmanaged <- @Binds: INSTANCE sample.FixedClock",
+                "FixedClock" to listOf(
+                    "sample.plugin.FixedClock SINGLETON <- ",
+                    "sample.plugin.Clock SINGLETON unmanaged <- @Binds: INSTANCE sample.plugin.FixedClock",
                 ),
-                "sample.Limits" to listOf(
-                    "sample.Limits SINGLETON <- ",
+                "Limits" to listOf(
+                    "sample.plugin.Limits SINGLETON <- ",
                     "kotlin.collections.Map<kotlin.String, kotlin.Int> SINGLETON unmanaged <- " +
-                        "@Binds: INSTANCE sample.Limits",
+                        "@Binds: INSTANCE sample.plugin.Limits",
                 ),
-                "sample.PoliteGreeter" to listOf(
-                    "@Named(\"polite\") sample.PoliteGreeter SINGLETON <- config: INSTANCE sample.GreetingConfig, " +
-                        "clock: PROVIDER sample.Clock",
-                    "@Named(\"polite\") sample.Greeter SINGLETON unmanaged <- " +
-                        "@Binds: INSTANCE @Named(\"polite\") sample.PoliteGreeter",
+                "PoliteGreeter" to listOf(
+                    "@Named(\"polite\") sample.plugin.PoliteGreeter SINGLETON <- " +
+                        "config: INSTANCE sample.plugin.config.GreetingConfig, " +
+                        "sample: INSTANCE sample.plugin.config.SampleConfig, clock: PROVIDER sample.plugin.Clock",
+                    "@Named(\"polite\") sample.plugin.Greeter SINGLETON unmanaged <- " +
+                        "@Binds: INSTANCE @Named(\"polite\") sample.plugin.PoliteGreeter",
                 ),
-                "sample.Session" to listOf(
-                    "@Named(\"session\") sample.Session CHANNEL <- app: INSTANCE @Named(\"app\") $probe",
+                "Session" to listOf(
+                    "@Named(\"session\") sample.plugin.Session CHANNEL <- app: INSTANCE @Named(\"app\") $probe",
                     "@Named(\"session\") $probe CHANNEL unmanaged <- " +
-                        "@Binds: INSTANCE @Named(\"session\") sample.Session",
+                        "@Binds: INSTANCE @Named(\"session\") sample.plugin.Session",
                 ),
-                "sample.TimeTool" to listOf(
-                    "sample.TimeTool SINGLETON <- clock: LAZY sample.Clock",
-                    "$probe SINGLETON multi unmanaged <- @Contribute: INSTANCE sample.TimeTool",
+                "TimeTool" to listOf(
+                    "sample.plugin.TimeTool SINGLETON <- clock: LAZY sample.plugin.Clock",
+                    "$probe SINGLETON multi unmanaged <- @Contribute: INSTANCE sample.plugin.TimeTool",
                 ),
             ),
-            sampleIndex().bindings().groupBy({ it.origin.removeSuffix(" (module sample-plugin)") }, ::describe),
+            sampleIndex().bindings().groupBy({ simpleOrigin(it.origin) }, ::describe),
         )
     }
 
-    private fun describe(binding: Binding<*>): String {
-        val flags = listOfNotNull("multi".takeIf { binding.multi }, "unmanaged".takeIf { !binding.managed })
-        val dependencies = binding.dependencies.joinToString { "${it.parameter}: ${it.kind} ${it.key}" }
-        return (listOf(binding.key.toString(), binding.scope.toString()) + flags).joinToString(" ") +
-            " <- " + dependencies
+    @Test
+    fun `the index lists the config sections with their relative paths`() {
+        val sections = sampleIndex().configSections()
+
+        assertEquals(
+            listOf(
+                "'' sample.plugin.config.SampleConfig from SampleConfig",
+                "'greeting' sample.plugin.config.GreetingConfig from GreetingConfig",
+            ),
+            sections.map { "'${it.path}' ${it.key} from ${simpleOrigin(it.origin)}" },
+        )
+        assertEquals(
+            listOf("sample.plugin.config.SampleConfig", "sample.plugin.config.GreetingConfig"),
+            sections.map { it.deserializer.descriptor.serialName },
+        )
     }
 
-    // Module options.
+    @Test
+    fun `the generated index lists sections without referring to ConfigSource`() {
+        val generated = compileSample().generated("sample.plugin.SamplePluginIndex")
+
+        assertContains(generated, "package sample.plugin\n")
+        assertContains(generated, "override fun configSections(): List<ConfigSectionSpec<*>> = listOf(")
+        assertContains(generated, "deserializer = sample.plugin.config.GreetingConfig.serializer(),")
+        assertFalse("ConfigSource" in generated, generated)
+    }
 
     @Test
-    fun `a module without components still gets an index`() {
-        val compiled = compile(workingDir, source("Plain.kt", "package sample\n\nclass Plain\n"))
+    fun `section paths are relative to the module's config root`() {
+        val compiled = compile(
+            workingDir,
+            source(
+                "Paths.kt",
+                """
+                package sample
+
+                import kotlinx.serialization.Serializable
+                import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+
+                @ConfigSection() @Serializable class Root
+                @ConfigSection("cache") @Serializable class Cache
+                @ConfigSection("cache.disk") @Serializable class Disk
+                @ConfigSection("Web-hooks_2.retry") @Serializable class Retry
+                @ConfigSection("cache.enabled") @Serializable class CacheSwitch
+                """,
+            ),
+        )
+        compiled.assertSucceeded()
+
+        val index = compiled.indexes().single()
+        assertEquals(
+            listOf("", "Web-hooks_2.retry", "cache", "cache.disk", "cache.enabled"),
+            index.configSections().map { it.path },
+        )
+        assertEquals("plugins.sample", index.configRoot)
+    }
+
+    @Test
+    fun `a module without components or sections still gets an index`() {
+        val compiled = compile(
+            workingDir,
+            source("Plain.kt", "package sample\n\nclass Plain\n"),
+            options = mapOf(MODULE_OPTION to "sample", PACKAGE_OPTION to "sample"),
+        )
         compiled.assertSucceeded()
 
         val index = compiled.indexes().single()
         assertEquals("sample", index.module)
         assertEquals(emptyList(), index.bindings())
+        assertEquals(emptyList(), index.configSections())
+        assertFalse("configSections" in compiled.generated("sample.SampleIndex"))
         Container.build(listOf(index)).close()
-    }
-
-    @Test
-    fun `the config root defaults to plugins dot module`() {
-        val compiled = compile(workingDir, source("Plain.kt", "package sample\n\nclass Plain\n"))
-
-        assertEquals("plugins.sample", compiled.indexes().single().configRoot)
-    }
-
-    @Test
-    fun `the index class is named after the module and listed as a service`() {
-        val compiled = compile(
-            workingDir,
-            source("Plain.kt", "package sample\n\nclass Plain\n"),
-            options = mapOf(MODULE_OPTION to "alexandrite-channel-telegram", CONFIG_ROOT_OPTION to "channels.telegram"),
-        )
-        compiled.assertSucceeded()
-
-        assertEquals("$GENERATED_PACKAGE.AlexandriteChannelTelegramIndex\n", compiled.service())
-        assertContains(
-            compiled.generated("AlexandriteChannelTelegramIndex"),
-            "public class AlexandriteChannelTelegramIndex",
-        )
-    }
-
-    @Test
-    fun `a missing module option fails with how to set it`() {
-        val compiled = compile(workingDir, source("Plain.kt", "package sample\n\nclass Plain\n"), options = emptyMap())
-
-        assertFalse(compiled.succeeded)
-        assertContains(compiled.messages, "The KSP option 'alexandrite.module' is not set")
-        assertContains(compiled.messages, "ksp { arg(\"alexandrite.module\", \"my-plugin\") }")
-    }
-
-    @Test
-    fun `a module name that makes no class name fails`() {
-        val compiled = compile(
-            workingDir,
-            source("Plain.kt", "package sample\n\nclass Plain\n"),
-            options = mapOf(MODULE_OPTION to "1st plugin"),
-        )
-
-        assertFalse(compiled.succeeded)
-        assertContains(compiled.messages, "The KSP option 'alexandrite.module' is '1st plugin'")
     }
 
     // Compilation settings.
@@ -279,13 +324,19 @@ class IndexTest {
                 """
                 package sample
 
+                import kotlinx.serialization.Serializable
+                import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
                 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 
                 @Singleton
                 public class Clock
 
                 @Singleton
-                internal class Greeter(private val clock: Clock)
+                internal class Greeter(private val clock: Clock, private val config: GreeterConfig)
+
+                @ConfigSection
+                @Serializable
+                internal class GreeterConfig
                 """,
             ),
             explicitApi = true,
@@ -293,6 +344,7 @@ class IndexTest {
 
         compiled.assertSucceeded()
         assertEquals(2, compiled.indexes().single().bindings().size)
+        assertEquals(1, compiled.indexes().single().configSections().size)
     }
 
     @Test
@@ -325,5 +377,15 @@ class IndexTest {
         val bindings = compiled.indexes().single().bindings()
         assertEquals(listOf("sample.Generated", "sample.UsesGenerated"), bindings.map { it.key.toString() })
         Container.build(listOf(compiled.indexes().single())).close()
+    }
+
+    private fun simpleOrigin(origin: String): String =
+        origin.removeSuffix(" (module sample-plugin)").substringAfterLast('.')
+
+    private fun describe(binding: Binding<*>): String {
+        val flags = listOfNotNull("multi".takeIf { binding.multi }, "unmanaged".takeIf { !binding.managed })
+        val dependencies = binding.dependencies.joinToString { "${it.parameter}: ${it.kind} ${it.key}" }
+        return (listOf(binding.key.toString(), binding.scope.toString()) + flags).joinToString(" ") +
+            " <- " + dependencies
     }
 }

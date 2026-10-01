@@ -1,4 +1,4 @@
-package org.foedusprogramme.alexandrite.provider.openaicompat
+package org.foedusprogramme.alexandrite.provider.openaicompatible
 
 import org.foedusprogramme.alexandrite.common.CommonPlaceholder
 import org.foedusprogramme.alexandrite.sdk.di.ModuleIndex

@@ -24,3 +24,5 @@ internal class Component(
 )
 
 internal class Section(val name: String, val type: String, val path: String)
+
+internal class ModuleOptions(val module: String, val configRoot: String, val packageName: String?)
