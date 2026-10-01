@@ -47,12 +47,13 @@ fun service(
     events: Events = Events(),
     scope: Scope = Scope.SINGLETON,
     multi: Boolean = false,
+    managed: Boolean = true,
     key: Key<Service> = svc(name),
     module: String = "test",
     failCreate: Boolean = false,
     failStart: Boolean = false,
     failClose: Boolean = false,
-): Binding<Service> = binding(key, "$name (module $module)", scope, dependencies.toList(), multi) { resolver ->
+): Binding<Service> = binding(key, "$name (module $module)", scope, dependencies.toList(), multi, managed) { resolver ->
     val injected = dependencies.associate { it.parameter to resolver.resolve(it) }
     if (failCreate) error("constructor of $name failed")
     events.record("create $name")

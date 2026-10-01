@@ -44,6 +44,9 @@ public interface Binding<T : Any> {
     /** The declaration named in error messages. */
     public val origin: String
 
+    /** Whether the container starts and closes the instance [create] returns. */
+    public val managed: Boolean get() = true
+
     public fun create(resolver: Resolver): T
 }
 
@@ -53,11 +56,12 @@ public fun <T : Any> binding(
     scope: Scope = Scope.SINGLETON,
     dependencies: List<Dependency> = emptyList(),
     multi: Boolean = false,
+    managed: Boolean = true,
     create: (Resolver) -> T,
-): Binding<T> = FunctionBinding(key, scope, dependencies, multi, origin, create)
+): Binding<T> = FunctionBinding(key, scope, dependencies, multi, origin, managed, create)
 
 public fun <T : Any> instanceBinding(key: Key<T>, value: T, origin: String, multi: Boolean = false): Binding<T> =
-    binding(key, origin, multi = multi) { value }
+    binding(key, origin, multi = multi, managed = false) { value }
 
 private class FunctionBinding<T : Any>(
     override val key: Key<T>,
@@ -65,6 +69,7 @@ private class FunctionBinding<T : Any>(
     override val dependencies: List<Dependency>,
     override val multi: Boolean,
     override val origin: String,
+    override val managed: Boolean,
     private val factory: (Resolver) -> T,
 ) : Binding<T> {
     override fun create(resolver: Resolver): T = factory(resolver)

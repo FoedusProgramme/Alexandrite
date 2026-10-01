@@ -13,7 +13,7 @@ public class Container private constructor(
     private val level = if (parent == null) Scope.SINGLETON else Scope.CHANNEL
     private val instances = ConcurrentHashMap<Node, Any>()
     private val lock = Any()
-    private val created = mutableListOf<Any>()
+    private val managed = mutableListOf<Any>()
     private val creating = mutableSetOf<Node>()
     private val children = LinkedHashSet<Container>()
     private val started = AtomicBoolean()
@@ -39,17 +39,17 @@ public class Container private constructor(
         return { get(key) }
     }
 
-    /** Starts every created [Startable] in creation order. */
+    /** Starts every managed [Startable] in creation order. */
     public suspend fun start() {
         if (closed.get()) throw DiException(Problems.closed(site))
         if (!started.compareAndSet(false, true)) throw DiException(Problems.startedTwice(site))
         val done = mutableListOf<Any>()
-        for (instance in synchronized(lock) { created.toList() }) {
+        for (instance in synchronized(lock) { managed.toList() }) {
             if (instance !is Startable) continue
             try {
                 instance.start()
             } catch (e: Exception) {
-                synchronized(lock) { created.removeAll { candidate -> done.any { it === candidate } } }
+                synchronized(lock) { managed.removeAll { candidate -> done.any { it === candidate } } }
                 closeEach(done.asReversed()).forEach(e::addSuppressed)
                 throw e
             }
@@ -76,11 +76,11 @@ public class Container private constructor(
         throw DiException(Problems.closedParent(site, name))
     }
 
-    /** Closes live children, then every created [AutoCloseable] in reverse creation order. */
+    /** Closes live children, then every managed [AutoCloseable] in reverse creation order. */
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         val (live, own) = synchronized(lock) {
-            children.toList().also { children.clear() } to created.asReversed().toList()
+            children.toList().also { children.clear() } to managed.asReversed().toList()
         }
         val failures = mutableListOf<Exception>()
         for (child in live.asReversed()) {
@@ -107,7 +107,7 @@ public class Container private constructor(
             plan.order.forEach(::instanceOf)
         } catch (e: Exception) {
             closed.set(true)
-            closeEach(synchronized(lock) { created.asReversed().toList() }).forEach(e::addSuppressed)
+            closeEach(synchronized(lock) { managed.asReversed().toList() }).forEach(e::addSuppressed)
             throw e
         }
     }
@@ -130,7 +130,7 @@ public class Container private constructor(
                 throw DiException(Problems.creationFailed(node, e), e)
             }
             instances[node] = instance
-            if (created.none { it === instance }) created += instance
+            if (node.binding.managed && managed.none { it === instance }) managed += instance
             return instance
         } finally {
             creating.remove(node)

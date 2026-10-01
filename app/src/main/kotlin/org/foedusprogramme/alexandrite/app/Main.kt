@@ -5,7 +5,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.TelegramPlaceholder
 import org.foedusprogramme.alexandrite.common.CommonPlaceholder
 import org.foedusprogramme.alexandrite.provider.anthropic.AnthropicPlaceholder
 import org.foedusprogramme.alexandrite.provider.openaicompat.OpenAiCompatPlaceholder
-import org.foedusprogramme.alexandrite.sdk.SdkPlaceholder
+import org.foedusprogramme.alexandrite.sdk.di.ModuleIndex
 import org.foedusprogramme.alexandrite.tools.ToolsPlaceholder
 import org.slf4j.LoggerFactory
 import java.util.Properties
@@ -26,7 +26,7 @@ internal val alexandriteVersion: String by lazy {
 }
 
 internal fun assembledModules(): List<String> = listOf(
-    SdkPlaceholder.module,
+    ModuleIndex::class.java.name,
     CommonPlaceholder.module,
     AgentPlaceholder.module,
     ToolsPlaceholder.module,

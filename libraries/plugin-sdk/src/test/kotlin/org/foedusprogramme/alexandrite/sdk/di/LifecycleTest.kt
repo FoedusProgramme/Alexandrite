@@ -145,4 +145,38 @@ class LifecycleTest {
         assertIs<IllegalStateException>(error.cause)
         assertEquals(listOf("create a", "close a"), events.all())
     }
+
+    // Managed instances.
+
+    @Test
+    fun `a managed binding is started and closed`() {
+        val container = build(service("a", events = events))
+
+        runBlocking { container.start() }
+        container.close()
+
+        assertEquals(listOf("create a", "start a", "close a"), events.all())
+    }
+
+    @Test
+    fun `an instance binding is neither started nor closed`() {
+        val given = Service("a", events, emptyMap(), failStart = false, failClose = false)
+        val container =
+            build(instanceBinding(svc("a"), given, "a (module test)"), service("b", dep("a"), events = events))
+
+        runBlocking { container.start() }
+        container.close()
+
+        assertEquals(listOf("create b", "start b", "close b"), events.all())
+    }
+
+    @Test
+    fun `an unmanaged binding is neither started nor closed`() {
+        val container = build(service("a", events = events, managed = false), service("b", dep("a"), events = events))
+
+        runBlocking { container.start() }
+        container.close()
+
+        assertEquals(listOf("create a", "create b", "start b", "close b"), events.all())
+    }
 }
