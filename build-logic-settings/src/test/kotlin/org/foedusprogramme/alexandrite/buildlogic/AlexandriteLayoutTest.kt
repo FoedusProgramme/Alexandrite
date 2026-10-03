@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 
 class AlexandriteLayoutTest {
     private val sdk = ":libraries:plugin-sdk"
-    private val common = ":libraries:common"
+    private val internals = ":libraries:internal"
     private val runtime = ":libraries:runtime"
     private val agent = ":libraries:agent"
     private val tools = ":libraries:tools"
@@ -23,7 +23,7 @@ class AlexandriteLayoutTest {
     private val ksp = ":build-ksp-plugin"
     private val app = ":app"
     private val hello = ":examples:hello"
-    private val libraries = listOf(sdk, common, runtime, agent, tools, telegram, openAi, anthropic, testkit)
+    private val libraries = listOf(sdk, internals, runtime, agent, tools, telegram, openAi, anthropic, testkit)
     private val all = libraries + ksp + app
     private val indexed = listOf(agent, tools, telegram, openAi, anthropic, app)
 
@@ -61,7 +61,7 @@ class AlexandriteLayoutTest {
     fun `the layer comes from the path`() {
         val expected = mapOf(
             sdk to Layer.SDK,
-            common to Layer.COMMON,
+            internals to Layer.INTERNAL,
             runtime to Layer.RUNTIME,
             agent to Layer.AGENT,
             tools to Layer.TOOLS,
@@ -93,7 +93,7 @@ class AlexandriteLayoutTest {
     fun `jar names keep today's names`() {
         val expected = mapOf(
             sdk to "alexandrite-plugin-sdk",
-            common to "alexandrite-common",
+            internals to "alexandrite-internal",
             runtime to "alexandrite-runtime",
             agent to "alexandrite-agent",
             tools to "alexandrite-tools",
@@ -118,7 +118,7 @@ class AlexandriteLayoutTest {
     fun `config roots come from the location`() {
         val expected = mapOf(
             sdk to null,
-            common to null,
+            internals to null,
             runtime to null,
             agent to "agent",
             tools to "tools",
@@ -368,7 +368,7 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `allowed pairs`() {
-        for (base in listOf(sdk, common)) {
+        for (base in listOf(sdk, internals)) {
             for (from in listOf(runtime, agent, tools, telegram, openAi, anthropic, testkit, app)) {
                 assertAllowed(from, base)
             }
@@ -377,13 +377,13 @@ class AlexandriteLayoutTest {
         assertAllowed(hello, sdk)
         for (library in libraries - testkit) assertAllowed(app, library)
         assertAllowed(app, ":libraries:providers:example")
-        assertAllowed(":libraries:providers:example", common)
+        assertAllowed(":libraries:providers:example", internals)
     }
 
     @Test
     fun `forbidden pairs`() {
-        assertForbidden(sdk, common)
-        assertForbidden(common, sdk)
+        assertForbidden(sdk, internals)
+        assertForbidden(internals, sdk)
         for (from in listOf(tools, telegram, openAi, anthropic)) assertForbidden(from, agent)
         assertForbidden(agent, tools)
         assertForbidden(agent, telegram)
@@ -398,9 +398,9 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `the runtime knows only the SDK and common, and only the testkit and app know the runtime`() {
+    fun `the runtime knows only the SDK and internal, and only the testkit and app know the runtime`() {
         for (to in listOf(agent, tools, telegram, openAi, anthropic, testkit, hello)) assertForbidden(runtime, to)
-        for (from in listOf(sdk, common, agent, tools, telegram, openAi, anthropic, ksp, hello)) {
+        for (from in listOf(sdk, internals, agent, tools, telegram, openAi, anthropic, ksp, hello)) {
             assertForbidden(from, runtime)
         }
         assertAllowed(testkit, runtime)
@@ -408,9 +408,9 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `the testkit sits on the SDK, common and runtime`() {
+    fun `the testkit sits on the SDK, internal and runtime`() {
         for (to in listOf(agent, tools, telegram, openAi, anthropic, hello)) assertForbidden(testkit, to)
-        for (from in listOf(sdk, common, runtime, agent, tools, telegram, openAi, anthropic)) {
+        for (from in listOf(sdk, internals, runtime, agent, tools, telegram, openAi, anthropic)) {
             assertForbidden(from, testkit)
             assertForbidden(from, testkit, "testImplementation")
         }
@@ -480,8 +480,8 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `a test configuration does not widen the other layer rules`() {
-        assertForbidden(sdk, common, "testImplementation")
-        assertForbidden(common, sdk, "testImplementation")
+        assertForbidden(sdk, internals, "testImplementation")
+        assertForbidden(internals, sdk, "testImplementation")
         assertForbidden(telegram, agent, "testImplementation")
         assertForbidden(agent, tools, "testRuntimeOnly")
     }
@@ -501,7 +501,7 @@ class AlexandriteLayoutTest {
         assertContains(message, "'$telegram'")
         assertContains(message, "'$agent'")
         assertContains(message, "'implementation'")
-        assertContains(message, "$sdk, $common;")
+        assertContains(message, "$sdk, $internals;")
         assertContains(message, AlexandriteLayout.LAYOUT_LOCATION)
         assertContains(
             assertNotNull(violation(app, ksp)),
@@ -509,11 +509,11 @@ class AlexandriteLayoutTest {
                 "$testkit, :examples:* only from configurations named test*;",
         )
         assertContains(
-            assertNotNull(violation(hello, common)),
+            assertNotNull(violation(hello, internals)),
             "'$hello': $sdk; $testkit only from configurations named test*;",
         )
         assertContains(
-            assertNotNull(violation(ksp, common)),
+            assertNotNull(violation(ksp, internals)),
             "none; $sdk only from configurations named test*; $ksp only from configurations named ksp*.",
         )
     }

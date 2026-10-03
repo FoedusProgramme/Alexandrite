@@ -4,8 +4,8 @@ enum class Layer {
     /** The public SDK plugin authors compile against. */
     SDK,
 
-    /** Internal shared utilities. */
-    COMMON,
+    /** Implementation shared by built-in modules. */
+    INTERNAL,
 
     /** Embeddable engine. */
     RUNTIME,
@@ -111,7 +111,7 @@ object AlexandriteLayout {
     /** Location Map */
     val LOCATIONS: List<Location> = listOf(
         Location.Slot("libraries/plugin-sdk", Layer.SDK),
-        Location.Slot("libraries/common", Layer.COMMON),
+        Location.Slot("libraries/internal", Layer.INTERNAL),
         Location.Slot("libraries/runtime", Layer.RUNTIME),
         Location.Slot("libraries/agent", Layer.AGENT, configRoot = "agent", packageName = "$PACKAGE.agent"),
         Location.Slot("libraries/tools", Layer.TOOLS, configRoot = "tools", packageName = "$PACKAGE.tools"),
@@ -149,18 +149,18 @@ object AlexandriteLayout {
 
     val LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(
         Layer.SDK to emptySet(),
-        Layer.COMMON to emptySet(),
+        Layer.INTERNAL to emptySet(),
         Layer.KSP to emptySet(),
-        Layer.RUNTIME to setOf(Layer.SDK, Layer.COMMON),
-        Layer.AGENT to setOf(Layer.SDK, Layer.COMMON),
-        Layer.TOOLS to setOf(Layer.SDK, Layer.COMMON),
-        Layer.CHANNEL to setOf(Layer.SDK, Layer.COMMON),
-        Layer.PROVIDER to setOf(Layer.SDK, Layer.COMMON),
-        Layer.TESTKIT to setOf(Layer.SDK, Layer.COMMON, Layer.RUNTIME),
+        Layer.RUNTIME to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.AGENT to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.TOOLS to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.CHANNEL to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.PROVIDER to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.TESTKIT to setOf(Layer.SDK, Layer.INTERNAL, Layer.RUNTIME),
         Layer.EXAMPLE to setOf(Layer.SDK),
         Layer.APP to setOf(
             Layer.SDK,
-            Layer.COMMON,
+            Layer.INTERNAL,
             Layer.RUNTIME,
             Layer.AGENT,
             Layer.TOOLS,

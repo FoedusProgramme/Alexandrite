@@ -4,5 +4,5 @@ plugins {
 
 dependencies {
     implementation(project(":libraries:plugin-sdk"))
-    implementation(project(":libraries:common"))
+    implementation(project(":libraries:internal"))
 }
