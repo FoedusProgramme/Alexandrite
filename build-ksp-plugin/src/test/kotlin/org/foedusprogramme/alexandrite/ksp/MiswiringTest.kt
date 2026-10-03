@@ -1,7 +1,6 @@
 package org.foedusprogramme.alexandrite.ksp
 
 import kotlin.test.Test
-import kotlin.test.assertFalse
 
 class MiswiringTest : FailingSamples() {
     private val tool = "org.foedusprogramme.alexandrite.sdk.tool.Tool"
@@ -25,7 +24,7 @@ class MiswiringTest : FailingSamples() {
 
     @Test
     fun `a concrete class that implements an SPI without contributing to it is rejected`() {
-        val messages = errors(
+        assertErrors(
             bases + "\n" +
                 """
                 class Echo : BaseTool()
@@ -39,71 +38,41 @@ class MiswiringTest : FailingSamples() {
                 @Contribute(Tool::class) class Contributed : BaseTool()
                 @Contribute(Hook::class) class Observed : BaseObserver()
                 """.trimIndent(),
+            "class Echo" to Messages.uncontributed("sample.Echo", tool, contributes = false, isObject = false),
+            "class Listener" to Messages.uncontributed("sample.Listener", hook, contributes = false, isObject = false),
+            "class Both" to Messages.uncontributed("sample.Both", tool, contributes = true, isObject = false),
+            "object Single" to Messages.uncontributed("sample.Single", tool, contributes = false, isObject = true),
         )
-
-        assertReported(
-            messages,
-            "sample.Echo implements $tool, but does not contribute to it, so it is never used as one",
-            "Annotate it with @Contribute(Tool::class)",
-            at = "class Echo",
-        )
-        assertReported(
-            messages,
-            "sample.Listener implements $hook, but does not contribute to it",
-            at = "class Listener",
-        )
-        assertReported(
-            messages,
-            "sample.Both implements $tool",
-            "Add Tool::class to its @Contribute",
-            at = "class Both",
-        )
-        assertReported(messages, "sample.Single implements $tool", at = "object Single")
-        for (exempt in listOf("BaseTool", "BaseObserver", "SpecialTool", "AbstractTool", "Contributed", "Observed")) {
-            assertFalse("sample.$exempt implements" in messages, messages)
-        }
     }
 
     @Test
     fun `an SPI listed in @Binds is rejected`() {
-        val messages = errors(bases + "\n" + "@Binds(Tool::class) @Contribute(Tool::class) class Bound : BaseTool()")
-
-        assertReported(
-            messages,
-            "sample.Bound lists $tool in @Binds, but $tool is an SPI whose implementations are contributed, not bound",
-            "Use @Contribute(Tool::class) instead",
-            at = "class Bound",
+        assertErrors(
+            bases + "\n" + "@Binds(Tool::class) @Contribute(Tool::class) class Bound : BaseTool()",
+            "class Bound" to Messages.boundSpi("sample.Bound", tool),
         )
     }
 
     @Test
     fun `a subtype of an SPI listed in @Contribute is rejected`() {
-        val messages = errors(
+        assertErrors(
             bases + "\n" +
                 """
                 @Contribute(ObserverHook::class, Hook::class) class Watcher : BaseObserver()
                 @Contribute(BaseTool::class, Tool::class) class Narrow : BaseTool()
                 """.trimIndent(),
-        )
-
-        assertReported(
-            messages,
-            "sample.Watcher lists org.foedusprogramme.alexandrite.sdk.hook.ObserverHook in @Contribute, but " +
-                "org.foedusprogramme.alexandrite.sdk.hook.ObserverHook is a subtype of $hook",
-            "Use @Contribute(Hook::class) instead",
-            at = "class Watcher",
-        )
-        assertReported(
-            messages,
-            "sample.Narrow lists sample.BaseTool in @Contribute, but sample.BaseTool is a subtype of $tool",
-            "Use @Contribute(Tool::class) instead",
-            at = "class Narrow",
+            "class Watcher" to Messages.contributedSubtype(
+                "sample.Watcher",
+                "org.foedusprogramme.alexandrite.sdk.hook.ObserverHook",
+                listOf(hook),
+            ),
+            "class Narrow" to Messages.contributedSubtype("sample.Narrow", "sample.BaseTool", listOf(tool)),
         )
     }
 
     @Test
-    fun `a provider of an SPI implementation must contribute it`() {
-        val messages = errors(
+    fun `a provider of an SPI implementation must contribute it, and only the provider is reported`() {
+        assertErrors(
             bases + "\n" +
                 """
                 class Echo : BaseTool()
@@ -112,29 +81,16 @@ class MiswiringTest : FailingSamples() {
                 @Provides fun echo(): Echo = Echo()
                 @Provides @Contribute(Tool::class) fun shout(): Shout = Shout()
                 """.trimIndent(),
+            "fun tool" to Messages.providedSpi("sample.tool()", tool),
+            "fun echo" to Messages.uncontributedProvider("sample.echo()", "sample.Echo", tool, contributes = false),
         )
-
-        assertReported(
-            messages,
-            "sample.tool() returns $tool itself, but $tool is an SPI whose implementations are contributed",
-            "Return the implementing type and annotate the function with @Contribute(Tool::class)",
-            at = "fun tool",
-        )
-        assertReported(
-            messages,
-            "sample.echo() returns sample.Echo, which implements $tool, but does not contribute it",
-            at = "fun echo",
-        )
-        assertReported(messages, "sample.Echo implements $tool", at = "class Echo")
-        assertFalse("sample.Shout implements" in messages, messages)
-        assertFalse("sample.shout() returns" in messages, messages)
     }
 
-    // Same-module dependencies.
+    // Same-plugin dependencies.
 
     @Test
-    fun `a dependency on a class of the module that nothing binds is rejected`() {
-        val messages = errors(
+    fun `a dependency on a class of the plugin that nothing binds is rejected`() {
+        assertErrors(
             """
             class Settings
             @ConfigSection("x") @Serializable class Section(val size: Int = 0)
@@ -158,28 +114,17 @@ class MiswiringTest : FailingSamples() {
             )
             @Provides @Named("fresh") fun fresh(settings: Settings): Engine = Engine()
             """,
+            "settings: Settings," to Messages.unannotatedDependency("settings", "sample.Server", "sample.Settings"),
+            "maybe: Settings?" to Messages.unannotatedDependency("maybe", "sample.Server", "sample.Settings"),
+            "later: Lazy<Settings>" to Messages.unannotatedDependency("later", "sample.Server", "sample.Settings"),
+            "make: () -> Settings" to Messages.unannotatedDependency("make", "sample.Server", "sample.Settings"),
+            "fun fresh" to Messages.unannotatedDependency("settings", "sample.fresh()", "sample.Settings"),
         )
-
-        val unannotated = "has type sample.Settings, a class of this module that is not a component, a config " +
-            "section or returned by a @Provides function"
-        assertReported(
-            messages,
-            "Parameter 'settings' of sample.Server $unannotated",
-            "Annotate sample.Settings with @Singleton, or provide it with a @Provides function",
-            at = "settings: Settings,",
-        )
-        assertReported(messages, "Parameter 'maybe' of sample.Server $unannotated", at = "maybe: Settings?")
-        assertReported(messages, "Parameter 'later' of sample.Server $unannotated", at = "later: Lazy<Settings>")
-        assertReported(messages, "Parameter 'make' of sample.Server $unannotated", at = "make: () -> Settings")
-        assertReported(messages, "Parameter 'settings' of sample.fresh() $unannotated", at = "fun fresh")
-        for (parameter in listOf("all", "section", "engine", "made", "port", "base", "clock")) {
-            assertFalse("Parameter '$parameter' of sample.Server" in messages, messages)
-        }
     }
 
     @Test
-    fun `a singleton that depends on a channel-instance-scoped binding of the module is rejected`() {
-        val messages = errors(
+    fun `a singleton that depends on a channel-instance-scoped binding of the plugin is rejected`() {
+        assertErrors(
             """
             interface Listener
             @ChannelInstanceScoped class Session
@@ -197,40 +142,26 @@ class MiswiringTest : FailingSamples() {
             @Provides fun registryClock(session: Session?): java.time.Clock = java.time.Clock.systemUTC()
             @ChannelInstanceScoped class Fine(session: Session, job: Runnable, listeners: List<Listener>)
             """,
+            "session: Session," to Messages.scopeBreak("session", "sample.Registry", listOf("sample.Session")),
+            "job: Lazy" to Messages.scopeBreak("job", "sample.Registry", listOf("sample.Job")),
+            "listeners: List" to Messages.scopeBreak("listeners", "sample.Registry", listOf("sample.Ear")),
+            "clock: ()" to Messages.scopeBreak("clock", "sample.Registry", listOf("sample.chat()")),
+            "fun registryClock" to
+                Messages.scopeBreak("session", "sample.registryClock()", listOf("sample.Session")),
         )
-
-        assertReported(
-            messages,
-            "Singleton sample.Registry depends on channel-instance-scoped sample.Session through parameter 'session'",
-            "Annotate sample.Registry with @ChannelInstanceScoped or drop the dependency",
-            at = "session: Session,",
-        )
-        assertReported(messages, "on channel-instance-scoped sample.Job through parameter 'job'", at = "job: Lazy")
-        assertReported(
-            messages,
-            "on channel-instance-scoped sample.Ear through parameter 'listeners'",
-            at = "listeners",
-        )
-        assertReported(messages, "on channel-instance-scoped sample.chat() through parameter 'clock'", at = "clock: ()")
-        assertReported(
-            messages,
-            "Singleton sample.registryClock() depends on channel-instance-scoped sample.Session",
-            at = "fun registryClock",
-        )
-        assertFalse("Singleton sample.Fine" in messages, messages)
     }
 
-    // Module-local services.
+    // Plugin-local services.
 
     @Test
-    fun `a module-local service cannot be named`() {
-        val messages = errors("@Singleton class Store(@Named(\"other\") val files: PluginFiles)")
-
-        assertReported(
-            messages,
-            "Parameter 'files' of sample.Store has type org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles, " +
-                "which every module gets its own instance of under the module's name, so it cannot be @Named",
-            at = "class Store",
+    fun `a plugin-local service cannot be named`() {
+        assertErrors(
+            "@Singleton class Store(@Named(\"other\") val files: PluginFiles)",
+            "class Store" to Messages.namedPluginLocal(
+                "files",
+                "sample.Store",
+                "org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles",
+            ),
         )
     }
 }

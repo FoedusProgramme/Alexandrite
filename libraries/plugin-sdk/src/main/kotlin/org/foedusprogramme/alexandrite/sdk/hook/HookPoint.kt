@@ -31,8 +31,8 @@ public enum class HookEffect {
 /** What a failing interceptor does to its chain. */
 public enum class FailurePolicy {
     /** Skip the hook, keeping the payload. */
-    SKIP,
+    FAIL_OPEN,
 
     /** Stop the chain. */
-    ABORT,
+    FAIL_CLOSED,
 }

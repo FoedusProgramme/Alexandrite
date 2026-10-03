@@ -1,17 +1,10 @@
 package org.foedusprogramme.alexandrite.app
 
-import org.foedusprogramme.alexandrite.agent.AgentPlaceholder
-import org.foedusprogramme.alexandrite.channel.telegram.TelegramPlaceholder
-import org.foedusprogramme.alexandrite.internal.InternalPlaceholder
-import org.foedusprogramme.alexandrite.provider.anthropic.AnthropicPlaceholder
-import org.foedusprogramme.alexandrite.provider.openaicompatible.OpenAiCompatPlaceholder
-import org.foedusprogramme.alexandrite.runtime.RuntimePlaceholder
-import org.foedusprogramme.alexandrite.sdk.di.ModuleIndex
-import org.foedusprogramme.alexandrite.tools.ToolsPlaceholder
+import org.foedusprogramme.alexandrite.runtime.PluginSet
 import org.slf4j.LoggerFactory
 import java.util.Properties
 
-// Placeholder entry point: logs the startup line and exits 0. Startup wiring comes in a later task.
+// Placeholder entry point, replaced by the host program in a later task.
 
 private val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app.Main")
 
@@ -26,20 +19,9 @@ internal val alexandriteVersion: String by lazy {
     checkNotNull(properties.getProperty("version")) { "$VERSION_RESOURCE has no version" }
 }
 
-internal fun assembledModules(): List<String> = listOf(
-    ModuleIndex::class.java.name,
-    InternalPlaceholder.module,
-    RuntimePlaceholder.module,
-    AgentPlaceholder.module,
-    ToolsPlaceholder.module,
-    TelegramPlaceholder.module,
-    OpenAiCompatPlaceholder.module,
-    AnthropicPlaceholder.module,
-)
-
-internal fun startupLine(): String = "Alexandrite $alexandriteVersion starting"
+internal fun startupLine(plugins: PluginSet): String =
+    "Alexandrite $alexandriteVersion starting with built-in plugins [${plugins.plugins.joinToString { it.info.id }}]"
 
 fun main() {
-    logger.info(startupLine())
-    logger.debug("Assembled modules: {}", assembledModules())
+    logger.info(startupLine(PluginSet.builtIn()))
 }

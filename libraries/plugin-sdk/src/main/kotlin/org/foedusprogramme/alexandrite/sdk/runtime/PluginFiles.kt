@@ -1,10 +1,10 @@
 package org.foedusprogramme.alexandrite.sdk.runtime
 
-import org.foedusprogramme.alexandrite.sdk.di.ModuleLocal
+import org.foedusprogramme.alexandrite.sdk.di.PluginLocal
 import java.nio.file.Path
 
-/** The module's own data directory. */
-@ModuleLocal
+/** The plugin's own data directory. */
+@PluginLocal
 public interface PluginFiles {
     public val dataDir: Path
 }

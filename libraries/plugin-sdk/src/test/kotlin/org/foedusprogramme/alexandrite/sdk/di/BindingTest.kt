@@ -1,16 +1,22 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.AMBIGUOUS
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.CONFLICTING
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.DUPLICATE_PLUGIN
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.MISSING
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.UNDECLARED
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.WRONG_KIND
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
 class BindingTest {
     private val tools = svc("tools")
 
-    private fun tool(name: String, module: String) = service(name, key = tools, multi = true, module = module)
+    private fun tool(name: String, plugin: String) = service(name, key = tools, multi = true, plugin = plugin)
 
     // Single bindings.
 
@@ -25,18 +31,19 @@ class BindingTest {
     fun `two single bindings for one key are ambiguous`() {
         val error = assertFailsWith<DiException> {
             Container.build(
-                listOf(index("core", service("a", module = "core")), index("extra", service("a", module = "extra"))),
+                listOf(plugin("core", service("a", plugin = "core")), plugin("extra", service("a", plugin = "extra"))),
             )
         }
 
-        assertTrue("a (module core) and a (module extra)" in error.message!!)
+        assertEquals(listOf(AMBIGUOUS), error.problems.map { it.kind })
+        assertContains(error.message!!, "a (plugin core) and a (plugin extra)")
     }
 
     @Test
     fun `an override replaces the binding of its key`() {
         val events = Events()
         val container = Container.build(
-            listOf(index("test", service("a", events = events))),
+            listOf(plugin("test", service("a", events = events))),
             overrides = listOf(service("fake", key = svc("a"), events = events)),
         )
 
@@ -47,7 +54,7 @@ class BindingTest {
     @Test
     fun `an override replaces ambiguous bindings`() {
         val container = Container.build(
-            listOf(index("core", service("a", module = "core")), index("extra", service("a", module = "extra"))),
+            listOf(plugin("core", service("a", plugin = "core")), plugin("extra", service("a", plugin = "extra"))),
             overrides = listOf(
                 instanceBinding(svc("a"), Service("fake", Events(), emptyMap(), false, false), "test", "test"),
             ),
@@ -58,7 +65,7 @@ class BindingTest {
 
     @Test
     fun `an override for a new key adds it`() {
-        val container = Container.build(listOf(index("test", service("a"))), overrides = listOf(service("b")))
+        val container = Container.build(listOf(plugin("test", service("a"))), overrides = listOf(service("b")))
 
         assertEquals("b", container.get(svc("b")).name)
     }
@@ -66,7 +73,7 @@ class BindingTest {
     @Test
     fun `an override replaces every contribution of its key`() {
         val container = Container.build(
-            listOf(index("test", service("t1", key = tools, multi = true), service("t2", key = tools, multi = true))),
+            listOf(plugin("test", service("t1", key = tools, multi = true), service("t2", key = tools, multi = true))),
             overrides = listOf(service("fake", key = tools, multi = true)),
         )
 
@@ -76,11 +83,11 @@ class BindingTest {
     // Multibindings.
 
     @Test
-    fun `getAll orders contributions by module name, then declaration`() {
+    fun `getAll orders contributions by plugin, then declaration`() {
         val container = Container.build(
             listOf(
-                index("zeta", tool("z1", "zeta"), tool("z2", "zeta")),
-                index("alpha", tool("a2", "alpha"), tool("a1", "alpha")),
+                plugin("zeta", tool("z1", "zeta"), tool("z2", "zeta")),
+                plugin("alpha", tool("a2", "alpha"), tool("a1", "alpha")),
             ),
         )
 
@@ -98,7 +105,8 @@ class BindingTest {
             build(service("single", key = tools), service("contribution", key = tools, multi = true))
         }
 
-        assertTrue("Conflicting bindings" in error.message!!)
+        assertEquals(listOf(CONFLICTING), error.problems.map { it.kind })
+        assertContains(error.message!!, "Conflicting bindings")
     }
 
     @Test
@@ -106,7 +114,9 @@ class BindingTest {
         val error =
             assertFailsWith<DiException> { build(service("tools"), service("a", dep("tools", DependencyKind.ALL))) }
 
-        assertTrue("Wrong dependency kind" in error.message!!)
+        assertEquals(listOf(WRONG_KIND), error.problems.map { it.kind })
+        assertContains(error.message!!, "needs List<${svc("tools")}> for parameter 'tools', but")
+        assertContains(error.message!!, "has a single binding, from tools (plugin test).")
     }
 
     @Test
@@ -115,24 +125,37 @@ class BindingTest {
             build(service("t1", key = tools, multi = true), service("a", dep("tools")))
         }
 
-        assertTrue("only has multibinding contributions" in error.message!!)
+        assertEquals(listOf(WRONG_KIND), error.problems.map { it.kind })
+        assertContains(error.message!!, "only has multibinding contributions, from t1 (plugin test).")
     }
 
     @Test
     fun `get and getAll refuse a key of the other kind`() {
         val container = build(service("a"), service("t1", key = tools, multi = true))
 
-        assertFailsWith<DiException> { container.get(tools) }
-        assertFailsWith<DiException> { container.getAll(svc("a")) }
+        val single = assertFailsWith<DiException> { container.get(tools) }
+        val all = assertFailsWith<DiException> { container.getAll(svc("a")) }
+
+        assertEquals(
+            "Wrong dependency kind: resolving one instance of $tools, but $tools only has multibinding " +
+                "contributions, from t1 (plugin test).",
+            single.message,
+        )
+        assertEquals(
+            "Wrong dependency kind: resolving every contribution to ${svc("a")}, but ${svc("a")} has a single " +
+                "binding, from a (plugin test).",
+            all.message,
+        )
     }
 
     @Test
-    fun `two indexes of one module are rejected`() {
+    fun `two binding lists of one plugin are rejected`() {
         val error = assertFailsWith<DiException> {
-            Container.build(listOf(index("test", service("a")), index("test", service("b"))))
+            Container.build(listOf(plugin("test", service("a")), plugin("test", service("b"))))
         }
 
-        assertTrue("Duplicate module 'test'" in error.message!!)
+        assertEquals(listOf(DUPLICATE_PLUGIN), error.problems.map { it.kind })
+        assertContains(error.message!!, "Duplicate plugin 'test'")
     }
 
     // Dependency kinds.
@@ -170,23 +193,23 @@ class BindingTest {
     fun `LAZY needs a binding`() {
         val error = assertFailsWith<DiException> { build(service("a", dep("b", DependencyKind.LAZY))) }
 
-        assertTrue("Missing binding" in error.message!!)
+        assertEquals(listOf(MISSING), error.problems.map { it.kind })
     }
 
     @Test
     fun `PROVIDER needs a binding`() {
         val error = assertFailsWith<DiException> { build(service("a", dep("b", DependencyKind.PROVIDER))) }
 
-        assertTrue("Missing binding" in error.message!!)
+        assertEquals(listOf(MISSING), error.problems.map { it.kind })
     }
 
     @Test
     fun `resolving an undeclared dependency fails`() {
-        val sneaky = binding(svc("a"), "test", "a (module test)") { it.get(svc("b")) }
+        val sneaky = binding(svc("a"), "test", "a") { it.get(svc("b")) }
 
         val error = assertFailsWith<DiException> { build(sneaky, service("b")) }
 
-        assertTrue("a (module test) resolved" in error.message!!)
-        assertTrue("without declaring it" in error.message!!)
+        assertEquals(listOf(UNDECLARED), error.problems.map { it.kind })
+        assertContains(error.message!!, "a (plugin test) resolved ${svc("b")} as INSTANCE without declaring it")
     }
 }

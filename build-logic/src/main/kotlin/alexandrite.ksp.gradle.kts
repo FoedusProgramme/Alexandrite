@@ -6,7 +6,7 @@ plugins {
 
 val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
 val configRoot = module.configRoot ?: throw GradleException(
-    "Project '$path' (${module.layer}) has no config root, so its ModuleIndex cannot be generated. " +
+    "Project '$path' (${module.layer}) has no config root, so its PluginIndex cannot be generated. " +
         "Give its location a config root in ${AlexandriteLayout.LAYOUT_LOCATION}.",
 )
 
@@ -15,8 +15,12 @@ dependencies {
 }
 
 ksp {
-    arg("alexandrite.module", module.moduleName)
-    arg("alexandrite.configRoot", configRoot)
+    arg("alexandrite.plugin", module.moduleName)
+    arg("alexandrite.version", version.toString())
     module.packageName?.let { arg("alexandrite.package", it) }
-    if (module.builtIn) arg("alexandrite.builtIn", "true")
+    module.indexClass?.let { arg("alexandrite.indexClass", it) }
+    if (module.builtIn) {
+        arg("alexandrite.configRoot", configRoot)
+        arg("alexandrite.builtIn", "true")
+    }
 }

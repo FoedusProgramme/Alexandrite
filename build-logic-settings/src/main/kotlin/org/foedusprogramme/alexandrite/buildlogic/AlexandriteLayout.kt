@@ -64,12 +64,16 @@ data class AlexandriteModule(
     val layer: Layer,
     val jarName: String,
     val configRoot: String?,
-    /** The name its `ModuleIndex` carries */
+    /** The name its `PluginIndex` carries */
     val moduleName: String,
-    /** The package of its `ModuleIndex`, null when the convention passes none */
+    /** The package of its `PluginIndex`, null when the convention passes none */
     val packageName: String?,
     val builtIn: Boolean,
-)
+) {
+    /** The class name of its `PluginIndex`, null when the convention passes no package */
+    val indexClass: String?
+        get() = packageName?.let { "$it.${AlexandriteLayout.indexClassName(moduleName)}" }
+}
 
 data class Discovery(
     val modules: List<AlexandriteModule>,
@@ -78,7 +82,7 @@ data class Discovery(
 ) {
     /** Null when the layout holds, otherwise the message settings evaluation fails with. */
     val failure: String?
-        get() = AlexandriteLayout.placementFailure(misplaced, missingSlots)
+        get() = AlexandriteLayout.placementFailure(misplaced, missingSlots) ?: AlexandriteLayout.idFailure(modules)
 }
 
 interface ModuleTree {
@@ -175,11 +179,18 @@ object AlexandriteLayout {
         Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
     )
 
-    /** Layers whose modules get a generated `ModuleIndex` */
+    /** Layers whose modules get a generated `PluginIndex` */
     val INDEXED_LAYERS: Set<Layer> =
         setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.EXAMPLE, Layer.APP)
 
+    /** The grammar of the module names of [INDEXED_LAYERS] */
+    val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
+
     private val slots: List<Location.Slot> = LOCATIONS.filterIsInstance<Location.Slot>()
+
+    /** The simple name of the index of [moduleName]. */
+    fun indexClassName(moduleName: String): String =
+        moduleName.split('-').joinToString("") { it.replaceFirstChar(Char::uppercaseChar) } + "Index"
 
     fun moduleAt(path: String): AlexandriteModule? =
         if (path.startsWith(":") && path.length > 1) moduleIn(path.substring(1).replace(':', '/')) else null
@@ -211,7 +222,7 @@ object AlexandriteLayout {
                             location.jarPrefix + name,
                             location.configRootPrefix + name,
                             location.moduleNamePrefix + name,
-                            location.packagePrefix?.plus(name.lowercase().replace("-", "")),
+                            location.packagePrefix?.plus(name.replace("-", "")),
                             location.builtIn,
                         )
                     }
@@ -256,6 +267,16 @@ object AlexandriteLayout {
             "Every slot must hold its module; a channel, provider or example is added by creating its directory. " +
             "A new kind of module needs a new slot or family in the location map, with its layer's dependency " +
             "rules, in $LAYOUT_LOCATION."
+    }
+
+    /** Null when the module name of every indexed module in [modules] is a plugin id. */
+    fun idFailure(modules: List<AlexandriteModule>): String? {
+        val malformed = modules.filter { it.layer in INDEXED_LAYERS && !PLUGIN_ID.matches(it.moduleName) }
+        if (malformed.isEmpty()) return null
+        return "Modules have names that are no plugin id:\n" +
+            malformed.joinToString("\n") { "  - ${it.path} is named '${it.moduleName}'." } + "\n" +
+            "A plugin id is lowercase words of letters and digits, each starting with a letter, joined by single " +
+            "hyphens. Rename the module's directory."
     }
 
     fun noLocationMessage(path: String): String =

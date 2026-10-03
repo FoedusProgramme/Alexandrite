@@ -1,25 +1,29 @@
 package org.foedusprogramme.alexandrite.ksp
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
-import org.foedusprogramme.alexandrite.sdk.config.configBindings
+import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.di.Binding
 import org.foedusprogramme.alexandrite.sdk.di.Container
 import org.foedusprogramme.alexandrite.sdk.di.DiException
-import org.foedusprogramme.alexandrite.sdk.di.ModuleIndex
 import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class IndexTest {
     @TempDir
     lateinit var workingDir: File
@@ -53,9 +57,20 @@ class IndexTest {
         import org.foedusprogramme.alexandrite.sdk.di.Contribute
         import org.foedusprogramme.alexandrite.sdk.di.Inject
         import org.foedusprogramme.alexandrite.sdk.di.Named
+        import org.foedusprogramme.alexandrite.sdk.di.Provides
         import org.foedusprogramme.alexandrite.sdk.di.Singleton
+        import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
+        import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
         import sample.plugin.config.GreetingConfig
         import sample.plugin.config.SampleConfig
+
+        @Plugin(
+            name = "Sample plugin",
+            description = "Greets \"people\"\n\${'$'}politely",
+            requires = ["alexandrite-agent", "weather"],
+        )
+        @Singleton
+        class SamplePlugin(val info: PluginInfo)
 
         interface Clock {
             fun now(): String
@@ -119,43 +134,111 @@ class IndexTest {
         class Session(@Named("app") private val app: Probe) : Probe {
             override fun report(): String = "session of " + app.report()
         }
+
+        typealias Probes = List<Probe>
+        typealias Handlers<T> = Map<String, Handler<T>>
+        typealias MaybeClock = Clock?
+
+        fun interface Handler<T> {
+            fun handle(value: T): String
+        }
+
+        @Provides
+        fun handlers(): Handlers<Int> = mapOf("double" to Handler { (it * 2).toString() })
+
+        @Singleton
+        @Named("aliased")
+        @Binds(Probe::class)
+        class Aliased(private val probes: Probes, private val handlers: Handlers<Int>, private val clock: MaybeClock) :
+            Probe {
+            override fun report(): String =
+                "probes=" + probes.size + "; double=" + handlers.getValue("double").handle(21) + "; clock=" + clock?.now()
+        }
         """,
     )
 
-    private val config = JsonConfigSource(
-        Json.parseToJsonElement(
-            """{"plugins": {"sample-plugin": {"enabled": true, "loud": true, "greeting": {"word": "Hi"}}}}""",
-        ).jsonObject,
-    )
+    private val config = Json.parseToJsonElement(
+        """{"plugins": {"sample-plugin": {"enabled": true, "loud": true, "greeting": {"word": "Hi"}}}}""",
+    ).jsonObject
 
-    private fun compileSample(): Compiled =
-        compile(workingDir, sampleConfig, sample, options = mapOf(MODULE_OPTION to "sample-plugin")).also {
+    private val compiled by lazy {
+        compile(sharedDir, sampleConfig, sample, options = sampleOptions("sample-plugin")).also {
             it.assertSucceeded()
         }
+    }
 
-    private fun sampleIndex(): ModuleIndex = compileSample().indexes().single()
+    private val index: PluginIndex by lazy { compiled.indexes().single() }
 
-    private fun overrides(index: ModuleIndex): List<Binding<*>> =
-        configBindings(index, config) + instanceBinding(key<String>("user"), "Ada", "test", "test")
+    @AfterAll
+    fun closeSample() {
+        compiled.close()
+    }
 
-    // End to end.
+    private fun overrides(index: PluginIndex): List<Binding<*>> = sectionBindings(index, config) +
+        instanceBinding(key<String>("user"), "Ada", "test", "test") +
+        instanceBinding(key<PluginInfo>(index.info.id), index.info, "test", "test")
+
+    // Identity.
 
     @Test
     fun `ServiceLoader finds the generated index in the plugin's package`() {
-        val compiled = compileSample()
-        val index = compiled.indexes().single()
-
         assertEquals("sample.plugin.SamplePluginIndex", index.javaClass.name)
         assertEquals("sample.plugin.SamplePluginIndex\n", compiled.service())
-        assertEquals("sample-plugin", index.module)
         assertEquals("plugins.sample-plugin", index.configRoot)
     }
 
     @Test
-    fun `the container resolves the generated graph with the decoded config sections`() {
-        val index = sampleIndex()
+    fun `the index carries what the plugin says about itself`() {
+        assertEquals(
+            PluginInfo(
+                id = "sample-plugin",
+                name = "Sample plugin",
+                version = "1.0.0",
+                description = "Greets \"people\"\n\$politely",
+                sdkApi = AlexandriteSdk.API_VERSION,
+                requires = listOf("alexandrite-agent", "weather"),
+                entryClass = "sample.plugin.SamplePlugin",
+            ),
+            index.info,
+        )
+    }
 
-        Container.build(listOf(index), overrides(index)).use { container ->
+    @Test
+    fun `the descriptor holds every field in a stable order`() {
+        val descriptor = compiled.descriptor("sample-plugin")
+
+        assertEquals(
+            listOf(
+                "id", "name", "version", "description", "sdkApi", "requires", "entryClass", "indexClass",
+                "configRoot", "builtIn",
+            ),
+            descriptor.keys.toList(),
+        )
+        assertEquals(JsonPrimitive("sample-plugin"), descriptor["id"])
+        assertEquals(JsonPrimitive("Sample plugin"), descriptor["name"])
+        assertEquals(JsonPrimitive("1.0.0"), descriptor["version"])
+        assertEquals(JsonPrimitive("Greets \"people\"\n\$politely"), descriptor["description"])
+        assertEquals(JsonPrimitive(AlexandriteSdk.API_VERSION), descriptor["sdkApi"])
+        assertEquals(
+            JsonArray(listOf(JsonPrimitive("alexandrite-agent"), JsonPrimitive("weather"))),
+            descriptor["requires"],
+        )
+        assertEquals(JsonPrimitive("sample.plugin.SamplePlugin"), descriptor["entryClass"])
+        assertEquals(JsonPrimitive("sample.plugin.SamplePluginIndex"), descriptor["indexClass"])
+        assertEquals(JsonPrimitive("plugins.sample-plugin"), descriptor["configRoot"])
+        assertEquals(JsonPrimitive(false), descriptor["builtIn"])
+    }
+
+    @Test
+    fun `the descriptor's SDK API version is the SDK's`() {
+        assertEquals(AlexandriteSdk.API_VERSION, SDK_API_VERSION)
+    }
+
+    // Container.
+
+    @Test
+    fun `the container resolves the generated graph with the decoded config sections`() {
+        Container.build(listOf(index.pluginBindings()), overrides(index)).use { container ->
             assertEquals(
                 "Hi Ada, it is noon!; tools=[echo, time noon]; audit=null; rounds=3",
                 container.get(key<Probe>("app")).report(),
@@ -165,10 +248,37 @@ class IndexTest {
     }
 
     @Test
-    fun `a channel instance container creates its own channel-instance-scoped instance`() {
-        val index = sampleIndex()
+    fun `the entry class is a singleton that injects its own plugin info`() {
+        Container.build(listOf(index.pluginBindings()), overrides(index)).use { container ->
+            val entry = compiled.classLoader.loadClass("sample.plugin.SamplePlugin")
+            val binding = index.bindings().single { it.origin == "sample.plugin.SamplePlugin" }
 
-        Container.build(listOf(index), overrides(index)).use { container ->
+            assertEquals(listOf(key<PluginInfo>("sample-plugin")), binding.dependencies.map { it.key })
+            val instance = container.get(binding.key)
+            assertEquals(entry, instance.javaClass)
+            assertEquals(index.info, entry.getMethod("getInfo").invoke(instance))
+        }
+    }
+
+    @Test
+    fun `aliases are expanded with their arguments and nullability`() {
+        Container.build(listOf(index.pluginBindings()), overrides(index)).use { container ->
+            assertEquals("probes=2; double=42; clock=noon", container.get(key<Probe>("aliased")).report())
+        }
+        val binding = index.bindings().first { it.origin == "sample.plugin.Aliased" }
+        assertEquals(
+            listOf(
+                "probes: ALL ${Probe::class.java.name}",
+                "handlers: INSTANCE kotlin.collections.Map<kotlin.String, sample.plugin.Handler<kotlin.Int>>",
+                "clock: OPTIONAL sample.plugin.Clock",
+            ),
+            binding.dependencies.map { "${it.site}: ${it.kind} ${it.key}" },
+        )
+    }
+
+    @Test
+    fun `a channel instance container creates its own channel-instance-scoped instance`() {
+        Container.build(listOf(index.pluginBindings()), overrides(index)).use { container ->
             val telegram = container.child("telegram", setOf("sample-plugin"))
             val session = telegram.get(key<Probe>("session"))
 
@@ -181,15 +291,19 @@ class IndexTest {
 
     @Test
     fun `the index binds no config section itself`() {
-        val index = sampleIndex()
-
         val error = assertFailsWith<DiException> {
-            Container.build(listOf(index), listOf(instanceBinding(key<String>("user"), "Ada", "test", "test")))
+            Container.build(
+                listOf(index.pluginBindings()),
+                listOf(
+                    instanceBinding(key<String>("user"), "Ada", "test", "test"),
+                    instanceBinding(key<PluginInfo>(index.info.id), index.info, "test", "test"),
+                ),
+            )
         }
         assertContains(error.message!!, "nothing binds sample.plugin.config.GreetingConfig")
     }
 
-    // Generated index.
+    // Bindings and sections.
 
     @Test
     fun `the index declares every binding with its origin, scope, flags and dependencies`() {
@@ -197,6 +311,13 @@ class IndexTest {
 
         assertEquals(
             mapOf(
+                "Aliased" to listOf(
+                    "@Named(\"aliased\") sample.plugin.Aliased SINGLETON <- probes: ALL $probe, handlers: INSTANCE " +
+                        "kotlin.collections.Map<kotlin.String, sample.plugin.Handler<kotlin.Int>>, " +
+                        "clock: OPTIONAL sample.plugin.Clock",
+                    "@Named(\"aliased\") $probe SINGLETON unmanaged <- " +
+                        "@Binds: INSTANCE @Named(\"aliased\") sample.plugin.Aliased",
+                ),
                 "App" to listOf(
                     "@Named(\"app\") sample.plugin.App SINGLETON <- " +
                         "greeter: INSTANCE @Named(\"polite\") sample.plugin.Greeter, " +
@@ -225,6 +346,10 @@ class IndexTest {
                     "@Named(\"polite\") sample.plugin.Greeter SINGLETON unmanaged <- " +
                         "@Binds: INSTANCE @Named(\"polite\") sample.plugin.PoliteGreeter",
                 ),
+                "SamplePlugin" to listOf(
+                    "sample.plugin.SamplePlugin SINGLETON <- info: INSTANCE @Named(\"sample-plugin\") " +
+                        PluginInfo::class.java.name,
+                ),
                 "Session" to listOf(
                     "@Named(\"session\") sample.plugin.Session CHANNEL_INSTANCE <- " +
                         "app: INSTANCE @Named(\"app\") $probe",
@@ -235,21 +360,24 @@ class IndexTest {
                     "sample.plugin.TimeTool SINGLETON <- clock: LAZY sample.plugin.Clock",
                     "$probe SINGLETON multi unmanaged <- @Contribute: INSTANCE sample.plugin.TimeTool",
                 ),
+                "handlers()" to listOf(
+                    "kotlin.collections.Map<kotlin.String, sample.plugin.Handler<kotlin.Int>> SINGLETON <- ",
+                ),
             ),
-            sampleIndex().bindings().groupBy({ simpleOrigin(it.origin) }, ::describe),
+            index.bindings().groupBy({ simpleOrigin(it.origin, "sample.plugin") }, ::describe),
         )
     }
 
     @Test
     fun `the index lists the config sections with their relative paths`() {
-        val sections = sampleIndex().configSections()
+        val sections = index.configSections()
 
         assertEquals(
             listOf(
-                "'' sample.plugin.config.SampleConfig from SampleConfig",
-                "'greeting' sample.plugin.config.GreetingConfig from GreetingConfig",
+                "'' sample.plugin.config.SampleConfig from config.SampleConfig",
+                "'greeting' sample.plugin.config.GreetingConfig from config.GreetingConfig",
             ),
-            sections.map { "'${it.path}' ${it.key} from ${simpleOrigin(it.origin)}" },
+            sections.map { "'${it.path}' ${it.key} from ${simpleOrigin(it.origin, "sample.plugin")}" },
         )
         assertEquals(
             listOf("sample.plugin.config.SampleConfig", "sample.plugin.config.GreetingConfig"),
@@ -258,128 +386,145 @@ class IndexTest {
     }
 
     @Test
-    fun `the generated index lists sections without referring to ConfigSource`() {
-        val generated = compileSample().generated("sample.plugin.SamplePluginIndex")
-
-        assertContains(generated, "package sample.plugin\n")
-        assertContains(generated, "override fun configSections(): List<ConfigSectionSpec<*>> = listOf(")
-        assertContains(generated, "deserializer = sample.plugin.config.GreetingConfig.serializer(),")
-        assertFalse("ConfigSource" in generated, generated)
-    }
-
-    @Test
-    fun `section paths are relative to the module's config root`() {
-        val compiled = compile(
-            workingDir,
-            source(
-                "Paths.kt",
-                """
-                package sample
-
-                import kotlinx.serialization.Serializable
-                import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
-
-                @ConfigSection() @Serializable class Root
-                @ConfigSection("cache") @Serializable class Cache
-                @ConfigSection("cache.disk") @Serializable class Disk
-                @ConfigSection("Web-hooks_2.retry") @Serializable class Retry
-                @ConfigSection("cache.enabled") @Serializable class CacheSwitch
-                """,
-            ),
-        )
-        compiled.assertSucceeded()
-
-        val index = compiled.indexes().single()
-        assertEquals(
-            listOf("", "Web-hooks_2.retry", "cache", "cache.disk", "cache.enabled"),
-            index.configSections().map { it.path },
-        )
-        assertEquals("plugins.sample", index.configRoot)
-    }
-
-    @Test
-    fun `a module without components or sections still gets an index`() {
-        val compiled = compile(
-            workingDir,
-            source("Plain.kt", "package sample\n\nclass Plain\n"),
-            options = mapOf(MODULE_OPTION to "sample", PACKAGE_OPTION to "sample"),
-        )
-        compiled.assertSucceeded()
-
-        val index = compiled.indexes().single()
-        assertEquals("sample", index.module)
-        assertEquals(emptyList(), index.bindings())
-        assertEquals(emptyList(), index.configSections())
-        assertFalse("configSections" in compiled.generated("sample.SampleIndex"))
-        Container.build(listOf(index)).close()
-    }
-
-    // Compilation settings.
-
-    @Test
-    fun `the index compiles in explicit API strict mode`() {
-        val compiled = compile(
-            workingDir,
-            source(
-                "Explicit.kt",
-                """
-                package sample
-
-                import kotlinx.serialization.Serializable
-                import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
-                import org.foedusprogramme.alexandrite.sdk.di.Singleton
-
-                @Singleton
-                public class Clock
-
-                @Singleton
-                internal class Greeter(private val clock: Clock, private val config: GreeterConfig)
-
-                @ConfigSection
-                @Serializable
-                internal class GreeterConfig
-                """,
-            ),
-            explicitApi = true,
-        )
-
-        compiled.assertSucceeded()
-        assertEquals(2, compiled.indexes().single().bindings().size)
-        assertEquals(1, compiled.indexes().single().configSections().size)
-    }
-
-    @Test
-    fun `components of later rounds are indexed once every round has run`() {
-        val generated = GeneratingProvider(
+    fun `section paths are relative to the plugin's config root`() {
+        val paths = source(
+            "Paths.kt",
             """
             package sample
 
-            @org.foedusprogramme.alexandrite.sdk.di.Singleton
-            class Generated
-            """.trimIndent(),
+            import kotlinx.serialization.Serializable
+            import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+
+            @ConfigSection() @Serializable class Root
+            @ConfigSection("cache") @Serializable class Cache
+            @ConfigSection("cache.disk") @Serializable class Disk
+            @ConfigSection("Web-hooks_2.retry") @Serializable class Retry
+            @ConfigSection("cache.enabled") @Serializable class CacheSwitch
+            """,
         )
-        val compiled = compile(
-            workingDir,
-            source(
-                "Uses.kt",
-                """
-                package sample
+        compile(workingDir.resolve("paths"), paths, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
 
-                import org.foedusprogramme.alexandrite.sdk.di.Singleton
-
-                @Singleton
-                class UsesGenerated(val generated: Generated)
-                """,
-            ),
-            extraProcessor = generated,
-        )
-        compiled.assertSucceeded()
-
-        val bindings = compiled.indexes().single().bindings()
-        assertEquals(listOf("sample.Generated", "sample.UsesGenerated"), bindings.map { it.key.toString() })
-        Container.build(listOf(compiled.indexes().single())).close()
+            val index = compiled.indexes().single()
+            assertEquals(
+                listOf("", "Web-hooks_2.retry", "cache", "cache.disk", "cache.enabled"),
+                index.configSections().map { it.path },
+            )
+            assertEquals("plugins.sample", index.configRoot)
+        }
     }
 
-    private fun simpleOrigin(origin: String): String =
-        origin.removeSuffix(" (module sample-plugin)").substringAfterLast('.')
+    // Generated code.
+
+    @Test
+    fun `a plugin with only its entry class gets an index with the entry's binding`() {
+        compile(workingDir.resolve("entry"), entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            val index = compiled.indexes().single()
+            assertEquals(listOf("sample.SamplePlugin"), index.bindings().map { it.origin })
+            assertEquals(emptyList(), index.configSections())
+            Container.build(listOf(index.pluginBindings())).close()
+        }
+    }
+
+    @Test
+    fun `the index compiles in explicit API strict mode`() {
+        val explicit = source(
+            "Explicit.kt",
+            """
+            package sample
+
+            import kotlinx.serialization.Serializable
+            import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+            import org.foedusprogramme.alexandrite.sdk.di.Singleton
+            import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
+
+            @Plugin(name = "Explicit")
+            public class ExplicitPlugin
+
+            @Singleton
+            public class Clock
+
+            @Singleton
+            internal class Greeter(private val clock: Clock, private val config: GreeterConfig)
+
+            @ConfigSection
+            @Serializable
+            internal class GreeterConfig
+            """,
+        )
+        compile(workingDir.resolve("explicit"), explicit, explicitApi = true).use { compiled ->
+            compiled.assertSucceeded()
+
+            assertEquals(3, compiled.indexes().single().bindings().size)
+            assertEquals(1, compiled.indexes().single().configSections().size)
+        }
+    }
+
+    @Test
+    fun `keywords, backticks and special characters survive into the generated index`() {
+        val special = source(
+            "Special.kt",
+            """
+            package sample.`in`
+
+            import org.foedusprogramme.alexandrite.ksp.Probe
+            import org.foedusprogramme.alexandrite.sdk.di.Binds
+            import org.foedusprogramme.alexandrite.sdk.di.Named
+            import org.foedusprogramme.alexandrite.sdk.di.Singleton
+            import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
+
+            @Plugin(name = "Quote \" dollar ${'$'} backslash \\ newline \n tab \t")
+            class `fun`
+
+            @Singleton
+            @Named("a\"b\${'$'}c\nd\\e")
+            @Binds(Probe::class)
+            class `object`(@Named("x\ty") private val word: String) : Probe {
+                override fun report(): String = word
+            }
+            """,
+        )
+        compile(workingDir.resolve("special"), special).use { compiled ->
+            compiled.assertSucceeded()
+
+            val index = compiled.indexes().single()
+            assertEquals("Quote \" dollar \$ backslash \\ newline \n tab \t", index.info.name)
+            assertEquals(index.info.name, compiled.descriptor("sample")["name"]?.let { (it as JsonPrimitive).content })
+            val word = instanceBinding(key<String>("x\ty"), "special", "test", "test")
+            Container.build(listOf(index.pluginBindings()), listOf(word)).use { container ->
+                assertEquals("special", container.get(key<Probe>("a\"b\$c\nd\\e")).report())
+            }
+        }
+    }
+
+    @Test
+    fun `the generated index compiles in a package whose first segment is a short name`() {
+        val shortPackage = source(
+            "Short.kt",
+            """
+            package r.x
+
+            import org.foedusprogramme.alexandrite.sdk.di.Singleton
+            import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
+
+            @Plugin(name = "Short")
+            class ShortPlugin(val engine: Engine)
+
+            @Singleton
+            class Engine
+            """,
+        )
+        compile(workingDir.resolve("short"), shortPackage).use { compiled ->
+            compiled.assertSucceeded()
+
+            Container.build(listOf(compiled.indexes().single().pluginBindings())).close()
+        }
+    }
+
+    private companion object {
+        @TempDir
+        lateinit var sharedDir: File
+    }
 }

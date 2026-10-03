@@ -1,0 +1,53 @@
+package org.foedusprogramme.alexandrite.runtime
+
+import org.foedusprogramme.alexandrite.runtime.hook.HookDispatcher
+import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
+import org.foedusprogramme.alexandrite.sdk.di.Dependency
+import org.foedusprogramme.alexandrite.sdk.di.DependencyKind
+import org.foedusprogramme.alexandrite.sdk.di.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.binding
+import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.hook.Hook
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Clock
+
+private const val RUNTIME_PLUGIN = "alexandrite-runtime"
+
+/** What the runtime itself binds for [plugins]. */
+internal fun runtimeBindings(
+    config: RuntimeConfig,
+    plugins: List<PluginInfo>,
+    hookFailures: HookFailureListener,
+    created: (HookDispatcher) -> Unit,
+): PluginBindings {
+    val hooks = key<Hook>()
+    val bindings = listOf(
+        binding(
+            key<Hooks>(),
+            RUNTIME_PLUGIN,
+            "Hooks",
+            dependencies = listOf(Dependency(hooks, DependencyKind.ALL, "hooks")),
+        ) { r -> HookDispatcher(r.getAll(hooks), hookFailures).also(created) },
+        instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
+    ) + plugins.flatMap { plugin ->
+        listOf(
+            instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
+            instanceBinding(
+                key<PluginFiles>(plugin.id),
+                DataDirectory(config.dataDir.resolve("plugins").resolve(plugin.id)),
+                RUNTIME_PLUGIN,
+                "PluginFiles of ${plugin.id}",
+            ),
+        )
+    }
+    return PluginBindings(RUNTIME_PLUGIN, bindings)
+}
+
+private class DataDirectory(directory: Path) : PluginFiles {
+    override val dataDir: Path by lazy { Files.createDirectories(directory) }
+}

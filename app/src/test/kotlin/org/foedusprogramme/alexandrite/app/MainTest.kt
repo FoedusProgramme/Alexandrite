@@ -1,42 +1,32 @@
 package org.foedusprogramme.alexandrite.app
 
-import org.foedusprogramme.alexandrite.sdk.di.ModuleIndex
-import java.util.ServiceLoader
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
+import org.foedusprogramme.alexandrite.runtime.PluginSet
+import org.slf4j.LoggerFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 
 class MainTest {
     @Test
-    fun `startup line names the product and the expanded version`() {
-        val line = startupLine()
-        assertTrue(Regex("""Alexandrite \d+\.\d+\.\d+\S* starting""").matches(line), line)
+    fun `main logs the version and the built-in plugins it finds`() {
+        val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app.Main") as Logger
+        val appender = ListAppender<ILoggingEvent>().apply { start() }
+        logger.addAppender(appender)
+        try {
+            main()
+        } finally {
+            logger.detachAppender(appender)
+        }
+
+        val line = appender.list.single().formattedMessage
+        val match = assertNotNull(STARTUP_LINE.matchEntire(line), line)
+        assertEquals(PluginSet.builtInPlugins.map { it.id }.sorted(), match.groupValues[1].split(", "))
     }
 
-    @Test
-    fun `every library is on the runtime classpath`() {
-        assertEquals(8, assembledModules().toSet().size)
-    }
-
-    @Test
-    fun `every built-in index is found in its module's package`() {
-        val base = "org.foedusprogramme.alexandrite"
-        assertEquals(
-            mapOf(
-                "alexandrite-agent" to "$base.agent.AlexandriteAgentIndex",
-                "alexandrite-app" to "$base.app.AlexandriteAppIndex",
-                "alexandrite-channel-telegram" to "$base.channel.telegram.AlexandriteChannelTelegramIndex",
-                "alexandrite-provider-anthropic" to "$base.provider.anthropic.AlexandriteProviderAnthropicIndex",
-                "alexandrite-provider-openai-compatible" to
-                    "$base.provider.openaicompatible.AlexandriteProviderOpenaiCompatibleIndex",
-                "alexandrite-tools" to "$base.tools.AlexandriteToolsIndex",
-            ),
-            ServiceLoader.load(ModuleIndex::class.java).associate { it.module to it.javaClass.name },
-        )
-    }
-
-    @Test
-    fun `main returns normally`() {
-        main()
+    private companion object {
+        val STARTUP_LINE = Regex("""Alexandrite \d+\.\d+\.\d+\S* starting with built-in plugins \[(.*)]""")
     }
 }

@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 
 class KeyTest {
     interface Tool
@@ -30,7 +31,12 @@ class KeyTest {
 
     @Test
     fun `a nullable type is rejected`() {
-        assertFailsWith<IllegalArgumentException> { Key<String>(typeOf<String?>()) }
+        assertFailsWith<IllegalArgumentException> { Key<String>(typeOf<String?>(), null) }
+    }
+
+    @Test
+    fun `a key has no copy or component functions`() {
+        assertTrue(Key::class.java.methods.none { it.name == "copy" || it.name.startsWith("component") })
     }
 
     @Test

@@ -1,0 +1,6 @@
+plain "plain"
+a"b "a\"b"
+a\b "a\\b"
+$a "\$a"
+${env:X} "\${env:X}"
+a"b\c$d "a\"b\\c\$d"

@@ -1,34 +1,34 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
-import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.AMBIGUOUS
-import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.CYCLE
-import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.MISSING
-import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.MODULE_MISMATCH
-import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.SCOPE
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.AMBIGUOUS
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.CYCLE
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.MISSING
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.PLUGIN_MISMATCH
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.SCOPE
 import org.foedusprogramme.alexandrite.sdk.di.Scope.CHANNEL_INSTANCE
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
 class ValidationTest {
     private val serviceType = "org.foedusprogramme.alexandrite.sdk.di.Service"
 
     @Test
-    fun `every problem is reported on its own line, saying what to fix`() {
+    fun `every problem is reported on its own line, saying what is wrong`() {
         val error = assertFailsWith<DiException> {
             Container.build(
                 listOf(
-                    index(
+                    plugin(
                         "core",
-                        service("a", dep("b"), module = "core"),
-                        service("b", dep("a"), module = "core"),
-                        service("registry", dep("state"), module = "core"),
-                        service("state", scope = CHANNEL_INSTANCE, module = "core"),
-                        service("tool", dep("clock"), module = "core"),
+                        service("a", dep("b"), plugin = "core"),
+                        service("b", dep("a"), plugin = "core"),
+                        service("registry", dep("state"), plugin = "core"),
+                        service("state", scope = CHANNEL_INSTANCE, plugin = "core"),
+                        service("tool", dep("clock"), plugin = "core"),
                     ),
-                    index("extra", service("registry", module = "extra")),
+                    plugin("extra", service("registry", plugin = "extra")),
                 ),
             )
         }
@@ -36,39 +36,39 @@ class ValidationTest {
         assertEquals(
             """
             Cannot build container 'root' (4 problems):
-            - Ambiguous binding: @Named("registry") $serviceType is bound by registry (module core) and registry (module extra). Remove all but one of them, or override the key.
-            - Scope violation: singleton registry (module core) depends on channel-instance-scoped state (module core) through parameter 'state'. Make registry (module core) channel-instance-scoped or drop the dependency.
-            - Missing binding: nothing binds @Named("clock") $serviceType, which tool (module core) needs for parameter 'clock'. Loaded modules: core, extra. Bind it in one of them or pass an override to Container.build().
-            - Dependency cycle: a (module core) -> b (module core) -> a (module core), through parameters 'b', 'a'. Inject one of them as Lazy or a provider.
+            - Ambiguous binding: @Named("registry") $serviceType is bound by registry (plugin core) and registry (plugin extra). Remove all but one of them.
+            - Scope violation: singleton registry (plugin core) depends on channel-instance-scoped state (plugin core) through parameter 'state'. Make registry channel-instance-scoped or drop the dependency.
+            - Missing binding: nothing binds @Named("clock") $serviceType, which tool (plugin core) needs for parameter 'clock'. Loaded plugins: core, extra.
+            - Dependency cycle: a (plugin core) -> b (plugin core) -> a (plugin core), through parameters 'b', 'a'. Inject one of them as Lazy or a provider.
             """.trimIndent(),
             error.message,
         )
         assertEquals(
             listOf(
-                Problem(AMBIGUOUS, error.message!!.lines()[1].removePrefix("- "), null, svc("registry")),
-                Problem(SCOPE, error.message!!.lines()[2].removePrefix("- "), "core", svc("state")),
-                Problem(MISSING, error.message!!.lines()[3].removePrefix("- "), "core", svc("clock")),
-                Problem(CYCLE, error.message!!.lines()[4].removePrefix("- "), "core", svc("a")),
+                Triple(AMBIGUOUS, null, svc("registry")),
+                Triple(SCOPE, "core", svc("state")),
+                Triple(MISSING, "core", svc("clock")),
+                Triple(CYCLE, "core", svc("a")),
             ),
-            error.problems,
+            error.problems.map { Triple(it.kind, it.plugin, it.key) },
         )
     }
 
     @Test
-    fun `an index that returns a binding of another module is rejected`() {
-        val core = index("core", service("a", module = "core"), service("b", module = "extra"))
-
-        val error = assertFailsWith<DiException> { Container.build(listOf(core)) }
+    fun `bindings listed under another plugin are rejected`() {
+        val error = assertFailsWith<DiException> {
+            Container.build(listOf(plugin("core", service("a", plugin = "core"), service("b", plugin = "extra"))))
+        }
 
         assertEquals(
             "Cannot build container 'root' (1 problem):\n" +
-                "- Module mismatch: the index of module 'core' (${core::class.java.name}) returns " +
-                "b (module extra), which belongs to module 'extra'. Return only bindings of module 'core' from it.",
+                "- Plugin mismatch: the bindings of plugin 'core' include b (plugin extra), " +
+                "which belongs to plugin 'extra'.",
             error.message,
         )
         assertEquals(
-            listOf(Problem(MODULE_MISMATCH, error.problems.single().message, "core", svc("b"))),
-            error.problems,
+            listOf(Triple(PLUGIN_MISMATCH, "core", svc("b"))),
+            error.problems.map { Triple(it.kind, it.plugin, it.key) },
         )
     }
 
@@ -92,14 +92,14 @@ class ValidationTest {
                 build(service("a", dep("b")), service("b", dep("c")), service("c", dep("a")))
             }
 
-        assertTrue("a (module test) -> b (module test) -> c (module test) -> a (module test)" in error.message!!)
+        assertContains(error.message!!, "a (plugin test) -> b (plugin test) -> c (plugin test) -> a (plugin test)")
     }
 
     @Test
     fun `a binding that depends on itself is a cycle`() {
         val error = assertFailsWith<DiException> { build(service("a", dep("a"))) }
 
-        assertTrue("a (module test) -> a (module test), through parameter 'a'" in error.message!!)
+        assertContains(error.message!!, "a (plugin test) -> a (plugin test), through parameter 'a'")
     }
 
     @Test
@@ -108,7 +108,7 @@ class ValidationTest {
             build(service("a", dep("b", DependencyKind.OPTIONAL)), service("b", dep("a")))
         }
 
-        assertTrue("Dependency cycle: a (module test) -> b (module test) -> a (module test)" in error.message!!)
+        assertContains(error.message!!, "Dependency cycle: a (plugin test) -> b (plugin test) -> a (plugin test)")
     }
 
     @Test
@@ -120,7 +120,7 @@ class ValidationTest {
             )
         }
 
-        assertTrue("Dependency cycle: a (module test) -> t (module test) -> a (module test)" in error.message!!)
+        assertContains(error.message!!, "Dependency cycle: a (plugin test) -> t (plugin test) -> a (plugin test)")
     }
 
     @Test
@@ -146,9 +146,9 @@ class ValidationTest {
         val error =
             assertFailsWith<DiException> { build(service("a", dep("c")), service("c", scope = CHANNEL_INSTANCE)) }
 
-        assertTrue(
-            "Scope violation: singleton a (module test) depends on channel-instance-scoped c (module test)" in
-                error.message!!,
+        assertContains(
+            error.message!!,
+            "Scope violation: singleton a (plugin test) depends on channel-instance-scoped c (plugin test)",
         )
     }
 
@@ -162,7 +162,7 @@ class ValidationTest {
             )
         }
 
-        assertTrue("depends on channel-instance-scoped t2 (module test) through parameter 'tools'" in error.message!!)
+        assertContains(error.message!!, "depends on channel-instance-scoped t2 (plugin test) through parameter 'tools'")
     }
 
     @Test
@@ -171,6 +171,6 @@ class ValidationTest {
             build(service("a", dep("c", DependencyKind.LAZY)), service("c", scope = CHANNEL_INSTANCE))
         }
 
-        assertTrue("Scope violation" in error.message!!)
+        assertEquals(listOf(SCOPE), error.problems.map { it.kind })
     }
 }

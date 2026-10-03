@@ -1,6 +1,13 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
 import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.AMBIGUOUS
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.CLOSED
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.EXTRA_SCOPE
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.MISSING
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.NESTED_CHILD
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.UNKNOWN_PLUGIN
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.UNLISTED_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.Scope.CHANNEL_INSTANCE
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -8,14 +15,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
 class ChildContainerTest {
     private val events = Events()
     private val channelName = key<String>("channel.name")
     private val nameOfChannel = Dependency(channelName, DependencyKind.INSTANCE, "name")
 
-    private fun nameBinding(name: String) = instanceBinding(channelName, name, "runtime", "channel config")
+    private fun nameBinding(name: String) =
+        instanceBinding(channelName, name, "runtime", "channel config", scope = CHANNEL_INSTANCE)
 
     @Test
     fun `a child sees the parent's singletons and its own bindings`() {
@@ -60,10 +67,13 @@ class ChildContainerTest {
 
         val error = assertFailsWith<DiException> { root.child("tg", setOf("test")) }
 
-        assertTrue(error.message!!.startsWith("Cannot build channel instance container 'tg' (1 problem):"))
-        assertTrue("which c (module test) needs for parameter 'name'" in error.message!!)
-        assertTrue("pass it to child()" in error.message!!)
-        assertEquals(listOf(ProblemKind.MISSING), error.problems.map { it.kind })
+        assertEquals(listOf(MISSING), error.problems.map { it.kind })
+        assertEquals(
+            "Cannot build channel instance container 'tg' (1 problem):\n" +
+                "- Missing binding: nothing binds $channelName, which c (plugin test) needs for parameter 'name'. " +
+                "Loaded plugins: test.",
+            error.message,
+        )
     }
 
     @Test
@@ -71,11 +81,22 @@ class ChildContainerTest {
         val root = build(service("a"))
 
         val error = assertFailsWith<DiException> {
-            root.child("tg", setOf("test"), listOf(service("a", module = "extra")))
+            root.child("tg", setOf("test"), listOf(service("a", plugin = "extra", scope = CHANNEL_INSTANCE)))
         }
 
-        assertTrue("a (module test) and a (module extra)" in error.message!!)
-        assertEquals(listOf(ProblemKind.AMBIGUOUS), error.problems.map { it.kind })
+        assertEquals(listOf(AMBIGUOUS), error.problems.map { it.kind })
+        assertContains(error.message!!, "a (plugin test) and a (plugin extra)")
+    }
+
+    @Test
+    fun `a child rejects an extra binding that is not channel-instance-scoped`() {
+        val error = assertFailsWith<DiException> { build().child("tg", setOf("test"), listOf(service("x"))) }
+
+        assertEquals(listOf(EXTRA_SCOPE to "test"), error.problems.map { it.kind to it.plugin })
+        assertContains(
+            error.message!!,
+            "x (plugin test) is added to a channel instance container, but is not channel-instance-scoped.",
+        )
     }
 
     @Test
@@ -102,6 +123,22 @@ class ChildContainerTest {
     }
 
     @Test
+    fun `a parent closed while a child is created closes the child and fails`() {
+        lateinit var root: Container
+        val closer = binding(svc("closer"), "test", "closer", scope = CHANNEL_INSTANCE) {
+            root.close()
+            Service("closer", events, emptyMap(), failStart = false, failClose = false)
+        }
+        root = build(service("a", events = events), closer)
+
+        val error = assertFailsWith<DiException> { root.child("tg", setOf("test")) }
+
+        assertEquals(listOf(CLOSED), error.problems.map { it.kind })
+        assertEquals("Cannot create channel instance container 'tg': container 'root' is closed.", error.message)
+        assertEquals(listOf("close a", "close closer"), events.starting("close"))
+    }
+
+    @Test
     fun `a child starts only its own instances`() {
         val root = build(service("a", events = events), service("c", scope = CHANNEL_INSTANCE, events = events))
 
@@ -116,34 +153,67 @@ class ChildContainerTest {
 
         val error = assertFailsWith<DiException> { root.get(svc("c")) }
 
-        assertTrue("is channel-instance-scoped, bound by c (module test)" in error.message!!)
+        assertContains(
+            error.message!!,
+            "is channel-instance-scoped, bound by c (plugin test), so container 'root' does not create it.",
+        )
     }
 
     @Test
     fun `a channel instance container cannot create children`() {
         val child = build().child("tg", setOf("test"))
 
-        assertFailsWith<DiException> { child.child("nested", setOf("test")) }
+        val error = assertFailsWith<DiException> { child.child("nested", setOf("test")) }
+
+        assertEquals(listOf(NESTED_CHILD), error.problems.map { it.kind })
     }
 
-    // Modules.
+    // Validation.
+
+    @Test
+    fun `validateChild reports the problems of a child without creating anything`() {
+        val root = build(
+            service("a", events = events),
+            service("c", dep("a"), nameOfChannel, scope = CHANNEL_INSTANCE, events = events),
+        )
+
+        val problems = root.validateChild(setOf("test", "tset"), listOf(service("x")))
+
+        assertEquals(
+            listOf(UNKNOWN_PLUGIN to null, EXTRA_SCOPE to "test", MISSING to "test"),
+            problems.map { it.kind to it.plugin },
+        )
+        assertEquals(emptyList(), root.validateChild(setOf("test"), listOf(nameBinding("tg"))))
+        assertEquals(listOf("create a"), events.all())
+    }
+
+    @Test
+    fun `validateChild is refused inside a channel instance container`() {
+        val child = build().child("tg", setOf("test"))
+
+        val error = assertFailsWith<DiException> { child.validateChild(setOf("test")) }
+
+        assertEquals(listOf(NESTED_CHILD), error.problems.map { it.kind })
+    }
+
+    // Plugins.
 
     private fun channels(
-        telegram: List<Binding<*>> = listOf(channel("bot", dep("core"), module = "telegram")),
-        discord: List<Binding<*>> = listOf(channel("guild", dep("core"), module = "discord")),
+        telegram: List<Binding<*>> = listOf(channel("bot", dep("core"), plugin = "telegram")),
+        discord: List<Binding<*>> = listOf(channel("guild", dep("core"), plugin = "discord")),
     ): Container = Container.build(
         listOf(
-            index("core", service("core", module = "core", events = events)),
-            index("telegram", *telegram.toTypedArray()),
-            index("discord", *discord.toTypedArray()),
+            plugin("core", service("core", plugin = "core", events = events)),
+            plugin("telegram", *telegram.toTypedArray()),
+            plugin("discord", *discord.toTypedArray()),
         ),
     )
 
-    private fun channel(name: String, vararg dependencies: Dependency, module: String) =
-        service(name, *dependencies, scope = CHANNEL_INSTANCE, module = module, events = events)
+    private fun channel(name: String, vararg dependencies: Dependency, plugin: String) =
+        service(name, *dependencies, scope = CHANNEL_INSTANCE, plugin = plugin, events = events)
 
     @Test
-    fun `a child creates only the channel bindings of its modules`() {
+    fun `a child creates only the channel bindings of its plugins`() {
         val root = channels()
 
         val telegram = root.child("tg", setOf("telegram"))
@@ -155,23 +225,23 @@ class ChildContainerTest {
     }
 
     @Test
-    fun `a child validates only the channel bindings of its modules`() {
-        val root = channels(discord = listOf(channel("guild", dep("webhook"), module = "discord")))
+    fun `a child validates only the channel bindings of its plugins`() {
+        val root = channels(discord = listOf(channel("guild", dep("webhook"), plugin = "discord")))
 
         root.child("tg", setOf("telegram"))
         val error = assertFailsWith<DiException> { root.child("dc", setOf("discord")) }
 
-        assertEquals(listOf(ProblemKind.MISSING), error.problems.map { it.kind })
-        assertContains(error.message!!, "which guild (module discord) needs for parameter 'webhook'")
+        assertEquals(listOf(MISSING), error.problems.map { it.kind })
+        assertContains(error.message!!, "which guild (plugin discord) needs for parameter 'webhook'")
     }
 
     @Test
-    fun `a channel binding that needs a channel binding of an unlisted module fails naming both modules`() {
+    fun `a channel binding that needs a channel binding of an unlisted plugin fails naming both plugins`() {
         val serviceType = Service::class.qualifiedName
         val root = channels(
             telegram = listOf(
-                channel("bot", dep("guild"), module = "telegram"),
-                channel("relay", dep("guild", DependencyKind.OPTIONAL), module = "telegram"),
+                channel("bot", dep("guild"), plugin = "telegram"),
+                channel("relay", dep("guild", DependencyKind.OPTIONAL), plugin = "telegram"),
             ),
         )
 
@@ -180,61 +250,105 @@ class ChildContainerTest {
         assertEquals(
             """
             Cannot build channel instance container 'tg' (2 problems):
-            - Unlisted module: module 'telegram' needs @Named("guild") $serviceType from module 'discord': bot (module telegram) injects it as parameter 'guild' and only guild (module discord) binds it, but channel instance container 'tg' was not created for module 'discord'. List 'discord' in the modules passed to child() or drop the dependency.
-            - Unlisted module: module 'telegram' needs @Named("guild") $serviceType from module 'discord': relay (module telegram) injects it as parameter 'guild' and only guild (module discord) binds it, but channel instance container 'tg' was not created for module 'discord'. List 'discord' in the modules passed to child() or drop the dependency.
+            - Unlisted plugin: plugin 'telegram' needs @Named("guild") $serviceType from plugin 'discord': bot (plugin telegram) injects it as parameter 'guild' and only guild (plugin discord) binds it, but the channel instance container is not for plugin 'discord'.
+            - Unlisted plugin: plugin 'telegram' needs @Named("guild") $serviceType from plugin 'discord': relay (plugin telegram) injects it as parameter 'guild' and only guild (plugin discord) binds it, but the channel instance container is not for plugin 'discord'.
             """.trimIndent(),
             error.message,
         )
         assertEquals(
-            List(2) { Triple(ProblemKind.UNLISTED_MODULE, "telegram", svc("guild")) },
-            error.problems.map { Triple(it.kind, it.module, it.key) },
+            List(2) { Triple(UNLISTED_PLUGIN, "telegram", svc("guild")) },
+            error.problems.map { Triple(it.kind, it.plugin, it.key) },
         )
         val both = root.child("both", setOf("telegram", "discord"))
         assertSame(both.get(svc("guild")), both.get(svc("bot")).dependency("guild"))
     }
 
     @Test
-    fun `a child refuses a key of a module it was not created for`() {
+    fun `a child refuses a key of a plugin it is not for`() {
         val telegram = channels().child("tg", setOf("telegram"))
 
         val error = assertFailsWith<DiException> { telegram.get(svc("guild")) }
 
-        assertEquals(ProblemKind.UNLISTED_MODULE, error.problems.single().kind)
-        assertContains(error.message!!, "is only bound in module 'discord', by guild (module discord)")
+        assertEquals(UNLISTED_PLUGIN, error.problems.single().kind)
+        assertContains(
+            error.message!!,
+            "is only bound in plugin 'discord', by guild (plugin discord), which channel instance container 'tg' " +
+                "is not for.",
+        )
     }
 
     @Test
-    fun `a child for a module that is not loaded fails`() {
+    fun `a child for a plugin that is not loaded fails`() {
         val error = assertFailsWith<DiException> { channels().child("tg", setOf("telegram", "telegarm")) }
 
         assertEquals(
             "Cannot build channel instance container 'tg' (1 problem):\n" +
-                "- Unknown module: channel instance container 'tg' was created for module 'telegarm', " +
-                "which is not loaded. Loaded modules: core, discord, telegram.",
+                "- Unknown plugin: 'telegarm' is not loaded. Loaded plugins: core, discord, telegram.",
             error.message,
         )
-        assertEquals(ProblemKind.UNKNOWN_MODULE, error.problems.single().kind)
+        assertEquals(UNKNOWN_PLUGIN, error.problems.single().kind)
     }
 
     @Test
-    fun `a child's getAll mixes singleton and channel contributions of its modules in order`() {
+    fun `a child's getAll mixes singleton and channel contributions of its plugins in order, extras last`() {
         val tools = svc("tools")
         val root = Container.build(
             listOf(
-                index("beta", service("b1", key = tools, multi = true, scope = CHANNEL_INSTANCE, module = "beta")),
-                index(
+                plugin("beta", service("b1", key = tools, multi = true, scope = CHANNEL_INSTANCE, plugin = "beta")),
+                plugin(
                     "alpha",
-                    service("a1", key = tools, multi = true, module = "alpha"),
-                    service("a2", key = tools, multi = true, scope = CHANNEL_INSTANCE, module = "alpha"),
+                    service("a1", key = tools, multi = true, plugin = "alpha"),
+                    service("a2", key = tools, multi = true, scope = CHANNEL_INSTANCE, plugin = "alpha"),
                 ),
             ),
         )
+        val extra = service("extra", key = tools, multi = true, scope = CHANNEL_INSTANCE)
 
-        val child = root.child("tg", setOf("alpha", "beta"), listOf(service("extra", key = tools, multi = true)))
+        val child = root.child("tg", setOf("alpha", "beta"), listOf(extra))
 
         assertEquals(listOf("a1", "a2", "b1", "extra"), child.getAll(tools).map { it.name })
         assertEquals(listOf("a1", "a2"), root.child("alpha", setOf("alpha")).getAll(tools).map { it.name })
         assertSame(child.getAll(tools).first(), root.child("beta", setOf("beta")).getAll(tools).first())
         assertFailsWith<DiException> { root.getAll(tools) }
+    }
+
+    @Test
+    fun `channel bindings of one key in two plugins are ambiguous only in a child of both`() {
+        val driver = svc("driver")
+        val root = channels(
+            telegram = listOf(service("bot", key = driver, scope = CHANNEL_INSTANCE, plugin = "telegram")),
+            discord = listOf(service("guild", key = driver, scope = CHANNEL_INSTANCE, plugin = "discord")),
+        )
+
+        assertEquals("bot", root.child("tg", setOf("telegram")).get(driver).name)
+        assertEquals("guild", root.child("dc", setOf("discord")).get(driver).name)
+        val error = assertFailsWith<DiException> { root.child("both", setOf("telegram", "discord")) }
+        assertEquals(listOf(AMBIGUOUS), error.problems.map { it.kind })
+        assertContains(error.message!!, "guild (plugin discord) and bot (plugin telegram)")
+    }
+
+    @Test
+    fun `the root rejects a key bound twice in one plugin or by a singleton and a channel binding`() {
+        val driver = svc("driver")
+        fun channel(name: String, plugin: String) =
+            service(name, key = driver, scope = CHANNEL_INSTANCE, plugin = plugin)
+
+        val twice = assertFailsWith<DiException> {
+            channels(
+                telegram = listOf(channel("bot", "telegram"), channel("relay", "telegram")),
+                discord = listOf(channel("guild", "discord")),
+            )
+        }
+        val mixed = assertFailsWith<DiException> {
+            channels(
+                telegram = listOf(channel("bot", "telegram")),
+                discord = listOf(service("hub", key = driver, plugin = "discord")),
+            )
+        }
+
+        assertEquals(listOf(AMBIGUOUS), twice.problems.map { it.kind })
+        assertContains(twice.message!!, "is bound by bot (plugin telegram) and relay (plugin telegram).")
+        assertEquals(listOf(AMBIGUOUS), mixed.problems.map { it.kind })
+        assertContains(mixed.message!!, "is bound by hub (plugin discord) and bot (plugin telegram).")
     }
 }

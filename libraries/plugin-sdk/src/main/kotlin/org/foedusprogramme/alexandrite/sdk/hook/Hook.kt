@@ -1,12 +1,15 @@
 package org.foedusprogramme.alexandrite.sdk.hook
 
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
+import java.util.Objects
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** A subscription to one [HookPoint]. */
 @ContributedSpi
 public sealed interface Hook {
+    public val point: HookPoint<*>
+
     /** Lower runs first. */
     public val order: Int get() = 0
 
@@ -16,14 +19,14 @@ public sealed interface Hook {
 
 /** A hook that may replace the payload of an [InterceptorPoint] or stop its chain. */
 public interface InterceptorHook<P : Any> : Hook {
-    public val point: InterceptorPoint<P>
+    override val point: InterceptorPoint<P>
 
     public suspend fun intercept(payload: P): HookDecision<P>
 }
 
 /** A hook that sees the payload of an [ObserverPoint]. */
 public interface ObserverHook<P : Any> : Hook {
-    public val point: ObserverPoint<P>
+    override val point: ObserverPoint<P>
     public val delivery: Delivery get() = Delivery.INLINE
 
     public suspend fun observe(payload: P)
@@ -42,7 +45,19 @@ public enum class Delivery {
 public sealed interface HookDecision<out P : Any> {
     public data object Continue : HookDecision<Nothing>
 
-    public data class Replace<P : Any>(val payload: P) : HookDecision<P>
+    public class Replace<P : Any>(public val payload: P) : HookDecision<P> {
+        override fun equals(other: Any?): Boolean = other is Replace<*> && payload == other.payload
 
-    public data class Abort(val reason: String? = null) : HookDecision<Nothing>
+        override fun hashCode(): Int = payload.hashCode()
+
+        override fun toString(): String = "Replace(payload=$payload)"
+    }
+
+    public class Abort(public val reply: String? = null) : HookDecision<Nothing> {
+        override fun equals(other: Any?): Boolean = other is Abort && reply == other.reply
+
+        override fun hashCode(): Int = Objects.hashCode(reply)
+
+        override fun toString(): String = "Abort(reply=$reply)"
+    }
 }

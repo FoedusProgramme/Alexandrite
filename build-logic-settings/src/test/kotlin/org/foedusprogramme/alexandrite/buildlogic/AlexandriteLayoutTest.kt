@@ -4,7 +4,9 @@ import java.io.File
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -177,10 +179,36 @@ class AlexandriteLayoutTest {
             openAi to "org.foedusprogramme.alexandrite.provider.openaicompatible",
             anthropic to "org.foedusprogramme.alexandrite.provider.anthropic",
             app to "org.foedusprogramme.alexandrite.app",
-            ":libraries:channels:Discord-Bot" to "org.foedusprogramme.alexandrite.channel.discordbot",
+            ":libraries:channels:discord-bot" to "org.foedusprogramme.alexandrite.channel.discordbot",
             ":libraries:providers:open-router" to "org.foedusprogramme.alexandrite.provider.openrouter",
         )
         assertEquals(expected, expected.keys.associateWith { module(it).packageName })
+    }
+
+    @Test
+    fun `index class names follow the golden table shared with the KSP processor`() {
+        val table = javaClass.getResource("/plugin-index-names.txt")!!.readBytes()
+        assertContentEquals(table, File("../build-ksp-plugin/src/test/resources/plugin-index-names.txt").readBytes())
+
+        for ((id, name) in table.decodeToString().lines().filter { it.isNotBlank() }.map { it.split(' ') }) {
+            assertTrue(AlexandriteLayout.PLUGIN_ID.matches(id), id)
+            assertEquals(name, AlexandriteLayout.indexClassName(id), id)
+        }
+    }
+
+    @Test
+    fun `index classes of built-in modules are named in their package`() {
+        val base = "org.foedusprogramme.alexandrite"
+        val expected = mapOf(
+            agent to "$base.agent.AlexandriteAgentIndex",
+            tools to "$base.tools.AlexandriteToolsIndex",
+            telegram to "$base.channel.telegram.AlexandriteChannelTelegramIndex",
+            openAi to "$base.provider.openaicompatible.AlexandriteProviderOpenaiCompatibleIndex",
+            anthropic to "$base.provider.anthropic.AlexandriteProviderAnthropicIndex",
+            app to "$base.app.AlexandriteAppIndex",
+            hello to null,
+        )
+        assertEquals(expected, expected.keys.associateWith { module(it).indexClass })
     }
 
     @Test
@@ -351,11 +379,116 @@ class AlexandriteLayoutTest {
     }
 
     @Test
+    fun `an indexed module whose name is no plugin id fails`() {
+        val malformed = listOf("libraries/channels/Discord-Bot", "libraries/providers/x-1b", "examples/2fa")
+        val discovery = discoverIn(today + malformed + "libraries/providers/open-router" + "examples/hello2")
+
+        val failure = assertNotNull(discovery.failure)
+        assertContains(failure, ":libraries:channels:Discord-Bot is named 'alexandrite-channel-Discord-Bot'.")
+        assertContains(failure, ":libraries:providers:x-1b is named 'alexandrite-provider-x-1b'.")
+        assertContains(failure, ":examples:2fa is named '2fa'.")
+        assertEquals(3, failure.lines().count { it.startsWith("  - ") }, failure)
+        assertNull(discoverIn(today + "libraries/providers/open-router" + "examples/hello2").failure)
+    }
+
+    @Test
     fun `a project at no location is reported with the layout's location`() {
         val message = AlexandriteLayout.noLocationMessage(":libraries:foo")
         assertContains(message, "':libraries:foo'")
         assertContains(message, "libraries/providers/<name>/ (PROVIDER)")
         assertContains(message, AlexandriteLayout.LAYOUT_LOCATION)
+    }
+
+    // Built-in list.
+
+    @Test
+    fun `the built-in list holds every built-in indexed module and no example`() {
+        val discovery = discoverIn(today + "libraries/channels/discord" + "examples/hello")
+
+        assertEquals(
+            listOf(app, agent, ":libraries:channels:discord", telegram, anthropic, openAi, tools),
+            BuiltInList.modules(discovery).map { it.path },
+        )
+    }
+
+    @Test
+    fun `the built-in list source holds the built-in layers and each module's index class, id, layer and root`() {
+        val discovery = discoverIn(listOf("libraries/plugin-sdk", "libraries/agent", "libraries/channels/telegram"))
+
+        assertEquals(
+            """
+            package org.foedusprogramme.alexandrite.runtime
+
+            public enum class BuiltInLayer {
+                AGENT,
+                TOOLS,
+                CHANNEL,
+                PROVIDER,
+                APP,
+            }
+
+            internal val BUILT_IN_PLUGINS: List<BuiltInPlugin> = listOf(
+                BuiltInPlugin(
+                    indexClass = "org.foedusprogramme.alexandrite.agent.AlexandriteAgentIndex",
+                    id = "alexandrite-agent",
+                    layer = BuiltInLayer.AGENT,
+                    configRoot = "agent",
+                ),
+                BuiltInPlugin(
+                    indexClass = "org.foedusprogramme.alexandrite.channel.telegram.AlexandriteChannelTelegramIndex",
+                    id = "alexandrite-channel-telegram",
+                    layer = BuiltInLayer.CHANNEL,
+                    configRoot = "channels.telegram",
+                ),
+            )
+
+            """.trimIndent(),
+            BuiltInList.source(discovery),
+        )
+    }
+
+    @Test
+    fun `a built-in module without an index package or config root fails naming it and the layout`() {
+        val agent = module(agent)
+        val cases = listOf(
+            agent.copy(packageName = null) to "index package",
+            agent.copy(configRoot = null) to "config root",
+        )
+
+        for ((module, missing) in cases) {
+            val error = assertFailsWith<IllegalStateException> {
+                BuiltInList.source(Discovery(listOf(module), emptyList(), emptyList()))
+            }
+
+            assertEquals(
+                "Built-in module :libraries:agent has no $missing in ${AlexandriteLayout.LAYOUT_LOCATION}. " +
+                    "Give its location one.",
+                error.message,
+            )
+        }
+    }
+
+    @Test
+    fun `the built-in layers are the indexed layers with built-in locations`() {
+        assertEquals(listOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.APP), BuiltInList.LAYERS)
+    }
+
+    @Test
+    fun `the built-in list escapes its string literals`() {
+        assertEquals("\"a\\\"b\\\$c\\\\d\\ne\\rf\\tg\"", BuiltInList.literal("a\"b\$c\\d\ne\rf\tg"))
+    }
+
+    @Test
+    fun `string literals follow the golden table shared with the KSP processor`() {
+        val table = javaClass.getResource("/kotlin-string-literals.txt")!!.readBytes()
+        assertContentEquals(
+            table,
+            File("../build-ksp-plugin/src/test/resources/kotlin-string-literals.txt").readBytes(),
+        )
+
+        for (line in table.decodeToString().lines().filter { it.isNotBlank() }) {
+            assertEquals(line.substringAfter(' '), BuiltInList.literal(line.substringBefore(' ')), line)
+        }
     }
 
     // Layer rules.

@@ -21,13 +21,14 @@ base {
 configurations.configureEach {
     val configurationName = name
     dependencies.withType<ProjectDependency>().configureEach {
-        AlexandriteLayout.dependencyViolation(module, dependencyPath = path, configurationName)
+        AlexandriteLayout.dependencyViolation(module, dependencyPath = this.path, configurationName)
             ?.let { throw GradleException(it) }
     }
 }
 
 kotlin {
     jvmToolchain(21)
+    explicitApi()
     compilerOptions {
         allWarningsAsErrors = true
     }

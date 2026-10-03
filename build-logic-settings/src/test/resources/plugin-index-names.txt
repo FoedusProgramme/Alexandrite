@@ -1,0 +1,12 @@
+a AIndex
+a1b A1bIndex
+a-b1 AB1Index
+hello HelloIndex
+my-plugin MyPluginIndex
+web2-x9-hooks Web2X9HooksIndex
+alexandrite-agent AlexandriteAgentIndex
+alexandrite-tools AlexandriteToolsIndex
+alexandrite-app AlexandriteAppIndex
+alexandrite-channel-telegram AlexandriteChannelTelegramIndex
+alexandrite-provider-anthropic AlexandriteProviderAnthropicIndex
+alexandrite-provider-openai-compatible AlexandriteProviderOpenaiCompatibleIndex

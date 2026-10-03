@@ -13,9 +13,9 @@ class SecretTest {
 
     @Test
     fun `a decoded secret reveals its value and is masked when printed`() {
-        val root = Json.parseToJsonElement("""{"channels": {"bot": {"token": "s3cr3t"}}}""").jsonObject
+        val tree = Json.parseToJsonElement("""{"token": "s3cr3t"}""").jsonObject
 
-        val config = JsonConfigSource(root).section("channels.bot", BotConfig.serializer())
+        val config = Json.decodeFromJsonElement(BotConfig.serializer(), tree)
 
         assertEquals("s3cr3t", config.token.reveal())
         assertEquals("BotConfig(token=Secret(***), name=bot)", config.toString())

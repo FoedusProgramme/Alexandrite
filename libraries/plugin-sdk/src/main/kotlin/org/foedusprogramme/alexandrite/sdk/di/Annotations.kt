@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.sdk.di
 
 import kotlin.reflect.KClass
 
-/** One instance per root container, the default scope of a component. */
+/** One instance per root container. */
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.BINARY)
 public annotation class Singleton
@@ -42,7 +42,7 @@ public annotation class Provides
 @Retention(AnnotationRetention.BINARY)
 public annotation class ContributedSpi
 
-/** Marks a service type each module gets its own instance of, qualified by the module name. */
+/** Marks a service type each plugin gets its own instance of, qualified by the plugin id. */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.BINARY)
-public annotation class ModuleLocal
+public annotation class PluginLocal

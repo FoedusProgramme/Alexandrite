@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import java.util.Objects
+
 /** Which container creates and owns an instance. */
 public enum class Scope {
     /** One instance per root container. */
@@ -27,16 +29,28 @@ public enum class DependencyKind {
     PROVIDER,
 }
 
-/** A key that [Binding.create] resolves for one of its parameters. */
-public data class Dependency(val key: Key<*>, val kind: DependencyKind, val parameter: String)
+/** A key that [Binding.create] resolves. */
+public class Dependency(
+    public val key: Key<*>,
+    public val kind: DependencyKind,
+    /** The parameter name, or the annotation that adds the dependency. */
+    public val site: String,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is Dependency && key == other.key && kind == other.kind && site == other.site
+
+    override fun hashCode(): Int = Objects.hash(key, kind, site)
+
+    override fun toString(): String = "Dependency(key=$key, kind=$kind, site=$site)"
+}
 
 /** How a [Container] creates the instance for [key]. */
 public interface Binding<T : Any> {
     public val key: Key<T>
     public val scope: Scope
 
-    /** Name of the module the binding belongs to. */
-    public val module: String
+    /** Id of the plugin the binding belongs to. */
+    public val plugin: String
 
     /** Everything [create] may resolve. */
     public val dependencies: List<Dependency>
@@ -55,27 +69,28 @@ public interface Binding<T : Any> {
 
 public fun <T : Any> binding(
     key: Key<T>,
-    module: String,
+    plugin: String,
     origin: String,
     scope: Scope = Scope.SINGLETON,
     dependencies: List<Dependency> = emptyList(),
     multi: Boolean = false,
     managed: Boolean = true,
     create: (Resolver) -> T,
-): Binding<T> = FunctionBinding(key, scope, module, dependencies, multi, origin, managed, create)
+): Binding<T> = FunctionBinding(key, scope, plugin, dependencies, multi, origin, managed, create)
 
 public fun <T : Any> instanceBinding(
     key: Key<T>,
     value: T,
-    module: String,
+    plugin: String,
     origin: String,
+    scope: Scope = Scope.SINGLETON,
     multi: Boolean = false,
-): Binding<T> = binding(key, module, origin, multi = multi, managed = false) { value }
+): Binding<T> = binding(key, plugin, origin, scope, multi = multi, managed = false) { value }
 
 private class FunctionBinding<T : Any>(
     override val key: Key<T>,
     override val scope: Scope,
-    override val module: String,
+    override val plugin: String,
     override val dependencies: List<Dependency>,
     override val multi: Boolean,
     override val origin: String,

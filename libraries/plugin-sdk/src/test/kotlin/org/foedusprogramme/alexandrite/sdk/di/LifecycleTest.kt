@@ -1,11 +1,14 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 class LifecycleTest {
     private val events = Events()
@@ -60,7 +63,44 @@ class LifecycleTest {
         val error = assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
 
         assertEquals("start c failed", error.message)
-        assertEquals(listOf("start a", "start b", "start c", "close b", "close a"), events.all().drop(4))
+        assertEquals(listOf("start a", "start b", "start c"), events.starting("start"))
+        assertEquals(listOf("close b", "close a"), events.starting("close"))
+    }
+
+    @Test
+    fun `close during a start stops it before the next instance`() = runBlocking<Unit> {
+        val gate = CompletableDeferred<Unit>()
+        val container = build(service("a", events = events, startGate = gate), service("b", events = events))
+        val starting = async(start = CoroutineStart.UNDISPATCHED) {
+            assertFailsWith<DiException> { container.start() }
+        }
+
+        container.close()
+        gate.complete(Unit)
+
+        assertEquals(listOf(DiProblemKind.CLOSED), starting.await().problems.map { it.kind })
+        assertEquals(listOf("start a"), events.starting("start"))
+        assertEquals(listOf("close b", "close a"), events.starting("close"))
+    }
+
+    @Test
+    fun `a start that fails after close never closes an instance twice`() = runBlocking<Unit> {
+        val gate = CompletableDeferred<Unit>()
+        val container = build(
+            service("a", events = events),
+            service("b", events = events, failStart = true, startGate = gate),
+            service("c", events = events),
+        )
+        val starting = async(start = CoroutineStart.UNDISPATCHED) {
+            assertFailsWith<IllegalStateException> { container.start() }
+        }
+
+        container.close()
+        gate.complete(Unit)
+
+        assertEquals("start b failed", starting.await().message)
+        assertEquals(listOf("start a", "start b"), events.starting("start"))
+        assertEquals(listOf("close c", "close b", "close a"), events.starting("close"))
     }
 
     @Test
@@ -141,7 +181,7 @@ class LifecycleTest {
             build(service("a", events = events), service("b", dep("a"), events = events, failCreate = true))
         }
 
-        assertTrue("b (module test)" in error.message!!)
+        assertContains(error.message!!, "Cannot create ${svc("b")} with b (plugin test): ")
         assertIs<IllegalStateException>(error.cause)
         assertEquals(listOf("create a", "close a"), events.all())
     }
@@ -162,7 +202,7 @@ class LifecycleTest {
     fun `an instance binding is neither started nor closed`() {
         val given = Service("a", events, emptyMap(), failStart = false, failClose = false)
         val container =
-            build(instanceBinding(svc("a"), given, "test", "a (module test)"), service("b", dep("a"), events = events))
+            build(instanceBinding(svc("a"), given, "test", "a"), service("b", dep("a"), events = events))
 
         runBlocking { container.start() }
         container.close()

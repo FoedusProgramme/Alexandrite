@@ -4,15 +4,15 @@ plugins {
 
 dependencies {
     implementation(project(":libraries:plugin-sdk"))
-    implementation(project(":libraries:internal"))
     implementation(project(":libraries:runtime"))
     implementation(project(":libraries:agent"))
     implementation(project(":libraries:tools"))
     implementation(project(":libraries:channels:telegram"))
     implementation(project(":libraries:providers:openai-compatible"))
     implementation(project(":libraries:providers:anthropic"))
-    implementation(libs.slf4j.api)
     runtimeOnly(libs.logback.classic)
+
+    testImplementation(libs.logback.classic)
 }
 
 application {

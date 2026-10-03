@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -25,7 +26,7 @@ public class Container private constructor(
 
     override fun <T : Any> getAll(key: Key<T>): List<T> {
         ensureOpen(key)
-        graph.singles[key]?.let { throw DiException(Problems.notMulti(key, it)) }
+        graph.singles[key]?.let { throw DiException(Problems.wrongKind(key, all = true, listOf(it))) }
         return graph.multis[key].orEmpty().map { cast(instanceOf(it)) }
     }
 
@@ -46,29 +47,24 @@ public class Container private constructor(
         val done = mutableListOf<Any>()
         for (instance in synchronized(lock) { managed.toList() }) {
             if (instance !is Startable) continue
+            if (synchronized(lock) { closed.get() }) throw DiException(Problems.closed(site))
             try {
                 instance.start()
             } catch (e: Exception) {
-                synchronized(lock) { managed.removeAll { candidate -> done.any { it === candidate } } }
-                closeEach(done.asReversed()).forEach(e::addSuppressed)
+                closeEach(release(done).asReversed()).forEach(e::addSuppressed)
                 throw e
             }
             done += instance
         }
     }
 
-    /** A channel instance container that creates the channel-instance-scoped bindings of [modules] plus [bindings]. */
-    public fun child(name: String, modules: Set<String>, bindings: List<Binding<*>> = emptyList()): Container {
+    /** A channel instance container that creates the channel-instance-scoped bindings of [plugins] plus [bindings]. */
+    public fun child(name: String, plugins: Set<String>, bindings: List<Binding<*>> = emptyList()): Container {
         if (parent != null) throw DiException(Problems.nestedChild(site, name))
         if (closed.get()) throw DiException(Problems.closedParent(site, name))
-        val childSite = Site("channel instance container '$name'", site.modules, child = true)
+        val childSite = Site("channel instance container '$name'", site.plugins, child = true)
         val problems = mutableListOf<Problem>()
-        val unknown = modules - site.modules.toSet() - graph.nodes.mapTo(HashSet()) { it.module }
-        if (unknown.isNotEmpty()) problems += Problems.unknownModules(childSite, unknown)
-        val (listed, unlisted) = graph.nodes.partition { it.level == Scope.SINGLETON || it.module in modules }
-        val extra = bindings.map { Node(it, Scope.CHANNEL_INSTANCE) }
-        val childGraph = graphOf(listed + extra, childSite, problems, unlisted)
-        val child = Container(childSite, childGraph, parent = this)
+        val child = Container(childSite, childGraph(plugins, bindings, childSite, problems), parent = this)
         child.createAll(problems)
         synchronized(lock) {
             if (!closed.get()) {
@@ -80,10 +76,19 @@ public class Container private constructor(
         throw DiException(Problems.closedParent(site, name))
     }
 
+    /** The problems [child] would report for [plugins] and [bindings]. */
+    public fun validateChild(plugins: Set<String>, bindings: List<Binding<*>> = emptyList()): List<Problem> {
+        if (parent != null) throw DiException(Problems.nestedChild(site, null))
+        val childSite = Site("channel instance container", site.plugins, child = true)
+        val problems = mutableListOf<Problem>()
+        val childGraph = childGraph(plugins, bindings, childSite, problems)
+        return problems + childGraph.plan(Scope.CHANNEL_INSTANCE, childSite).problems
+    }
+
     /** Closes live children, then every managed [AutoCloseable] in reverse creation order. */
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
         val (live, own) = synchronized(lock) {
+            if (!closed.compareAndSet(false, true)) return
             children.toList().also { children.clear() } to managed.asReversed().toList()
         }
         val failures = mutableListOf<Exception>()
@@ -101,12 +106,24 @@ public class Container private constructor(
         throw first
     }
 
-    private fun createAll(problems: MutableList<Problem>) {
-        val local = graph.nodes.filter { it.level == level }
-        problems += graph.problems(local, site)
-        val plan = graph.plan(local)
-        problems += plan.cycles
-        if (problems.isNotEmpty()) throw Problems.report(site, problems)
+    private fun childGraph(
+        plugins: Set<String>,
+        bindings: List<Binding<*>>,
+        childSite: Site,
+        problems: MutableList<Problem>,
+    ): Graph {
+        val unknown = plugins - site.plugins.toSet() - graph.nodes.mapTo(HashSet()) { it.plugin }
+        if (unknown.isNotEmpty()) problems += Problems.unknownPlugins(childSite, unknown)
+        bindings.filter { it.scope != Scope.CHANNEL_INSTANCE }.mapTo(problems, Problems::extraScope)
+        val (listed, unlisted) = graph.nodes.partition { it.level == Scope.SINGLETON || it.plugin in plugins }
+        val extra = bindings.map { Node(it, Scope.CHANNEL_INSTANCE) }
+        return graphOf(listed + extra, childSite, problems, unlisted)
+    }
+
+    private fun createAll(problems: List<Problem>) {
+        val plan = graph.plan(level, site)
+        val all = problems + plan.problems
+        if (all.isNotEmpty()) throw Problems.report(site, all)
         try {
             plan.order.forEach(::instanceOf)
         } catch (e: Exception) {
@@ -116,10 +133,17 @@ public class Container private constructor(
         }
     }
 
+    /** Takes [instances] out of the managed ones, or none when [close] has taken them. */
+    private fun release(instances: List<Any>): List<Any> = synchronized(lock) {
+        if (closed.get()) return emptyList()
+        managed.removeAll { candidate -> instances.any { it === candidate } }
+        instances
+    }
+
     private fun instanceOf(node: Node): Any = when {
         node.level == level -> instances[node] ?: synchronized(lock) { instances[node] ?: create(node) }
         parent != null -> parent.instanceOf(node)
-        else -> throw DiException(Problems.channelInstanceScoped(node))
+        else -> throw DiException(Problems.channelInstanceScoped(node, site))
     }
 
     private fun create(node: Node): Any {
@@ -150,11 +174,11 @@ public class Container private constructor(
         ensureOpen(key)
         val node = graph.singles[key]
         if (node == null) {
-            graph.multis[key]?.let { throw DiException(Problems.notSingle(key, it)) }
+            graph.multis[key]?.let { throw DiException(Problems.wrongKind(key, all = false, it)) }
             return null
         }
         if (node.level == Scope.CHANNEL_INSTANCE && parent == null) {
-            throw DiException(Problems.channelInstanceScoped(node))
+            throw DiException(Problems.channelInstanceScoped(node, site))
         }
         return node
     }
@@ -194,23 +218,25 @@ public class Container private constructor(
 
     public companion object {
         /**
-         * Validates the whole graph, then creates every singleton.
-         * [overrides] replace what the indexes bind under their key.
+         * Validates the singletons and their dependencies, then creates them.
+         * [overrides] replace what [plugins] bind under their key.
          */
-        public fun build(indexes: List<ModuleIndex>, overrides: List<Binding<*>> = emptyList()): Container {
+        public fun build(plugins: List<PluginBindings>, overrides: List<Binding<*>> = emptyList()): Container {
             val problems = mutableListOf<Problem>()
-            val loaded = indexes.groupBy { it.module }.toSortedMap().map { (module, same) ->
-                if (same.size > 1) problems += Problems.duplicateModule(module, same)
+            val loaded = plugins.groupBy { it.id }.toSortedMap().map { (id, same) ->
+                if (same.size > 1) problems += Problems.duplicatePlugin(id, same.size)
                 same.first()
             }
-            val site = Site("container 'root'", loaded.map { it.module }, child = false)
+            val site = Site("container 'root'", loaded.map { it.id }, child = false)
             val overridden = overrides.mapTo(HashSet()) { it.key }
-            val indexed = loaded.flatMap { index ->
-                index.bindings().also { bindings ->
-                    bindings.filter { it.module != index.module }.mapTo(problems) { Problems.moduleMismatch(index, it) }
+            val bound = loaded.flatMap { plugin ->
+                plugin.bindings.also { bindings ->
+                    bindings.filter {
+                        it.plugin != plugin.id
+                    }.mapTo(problems) { Problems.pluginMismatch(plugin.id, it) }
                 }
             }
-            val bindings = indexed.filter { it.key !in overridden } + overrides
+            val bindings = bound.filter { it.key !in overridden } + overrides
             val graph = graphOf(bindings.map { Node(it, it.scope) }, site, problems)
             return Container(site, graph, parent = null).apply { createAll(problems) }
         }

@@ -7,12 +7,16 @@ import kotlin.reflect.KVariance
 import kotlin.reflect.typeOf
 
 /** Identifies a binding by exact type and optional qualifier. */
-public data class Key<T : Any>(val type: KType, val qualifier: String? = null) {
+public class Key<T : Any> @PublishedApi internal constructor(public val type: KType, public val qualifier: String?) {
     init {
         require(!type.isMarkedNullable) {
             "Key type ${type.render()} is nullable. Key the non-null type and inject it as OPTIONAL."
         }
     }
+
+    override fun equals(other: Any?): Boolean = other is Key<*> && type == other.type && qualifier == other.qualifier
+
+    override fun hashCode(): Int = 31 * type.hashCode() + qualifier.hashCode()
 
     override fun toString(): String = when (qualifier) {
         null -> type.render()

@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import kotlinx.coroutines.CompletableDeferred
 import java.util.Collections
 
 class Events {
@@ -20,10 +21,12 @@ class Service(
     val injected: Map<String, Any?>,
     private val failStart: Boolean,
     private val failClose: Boolean,
+    private val startGate: CompletableDeferred<Unit>? = null,
 ) : Startable,
     AutoCloseable {
     override suspend fun start() {
         events.record("start $name")
+        startGate?.await()
         if (failStart) error("start $name failed")
     }
 
@@ -49,25 +52,21 @@ fun service(
     multi: Boolean = false,
     managed: Boolean = true,
     key: Key<Service> = svc(name),
-    module: String = "test",
+    plugin: String = "test",
     failCreate: Boolean = false,
     failStart: Boolean = false,
     failClose: Boolean = false,
-): Binding<Service> =
-    binding(key, module, "$name (module $module)", scope, dependencies.toList(), multi, managed) { r ->
-        val injected = dependencies.associate { it.parameter to r.resolve(it) }
-        if (failCreate) error("constructor of $name failed")
-        events.record("create $name")
-        Service(name, events, injected, failStart, failClose)
-    }
-
-fun index(module: String, vararg bindings: Binding<*>): ModuleIndex = object : ModuleIndex {
-    override val module: String = module
-
-    override fun bindings(): List<Binding<*>> = bindings.toList()
+    startGate: CompletableDeferred<Unit>? = null,
+): Binding<Service> = binding(key, plugin, name, scope, dependencies.toList(), multi, managed) { r ->
+    val injected = dependencies.associate { it.site to r.resolve(it) }
+    if (failCreate) error("constructor of $name failed")
+    events.record("create $name")
+    Service(name, events, injected, failStart, failClose, startGate)
 }
 
-fun build(vararg bindings: Binding<*>): Container = Container.build(listOf(index("test", *bindings)))
+fun plugin(id: String, vararg bindings: Binding<*>): PluginBindings = PluginBindings(id, bindings.toList())
+
+fun build(vararg bindings: Binding<*>): Container = Container.build(listOf(plugin("test", *bindings)))
 
 fun Resolver.resolve(dependency: Dependency): Any? = when (dependency.kind) {
     DependencyKind.INSTANCE -> get(dependency.key)

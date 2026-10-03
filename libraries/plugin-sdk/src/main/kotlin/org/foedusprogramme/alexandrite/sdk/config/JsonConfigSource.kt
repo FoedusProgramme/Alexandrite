@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 /** A [ConfigSource] over a parsed JSON config file. */
 public class JsonConfigSource(private val root: JsonObject) : ConfigSource {
     override fun tree(path: String): JsonObject? {
+        if (path.isEmpty()) return root
         val names = path.split('.')
         require(names.none(String::isEmpty)) { "Malformed config path '$path'" }
         var node = root
