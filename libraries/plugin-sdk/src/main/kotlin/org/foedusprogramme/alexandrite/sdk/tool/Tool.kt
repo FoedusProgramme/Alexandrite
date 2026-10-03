@@ -1,8 +1,10 @@
 package org.foedusprogramme.alexandrite.sdk.tool
 
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 
 /** A function the model can call. */
+@ContributedSpi
 public interface Tool {
     public val definition: ToolDefinition
 

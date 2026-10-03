@@ -86,8 +86,8 @@ class LazyProviderTest {
 
     @Test
     fun `concurrent resolution from a root and its children is safe`() {
-        val root = build(service("a"), service("c", dep("a"), scope = Scope.CHANNEL))
-        val children = List(4) { root.child("channel $it") }
+        val root = build(service("a"), service("c", dep("a"), scope = Scope.CHANNEL_INSTANCE))
+        val children = List(4) { root.child("channel $it", setOf("test")) }
 
         val results = concurrently { index -> children[index % children.size].get(svc("c")) }
 

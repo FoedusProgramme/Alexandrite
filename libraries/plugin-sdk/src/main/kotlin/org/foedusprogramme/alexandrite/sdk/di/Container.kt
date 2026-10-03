@@ -10,7 +10,7 @@ public class Container private constructor(
     private val parent: Container?,
 ) : Resolver,
     AutoCloseable {
-    private val level = if (parent == null) Scope.SINGLETON else Scope.CHANNEL
+    private val level = if (parent == null) Scope.SINGLETON else Scope.CHANNEL_INSTANCE
     private val instances = ConcurrentHashMap<Node, Any>()
     private val lock = Any()
     private val managed = mutableListOf<Any>()
@@ -57,13 +57,17 @@ public class Container private constructor(
         }
     }
 
-    /** A channel container that creates every channel-scoped binding plus [bindings]. */
-    public fun child(name: String, bindings: List<Binding<*>> = emptyList()): Container {
+    /** A channel instance container that creates the channel-instance-scoped bindings of [modules] plus [bindings]. */
+    public fun child(name: String, modules: Set<String>, bindings: List<Binding<*>> = emptyList()): Container {
         if (parent != null) throw DiException(Problems.nestedChild(site, name))
         if (closed.get()) throw DiException(Problems.closedParent(site, name))
-        val childSite = Site("channel container '$name'", site.modules, child = true)
-        val problems = mutableListOf<String>()
-        val childGraph = graphOf(graph.nodes + bindings.map { Node(it, Scope.CHANNEL) }, childSite, problems)
+        val childSite = Site("channel instance container '$name'", site.modules, child = true)
+        val problems = mutableListOf<Problem>()
+        val unknown = modules - site.modules.toSet() - graph.nodes.mapTo(HashSet()) { it.module }
+        if (unknown.isNotEmpty()) problems += Problems.unknownModules(childSite, unknown)
+        val (listed, unlisted) = graph.nodes.partition { it.level == Scope.SINGLETON || it.module in modules }
+        val extra = bindings.map { Node(it, Scope.CHANNEL_INSTANCE) }
+        val childGraph = graphOf(listed + extra, childSite, problems, unlisted)
         val child = Container(childSite, childGraph, parent = this)
         child.createAll(problems)
         synchronized(lock) {
@@ -97,12 +101,12 @@ public class Container private constructor(
         throw first
     }
 
-    private fun createAll(problems: MutableList<String>) {
+    private fun createAll(problems: MutableList<Problem>) {
         val local = graph.nodes.filter { it.level == level }
         problems += graph.problems(local, site)
         val plan = graph.plan(local)
         problems += plan.cycles
-        if (problems.isNotEmpty()) throw DiException(Problems.report(site, problems))
+        if (problems.isNotEmpty()) throw Problems.report(site, problems)
         try {
             plan.order.forEach(::instanceOf)
         } catch (e: Exception) {
@@ -115,7 +119,7 @@ public class Container private constructor(
     private fun instanceOf(node: Node): Any = when {
         node.level == level -> instances[node] ?: synchronized(lock) { instances[node] ?: create(node) }
         parent != null -> parent.instanceOf(node)
-        else -> throw DiException(Problems.channelScoped(node))
+        else -> throw DiException(Problems.channelInstanceScoped(node))
     }
 
     private fun create(node: Node): Any {
@@ -149,11 +153,15 @@ public class Container private constructor(
             graph.multis[key]?.let { throw DiException(Problems.notSingle(key, it)) }
             return null
         }
-        if (node.level == Scope.CHANNEL && parent == null) throw DiException(Problems.channelScoped(node))
+        if (node.level == Scope.CHANNEL_INSTANCE && parent == null) {
+            throw DiException(Problems.channelInstanceScoped(node))
+        }
         return node
     }
 
-    private fun single(key: Key<*>): Node = singleOrNull(key) ?: throw DiException(Problems.unbound(key, site))
+    private fun single(key: Key<*>): Node = singleOrNull(key) ?: throw DiException(
+        graph.unlisted[key]?.let { Problems.unlisted(key, it, site) } ?: Problems.unbound(key, site),
+    )
 
     private fun detach(child: Container) {
         synchronized(lock) { children.remove(child) }
@@ -190,14 +198,19 @@ public class Container private constructor(
          * [overrides] replace what the indexes bind under their key.
          */
         public fun build(indexes: List<ModuleIndex>, overrides: List<Binding<*>> = emptyList()): Container {
-            val problems = mutableListOf<String>()
+            val problems = mutableListOf<Problem>()
             val loaded = indexes.groupBy { it.module }.toSortedMap().map { (module, same) ->
                 if (same.size > 1) problems += Problems.duplicateModule(module, same)
                 same.first()
             }
             val site = Site("container 'root'", loaded.map { it.module }, child = false)
             val overridden = overrides.mapTo(HashSet()) { it.key }
-            val bindings = loaded.flatMap { it.bindings() }.filter { it.key !in overridden } + overrides
+            val indexed = loaded.flatMap { index ->
+                index.bindings().also { bindings ->
+                    bindings.filter { it.module != index.module }.mapTo(problems) { Problems.moduleMismatch(index, it) }
+                }
+            }
+            val bindings = indexed.filter { it.key !in overridden } + overrides
             val graph = graphOf(bindings.map { Node(it, it.scope) }, site, problems)
             return Container(site, graph, parent = null).apply { createAll(problems) }
         }

@@ -11,15 +11,20 @@ internal const val ENABLED = "enabled"
 
 internal const val DI = "org.foedusprogramme.alexandrite.sdk.di"
 internal const val SINGLETON = "$DI.Singleton"
-internal const val CHANNEL_SCOPED = "$DI.ChannelScoped"
+internal const val CHANNEL_INSTANCE_SCOPED = "$DI.ChannelInstanceScoped"
 internal const val INJECT = "$DI.Inject"
 internal const val NAMED = "$DI.Named"
 internal const val BINDS = "$DI.Binds"
 internal const val CONTRIBUTE = "$DI.Contribute"
+internal const val PROVIDES = "$DI.Provides"
+internal const val CONTRIBUTED_SPI = "$DI.ContributedSpi"
+internal const val MODULE_LOCAL = "$DI.ModuleLocal"
 internal const val MODULE_INDEX = "$DI.ModuleIndex"
 
 internal const val CONFIG_SECTION = "org.foedusprogramme.alexandrite.sdk.config.ConfigSection"
 internal const val CONFIG_SECTION_SPEC = "org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec"
 internal const val SERIALIZABLE = "kotlinx.serialization.Serializable"
 
-internal val COMPONENT_ANNOTATIONS = listOf(SINGLETON, CHANNEL_SCOPED, BINDS, CONTRIBUTE)
+internal val COMPONENT_ANNOTATIONS = listOf(SINGLETON, CHANNEL_INSTANCE_SCOPED, BINDS, CONTRIBUTE)
+
+internal val PROVIDER_ANNOTATIONS = COMPONENT_ANNOTATIONS + NAMED

@@ -92,10 +92,11 @@ class ConfigBindingsTest {
     }
 
     @Test
-    fun `the bindings are unmanaged instances under the section keys with their origins`() {
+    fun `the bindings are unmanaged instances of the module under the section keys with their origins`() {
         val bindings = bindings("{}", weather, cache)
 
         assertEquals(listOf(key<WeatherConfig>(), key<CacheConfig>()), bindings.map { it.key })
+        assertEquals(listOf("weather", "weather"), bindings.map { it.module })
         assertEquals(
             listOf("WeatherConfig (module weather)", "CacheConfig (module weather)"),
             bindings.map { it.origin },

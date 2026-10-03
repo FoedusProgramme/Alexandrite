@@ -49,7 +49,7 @@ class IndexTest {
 
         import org.foedusprogramme.alexandrite.ksp.Probe
         import org.foedusprogramme.alexandrite.sdk.di.Binds
-        import org.foedusprogramme.alexandrite.sdk.di.ChannelScoped
+        import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
         import org.foedusprogramme.alexandrite.sdk.di.Contribute
         import org.foedusprogramme.alexandrite.sdk.di.Inject
         import org.foedusprogramme.alexandrite.sdk.di.Named
@@ -113,7 +113,7 @@ class IndexTest {
                 "; audit=" + audit + "; rounds=" + limits["rounds"]
         }
 
-        @ChannelScoped
+        @ChannelInstanceScoped
         @Named("session")
         @Binds(Probe::class)
         class Session(@Named("app") private val app: Probe) : Probe {
@@ -136,7 +136,7 @@ class IndexTest {
     private fun sampleIndex(): ModuleIndex = compileSample().indexes().single()
 
     private fun overrides(index: ModuleIndex): List<Binding<*>> =
-        configBindings(index, config) + instanceBinding(key<String>("user"), "Ada", "test")
+        configBindings(index, config) + instanceBinding(key<String>("user"), "Ada", "test", "test")
 
     // End to end.
 
@@ -165,16 +165,16 @@ class IndexTest {
     }
 
     @Test
-    fun `a channel container creates its own channel-scoped instance`() {
+    fun `a channel instance container creates its own channel-instance-scoped instance`() {
         val index = sampleIndex()
 
         Container.build(listOf(index), overrides(index)).use { container ->
-            val telegram = container.child("telegram")
+            val telegram = container.child("telegram", setOf("sample-plugin"))
             val session = telegram.get(key<Probe>("session"))
 
             assertEquals("session of " + container.get(key<Probe>("app")).report(), session.report())
             assertSame(session, telegram.get(key<Probe>("session")))
-            assertNotSame(session, container.child("discord").get(key<Probe>("session")))
+            assertNotSame(session, container.child("discord", setOf("sample-plugin")).get(key<Probe>("session")))
             assertFailsWith<DiException> { container.get(key<Probe>("session")) }
         }
     }
@@ -184,7 +184,7 @@ class IndexTest {
         val index = sampleIndex()
 
         val error = assertFailsWith<DiException> {
-            Container.build(listOf(index), listOf(instanceBinding(key<String>("user"), "Ada", "test")))
+            Container.build(listOf(index), listOf(instanceBinding(key<String>("user"), "Ada", "test", "test")))
         }
         assertContains(error.message!!, "nothing binds sample.plugin.config.GreetingConfig")
     }
@@ -226,8 +226,9 @@ class IndexTest {
                         "@Binds: INSTANCE @Named(\"polite\") sample.plugin.PoliteGreeter",
                 ),
                 "Session" to listOf(
-                    "@Named(\"session\") sample.plugin.Session CHANNEL <- app: INSTANCE @Named(\"app\") $probe",
-                    "@Named(\"session\") $probe CHANNEL unmanaged <- " +
+                    "@Named(\"session\") sample.plugin.Session CHANNEL_INSTANCE <- " +
+                        "app: INSTANCE @Named(\"app\") $probe",
+                    "@Named(\"session\") $probe CHANNEL_INSTANCE unmanaged <- " +
                         "@Binds: INSTANCE @Named(\"session\") sample.plugin.Session",
                 ),
                 "TimeTool" to listOf(
@@ -381,11 +382,4 @@ class IndexTest {
 
     private fun simpleOrigin(origin: String): String =
         origin.removeSuffix(" (module sample-plugin)").substringAfterLast('.')
-
-    private fun describe(binding: Binding<*>): String {
-        val flags = listOfNotNull("multi".takeIf { binding.multi }, "unmanaged".takeIf { !binding.managed })
-        val dependencies = binding.dependencies.joinToString { "${it.parameter}: ${it.kind} ${it.key}" }
-        return (listOf(binding.key.toString(), binding.scope.toString()) + flags).joinToString(" ") +
-            " <- " + dependencies
-    }
 }

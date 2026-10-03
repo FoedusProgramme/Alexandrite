@@ -20,12 +20,16 @@ public fun configBindings(index: ModuleIndex, source: ConfigSource, json: Json =
         val stripped = sections.mapNotNullTo(mutableSetOf()) { nestedKey(section.path, it.path) }
         if (section.path.isEmpty()) stripped += ENABLED
         val tree = source.tree(path) ?: JsonObject(emptyMap())
-        section.bind(path, JsonObject(tree - stripped), json)
+        section.bind(index.module, path, JsonObject(tree - stripped), json)
     }
 }
 
-private fun <T : Any> ConfigSectionSpec<T>.bind(path: String, tree: JsonObject, json: Json): Binding<T> =
-    instanceBinding(key, json.decodeConfig(path, tree, deserializer), origin)
+private fun <T : Any> ConfigSectionSpec<T>.bind(
+    module: String,
+    path: String,
+    tree: JsonObject,
+    json: Json,
+): Binding<T> = instanceBinding(key, json.decodeConfig(path, tree, deserializer), module, origin)
 
 /** The key of the section at [path] that holds the section at [other], null when [other] is not nested in it. */
 private fun nestedKey(path: String, other: String): String? = when {

@@ -53,12 +53,13 @@ fun service(
     failCreate: Boolean = false,
     failStart: Boolean = false,
     failClose: Boolean = false,
-): Binding<Service> = binding(key, "$name (module $module)", scope, dependencies.toList(), multi, managed) { resolver ->
-    val injected = dependencies.associate { it.parameter to resolver.resolve(it) }
-    if (failCreate) error("constructor of $name failed")
-    events.record("create $name")
-    Service(name, events, injected, failStart, failClose)
-}
+): Binding<Service> =
+    binding(key, module, "$name (module $module)", scope, dependencies.toList(), multi, managed) { r ->
+        val injected = dependencies.associate { it.parameter to r.resolve(it) }
+        if (failCreate) error("constructor of $name failed")
+        events.record("create $name")
+        Service(name, events, injected, failStart, failClose)
+    }
 
 fun index(module: String, vararg bindings: Binding<*>): ModuleIndex = object : ModuleIndex {
     override val module: String = module

@@ -10,6 +10,8 @@ import kotlin.test.assertTrue
 class BindingTest {
     private val tools = svc("tools")
 
+    private fun tool(name: String, module: String) = service(name, key = tools, multi = true, module = module)
+
     // Single bindings.
 
     @Test
@@ -46,7 +48,9 @@ class BindingTest {
     fun `an override replaces ambiguous bindings`() {
         val container = Container.build(
             listOf(index("core", service("a", module = "core")), index("extra", service("a", module = "extra"))),
-            overrides = listOf(instanceBinding(svc("a"), Service("fake", Events(), emptyMap(), false, false), "test")),
+            overrides = listOf(
+                instanceBinding(svc("a"), Service("fake", Events(), emptyMap(), false, false), "test", "test"),
+            ),
         )
 
         assertEquals("fake", container.get(svc("a")).name)
@@ -75,8 +79,8 @@ class BindingTest {
     fun `getAll orders contributions by module name, then declaration`() {
         val container = Container.build(
             listOf(
-                index("zeta", service("z1", key = tools, multi = true), service("z2", key = tools, multi = true)),
-                index("alpha", service("a2", key = tools, multi = true), service("a1", key = tools, multi = true)),
+                index("zeta", tool("z1", "zeta"), tool("z2", "zeta")),
+                index("alpha", tool("a2", "alpha"), tool("a1", "alpha")),
             ),
         )
 
@@ -178,7 +182,7 @@ class BindingTest {
 
     @Test
     fun `resolving an undeclared dependency fails`() {
-        val sneaky = binding(svc("a"), "a (module test)") { it.get(svc("b")) }
+        val sneaky = binding(svc("a"), "test", "a (module test)") { it.get(svc("b")) }
 
         val error = assertFailsWith<DiException> { build(sneaky, service("b")) }
 

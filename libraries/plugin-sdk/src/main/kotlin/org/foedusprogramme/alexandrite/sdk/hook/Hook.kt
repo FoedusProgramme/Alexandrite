@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.sdk.hook
 
+import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** A subscription to one [HookPoint]. */
+@ContributedSpi
 public sealed interface Hook {
     /** Lower runs first. */
     public val order: Int get() = 0

@@ -5,8 +5,8 @@ public enum class Scope {
     /** One instance per root container. */
     SINGLETON,
 
-    /** One instance per channel container. */
-    CHANNEL,
+    /** One instance per channel instance container. */
+    CHANNEL_INSTANCE,
 }
 
 /** How a dependency is injected. */
@@ -35,10 +35,13 @@ public interface Binding<T : Any> {
     public val key: Key<T>
     public val scope: Scope
 
+    /** Name of the module the binding belongs to. */
+    public val module: String
+
     /** Everything [create] may resolve. */
     public val dependencies: List<Dependency>
 
-    /** Whether this contributes to [Resolver.getAll] instead of being the single binding for [key]. */
+    /** Whether this contributes to [Resolver.getAll]. */
     public val multi: Boolean
 
     /** The declaration named in error messages. */
@@ -52,20 +55,27 @@ public interface Binding<T : Any> {
 
 public fun <T : Any> binding(
     key: Key<T>,
+    module: String,
     origin: String,
     scope: Scope = Scope.SINGLETON,
     dependencies: List<Dependency> = emptyList(),
     multi: Boolean = false,
     managed: Boolean = true,
     create: (Resolver) -> T,
-): Binding<T> = FunctionBinding(key, scope, dependencies, multi, origin, managed, create)
+): Binding<T> = FunctionBinding(key, scope, module, dependencies, multi, origin, managed, create)
 
-public fun <T : Any> instanceBinding(key: Key<T>, value: T, origin: String, multi: Boolean = false): Binding<T> =
-    binding(key, origin, multi = multi, managed = false) { value }
+public fun <T : Any> instanceBinding(
+    key: Key<T>,
+    value: T,
+    module: String,
+    origin: String,
+    multi: Boolean = false,
+): Binding<T> = binding(key, module, origin, multi = multi, managed = false) { value }
 
 private class FunctionBinding<T : Any>(
     override val key: Key<T>,
     override val scope: Scope,
+    override val module: String,
     override val dependencies: List<Dependency>,
     override val multi: Boolean,
     override val origin: String,

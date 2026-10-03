@@ -1,38 +1,25 @@
 package org.foedusprogramme.alexandrite.ksp
 
-import com.google.devtools.ksp.getAllSuperTypes
 import com.google.devtools.ksp.getConstructors
 import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.symbol.ClassKind
-import com.google.devtools.ksp.symbol.KSAnnotation
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSDeclaration
 import com.google.devtools.ksp.symbol.KSFunctionDeclaration
-import com.google.devtools.ksp.symbol.KSNode
-import com.google.devtools.ksp.symbol.KSType
-import com.google.devtools.ksp.symbol.KSValueParameter
 import com.google.devtools.ksp.symbol.Modifier
-import com.google.devtools.ksp.symbol.Variance
 
 /** Reads one annotated class, reporting every problem that keeps it from being bound. */
-internal class ClassReader(private val declaration: KSClassDeclaration, private val logger: KSPLogger) {
-    private val name = declaration.name
-    private var valid = true
+internal class ClassReader(private val declaration: KSClassDeclaration, logger: KSPLogger, module: String) :
+    DeclarationReader(declaration, logger, module) {
+    override val name = declaration.name
 
-    fun component(): Component? {
+    fun component(): Reading? {
         componentProblem()?.let {
             error(it)
             return null
         }
-        val channelScoped = declaration.annotation(CHANNEL_SCOPED) != null
-        if (channelScoped && declaration.annotation(SINGLETON) != null) error(Messages.twoScopes(name))
-        val qualifier = declaration.annotation(NAMED)?.value as String?
-        val dependencies = constructor()?.parameters?.mapNotNull(::dependency)
-        val binds = aliases(BINDS, qualifier)
-        val contributes = aliases(CONTRIBUTE, qualifier)
-        if (!valid || dependencies == null) return null
-        val key = Key(declaration.asStarProjectedType().render(), qualifier)
-        return Component(name, key, channelScoped, dependencies, binds, contributes)
+        val type = declaration.asStarProjectedType()
+        return component(type, constructor()?.parameters, factory = type.render())
     }
 
     fun section(): Section? {
@@ -48,6 +35,12 @@ internal class ClassReader(private val declaration: KSClassDeclaration, private 
         }
         return if (valid) Section(name, declaration.asStarProjectedType().render(), path) else null
     }
+
+    override fun notSupertype(annotation: String, bound: String): String =
+        Messages.notSupertype(name, annotation, bound)
+
+    override fun unknownArguments(annotation: String, bound: String): String =
+        Messages.unknownArguments(name, annotation, bound)
 
     private fun componentProblem(): String? {
         val modifiers = declaration.modifiers
@@ -103,80 +96,8 @@ internal class ClassReader(private val declaration: KSClassDeclaration, private 
         return null
     }
 
-    private fun dependency(parameter: KSValueParameter): Dependency? {
-        val parameterName = parameter.name?.asString().orEmpty()
-
-        fun fail(message: String): Dependency? {
-            error(message, parameter)
-            return null
-        }
-
-        if (parameter.hasDefault) return fail(Messages.defaultValue(parameterName, name))
-        if (parameter.isVararg) return fail(Messages.vararg(parameterName, name))
-        val type = parameter.type.resolve()
-        val provider = type.isFunctionType && !type.isMarkedNullable && type.arguments.size == 1
-        val kind = when {
-            provider -> Kind.PROVIDER
-
-            type.isFunctionType || type.isSuspendFunctionType ->
-                return fail(Messages.functionType(parameterName, name, type.render()))
-
-            type.isMarkedNullable -> Kind.OPTIONAL
-
-            type.classifier.name == "kotlin.collections.List" -> Kind.ALL
-
-            type.classifier.name == "kotlin.Lazy" -> Kind.LAZY
-
-            else -> Kind.INSTANCE
-        }
-        val keyType = when (kind) {
-            Kind.INSTANCE -> type
-            Kind.OPTIONAL -> type.makeNotNullable()
-            else -> type.arguments.single().takeIf { it.variance != Variance.STAR }?.type?.resolve()
-        }
-        if (keyType == null || keyType.isMarkedNullable) {
-            return fail(Messages.projectedArgument(parameterName, name, type.render()))
-        }
-        val qualifier = parameter.annotation(NAMED)?.value as String?
-        if (qualifier == null && keyType.classifier.name in QUALIFIED_ONLY) {
-            return fail(Messages.unqualified(parameterName, name, keyType.render()))
-        }
-        return Dependency(Key(keyType.render(), qualifier), kind, parameterName)
-    }
-
-    private fun aliases(annotationName: String, qualifier: String?): List<Key> {
-        val annotation = declaration.annotation(annotationName) ?: return emptyList()
-        val label = "@" + annotationName.substringAfterLast('.')
-        val supertypes = declaration.getAllSuperTypes().toList()
-        return annotation.types().mapNotNull { bound ->
-            val boundName = bound.classifier.name
-            val supertype = supertypes.firstOrNull { it.classifier.name == boundName }
-            when {
-                supertype == null -> null.also { error(Messages.notSupertype(name, label, boundName)) }
-                supertype.hasTypeParameter -> null.also { error(Messages.unknownArguments(name, label, boundName)) }
-                else -> Key(supertype.render(), qualifier)
-            }
-        }
-    }
-
-    private fun KSAnnotation.types(): List<KSType> = when (val value = value) {
-        is List<*> -> value.filterIsInstance<KSType>()
-        is KSType -> listOf(value)
-        else -> emptyList()
-    }
-
     private val KSFunctionDeclaration.isCallable: Boolean
         get() = Modifier.PRIVATE !in modifiers && Modifier.PROTECTED !in modifiers
-
-    private fun error(message: String, symbol: KSNode = declaration) {
-        valid = false
-        logger.error(message, symbol)
-    }
 }
 
 private val SECTION_PATH = Regex("([A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*)?")
-
-private val QUALIFIED_ONLY = setOf(
-    "kotlin.String", "kotlin.Boolean", "kotlin.Char", "kotlin.Number", "kotlin.Byte", "kotlin.Short", "kotlin.Int",
-    "kotlin.Long", "kotlin.Float", "kotlin.Double", "kotlin.UByte", "kotlin.UShort", "kotlin.UInt", "kotlin.ULong",
-)

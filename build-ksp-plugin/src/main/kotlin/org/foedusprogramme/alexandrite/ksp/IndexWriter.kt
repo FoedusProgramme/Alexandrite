@@ -58,17 +58,18 @@ internal class IndexWriter(
 
     private fun componentBindings(component: Component): List<String> {
         val create = if (component.dependencies.isEmpty()) {
-            "{ ${component.key.type}() }"
+            "{ ${component.factory}() }"
         } else {
             buildString {
                 appendLine("{ r ->")
-                appendLine("    ${component.key.type}(")
+                appendLine("    ${component.factory}(")
                 component.dependencies.forEach { appendLine("        r.${it.kind.resolverFunction}(${it.key.code}),") }
                 appendLine("    )")
                 append("}")
             }
         }
-        val own = binding(component.key, component.name, component.channelScoped, component.dependencies, create)
+        val own =
+            binding(component.key, component.name, component.channelInstanceScoped, component.dependencies, create)
         return listOf(own) +
             component.binds.map { alias(component, it, "@Binds") } +
             component.contributes.map { alias(component, it, "@Contribute", "multi = true") }
@@ -77,7 +78,7 @@ internal class IndexWriter(
     private fun alias(component: Component, key: Key, label: String, vararg flags: String): String = binding(
         key,
         component.name,
-        component.channelScoped,
+        component.channelInstanceScoped,
         dependencies = listOf(Dependency(component.key, Kind.INSTANCE, label)),
         create = "{ r -> r.get(${component.key.code}) }",
         flags = flags.toList() + "managed = false",
@@ -86,15 +87,16 @@ internal class IndexWriter(
     private fun binding(
         key: Key,
         name: String,
-        channelScoped: Boolean,
+        channelInstanceScoped: Boolean,
         dependencies: List<Dependency>,
         create: String,
         flags: List<String> = emptyList(),
     ): String = buildString {
         appendLine("binding(")
         appendLine("    ${key.code},")
+        appendLine("    module = ${literal(module)},")
         appendLine("    origin = ${origin(name)},")
-        appendLine("    scope = Scope.${if (channelScoped) "CHANNEL" else "SINGLETON"},")
+        appendLine("    scope = Scope.${if (channelInstanceScoped) "CHANNEL_INSTANCE" else "SINGLETON"},")
         if (dependencies.isNotEmpty()) {
             appendLine("    dependencies = listOf(")
             for (dependency in dependencies) {

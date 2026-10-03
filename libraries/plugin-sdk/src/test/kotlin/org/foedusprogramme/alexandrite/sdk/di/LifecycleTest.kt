@@ -34,7 +34,7 @@ class LifecycleTest {
 
     @Test
     fun `channel bindings are not created in the root container`() {
-        build(service("a", events = events), service("c", scope = Scope.CHANNEL, events = events))
+        build(service("a", events = events), service("c", scope = Scope.CHANNEL_INSTANCE, events = events))
 
         assertEquals(listOf("create a"), events.all())
     }
@@ -131,7 +131,7 @@ class LifecycleTest {
         assertFailsWith<DiException> { container.getAll(svc("tools")) }
         assertFailsWith<DiException> { container.lazy(svc("a")) }
         assertFailsWith<DiException> { container.provider(svc("a")) }
-        assertFailsWith<DiException> { container.child("tg") }
+        assertFailsWith<DiException> { container.child("tg", setOf("test")) }
         assertFailsWith<DiException> { runBlocking { container.start() } }
     }
 
@@ -162,7 +162,7 @@ class LifecycleTest {
     fun `an instance binding is neither started nor closed`() {
         val given = Service("a", events, emptyMap(), failStart = false, failClose = false)
         val container =
-            build(instanceBinding(svc("a"), given, "a (module test)"), service("b", dep("a"), events = events))
+            build(instanceBinding(svc("a"), given, "test", "a (module test)"), service("b", dep("a"), events = events))
 
         runBlocking { container.start() }
         container.close()

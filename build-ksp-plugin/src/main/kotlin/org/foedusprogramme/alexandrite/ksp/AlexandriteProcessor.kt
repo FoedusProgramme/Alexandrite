@@ -9,7 +9,9 @@ import com.google.devtools.ksp.processing.SymbolProcessorEnvironment
 import com.google.devtools.ksp.processing.SymbolProcessorProvider
 import com.google.devtools.ksp.symbol.KSAnnotated
 import com.google.devtools.ksp.symbol.KSClassDeclaration
+import com.google.devtools.ksp.symbol.KSDeclaration
 import com.google.devtools.ksp.symbol.KSFile
+import com.google.devtools.ksp.symbol.KSFunctionDeclaration
 import com.google.devtools.ksp.validate
 
 class AlexandriteProcessorProvider : SymbolProcessorProvider {
@@ -29,25 +31,35 @@ internal class AlexandriteProcessor(
     private val options: ModuleOptions,
 ) : SymbolProcessor {
     private val sections = mutableMapOf<String, Section>()
-    private val components = mutableListOf<Component>()
+    private val components = Components(logger)
     private val packages = mutableSetOf<String>()
     private var files = emptyList<KSFile>()
 
+    /** Defers every symbol of a round while one of them is invalid. */
     override fun process(resolver: Resolver): List<KSAnnotated> {
         files = resolver.getAllFiles().toList()
-        val sectionClasses = annotatedClasses(resolver, listOf(CONFIG_SECTION))
-        val componentClasses = annotatedClasses(resolver, COMPONENT_ANNOTATIONS)
-        val deferred = (sectionClasses + componentClasses).filterNot { it.validate() }.toSet()
-        (sectionClasses + componentClasses - deferred).mapTo(packages) { it.packageName.asString() }
-        for (declaration in sectionClasses - deferred) {
-            val section = ClassReader(declaration, logger).section() ?: continue
+        val sectionClasses = annotated(resolver, listOf(CONFIG_SECTION)).filterIsInstance<KSClassDeclaration>()
+        val componentClasses = annotated(resolver, COMPONENT_ANNOTATIONS).filterIsInstance<KSClassDeclaration>()
+        val functions = annotated(resolver, PROVIDER_ANNOTATIONS + PROVIDES).filterIsInstance<KSFunctionDeclaration>()
+        val symbols = sectionClasses + componentClasses + functions
+        if (symbols.any { !it.validate() }) return symbols
+        symbols.mapTo(packages) { it.packageName.asString() }
+        for (declaration in sectionClasses) {
+            val section = ClassReader(declaration, logger, options.module).section() ?: continue
             val first = sections.putIfAbsent(section.path, section)
             if (first != null) logger.error(Messages.duplicatePath(section.path, first.name, section.name), declaration)
         }
-        for (declaration in componentClasses - deferred) {
-            ClassReader(declaration, logger).component()?.let(components::add)
+        val (providers, strays) = functions.partition { it.annotation(PROVIDES) != null }
+        for (function in strays) {
+            val annotations = PROVIDER_ANNOTATIONS.filter { function.annotation(it) != null }
+            logger.error(Messages.notProvides("${function.name}()", annotations), function)
         }
-        return deferred.toList()
+        components.add(
+            componentClasses.mapNotNull { ClassReader(it, logger, options.module).component() } +
+                providers.mapNotNull { ProviderReader(it, logger, options.module).component() },
+        )
+        components.checkContributions(files)
+        return emptyList()
     }
 
     override fun finish() {
@@ -59,16 +71,16 @@ internal class AlexandriteProcessor(
         val writer = IndexWriter(options.module, options.configRoot, packageName)
         val dependencies = Dependencies(aggregating = true, *files.toTypedArray())
         codeGenerator.createNewFile(dependencies, packageName, writer.className).writer().use {
-            it.write(writer.source(sections.values, components))
+            it.write(writer.source(sections.values, components.all))
         }
         codeGenerator.createNewFileByPath(dependencies, "META-INF/services/$MODULE_INDEX", "").writer().use {
             it.write("$packageName.${writer.className}\n")
         }
     }
 
-    private fun annotatedClasses(resolver: Resolver, annotations: List<String>): List<KSClassDeclaration> = annotations
+    private fun annotated(resolver: Resolver, annotations: List<String>): List<KSDeclaration> = annotations
         .flatMap { resolver.getSymbolsWithAnnotation(it, inDepth = true) }
-        .filterIsInstance<KSClassDeclaration>()
+        .filterIsInstance<KSDeclaration>()
         .distinct()
         .sortedBy { it.name }
 }

@@ -1,39 +1,9 @@
 package org.foedusprogramme.alexandrite.ksp
 
-import org.junit.jupiter.api.io.TempDir
-import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertContains
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 
-class ErrorTest {
-    @TempDir
-    lateinit var workingDir: File
-
-    private fun errors(code: String): String {
-        val header = """
-            package sample
-
-            import kotlinx.serialization.Serializable
-            import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
-            import org.foedusprogramme.alexandrite.sdk.di.*
-
-            class Clock
-
-        """.trimIndent()
-        val compiled = compile(workingDir, source("Sample.kt", header + code.trimIndent()))
-        assertFalse(compiled.succeeded, "the compilation should fail")
-        return compiled.messages
-    }
-
-    /** Asserts that one error line holds all of [texts] and points into the sample. */
-    private fun assertReported(messages: String, vararg texts: String) {
-        val line = messages.lines().firstOrNull { line -> texts.all { it in line } }
-        assertNotNull(line, "no error with ${texts.toList()} in:\n$messages")
-        assertContains(line, "Sample.kt:")
-    }
-
+class ErrorTest : FailingSamples() {
     // Parameters.
 
     @Test
@@ -43,7 +13,7 @@ class ErrorTest {
         assertReported(
             messages,
             "Parameter 'clock' of sample.Server has a default value",
-            "Defaults are not allowed on injected constructors",
+            "Defaults are not allowed on injected parameters",
             "the value would be silently ignored",
         )
     }
@@ -150,9 +120,9 @@ class ErrorTest {
 
     @Test
     fun `a component with both scopes is rejected`() {
-        val messages = errors("@Singleton @ChannelScoped class Both")
+        val messages = errors("@Singleton @ChannelInstanceScoped class Both")
 
-        assertReported(messages, "sample.Both is annotated both @Singleton and @ChannelScoped")
+        assertReported(messages, "sample.Both is annotated both @Singleton and @ChannelInstanceScoped")
     }
 
     @Test
@@ -211,6 +181,163 @@ class ErrorTest {
         )
 
         assertReported(messages, "sample.StringHandler lists sample.Handler in @Binds", "type arguments are unknown")
+    }
+
+    // Providers.
+
+    @Test
+    fun `a provider the generated index cannot call is rejected`() {
+        val messages = errors(
+            """
+            class Holder {
+                @Provides fun held(): Clock = Clock()
+            }
+            interface Api {
+                @Provides fun api(): Clock = Clock()
+            }
+            private object Secret {
+                @Provides fun kept(): Clock = Clock()
+            }
+            object Shelf {
+                @Provides private fun hidden(): Clock = Clock()
+            }
+            fun outer() {
+                @Provides fun local(): Clock = Clock()
+            }
+            """,
+        )
+
+        assertReported(
+            messages,
+            "Provider sample.Holder.held() is declared in sample.Holder, which is not an object",
+            "Move it to the top level or into an object",
+            at = "fun held",
+        )
+        assertReported(messages, "Provider sample.Api.api() is declared in sample.Api", at = "fun api")
+        assertReported(
+            messages,
+            "Provider sample.Secret.kept() is inside private object sample.Secret",
+            "Make it public or internal",
+            at = "fun kept",
+        )
+        assertReported(messages, "Provider sample.Shelf.hidden() is private", at = "fun hidden")
+        assertReported(messages, "Provider local() is local", "Declare it at the top level", at = "fun local")
+    }
+
+    @Test
+    fun `a provider whose signature the container cannot use is rejected`() {
+        val messages = errors(
+            """
+            @Provides suspend fun suspended(): Clock = Clock()
+            @Provides fun String.extended(): Clock = Clock()
+            @Provides fun <T> generic(): Clock = Clock()
+            @Provides fun nullable(): Clock? = null
+            @Provides fun nothing() {}
+            """,
+        )
+
+        assertReported(messages, "Provider sample.suspended() is a suspend function", at = "fun suspended")
+        assertReported(messages, "Provider sample.extended() is an extension function", at = "fun String.extended")
+        assertReported(messages, "Provider sample.generic() has type parameters", at = "fun <T> generic")
+        assertReported(
+            messages,
+            "Provider sample.nullable() returns sample.Clock?, but a binding always has an instance",
+            at = "fun nullable",
+        )
+        assertReported(messages, "Provider sample.nothing() returns Unit", at = "fun nothing")
+    }
+
+    @Test
+    fun `a provider's parameters follow the rules of constructor parameters`() {
+        val messages = errors(
+            """
+            @Provides
+            fun server(
+                clock: Clock = Clock(),
+                port: Int,
+                vararg names: String,
+            ): Runnable = Runnable {}
+            """,
+        )
+
+        assertReported(messages, "Parameter 'clock' of sample.server() has a default value", at = "clock: Clock")
+        assertReported(messages, "Parameter 'port' of sample.server() has type kotlin.Int", at = "port: Int")
+        assertReported(messages, "Parameter 'names' of sample.server() is a vararg", at = "vararg names")
+    }
+
+    @Test
+    fun `a provider's scopes and bound types follow the rules of classes`() {
+        val messages = errors(
+            """
+            @Provides @Singleton @ChannelInstanceScoped fun both(): Clock = Clock()
+            @Provides @Binds(Runnable::class) @Named("bound") fun bound(): Clock = Clock()
+            interface Handler<T>
+            interface Wrapper<T> : Handler<T>
+            @Provides @Binds(Handler::class) fun wrapper(): Wrapper<String> = object : Wrapper<String> {}
+            """,
+        )
+
+        assertReported(
+            messages,
+            "sample.both() is annotated both @Singleton and @ChannelInstanceScoped",
+            at = "fun both",
+        )
+        assertReported(
+            messages,
+            "sample.bound() lists java.lang.Runnable in @Binds, but java.lang.Runnable is not a supertype of its " +
+                "return type",
+            "Return a subtype of java.lang.Runnable",
+            at = "fun bound",
+        )
+        assertReported(
+            messages,
+            "sample.wrapper() lists sample.Handler in @Binds, but its return type inherits it through a generic class",
+            at = "fun wrapper",
+        )
+    }
+
+    @Test
+    fun `two bindings of one key in a module are rejected`() {
+        val messages = errors(
+            """
+            @Provides fun first(): Clock = Clock()
+            @Provides fun second(): Clock = Clock()
+            @Provides @Named("utc") fun utc(): Clock = Clock()
+            interface Api
+            @Binds(Api::class) class One : Api
+            object Apis {
+                @Provides @Binds(Api::class) fun other(): Other = Other()
+            }
+            class Other : Api
+            """,
+        )
+
+        assertReported(
+            messages,
+            "sample.Clock is bound twice in this module, by sample.first() and by sample.second()",
+            "tell them apart with @Named",
+            at = "fun second",
+        )
+        assertReported(messages, "sample.Api is bound twice in this module, by sample.One and by sample.Apis.other()")
+        assertFalse("@Named(\"utc\") sample.Clock is bound twice" in messages, messages)
+    }
+
+    @Test
+    fun `a function with binding annotations but without @Provides is rejected`() {
+        val messages = errors(
+            """
+            @Singleton fun lonely(): Clock = Clock()
+            @Named("stray") @Binds(Runnable::class) fun stray(): Runnable = Runnable {}
+            """,
+        )
+
+        assertReported(
+            messages,
+            "sample.lonely() is annotated @Singleton but not @Provides",
+            "Annotate it with @Provides, or remove @Singleton",
+            at = "fun lonely",
+        )
+        assertReported(messages, "sample.stray() is annotated @Binds and @Named but not @Provides", at = "fun stray")
     }
 
     // Config sections.

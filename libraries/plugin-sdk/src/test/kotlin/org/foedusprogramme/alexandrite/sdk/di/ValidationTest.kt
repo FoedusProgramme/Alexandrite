@@ -1,5 +1,11 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.AMBIGUOUS
+import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.CYCLE
+import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.MISSING
+import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.MODULE_MISMATCH
+import org.foedusprogramme.alexandrite.sdk.di.ProblemKind.SCOPE
+import org.foedusprogramme.alexandrite.sdk.di.Scope.CHANNEL_INSTANCE
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -19,7 +25,7 @@ class ValidationTest {
                         service("a", dep("b"), module = "core"),
                         service("b", dep("a"), module = "core"),
                         service("registry", dep("state"), module = "core"),
-                        service("state", scope = Scope.CHANNEL, module = "core"),
+                        service("state", scope = CHANNEL_INSTANCE, module = "core"),
                         service("tool", dep("clock"), module = "core"),
                     ),
                     index("extra", service("registry", module = "extra")),
@@ -31,11 +37,38 @@ class ValidationTest {
             """
             Cannot build container 'root' (4 problems):
             - Ambiguous binding: @Named("registry") $serviceType is bound by registry (module core) and registry (module extra). Remove all but one of them, or override the key.
-            - Scope violation: singleton registry (module core) depends on channel-scoped state (module core) through parameter 'state'. Make registry (module core) channel-scoped or drop the dependency.
+            - Scope violation: singleton registry (module core) depends on channel-instance-scoped state (module core) through parameter 'state'. Make registry (module core) channel-instance-scoped or drop the dependency.
             - Missing binding: nothing binds @Named("clock") $serviceType, which tool (module core) needs for parameter 'clock'. Loaded modules: core, extra. Bind it in one of them or pass an override to Container.build().
             - Dependency cycle: a (module core) -> b (module core) -> a (module core), through parameters 'b', 'a'. Inject one of them as Lazy or a provider.
             """.trimIndent(),
             error.message,
+        )
+        assertEquals(
+            listOf(
+                Problem(AMBIGUOUS, error.message!!.lines()[1].removePrefix("- "), null, svc("registry")),
+                Problem(SCOPE, error.message!!.lines()[2].removePrefix("- "), "core", svc("state")),
+                Problem(MISSING, error.message!!.lines()[3].removePrefix("- "), "core", svc("clock")),
+                Problem(CYCLE, error.message!!.lines()[4].removePrefix("- "), "core", svc("a")),
+            ),
+            error.problems,
+        )
+    }
+
+    @Test
+    fun `an index that returns a binding of another module is rejected`() {
+        val core = index("core", service("a", module = "core"), service("b", module = "extra"))
+
+        val error = assertFailsWith<DiException> { Container.build(listOf(core)) }
+
+        assertEquals(
+            "Cannot build container 'root' (1 problem):\n" +
+                "- Module mismatch: the index of module 'core' (${core::class.java.name}) returns " +
+                "b (module extra), which belongs to module 'extra'. Return only bindings of module 'core' from it.",
+            error.message,
+        )
+        assertEquals(
+            listOf(Problem(MODULE_MISMATCH, error.problems.single().message, "core", svc("b"))),
+            error.problems,
         )
     }
 
@@ -110,10 +143,12 @@ class ValidationTest {
 
     @Test
     fun `a singleton cannot depend on a channel binding`() {
-        val error = assertFailsWith<DiException> { build(service("a", dep("c")), service("c", scope = Scope.CHANNEL)) }
+        val error =
+            assertFailsWith<DiException> { build(service("a", dep("c")), service("c", scope = CHANNEL_INSTANCE)) }
 
         assertTrue(
-            "Scope violation: singleton a (module test) depends on channel-scoped c (module test)" in error.message!!,
+            "Scope violation: singleton a (module test) depends on channel-instance-scoped c (module test)" in
+                error.message!!,
         )
     }
 
@@ -123,17 +158,17 @@ class ValidationTest {
             build(
                 service("a", dep("tools", DependencyKind.ALL)),
                 service("t1", key = svc("tools"), multi = true),
-                service("t2", key = svc("tools"), multi = true, scope = Scope.CHANNEL),
+                service("t2", key = svc("tools"), multi = true, scope = CHANNEL_INSTANCE),
             )
         }
 
-        assertTrue("depends on channel-scoped t2 (module test) through parameter 'tools'" in error.message!!)
+        assertTrue("depends on channel-instance-scoped t2 (module test) through parameter 'tools'" in error.message!!)
     }
 
     @Test
     fun `a singleton cannot depend on a channel binding through LAZY`() {
         val error = assertFailsWith<DiException> {
-            build(service("a", dep("c", DependencyKind.LAZY)), service("c", scope = Scope.CHANNEL))
+            build(service("a", dep("c", DependencyKind.LAZY)), service("c", scope = CHANNEL_INSTANCE))
         }
 
         assertTrue("Scope violation" in error.message!!)

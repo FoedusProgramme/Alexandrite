@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.ksp
 
 import com.google.devtools.ksp.findActualType
+import com.google.devtools.ksp.getAllSuperTypes
+import com.google.devtools.ksp.symbol.ClassKind
 import com.google.devtools.ksp.symbol.KSAnnotated
 import com.google.devtools.ksp.symbol.KSAnnotation
 import com.google.devtools.ksp.symbol.KSClassDeclaration
@@ -9,12 +11,41 @@ import com.google.devtools.ksp.symbol.KSType
 import com.google.devtools.ksp.symbol.KSTypeAlias
 import com.google.devtools.ksp.symbol.KSTypeArgument
 import com.google.devtools.ksp.symbol.KSTypeParameter
+import com.google.devtools.ksp.symbol.Modifier
+import com.google.devtools.ksp.symbol.Origin
 import com.google.devtools.ksp.symbol.Variance
 
 internal fun KSAnnotated.annotation(name: String): KSAnnotation? =
     annotations.firstOrNull { it.annotationType.resolve().declaration.qualifiedName?.asString() == name }
 
 internal val KSAnnotation.value: Any? get() = arguments.firstOrNull()?.value
+
+/** The classes listed in a `vararg types: KClass<*>` annotation. */
+internal fun KSAnnotation.types(): List<KSType> = when (val value = value) {
+    is List<*> -> value.filterIsInstance<KSType>()
+    is KSType -> listOf(value)
+    else -> emptyList()
+}
+
+internal val KSDeclaration.isContributedSpi: Boolean get() = annotation(CONTRIBUTED_SPI) != null
+
+/** The contributed SPIs among the supertypes of this class. */
+internal fun KSClassDeclaration.contributedSpis(): List<KSClassDeclaration> = getAllSuperTypes()
+    .mapNotNull { it.classifier as? KSClassDeclaration }
+    .filter { it.isContributedSpi }
+    .distinctBy { it.name }
+    .toList()
+
+/** Whether instances of this class can exist without a subclass. */
+internal val KSClassDeclaration.isConcrete: Boolean
+    get() = when (classKind) {
+        ClassKind.OBJECT -> true
+        ClassKind.CLASS -> Modifier.ABSTRACT !in modifiers && Modifier.SEALED !in modifiers
+        else -> false
+    }
+
+/** Whether this is declared in the sources being compiled. */
+internal val KSDeclaration.isInModule: Boolean get() = origin == Origin.KOTLIN || origin == Origin.JAVA
 
 internal val KSDeclaration.name: String get() = (qualifiedName ?: simpleName).asString()
 
