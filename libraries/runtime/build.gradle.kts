@@ -5,3 +5,7 @@ plugins {
 kotlin {
     explicitApi()
 }
+
+dependencies {
+    api(project(":libraries:plugin-sdk"))
+}

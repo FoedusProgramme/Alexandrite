@@ -1,10 +1,12 @@
 package org.foedusprogramme.alexandrite.app
 
+import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.agent.AgentPlaceholder
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramPlaceholder
 import org.foedusprogramme.alexandrite.internal.InternalPlaceholder
 import org.foedusprogramme.alexandrite.provider.anthropic.AnthropicPlaceholder
 import org.foedusprogramme.alexandrite.provider.openaicompatible.OpenAiCompatPlaceholder
+import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimePlaceholder
 import org.foedusprogramme.alexandrite.sdk.di.ModuleIndex
 import org.foedusprogramme.alexandrite.tools.ToolsPlaceholder
@@ -40,6 +42,10 @@ internal fun assembledModules(): List<String> = listOf(
 internal fun startupLine(): String = "Alexandrite $alexandriteVersion starting"
 
 fun main() {
-    logger.info(startupLine())
-    logger.debug("Assembled modules: {}", assembledModules())
+    AlexandriteRuntime.discover().use { runtime ->
+        logger.info(startupLine())
+        logger.debug("Assembled modules: {}", assembledModules())
+        logger.debug("Runtime indexes: {}", runtime.modules.map { it.module })
+        runBlocking { runtime.start() }
+    }
 }
