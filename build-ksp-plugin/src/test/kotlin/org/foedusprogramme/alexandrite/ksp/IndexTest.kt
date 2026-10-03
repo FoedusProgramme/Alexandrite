@@ -429,6 +429,32 @@ class IndexTest {
     }
 
     @Test
+    fun `a component with an explicit backing field is indexed`() {
+        val ledger = source(
+            "Ledger.kt",
+            """
+            package sample
+
+            import org.foedusprogramme.alexandrite.sdk.di.Singleton
+
+            @Singleton
+            class Ledger {
+                val entries: List<String>
+                    field = mutableListOf()
+            }
+            """,
+        )
+        compile(workingDir.resolve("backing-field"), ledger, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            assertEquals(
+                listOf("sample.Ledger", "sample.SamplePlugin"),
+                compiled.indexes().single().bindings().map { it.origin }.sorted(),
+            )
+        }
+    }
+
+    @Test
     fun `the index compiles in explicit API strict mode`() {
         val explicit = source(
             "Explicit.kt",

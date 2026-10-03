@@ -200,9 +200,10 @@ internal class AlexandriteProcessor(
 /** Whether the types this processor reads from [declaration] resolve. */
 private fun Symbols.resolves(declaration: KSDeclaration): Boolean = when (declaration) {
     is KSClassDeclaration -> supertypes(declaration).none { it.isError } &&
-        (!hasAny(declaration, INDEXED_CLASS_ANNOTATIONS) || declaration.validate())
+        (!hasAny(declaration, INDEXED_CLASS_ANNOTATIONS) || declaration.validate(enableNewFeatures = false))
 
-    is KSFunctionDeclaration -> !hasAny(declaration, READ_FUNCTION_ANNOTATIONS) || declaration.validate()
+    is KSFunctionDeclaration -> !hasAny(declaration, READ_FUNCTION_ANNOTATIONS) ||
+        declaration.validate(enableNewFeatures = false)
 
     else -> true
 }
@@ -214,5 +215,6 @@ private class At(override val location: Location) : KSNode {
     override val origin: Origin get() = Origin.SYNTHETIC
     override val parent: KSNode? get() = null
 
+    @Suppress("DEPRECATION")
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R = visitor.visitNode(this, data)
 }

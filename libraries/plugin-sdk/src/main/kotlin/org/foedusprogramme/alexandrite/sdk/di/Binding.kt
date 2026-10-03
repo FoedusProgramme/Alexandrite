@@ -1,6 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
-import java.util.Objects
+import dev.drewhamilton.poko.Poko
 
 /** Which container creates and owns an instance. */
 public enum class Scope {
@@ -30,19 +30,13 @@ public enum class DependencyKind {
 }
 
 /** A key that [Binding.create] resolves. */
+@Poko
 public class Dependency(
     public val key: Key<*>,
     public val kind: DependencyKind,
     /** The parameter name, or the annotation that adds the dependency. */
     public val site: String,
-) {
-    override fun equals(other: Any?): Boolean =
-        other is Dependency && key == other.key && kind == other.kind && site == other.site
-
-    override fun hashCode(): Int = Objects.hash(key, kind, site)
-
-    override fun toString(): String = "Dependency(key=$key, kind=$kind, site=$site)"
-}
+)
 
 /** How a [Container] creates the instance for [key]. */
 public interface Binding<T : Any> {

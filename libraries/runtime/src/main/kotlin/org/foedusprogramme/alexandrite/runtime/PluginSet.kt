@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime
 
+import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -9,7 +10,6 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import java.lang.reflect.InvocationTargetException
 import java.net.URL
-import java.util.Objects
 
 /** The plugin indexes a runtime loads. */
 public class PluginSet private constructor(
@@ -78,6 +78,7 @@ public class PluginSet private constructor(
 }
 
 /** A plugin of a [PluginSet]. */
+@Poko
 public class LoadedPlugin internal constructor(
     public val info: PluginInfo,
     /** The layer of a built-in plugin, null for any other. */
@@ -86,32 +87,17 @@ public class LoadedPlugin internal constructor(
 ) {
     public val builtIn: Boolean get() = layer != null
 
-    override fun equals(other: Any?): Boolean =
-        other is LoadedPlugin && info == other.info && layer == other.layer && configRoot == other.configRoot
-
-    override fun hashCode(): Int = Objects.hash(info, layer, configRoot)
-
     override fun toString(): String = "LoadedPlugin(id=${info.id}, layer=$layer, configRoot=$configRoot)"
 }
 
 /** A plugin on the built-in list compiled into the runtime. */
+@Poko
 public class BuiltInPlugin internal constructor(
     public val indexClass: String,
     public val id: String,
     public val layer: BuiltInLayer,
     public val configRoot: String,
-) {
-    override fun equals(other: Any?): Boolean = other is BuiltInPlugin &&
-        indexClass == other.indexClass &&
-        id == other.id &&
-        layer == other.layer &&
-        configRoot == other.configRoot
-
-    override fun hashCode(): Int = Objects.hash(indexClass, id, layer, configRoot)
-
-    override fun toString(): String =
-        "BuiltInPlugin(indexClass=$indexClass, id=$id, layer=$layer, configRoot=$configRoot)"
-}
+)
 
 internal class PluginEntry(val index: PluginIndex, val row: BuiltInPlugin?, val explicit: Boolean) {
     val plugin: LoadedPlugin = LoadedPlugin(index.info, row?.layer, index.configRoot)

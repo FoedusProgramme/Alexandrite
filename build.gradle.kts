@@ -1,3 +1,5 @@
+import com.diffplug.gradle.spotless.SpotlessTask
+
 plugins {
     base
     alias(libs.plugins.spotless)
@@ -21,4 +23,12 @@ tasks.spotlessCheck {
 
 tasks.spotlessApply {
     dependsOn(buildLogic.map { it.task(":spotlessApply") })
+}
+
+val cleanTasks = allprojects.map { project -> project.tasks.named { it == BasePlugin.CLEAN_TASK_NAME } }
+
+allprojects {
+    tasks.withType<SpotlessTask>().configureEach {
+        mustRunAfter(cleanTasks)
+    }
 }

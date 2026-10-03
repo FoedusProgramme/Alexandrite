@@ -561,4 +561,16 @@ class ErrorTest : FailingSamples() {
             "class kotlin" to Messages.hiddenPackage("sample.kotlin", "kotlin", "sample"),
         )
     }
+
+    @Test
+    fun `a property with an explicit backing field hides a package like any other declaration`() {
+        assertErrors(
+            """
+            @Singleton class Engine(@Named("name") val name: String)
+            val kotlin: List<Int>
+                field = mutableListOf()
+            """,
+            "val kotlin" to Messages.hiddenPackage("sample.kotlin", "kotlin", "sample"),
+        )
+    }
 }

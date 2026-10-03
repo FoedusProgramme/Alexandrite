@@ -1,12 +1,13 @@
 package org.foedusprogramme.alexandrite.runtime
 
+import dev.drewhamilton.poko.Poko
 import java.nio.file.Path
 import java.time.ZoneId
-import java.util.Objects
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** Settings of the runtime itself. */
+@Poko
 public class RuntimeConfig private constructor(
     public val dataDir: Path,
     public val zone: ZoneId,
@@ -16,18 +17,6 @@ public class RuntimeConfig private constructor(
     /** Names the instance in messages. */
     public val name: String,
 ) {
-    override fun equals(other: Any?): Boolean = other is RuntimeConfig &&
-        dataDir == other.dataDir &&
-        zone == other.zone &&
-        shutdownGrace == other.shutdownGrace &&
-        startTimeout == other.startTimeout &&
-        name == other.name
-
-    override fun hashCode(): Int = Objects.hash(dataDir, zone, shutdownGrace, startTimeout, name)
-
-    override fun toString(): String = "RuntimeConfig(dataDir=$dataDir, zone=$zone, shutdownGrace=$shutdownGrace, " +
-        "startTimeout=$startTimeout, name=$name)"
-
     public class Builder internal constructor(private val dataDir: Path) {
         private var zone: ZoneId = ZoneId.systemDefault()
         private var shutdownGrace: Duration = 15.seconds

@@ -1,7 +1,7 @@
 package org.foedusprogramme.alexandrite.sdk.hook
 
+import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
-import java.util.Objects
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -45,19 +45,9 @@ public enum class Delivery {
 public sealed interface HookDecision<out P : Any> {
     public data object Continue : HookDecision<Nothing>
 
-    public class Replace<P : Any>(public val payload: P) : HookDecision<P> {
-        override fun equals(other: Any?): Boolean = other is Replace<*> && payload == other.payload
+    @Poko
+    public class Replace<P : Any>(public val payload: P) : HookDecision<P>
 
-        override fun hashCode(): Int = payload.hashCode()
-
-        override fun toString(): String = "Replace(payload=$payload)"
-    }
-
-    public class Abort(public val reply: String? = null) : HookDecision<Nothing> {
-        override fun equals(other: Any?): Boolean = other is Abort && reply == other.reply
-
-        override fun hashCode(): Int = Objects.hashCode(reply)
-
-        override fun toString(): String = "Abort(reply=$reply)"
-    }
+    @Poko
+    public class Abort(public val reply: String? = null) : HookDecision<Nothing>
 }
