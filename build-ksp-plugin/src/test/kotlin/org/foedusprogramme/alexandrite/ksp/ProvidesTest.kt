@@ -91,6 +91,7 @@ class ProvidesTest {
 
     private val files = object : PluginFiles {
         override val dataDir: Path = Path.of("/data/sample-plugin")
+        override val cacheDir: Path = Path.of("/cache/sample-plugin")
     }
 
     private val compiled by lazy {

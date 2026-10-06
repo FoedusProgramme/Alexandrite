@@ -64,6 +64,7 @@ class EndToEndTest {
         key<PluginFiles>(id),
         object : PluginFiles {
             override val dataDir: Path = Path.of("/data", id)
+            override val cacheDir: Path = Path.of("/cache", id)
         },
         "runtime",
         "files of $id",

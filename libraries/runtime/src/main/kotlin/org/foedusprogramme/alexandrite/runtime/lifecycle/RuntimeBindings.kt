@@ -14,11 +14,12 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
-import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
 
 private const val RUNTIME_PLUGIN = "alexandrite-runtime"
+
+private const val PLUGINS = "plugins"
 
 /** What the runtime itself binds for [plugins]. */
 internal fun runtimeBindings(
@@ -42,7 +43,10 @@ internal fun runtimeBindings(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
             instanceBinding(
                 key<PluginFiles>(plugin.id),
-                PluginDataDirectory(config.dataDir.resolve("plugins").resolve(plugin.id)),
+                PluginDirectories(
+                    config.dataDir.resolve(PLUGINS).resolve(plugin.id),
+                    config.cacheDir.resolve(PLUGINS).resolve(plugin.id),
+                ),
                 RUNTIME_PLUGIN,
                 "PluginFiles of ${plugin.id}",
             ),
@@ -51,6 +55,7 @@ internal fun runtimeBindings(
     return PluginBindings(RUNTIME_PLUGIN, bindings)
 }
 
-private class PluginDataDirectory(directory: Path) : PluginFiles {
-    override val dataDir: Path by lazy { Files.createDirectories(directory) }
+private class PluginDirectories(data: Path, cache: Path) : PluginFiles {
+    override val dataDir: Path by lazy { data.also(::createOwnerOnly) }
+    override val cacheDir: Path by lazy { cache.also(::createOwnerOnly) }
 }

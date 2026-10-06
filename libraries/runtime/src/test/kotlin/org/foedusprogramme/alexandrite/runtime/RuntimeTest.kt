@@ -370,6 +370,26 @@ class RuntimeTest {
     }
 
     @Test
+    fun `the internal resolver of the services resolves every bound type until stop`() {
+        val hook = binding(key<Hook>(), "core", "Failing", multi = true) { Failing(intercepted) }
+        val runtime = runtime(core(service("a", "core"), hook), dataDir).started()
+        val resolver = runtime.services.resolver()
+
+        val resolved = runtime.use {
+            listOf(
+                resolver.get(key<Service>("a")).name,
+                resolver.getOrNull(key<Service>("b")),
+                resolver.getAll(key<Hook>()).single().javaClass.simpleName,
+                resolver.get(key<Clock>()).zone,
+            )
+        }
+
+        assertEquals(listOf("a", null, "Failing", ZONE), resolved)
+        val error = assertFailsWith<IllegalStateException> { resolver.get(key<Service>("a")) }
+        assertEquals("Runtime 'test' has no services: it has stopped.", error.message)
+    }
+
+    @Test
     fun `a container closed under a running call fails it like a closed runtime`() {
         val container = Container.build(listOf(PluginBindings("core", listOf(probe("core")))))
         container.close()

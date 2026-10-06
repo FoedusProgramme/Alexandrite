@@ -35,7 +35,8 @@ class SpecTest {
         Case(
             { RuntimeConfig.builder(dataDir).zone(ZONE).build() },
             RuntimeConfig.builder(dataDir).zone(ZONE).name("other").build(),
-            "RuntimeConfig(dataDir=data, zone=Asia/Shanghai, shutdownGrace=15s, startTimeout=30s, name=alexandrite)",
+            "RuntimeConfig(dataDir=data, cacheDir=data${java.io.File.separator}cache, zone=Asia/Shanghai, " +
+                "shutdownGrace=15s, startTimeout=30s, name=alexandrite)",
         ),
         Case(
             { loaded(HelloIndex()) },
@@ -87,6 +88,7 @@ class SpecTest {
         val config = RuntimeConfig.builder(dataDir).build()
 
         assertEquals(dataDir, config.dataDir)
+        assertEquals(dataDir.resolve("cache"), config.cacheDir)
         assertEquals(ZoneId.systemDefault(), config.zone)
         assertEquals(15.seconds, config.shutdownGrace)
         assertEquals(30.seconds, config.startTimeout)
@@ -96,6 +98,7 @@ class SpecTest {
     @Test
     fun `a runtime config keeps what its builder sets`() {
         val config = RuntimeConfig.builder(dataDir)
+            .cacheDir(Path.of("cache"))
             .zone(ZONE)
             .shutdownGrace(Duration.ZERO)
             .startTimeout(5.milliseconds)
@@ -103,9 +106,9 @@ class SpecTest {
             .build()
 
         assertEquals(
-            listOf(ZONE, Duration.ZERO, 5.milliseconds, "edge"),
+            listOf(Path.of("cache"), ZONE, Duration.ZERO, 5.milliseconds, "edge"),
             with(config) {
-                listOf(zone, shutdownGrace, startTimeout, name)
+                listOf(cacheDir, zone, shutdownGrace, startTimeout, name)
             },
         )
     }
@@ -129,6 +132,21 @@ class SpecTest {
             ),
             messages,
         )
+    }
+
+    @Test
+    fun `a runtime config rejects a cache directory that is the data directory or holds it`() {
+        val rejected = listOf(dataDir, Path.of("data/../data"), dataDir.toAbsolutePath(), Path.of(""))
+
+        val messages = rejected.map { cache ->
+            assertFailsWith<IllegalArgumentException> { RuntimeConfig.builder(dataDir).cacheDir(cache).build() }.message
+        }
+
+        assertEquals(
+            "The cache directory may not be the data directory or hold it, was 'data' for the data directory 'data'.",
+            messages.first(),
+        )
+        RuntimeConfig.builder(dataDir).cacheDir(Path.of("data-cache")).build()
     }
 
     @Test

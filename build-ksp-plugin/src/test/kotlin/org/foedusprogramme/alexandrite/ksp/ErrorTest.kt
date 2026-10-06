@@ -289,6 +289,7 @@ class ErrorTest : FailingSamples() {
             }
             @Binds(PluginFiles::class) class Files : PluginFiles {
                 override val dataDir: java.nio.file.Path get() = TODO()
+                override val cacheDir: java.nio.file.Path get() = TODO()
             }
             """,
             "class Clocks" to Messages.uninjectableBound(

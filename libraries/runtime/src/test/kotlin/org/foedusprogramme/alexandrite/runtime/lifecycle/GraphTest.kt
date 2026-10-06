@@ -122,8 +122,11 @@ class GraphTest {
             assertEquals(ZONE, (values.getValue("clock") as Clock).zone)
             assertEquals(index.info, values.getValue("info"))
             assertFalse(Files.exists(dataDir.resolve("plugins")))
+            assertFalse(Files.exists(dataDir.resolve("cache/plugins")))
             assertEquals(dataDir.resolve("plugins/probe"), files.dataDir)
             assertTrue(Files.isDirectory(dataDir.resolve("plugins/probe")))
+            assertEquals(dataDir.resolve("cache/plugins/probe"), files.cacheDir)
+            assertTrue(Files.isDirectory(dataDir.resolve("cache/plugins/probe")))
             assertEquals(dataDir.resolve("plugins/other"), (values.getValue("other") as PluginFiles).dataDir)
             assertTrue(values.getValue("control") is RuntimeControl)
             hooks

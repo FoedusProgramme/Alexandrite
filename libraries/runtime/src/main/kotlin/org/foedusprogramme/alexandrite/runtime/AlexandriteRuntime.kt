@@ -37,7 +37,7 @@ import kotlin.time.TimeSource
 
 /** An Alexandrite instance assembled from [spec]. */
 public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
-    private val name = spec.config.name
+    internal val name = spec.config.name
     private val lock = Any()
     private val mutableState = MutableStateFlow(RuntimeState.NEW)
     private val events = Channel<Queued>(Channel.UNLIMITED)
@@ -157,6 +157,8 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
         }
         return terminated.await()
     }
+
+    internal fun joinTermination(): Termination = terminated.join()
 
     /** Requests a stop and blocks until the runtime has terminated, or only requests it from the listener. */
     override fun close() {

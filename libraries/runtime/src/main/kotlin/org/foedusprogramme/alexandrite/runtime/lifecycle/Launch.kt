@@ -87,7 +87,10 @@ internal class Launch(
     }
 
     private suspend fun stages() {
-        withContext(Dispatchers.IO) { lock = assembly.lockDataDir() }
+        withContext(Dispatchers.IO) {
+            lock = assembly.lockDataDir()
+            assembly.createCacheDir()
+        }
         val container = runInterruptible(Dispatchers.IO) { assemble() }
         runStage(StartStage.START) { container.start() }
         started()

@@ -44,6 +44,14 @@ internal class Assembly(private val spec: RuntimeSpec, private val control: Runt
         }
     }
 
+    fun createCacheDir() {
+        try {
+            createOwnerOnly(spec.config.cacheDir)
+        } catch (e: IOException) {
+            throw startFailure(name, StartStage.DATA_DIR, cause = e)
+        }
+    }
+
     fun checkPlugins() {
         val plugins = spec.plugins
         plugins.unlisted.forEach {

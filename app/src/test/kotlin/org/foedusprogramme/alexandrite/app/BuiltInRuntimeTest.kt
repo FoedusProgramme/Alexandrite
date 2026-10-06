@@ -24,16 +24,16 @@ class BuiltInRuntimeTest {
     private val builtIns = PluginSet.builtInPlugins.sortedBy { it.id }
 
     @Test
-    fun `the built-in plugin set loads every listed index on the class path and nothing else`() {
+    fun `the built-in plugin set loads every listed index on the class path and reports the example's`() {
         val plugins = PluginSet.builtIn()
         val found = ServiceLoader.load(PluginIndex::class.java).map { it.javaClass.name }.sorted()
 
-        assertEquals(builtIns.map { it.indexClass }.sorted(), found)
+        assertEquals((builtIns.map { it.indexClass } + NOTES_INDEX).sorted(), found)
         assertEquals(
             builtIns.map { Triple(it.id, it.layer, it.configRoot) },
             plugins.plugins.map { Triple(it.info.id, it.layer, it.configRoot) },
         )
-        assertEquals(emptyList(), plugins.unlisted)
+        assertEquals(listOf(NOTES_INDEX), plugins.unlisted)
         assertEquals(emptyList(), plugins.duplicates)
     }
 
@@ -68,5 +68,9 @@ class BuiltInRuntimeTest {
             listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
             events.map { it::class.simpleName },
         )
+    }
+
+    private companion object {
+        const val NOTES_INDEX = "com.example.notes.NotesIndex"
     }
 }

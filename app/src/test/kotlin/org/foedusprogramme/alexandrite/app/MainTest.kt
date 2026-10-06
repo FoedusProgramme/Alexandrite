@@ -3,30 +3,218 @@ package org.foedusprogramme.alexandrite.app
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
+import org.foedusprogramme.alexandrite.runtime.RuntimeState
+import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.junit.jupiter.api.io.TempDir
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.ZoneId
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class MainTest {
-    @Test
-    fun `main logs the version and the built-in plugins it finds`() {
-        val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app.Main") as Logger
+    @TempDir
+    lateinit var directory: Path
+
+    private val out = ByteArrayOutputStream()
+    private val err = ByteArrayOutputStream()
+
+    private val home: Path get() = directory.resolve("home")
+    private val dataDir: Path get() = directory.resolve("data")
+
+    private fun config(json: String): Path = Files.writeString(directory.resolve("alexandrite.json"), json)
+
+    private fun stopping(
+        kind: StopKind = StopKind.SHUTDOWN,
+        whileReady: (AlexandriteRuntime) -> Unit = {},
+    ): suspend (AlexandriteRuntime) -> Termination = { runtime ->
+        try {
+            runtime.start()
+            whileReady(runtime)
+            runtime.stop(StopRequest(kind, "requested by the test"))
+        } catch (e: RuntimeStartException) {
+            runtime.awaitTermination()
+        }
+    }
+
+    private fun host(
+        vararg args: String,
+        environment: Map<String, String> = emptyMap(),
+        execute: suspend (AlexandriteRuntime) -> Termination = stopping(),
+    ): Int = run(args.toList(), environment, "Linux", home, PrintStream(out, true), PrintStream(err, true), execute)
+
+    private fun hostWith(json: String, execute: suspend (AlexandriteRuntime) -> Termination = stopping()): Int =
+        host("--config", "${config(json)}", "--data-dir", "$dataDir", execute = execute)
+
+    private fun stdout(): String = out.toString(Charsets.UTF_8)
+
+    private fun stderr(): String = err.toString(Charsets.UTF_8)
+
+    private fun logged(block: () -> Unit): List<String> {
+        val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app") as Logger
         val appender = ListAppender<ILoggingEvent>().apply { start() }
         logger.addAppender(appender)
         try {
-            main()
+            block()
         } finally {
             logger.detachAppender(appender)
         }
-
-        val line = appender.list.single().formattedMessage
-        val match = assertNotNull(STARTUP_LINE.matchEntire(line), line)
-        assertEquals(PluginSet.builtInPlugins.map { it.id }.sorted(), match.groupValues[1].split(", "))
+        return appender.list.map { "${it.level} ${it.formattedMessage}" }
     }
 
-    private companion object {
-        val STARTUP_LINE = Regex("""Alexandrite \d+\.\d+\.\d+\S* starting with built-in plugins \[(.*)]""")
+    @Test
+    fun `--help prints the usage with this machine's defaults`() {
+        val code = host("--help", environment = mapOf("ALEXANDRITE_DATA_DIR" to "/srv/alexandrite"))
+
+        assertEquals(0, code)
+        assertContains(stdout(), "Usage: alexandrite [--config <file>] [--data-dir <dir>] [--cache-dir <dir>]")
+        assertContains(stdout(), "by default ${home.resolve(".config/alexandrite/alexandrite.json")}")
+        assertContains(stdout(), "by default /srv/alexandrite")
+        assertEquals("", stderr())
+    }
+
+    @Test
+    fun `--version prints the version`() {
+        assertEquals(0, host("--version"))
+
+        assertTrue(Regex("""alexandrite \d+\.\d+\.\d+\S*\n""").matches(stdout()), stdout())
+    }
+
+    @Test
+    fun `bad arguments print the reason and the usage to stderr and exit 64`() {
+        assertEquals(64, host("--config"))
+
+        assertTrue(stderr().startsWith("alexandrite: --config needs a value.\n\nUsage: alexandrite"), stderr())
+        assertEquals("", stdout())
+    }
+
+    @Test
+    fun `a missing config file exits 78 naming the file and the example`() {
+        val missing = directory.resolve("absent.json")
+
+        assertEquals(78, host("--config", "$missing", "--data-dir", "$dataDir"))
+
+        assertContains(stderr(), "Config file $missing does not exist. Create it from the example at ")
+        assertContains(stderr(), "config/alexandrite.example.json")
+    }
+
+    @Test
+    fun `the config file is found by the location rules`() {
+        val file = config("""{"bogus": {}}""")
+
+        val code = host("--data-dir", "$dataDir", environment = mapOf("ALEXANDRITE_CONFIG" to "$file"))
+
+        assertEquals(78, code)
+        assertContains(stderr(), "Unknown config at 'bogus'")
+    }
+
+    @Test
+    fun `a config file that is no JSON or refers to an unset variable exits 78`() {
+        assertEquals(78, hostWith("""{"app": """))
+        assertContains(stderr(), "is not valid JSON")
+
+        assertEquals(78, hostWith($$"""{"plugins": {"notes": {"fileName": "${env:NOTES_FILE}"}}}"""))
+        assertContains(stderr(), "the value at 'plugins.notes.fileName' refers to the environment variable NOTES_FILE")
+    }
+
+    @Test
+    fun `invalid host settings exit 78`() {
+        val cases = listOf(
+            """{"app": {"zone": "Mars/Olympus"}}""" to "zone 'Mars/Olympus' is no time zone",
+            """{"app": {"shutdownGraceSeconds": -1}}""" to "shutdownGraceSeconds may not be negative",
+            """{"app": {"startTimeoutSeconds": 0}}""" to "startTimeoutSeconds must be positive",
+            """{"app": {"plugins": ["Notes"]}}""" to "plugins holds 'Notes', which is no plugin id",
+            """{"app": {"plugin": []}}""" to "Invalid config at 'app': ",
+            """{"app": []}""" to "Invalid config at 'app': 'app' is not an object",
+        )
+
+        for ((json, message) in cases) {
+            err.reset()
+
+            assertEquals(78, hostWith(json), json)
+            assertContains(stderr(), message)
+        }
+    }
+
+    @Test
+    fun `a plugin that is not on the class path exits 78`() {
+        assertEquals(78, hostWith("""{"app": {"plugins": ["weather"]}}"""))
+
+        assertContains(stderr(), "Cannot load the plugins of 'app.plugins': No plugin 'weather' on the class path")
+    }
+
+    @Test
+    fun `a cache directory that holds the data directory exits 78`() {
+        val code = host("--config", "${config("{}")}", "--data-dir", "$dataDir", "--cache-dir", "$directory")
+
+        assertEquals(78, code)
+        assertContains(stderr(), "The cache directory may not be the data directory or hold it")
+    }
+
+    @Test
+    fun `a start that fails at CONFIG prints its problems and exits 78`() {
+        assertEquals(78, hostWith("""{"plugins": {"notes": {"fileName": "../x.db"}}, "app": {"plugins": ["notes"]}}"""))
+
+        assertContains(
+            stderr(),
+            "Cannot start runtime 'alexandrite': stage CONFIG failed (1 problem):\n- Invalid config",
+        )
+    }
+
+    @Test
+    fun `a start that fails at DATA_DIR exits 1`() {
+        Files.writeString(dataDir, "")
+
+        assertEquals(1, hostWith("{}"))
+        assertContains(stderr(), "stage DATA_DIR failed")
+    }
+
+    @Test
+    fun `an unexpected error exits 1`() {
+        assertEquals(1, hostWith("{}") { error("boom") })
+
+        assertContains(stderr(), "alexandrite: unexpected error: java.lang.IllegalStateException: boom")
+    }
+
+    @Test
+    fun `a stop for a restart exits 75`() {
+        assertEquals(75, hostWith("{}", stopping(StopKind.RESTART)))
+    }
+
+    @Test
+    fun `the host runs the configured plugins until it is stopped and exits 0`() {
+        var state: RuntimeState? = null
+        var settings: AppConfig? = null
+        val json = """{"app": {"zone": "Asia/Shanghai", "plugins": ["notes"]}, "plugins": {"notes": {}}}"""
+
+        val lines = logged {
+            val code = hostWith(
+                json,
+                stopping { runtime ->
+                    state = runtime.state.value
+                    settings = runtime.services.resolver().get(key<AppConfig>())
+                },
+            )
+
+            assertEquals(0, code)
+        }
+
+        assertEquals(RuntimeState.READY, state)
+        assertEquals(ZoneId.of("Asia/Shanghai"), settings?.zoneId)
+        assertEquals(listOf("notes"), settings?.plugins)
+        assertTrue(Files.isRegularFile(dataDir.resolve("plugins/notes/notes.db")))
+        assertContains(lines, "INFO Alexandrite $alexandriteVersion is ready")
+        assertEquals("", stderr())
     }
 }

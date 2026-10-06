@@ -1,0 +1,8 @@
+{
+  "app": {
+    "zone": null,
+    "shutdownGraceSeconds": 15,
+    "startTimeoutSeconds": 30,
+    "plugins": []
+  }
+}

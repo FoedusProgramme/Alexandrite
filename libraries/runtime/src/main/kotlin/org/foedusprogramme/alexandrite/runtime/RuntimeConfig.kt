@@ -10,6 +10,8 @@ import kotlin.time.Duration.Companion.seconds
 @Poko
 public class RuntimeConfig private constructor(
     public val dataDir: Path,
+    /** The root of the plugins' cache directories. */
+    public val cacheDir: Path,
     public val zone: ZoneId,
     public val shutdownGrace: Duration,
     /** How long [AlexandriteRuntime.start] may take. */
@@ -18,10 +20,13 @@ public class RuntimeConfig private constructor(
     public val name: String,
 ) {
     public class Builder internal constructor(private val dataDir: Path) {
+        private var cacheDir: Path = dataDir.resolve("cache")
         private var zone: ZoneId = ZoneId.systemDefault()
         private var shutdownGrace: Duration = 15.seconds
         private var startTimeout: Duration = 30.seconds
         private var name: String = "alexandrite"
+
+        public fun cacheDir(cacheDir: Path): Builder = apply { this.cacheDir = cacheDir }
 
         public fun zone(zone: ZoneId): Builder = apply { this.zone = zone }
 
@@ -40,7 +45,13 @@ public class RuntimeConfig private constructor(
             this.name = name
         }
 
-        public fun build(): RuntimeConfig = RuntimeConfig(dataDir, zone, shutdownGrace, startTimeout, name)
+        public fun build(): RuntimeConfig {
+            require(!dataDir.toAbsolutePath().normalize().startsWith(cacheDir.toAbsolutePath().normalize())) {
+                "The cache directory may not be the data directory or hold it, was '$cacheDir' for the data " +
+                    "directory '$dataDir'."
+            }
+            return RuntimeConfig(dataDir, cacheDir, zone, shutdownGrace, startTimeout, name)
+        }
     }
 
     public companion object {

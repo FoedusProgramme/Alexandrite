@@ -1,5 +1,6 @@
 plugins {
     id("alexandrite.kotlin-application")
+    id("alexandrite.kotlin-serialization")
 }
 
 dependencies {
@@ -12,6 +13,7 @@ dependencies {
     implementation(project(":libraries:providers:anthropic"))
     runtimeOnly(libs.logback.classic)
 
+    testImplementation(project(":examples:notes"))
     testImplementation(libs.logback.classic)
 }
 

@@ -4,7 +4,6 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
-import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.READ
@@ -32,7 +31,8 @@ internal class DataDirLock private constructor(private val directory: Path, priv
 
         /** Locks [dataDir], calling [inUse] with the holder when another runtime has it. */
         fun acquire(dataDir: Path, inUse: (holder: String) -> Nothing): DataDirLock {
-            val directory = Files.createDirectories(dataDir).toRealPath()
+            createOwnerOnly(dataDir)
+            val directory = dataDir.toRealPath()
             if (!held.add(directory)) inUse(THIS_JVM)
             try {
                 return DataDirLock(directory, lockedChannel(directory.resolve(FILE_NAME), inUse))
