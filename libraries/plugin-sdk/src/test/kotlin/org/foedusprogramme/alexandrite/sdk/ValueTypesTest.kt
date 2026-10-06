@@ -1,11 +1,11 @@
 package org.foedusprogramme.alexandrite.sdk
 
 import kotlinx.serialization.json.JsonObject
-import org.foedusprogramme.alexandrite.sdk.di.Dependency
-import org.foedusprogramme.alexandrite.sdk.di.DependencyKind
-import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
-import org.foedusprogramme.alexandrite.sdk.di.PluginBindings
-import org.foedusprogramme.alexandrite.sdk.di.StepReport
+import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
+import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
+import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.container.StepReport
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.HookFailure

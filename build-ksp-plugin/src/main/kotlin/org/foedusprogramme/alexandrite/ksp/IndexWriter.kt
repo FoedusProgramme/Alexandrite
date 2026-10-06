@@ -3,9 +3,6 @@ package org.foedusprogramme.alexandrite.ksp
 import com.google.devtools.ksp.processing.CodeGenerator
 import com.google.devtools.ksp.processing.Dependencies
 
-/** The SDK API version the descriptor records. */
-internal const val SDK_API_VERSION = 1
-
 /** Writes the index of a plugin, its service file and its descriptor. */
 internal class IndexWriter(
     private val options: PluginOptions,
@@ -25,30 +22,34 @@ internal class IndexWriter(
         codeGenerator.createNewFile(dependencies, packageName, className).writer().use {
             it.write(source(sections, components))
         }
-        codeGenerator.createNewFileByPath(dependencies, "META-INF/services/$PLUGIN_INDEX", "").writer().use {
+        codeGenerator.createNewFileByPath(dependencies, SERVICE_FILE, "").writer().use {
             it.write("$indexClass\n")
         }
-        codeGenerator.createNewFileByPath(dependencies, "META-INF/alexandrite/${options.id}", "json").writer().use {
+        val descriptorPath = "$DESCRIPTOR_DIRECTORY/${options.id}"
+        codeGenerator.createNewFileByPath(dependencies, descriptorPath, DESCRIPTOR_EXTENSION).writer().use {
             it.write(descriptor())
         }
     }
 
     private fun source(sections: Collection<Section>, components: Collection<Component>): String {
-        val bindings = components.sortedBy { it.label }.flatMap(::componentBindings)
+        val bindings = components.sortedBy { it.origin }.flatMap(::componentBindings)
         val specs = sections.sortedBy { it.path }.map(::sectionSpec)
         val imports = listOf(
             ALEXANDRITE_SDK,
+            INTERNAL_API,
             CONFIG_SECTION_SPEC,
-            "$DI.Binding",
-            "$DI.Dependency",
-            "$DI.DependencyKind",
-            "$DI.Scope",
-            "$DI.binding",
-            "$DI.key",
+            BINDING,
+            DEPENDENCY,
+            DEPENDENCY_KIND,
+            SCOPE,
+            BINDING_FUNCTION,
+            KEY_FUNCTION,
             PLUGIN_INDEX,
             PLUGIN_INFO,
         )
         return buildString {
+            appendLine("@file:OptIn(${INTERNAL_API.substringAfterLast('.')}::class)")
+            appendLine()
             appendLine("package ${sourceName(packageName)}")
             appendLine()
             imports.forEach { appendLine("import $it") }
@@ -106,7 +107,7 @@ internal class IndexWriter(
         appendLine("    ${Key(section.type, null).code},")
         appendLine("    path = ${literal(section.path)},")
         appendLine("    deserializer = ${section.type}.serializer(),")
-        appendLine("    origin = ${literal(section.label)},")
+        appendLine("    origin = ${literal(section.origin)},")
         append(")")
     }
 
@@ -150,7 +151,7 @@ internal class IndexWriter(
         appendLine("binding(")
         appendLine("    ${key.code},")
         appendLine("    plugin = ${literal(options.id)},")
-        appendLine("    origin = ${literal(component.label)},")
+        appendLine("    origin = ${literal(component.origin)},")
         appendLine("    scope = Scope.${if (component.channelInstanceScoped) "CHANNEL_INSTANCE" else "SINGLETON"},")
         if (dependencies.isNotEmpty()) {
             appendLine("    dependencies = listOf(")

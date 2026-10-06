@@ -1,12 +1,12 @@
 package org.foedusprogramme.alexandrite.ksp
 
-import org.foedusprogramme.alexandrite.sdk.di.Container
-import org.foedusprogramme.alexandrite.sdk.di.DiException
-import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
-import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.container.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.DiException
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
-import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
@@ -36,7 +36,7 @@ class ProvidesTest {
         import org.foedusprogramme.alexandrite.sdk.di.Provides
         import org.foedusprogramme.alexandrite.sdk.di.Singleton
         import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
-        import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+        import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
         import java.time.Clock
         import java.time.Instant
         import java.time.ZoneOffset
@@ -173,7 +173,7 @@ class ProvidesTest {
             package sample
 
             import org.foedusprogramme.alexandrite.sdk.di.Singleton
-            import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+            import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 
             @Singleton
             class Store(val files: PluginFiles, val later: Lazy<PluginFiles>)

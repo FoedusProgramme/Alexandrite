@@ -17,9 +17,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
-import org.foedusprogramme.alexandrite.sdk.di.Binding
-import org.foedusprogramme.alexandrite.sdk.di.PluginBindings
-import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.jetbrains.kotlinx.serialization.compiler.extensions.SerializationComponentRegistrar
@@ -123,9 +123,9 @@ class Compiled(private val compilation: KotlinCompilation, private val result: J
 
     fun indexes(): List<PluginIndex> = ServiceLoader.load(PluginIndex::class.java, classLoader).toList()
 
-    fun service(): String = resources.resolve("META-INF/services/${PluginIndex::class.java.name}").readText()
+    fun service(): String = resources.resolve(PluginIndex.SERVICE_FILE).readText()
 
-    fun descriptorText(id: String): String = resources.resolve("META-INF/alexandrite/$id.json").readText()
+    fun descriptorText(id: String): String = resources.resolve(PluginIndex.descriptorPath(id)).readText()
 
     fun descriptor(id: String): JsonObject = Json.parseToJsonElement(descriptorText(id)).jsonObject
 

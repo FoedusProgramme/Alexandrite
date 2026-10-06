@@ -117,7 +117,7 @@ internal class AlexandriteProcessor(
         logger.error(problem.message, At(problem.location))
     }
 
-    /** What one round reads, added in label order when the round ends. */
+    /** What one round reads, added in origin order when the round ends. */
     private inner class Round(private val symbols: Symbols) {
         private val roundComponents = mutableListOf<Component>()
         private val roundSections = mutableListOf<Section>()
@@ -136,8 +136,8 @@ internal class AlexandriteProcessor(
         }
 
         fun finish() {
-            roundComponents.sortedBy { it.label }.forEach(registry::add)
-            sections += roundSections.sortedBy { it.label }
+            roundComponents.sortedBy { it.origin }.forEach(registry::add)
+            sections += roundSections.sortedBy { it.origin }
         }
 
         private fun readClass(declaration: KSClassDeclaration) {
@@ -181,12 +181,12 @@ internal class AlexandriteProcessor(
         private fun readFunction(function: KSFunctionDeclaration) {
             if (symbols.has(function, PROVIDES)) {
                 packages += function.packageName.asString()
-                add(ProviderReader(function, symbols, options.id).read(), roundComponents)
+                add(ProvidesReader(function, symbols, options.id).read(), roundComponents)
                 return
             }
             val annotations = FUNCTION_BINDING_ANNOTATIONS.filter { symbols.has(function, it) }
             if (annotations.isNotEmpty()) {
-                problems += Problem(Messages.notProvides(providerLabel(function), annotations), function.location)
+                problems += Problem(Messages.notProvides(providesLabel(function), annotations), function.location)
             }
         }
 

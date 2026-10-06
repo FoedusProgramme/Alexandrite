@@ -7,18 +7,22 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
+import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInPlugin
+import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
+import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
-import org.foedusprogramme.alexandrite.sdk.di.Binding
-import org.foedusprogramme.alexandrite.sdk.di.Dependency
-import org.foedusprogramme.alexandrite.sdk.di.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
-import org.foedusprogramme.alexandrite.sdk.di.Resolver
-import org.foedusprogramme.alexandrite.sdk.di.Scope
-import org.foedusprogramme.alexandrite.sdk.di.binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
+import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
+import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
+import org.foedusprogramme.alexandrite.sdk.di.container.Scope
+import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
@@ -222,7 +226,7 @@ const val MISSING_INDEX = "org.example.MissingIndex"
 private fun row(index: KClass<out PluginIndex>, id: String, layer: BuiltInLayer, configRoot: String) =
     BuiltInPlugin(index.java.name, id, layer, configRoot)
 
-private val testBuiltIns: List<BuiltInPlugin> = listOf(
+val TEST_BUILT_INS: List<BuiltInPlugin> = listOf(
     row(AgentIndex::class, "alexandrite-agent", BuiltInLayer.AGENT, "agent"),
     row(ToolsIndex::class, "alexandrite-tools", BuiltInLayer.TOOLS, "tools"),
     row(NestedToolsIndex::class, "alexandrite-tools-nested", BuiltInLayer.TOOLS, "tools.nested"),
@@ -237,10 +241,6 @@ private val testBuiltIns: List<BuiltInPlugin> = listOf(
     BuiltInPlugin(MISSING_INDEX, "alexandrite-missing", BuiltInLayer.AGENT, "missing"),
 )
 
-fun useTestBuiltIns() {
-    BuiltIns.rows = testBuiltIns
-}
-
 fun loaded(index: PluginIndex, layer: BuiltInLayer? = null): LoadedPlugin =
     LoadedPlugin(index.info, layer, index.configRoot)
 
@@ -249,14 +249,13 @@ fun names(vararg classes: KClass<out PluginIndex>): List<String> = classes.map {
 class Jar(val services: List<String> = emptyList(), val descriptors: Map<String, String> = emptyMap())
 
 fun classPath(directory: Path, vararg jars: Jar): URLClassLoader {
-    useTestBuiltIns()
     val roots = jars.mapIndexed { number, jar ->
         val root = directory.resolve("jar$number")
-        val services = root.resolve("META-INF/services/${PluginIndex::class.java.name}")
+        val services = root.resolve(PluginIndex.SERVICE_FILE)
         Files.createDirectories(services.parent)
         Files.writeString(services, jar.services.joinToString("") { "$it\n" })
         for ((id, indexClass) in jar.descriptors) {
-            val descriptor = root.resolve("META-INF/alexandrite/$id.json")
+            val descriptor = root.resolve(PluginIndex.descriptorPath(id))
             Files.createDirectories(descriptor.parent)
             Files.writeString(descriptor, """{"id": "$id", "indexClass": "$indexClass"}""")
         }
@@ -266,12 +265,9 @@ fun classPath(directory: Path, vararg jars: Jar): URLClassLoader {
 }
 
 fun builtIn(directory: Path, vararg classes: KClass<out PluginIndex>): PluginSet =
-    classPath(directory.resolve("classes"), Jar(names(*classes))).use { PluginSet.builtIn(it) }
+    classPath(directory.resolve("classes"), Jar(names(*classes))).use { PluginSet.builtIn(it, TEST_BUILT_INS) }
 
-fun explicit(vararg indexes: PluginIndex): PluginSet {
-    useTestBuiltIns()
-    return PluginSet.of(*indexes)
-}
+fun explicit(vararg indexes: PluginIndex): PluginSet = PluginSet.of(TEST_BUILT_INS, *indexes)
 
 class Recorder : RuntimeListener {
     val events: MutableList<RuntimeEvent> = CopyOnWriteArrayList()

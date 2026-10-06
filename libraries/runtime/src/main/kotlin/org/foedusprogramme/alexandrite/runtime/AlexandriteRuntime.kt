@@ -16,17 +16,15 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.completeWith
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import org.foedusprogramme.alexandrite.sdk.di.Container
+import org.foedusprogramme.alexandrite.runtime.lifecycle.Launch
+import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
@@ -51,18 +49,12 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
     private val control = object : RuntimeControl {
         override fun requestStop(request: StopRequest) = this@AlexandriteRuntime.requestStop(request)
     }
-    private val assembly = Assembly(spec, control) { resolved ->
-        synchronized(lock) {
-            loaded = resolved.loaded
-            emitWhileStarting(resolved)
-        }
-    }
     private var stopRequest: StopRequest? = null
     private var stopDeadline: TimeMark? = null
     private var startWork: Job? = null
     private var startCancelled = false
     private var startFailed = false
-    private var running: Startup? = null
+    private var running: Launch? = null
     private var handle: RuntimeServices? = null
     private var loaded: List<LoadedPlugin>? = null
 
@@ -118,7 +110,7 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
     public fun requestStop(request: StopRequest = HOST_REQUEST) {
         val deadline = TimeSource.Monotonic.markNow() + spec.config.shutdownGrace
         var cancelled: Job? = null
-        var stopping: Startup? = null
+        var stopping: Launch? = null
         val ignored = synchronized(lock) {
             val state = mutableState.value
             when {
@@ -149,7 +141,7 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
         }
         logger.info("{}: stopping: {}", name, request)
         cancelled?.cancel()
-        stopping?.let { startup -> scope.launch { runStop(request, startup, deadline) } }
+        stopping?.let { stopped -> scope.launch { runStop(request, stopped, deadline) } }
     }
 
     /** Requests a stop and waits for the [Termination]. */
@@ -174,14 +166,14 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
     }
 
     private suspend fun startUp() {
-        val startup = Startup()
+        val launch = Launch(spec, control, ::pluginsResolved) { emitWhileStarting(RuntimeEvent.Started) }
         val error = try {
             coroutineScope {
-                val work = async { stagesWithin(startup) }
+                val work = async { launch.run() }
                 if (!register(work)) work.cancel()
                 work.await()
             }
-            if (becameReady(startup)) return
+            if (becameReady(launch)) return
             null
         } catch (e: Throwable) {
             e
@@ -192,38 +184,18 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
             if (request == null) startFailed = true
             request to (stopDeadline ?: TimeSource.Monotonic.markNow() + spec.config.shutdownGrace)
         }
-        val failure = startError(startup, error, stopped != null)
-        val problems = startup.tearDown(name, deadline, spec.config.shutdownGrace)
+        val failure = launch.failure(error, stopped != null, synchronized(lock) { startCancelled })
+        val problems = launch.tearDown(deadline)
         val cause = stopped?.let(Termination.Cause::Requested) ?: Termination.Cause.StartFailed(failure)
         terminate(Termination(cause, problems))
         throw failure
     }
 
-    private suspend fun stagesWithin(startup: Startup) {
-        val timeout = spec.config.startTimeout
-        withTimeoutOrNull(timeout) { stages(startup) }
-            ?: throw startFailure(name, startup.stage, detail = "not started within $timeout")
-    }
-
-    private suspend fun stages(startup: Startup) {
-        withContext(Dispatchers.IO) { startup.lock = assembly.lockDataDir() }
-        val container = runInterruptible(Dispatchers.IO) { assembly.assemble(startup) }
-        startup.stage = StartStage.START
-        stage(StartStage.START) { container.start() }
-        emitWhileStarting(RuntimeEvent.Started)
-        startup.stage = StartStage.OPEN
-        stage(StartStage.OPEN) { container.open() }
-    }
-
-    private suspend fun stage(stage: StartStage, block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            throw startFailure(name, stage, cause = e)
+    private fun pluginsResolved(event: RuntimeEvent.PluginsResolved) {
+        synchronized(lock) {
+            loaded = event.loaded
+            emitWhileStarting(event)
         }
-        currentCoroutineContext().ensureActive()
     }
 
     /** Registers [work] for cancellation, or returns false when the start was already cut short. */
@@ -238,29 +210,17 @@ public class AlexandriteRuntime(private val spec: RuntimeSpec) : AutoCloseable {
         }?.cancel()
     }
 
-    private fun becameReady(startup: Startup): Boolean = synchronized(lock) {
+    private fun becameReady(launch: Launch): Boolean = synchronized(lock) {
         startWork = null
         if (mutableState.value != RuntimeState.STARTING || startCancelled) return false
-        running = startup
-        handle = RuntimeServices(checkNotNull(startup.container)) { synchronized(lock) { unavailable() } }
+        running = launch
+        handle = RuntimeServices(checkNotNull(launch.container)) { synchronized(lock) { unavailable() } }
         moveTo(RuntimeState.READY, RuntimeEvent.Ready)
         true
     }
 
-    private fun startError(startup: Startup, error: Throwable?, stopped: Boolean): RuntimeStartException = when {
-        stopped -> startFailure(name, startup.stage, detail = "stopped while starting").also { failure ->
-            if (error != null && error !is CancellationException) failure.addSuppressed(error)
-        }
-
-        error is RuntimeStartException -> error
-
-        synchronized(lock) { startCancelled } -> startFailure(name, startup.stage, cause = error, detail = "cancelled")
-
-        else -> startFailure(name, startup.stage, cause = error)
-    }
-
-    private suspend fun runStop(request: StopRequest, startup: Startup, deadline: TimeMark) {
-        val problems = startup.tearDown(name, deadline, spec.config.shutdownGrace)
+    private suspend fun runStop(request: StopRequest, launch: Launch, deadline: TimeMark) {
+        val problems = launch.tearDown(deadline)
         terminate(Termination(Termination.Cause.Requested(request), problems))
     }
 

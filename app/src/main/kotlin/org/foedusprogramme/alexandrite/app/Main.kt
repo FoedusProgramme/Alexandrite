@@ -1,6 +1,6 @@
 package org.foedusprogramme.alexandrite.app
 
-import org.foedusprogramme.alexandrite.runtime.PluginSet
+import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.slf4j.LoggerFactory
 import java.util.Properties
 

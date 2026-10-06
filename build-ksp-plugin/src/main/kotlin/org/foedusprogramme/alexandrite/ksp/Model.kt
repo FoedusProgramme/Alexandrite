@@ -34,7 +34,7 @@ internal class Bound(val key: Key, val className: String)
 
 /** A class the container creates, or a function whose result it binds. */
 internal class Component(
-    val label: String,
+    val origin: String,
     val location: Location,
     val key: Key,
     /** The class of the instances [key] binds. */
@@ -56,7 +56,7 @@ internal class Component(
 }
 
 internal class Section(
-    val label: String,
+    val origin: String,
     val location: Location,
     val type: String,
     val path: String,

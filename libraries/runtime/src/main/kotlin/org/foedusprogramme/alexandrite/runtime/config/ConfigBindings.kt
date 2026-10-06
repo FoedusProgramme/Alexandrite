@@ -10,8 +10,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
-import org.foedusprogramme.alexandrite.sdk.di.Binding
-import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import kotlin.coroutines.cancellation.CancellationException

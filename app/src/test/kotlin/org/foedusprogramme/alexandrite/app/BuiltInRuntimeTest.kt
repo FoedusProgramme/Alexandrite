@@ -2,13 +2,13 @@ package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
-import org.foedusprogramme.alexandrite.runtime.BuiltInLayer
-import org.foedusprogramme.alexandrite.runtime.DisabledPlugin
-import org.foedusprogramme.alexandrite.runtime.PluginSet
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent
 import org.foedusprogramme.alexandrite.runtime.RuntimeListener
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
+import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
+import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
+import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path

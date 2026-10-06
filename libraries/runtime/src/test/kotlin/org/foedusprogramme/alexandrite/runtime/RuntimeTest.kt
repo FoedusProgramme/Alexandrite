@@ -9,11 +9,14 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.StartFailed
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Started
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopped
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopping
-import org.foedusprogramme.alexandrite.sdk.di.Binding
-import org.foedusprogramme.alexandrite.sdk.di.Container
-import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
-import org.foedusprogramme.alexandrite.sdk.di.PluginBindings
-import org.foedusprogramme.alexandrite.sdk.di.binding
+import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
+import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
+import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
+import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -63,7 +66,7 @@ class RuntimeTest {
         assertEquals(
             listOf(
                 Problem(
-                    DiProblemKind.DUPLICATE_PLUGIN,
+                    RuntimeProblemKind.DUPLICATE_PLUGIN,
                     "Duplicate plugin 'alexandrite-agent': the plugin set holds $agent and $agent. " +
                         "Keep only one of them.",
                     "alexandrite-agent",
@@ -89,10 +92,10 @@ class RuntimeTest {
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
             listOf(
-                RuntimeProblemKind.RESERVED_NAME to "alexandrite-weather",
-                RuntimeProblemKind.MALFORMED_NAME to "Weather_2",
+                RuntimeProblemKind.RESERVED_ID to "alexandrite-weather",
+                RuntimeProblemKind.MALFORMED_ID to "Weather_2",
                 RuntimeProblemKind.WRONG_ROOT to "rain",
-                RuntimeProblemKind.MALFORMED_NAME to "a-1",
+                RuntimeProblemKind.MALFORMED_ID to "a-1",
             ),
             error.problems.map { it.kind to it.plugin },
         )
@@ -139,7 +142,7 @@ class RuntimeTest {
     @Test
     fun `an index that two jars ship fails the PLUGINS stage`() {
         val plugins = classPath(dataDir, Jar(names(AgentIndex::class)), Jar(names(AgentIndex::class)))
-            .use { PluginSet.builtIn(it) }
+            .use { PluginSet.builtIn(it, TEST_BUILT_INS) }
 
         val error = runtime(plugins, dataDir).startFailure()
 

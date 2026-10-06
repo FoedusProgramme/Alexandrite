@@ -160,7 +160,7 @@ class MiswiringTest : FailingSamples() {
             "class Store" to Messages.namedPluginLocal(
                 "files",
                 "sample.Store",
-                "org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles",
+                "org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles",
             ),
         )
     }

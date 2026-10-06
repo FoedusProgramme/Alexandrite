@@ -417,7 +417,7 @@ class AlexandriteLayoutTest {
 
         assertEquals(
             """
-            package org.foedusprogramme.alexandrite.runtime
+            package org.foedusprogramme.alexandrite.runtime.plugin
 
             public enum class BuiltInLayer {
                 AGENT,

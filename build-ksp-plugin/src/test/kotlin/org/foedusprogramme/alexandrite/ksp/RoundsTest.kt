@@ -1,6 +1,6 @@
 package org.foedusprogramme.alexandrite.ksp
 
-import org.foedusprogramme.alexandrite.sdk.di.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test

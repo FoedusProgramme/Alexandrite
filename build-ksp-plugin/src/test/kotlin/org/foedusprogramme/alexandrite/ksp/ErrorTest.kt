@@ -313,8 +313,8 @@ class ErrorTest : FailingSamples() {
                 ),
             "class Files" to Messages.uninjectableBound(
                 "sample.Files",
-                "org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles",
-                "org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles",
+                "org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles",
+                "org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles",
                 KeyProblem.PLUGIN_LOCAL,
             ),
         )
@@ -393,7 +393,7 @@ class ErrorTest : FailingSamples() {
             "fun port" to Messages.uninjectableReturn("sample.port()", "kotlin.Int", KeyProblem.UNQUALIFIED),
             "fun files" to Messages.uninjectableReturn(
                 "sample.files()",
-                "org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles",
+                "org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles",
                 KeyProblem.PLUGIN_LOCAL,
             ),
         )

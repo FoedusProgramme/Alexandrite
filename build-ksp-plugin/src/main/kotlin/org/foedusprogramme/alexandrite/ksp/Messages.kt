@@ -215,49 +215,51 @@ internal object Messages {
 
     fun unreachableProvider(name: String, unreachable: Unreachable): String = when (unreachable) {
         Unreachable.Local ->
-            "Provider $name is local, so the generated index cannot reach it. " +
+            "@Provides function $name is local, so the generated index cannot reach it. " +
                 "Declare it at the top level or inside an object."
 
         is Unreachable.Hidden ->
-            "Provider $name ${hiddenWhere(unreachable)}, so the generated index cannot call it. " +
+            "@Provides function $name ${hiddenWhere(unreachable)}, so the generated index cannot call it. " +
                 "Make it public or internal."
     }
 
     fun providerInClass(name: String, owner: String): String =
-        "Provider $name is declared in $owner, which is not an object, so the container has no instance to call " +
-            "it on. Move it to the top level or into an object."
+        "@Provides function $name is declared in $owner, which is not an object, so the container has no instance " +
+            "to call it on. Move it to the top level or into an object."
 
     fun suspendProvider(name: String): String =
-        "Provider $name is a suspend function, but the container creates instances without suspending. " +
+        "@Provides function $name is a suspend function, but the container creates instances without suspending. " +
             "Remove suspend, and do suspending work in Lifecycle.onStart()."
 
     fun extensionProvider(name: String): String =
-        "Provider $name is an extension function, so the container has no receiver to call it on. " +
+        "@Provides function $name is an extension function, so the container has no receiver to call it on. " +
             "Take the receiver as a parameter instead."
 
-    fun genericProvider(name: String): String = "Provider $name has type parameters, so it has no single key. " +
-        "Remove them, or declare one provider per concrete type."
+    fun genericProvider(name: String): String =
+        "@Provides function $name has type parameters, so it has no single key. " +
+            "Remove them, or declare one @Provides function per concrete type."
 
     fun unresolvedReturn(name: String): String =
-        "Provider $name has a return type that cannot be resolved. Declare the return type explicitly."
+        "@Provides function $name has a return type that cannot be resolved. Declare the return type explicitly."
 
     fun unexpandedReturn(name: String, type: String): String =
-        "Provider $name returns $type, a type alias that does not expand to a type. Return the aliased type itself."
+        "@Provides function $name returns $type, a type alias that does not expand to a type. " +
+            "Return the aliased type itself."
 
     fun nullableProvider(name: String, type: String): String =
-        "Provider $name returns $type, but a binding always has an instance. " +
+        "@Provides function $name returns $type, but a binding always has an instance. " +
             "Return a non-null type, and inject it as optional where it may be missing."
 
     fun unitProvider(name: String): String =
-        "Provider $name returns Unit, so there is nothing to bind. Return the instance to bind."
+        "@Provides function $name returns Unit, so there is nothing to bind. Return the instance to bind."
 
     fun uninjectableReturn(name: String, type: String, problem: KeyProblem): String =
-        "Provider $name returns $type, but ${keyProblem(type, problem)}. " +
+        "@Provides function $name returns $type, but ${keyProblem(type, problem)}. " +
             when (problem) {
                 KeyProblem.ALL -> "Provide each element with its own @Provides @Contribute function instead."
                 KeyProblem.LAZY, KeyProblem.FUNCTION -> "Return the instance itself."
                 KeyProblem.UNQUALIFIED -> "Annotate it with @Named(\"…\")."
-                KeyProblem.PLUGIN_LOCAL -> "Remove the provider, and inject the type where it is needed."
+                KeyProblem.PLUGIN_LOCAL -> "Remove the @Provides function, and inject the type where it is needed."
             }
 
     fun providedSpi(name: String, spi: String): String =

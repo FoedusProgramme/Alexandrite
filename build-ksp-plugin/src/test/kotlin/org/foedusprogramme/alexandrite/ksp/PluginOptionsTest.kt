@@ -1,7 +1,6 @@
 package org.foedusprogramme.alexandrite.ksp
 
 import com.tschuchort.compiletesting.SourceFile
-import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test
@@ -171,14 +170,6 @@ class PluginOptionsTest {
             assertEquals(true, PLUGIN_ID.matches(id), id)
             assertEquals(name, indexClassName(id), id)
         }
-    }
-
-    @Test
-    fun `the id rules are the SDK's`() {
-        assertEquals(PluginIds.PATTERN.pattern, PLUGIN_ID.pattern)
-        assertEquals(PluginIds.RESERVED_PREFIX, RESERVED_PREFIX)
-        assertEquals(PluginIds.THIRD_PARTY_ROOT, THIRD_PARTY_ROOT)
-        assertEquals(PluginIds.ENABLED_KEY, ENABLED)
     }
 
     @Test

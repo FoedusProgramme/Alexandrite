@@ -5,10 +5,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
-import org.foedusprogramme.alexandrite.sdk.di.Binding
-import org.foedusprogramme.alexandrite.sdk.di.Container
-import org.foedusprogramme.alexandrite.sdk.di.DiException
-import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.DiException
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
@@ -227,11 +227,6 @@ class IndexTest {
         assertEquals(JsonPrimitive("sample.plugin.SamplePluginIndex"), descriptor["indexClass"])
         assertEquals(JsonPrimitive("plugins.sample-plugin"), descriptor["configRoot"])
         assertEquals(JsonPrimitive(false), descriptor["builtIn"])
-    }
-
-    @Test
-    fun `the descriptor's SDK API version is the SDK's`() {
-        assertEquals(AlexandriteSdk.API_VERSION, SDK_API_VERSION)
     }
 
     // Container.

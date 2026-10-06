@@ -1,7 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.coroutines.runBlocking
-import org.foedusprogramme.alexandrite.sdk.di.binding
+import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks

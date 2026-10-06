@@ -3,15 +3,18 @@ package org.foedusprogramme.alexandrite.runtime
 import org.foedusprogramme.alexandrite.sdk.problem.ProblemKind
 
 /** What a problem of the runtime is about. */
-internal enum class RuntimeProblemKind : ProblemKind {
+public enum class RuntimeProblemKind : ProblemKind {
     /** A plugin id outside the id grammar. */
-    MALFORMED_NAME,
+    MALFORMED_ID,
 
     /** A plugin that is not built in but has a reserved id. */
-    RESERVED_NAME,
+    RESERVED_ID,
 
     /** A plugin that is not built in and reads a config root other than its own below `plugins`. */
     WRONG_ROOT,
+
+    /** Several indexes of the plugin set with one plugin id. */
+    DUPLICATE_PLUGIN,
 
     /** An index class listed by several service files. */
     DUPLICATE_INDEX,

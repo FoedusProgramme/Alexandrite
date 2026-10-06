@@ -1,9 +1,9 @@
 package org.foedusprogramme.alexandrite.runtime
 
-import org.foedusprogramme.alexandrite.sdk.di.DiException
-import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.di.Key
-import org.foedusprogramme.alexandrite.sdk.di.Resolver
+import org.foedusprogramme.alexandrite.sdk.di.container.DiException
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
+import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import kotlin.reflect.KClass
 

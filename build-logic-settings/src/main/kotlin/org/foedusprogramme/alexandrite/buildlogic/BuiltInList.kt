@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.buildlogic
 
 /** The list of built-in plugins compiled into the runtime. */
 object BuiltInList {
-    const val PACKAGE = "org.foedusprogramme.alexandrite.runtime"
+    const val PACKAGE = "org.foedusprogramme.alexandrite.runtime.plugin"
 
     const val FILE_NAME = "BuiltInPlugins.kt"
 

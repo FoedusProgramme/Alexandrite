@@ -2,12 +2,6 @@ package org.foedusprogramme.alexandrite.ksp
 
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 
-/** The config key that switches a plugin on and off. */
-internal const val ENABLED = "enabled"
-
-/** A dot-separated config path below the config root. */
-internal val CONFIG_PATH = Regex("[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*")
-
 /** Reads one @ConfigSection class. */
 internal class SectionReader(private val declaration: KSClassDeclaration, private val symbols: Symbols) {
     private val label = declaration.name

@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime
 
+import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 
 /** What an [AlexandriteRuntime] is assembled from. */

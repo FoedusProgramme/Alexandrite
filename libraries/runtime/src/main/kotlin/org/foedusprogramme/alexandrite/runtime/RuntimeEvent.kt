@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import dev.drewhamilton.poko.Poko
+import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
+import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 
 /** Told about each [RuntimeEvent]. */
@@ -35,17 +37,4 @@ public sealed interface RuntimeEvent {
 
     @Poko
     public class Stopped internal constructor(public val termination: Termination) : RuntimeEvent
-}
-
-/** A plugin the plugin config leaves off. */
-@Poko
-public class DisabledPlugin internal constructor(public val id: String, public val reason: Reason) {
-    /** Why a plugin is off. */
-    public enum class Reason {
-        /** Its config sets `enabled` to false. */
-        ENABLED_FALSE,
-
-        /** A built-in channel or provider without a config section. */
-        NOT_CONFIGURED,
-    }
 }

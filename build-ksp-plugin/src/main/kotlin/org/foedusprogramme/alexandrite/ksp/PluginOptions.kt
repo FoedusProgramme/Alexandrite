@@ -12,11 +12,6 @@ internal const val BUILT_IN_OPTION = "alexandrite.builtIn"
 internal val OPTIONS =
     listOf(PLUGIN_OPTION, VERSION_OPTION, PACKAGE_OPTION, INDEX_CLASS_OPTION, CONFIG_ROOT_OPTION, BUILT_IN_OPTION)
 
-internal const val RESERVED_PREFIX = "alexandrite-"
-internal const val THIRD_PARTY_ROOT = "plugins"
-
-internal val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
-
 private const val OPTION_PREFIX = "alexandrite."
 
 private val PACKAGE_NAME = Regex("${IDENTIFIER.pattern}(\\.${IDENTIFIER.pattern})*")

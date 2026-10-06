@@ -1,4 +1,5 @@
 import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
+import org.foedusprogramme.alexandrite.buildlogic.Layer
 
 plugins {
     `java-library`
@@ -31,6 +32,19 @@ kotlin {
     explicitApi()
     compilerOptions {
         allWarningsAsErrors = true
+    }
+}
+
+if (module.layer != Layer.EXAMPLE) {
+    val mainSeesSdk = module.layer == Layer.SDK ||
+        Layer.SDK in AlexandriteLayout.LAYER_DEPENDENCIES.getValue(module.layer)
+    val testSeesSdk = mainSeesSdk || Layer.SDK in AlexandriteLayout.TEST_LAYER_DEPENDENCIES[module.layer].orEmpty()
+    kotlin.target.compilations.configureEach {
+        if (if (name == "test") testSeesSdk else mainSeesSdk) {
+            compileTaskProvider.configure {
+                compilerOptions.optIn.add("org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi")
+            }
+        }
     }
 }
 

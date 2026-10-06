@@ -3,7 +3,7 @@ package org.foedusprogramme.alexandrite.app
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import org.foedusprogramme.alexandrite.runtime.PluginSet
+import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.slf4j.LoggerFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals

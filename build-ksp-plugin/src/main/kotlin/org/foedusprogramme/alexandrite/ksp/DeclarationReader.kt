@@ -6,7 +6,7 @@ import com.google.devtools.ksp.symbol.KSDeclaration
 import com.google.devtools.ksp.symbol.KSNode
 import com.google.devtools.ksp.symbol.KSValueParameter
 
-/** Reads what component classes and provider functions have in common. */
+/** Reads what component classes and @Provides functions have in common. */
 internal abstract class DeclarationReader(
     private val declaration: KSDeclaration,
     protected val symbols: Symbols,

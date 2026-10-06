@@ -1,17 +1,19 @@
 package org.foedusprogramme.alexandrite.ksp
 
-import org.foedusprogramme.alexandrite.sdk.di.Container
-import org.foedusprogramme.alexandrite.sdk.di.DiException
-import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
-import org.foedusprogramme.alexandrite.sdk.di.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.container.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.DiException
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
-import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class EndToEndTest {
     @TempDir
@@ -33,7 +35,7 @@ class EndToEndTest {
             import org.foedusprogramme.alexandrite.sdk.di.Named
             import org.foedusprogramme.alexandrite.sdk.di.Provides
             import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
-            import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+            import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 
             @Plugin(name = "$id bot", description = "Chats on $id")
             class BotPlugin
@@ -104,6 +106,28 @@ class EndToEndTest {
             assertEquals("telegram bot", index.info.name)
             assertEquals("Chats on telegram", index.info.description)
             assertEquals("\"sample.telegram.TelegramIndex\"", compiled.descriptor("telegram")["indexClass"].toString())
+        }
+    }
+
+    @Test
+    fun `plugin code needs an opt-in to use the container, while its generated index opts in itself`() {
+        val uses = source(
+            "Uses.kt",
+            """
+            package sample
+
+            import org.foedusprogramme.alexandrite.sdk.di.container.Container
+
+            fun build(): Container = Container.build(emptyList())
+            """.trimIndent(),
+        )
+
+        compile(workingDir, uses, entry("sample")).use { compiled ->
+            val errors = compiled.messages.lines().filter { it.startsWith("e: ") }
+
+            assertFalse(compiled.succeeded)
+            assertTrue(errors.isNotEmpty(), compiled.messages)
+            assertTrue(errors.all { "Uses.kt" in it && "Internal Alexandrite API" in it }, compiled.messages)
         }
     }
 }
