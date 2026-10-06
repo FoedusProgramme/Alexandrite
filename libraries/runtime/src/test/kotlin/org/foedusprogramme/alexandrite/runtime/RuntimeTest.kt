@@ -1,13 +1,14 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Closed
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.PluginsResolved
+import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Ready
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.StartFailed
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Started
+import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopped
+import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopping
 import org.foedusprogramme.alexandrite.sdk.di.Binding
 import org.foedusprogramme.alexandrite.sdk.di.Container
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
@@ -25,17 +26,12 @@ import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.time.Clock
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertSame
-import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -54,12 +50,6 @@ class RuntimeTest {
     }
 
     private fun core(vararg services: Binding<*>) = explicit(TestIndex("core", bindings = services.toList()))
-
-    private fun startingIn(runtime: AlexandriteRuntime): Pair<Thread, () -> Throwable?> {
-        var thrown: Throwable? = null
-        val starter = thread { thrown = runCatching { runBlocking { runtime.start() } }.exceptionOrNull() }
-        return starter to { thrown }
-    }
 
     // Plugins.
 
@@ -171,7 +161,7 @@ class RuntimeTest {
     // Start.
 
     @Test
-    fun `a failing start closes the container and fails the START stage`() {
+    fun `a failing start stops what started, destroys the container and fails the START stage`() {
         val plugins = core(
             service("a", "core", events),
             service("b", "core", events, listOf("a"), onStart = { error("start b failed") }),
@@ -190,7 +180,12 @@ class RuntimeTest {
             assertFailsWith<IllegalStateException> { runtime.services }
         }
         assertEquals(
-            listOf("create a", "create b", "create c", "start a", "start b", "close a", "close c", "close b"),
+            listOf(
+                "create a", "create b", "create c",
+                "start a", "start b",
+                "stop a",
+                "destroy c", "destroy b", "destroy a",
+            ),
             events.all(),
         )
     }
@@ -199,12 +194,12 @@ class RuntimeTest {
     fun `a start that outlasts the start timeout fails the START stage`() {
         val plugins = core(service("a", "core", events, onStart = hang))
 
-        val error = runtime(plugins, dataDir, startTimeout = 50.milliseconds).use { it.startFailure() }
+        val error = runtime(plugins, dataDir, startTimeout = 200.milliseconds).use { it.startFailure() }
 
         assertEquals(StartStage.START, error.stage)
         assertNull(error.cause)
-        assertEquals("Cannot start runtime 'test': stage START failed: not started within 50ms", error.message)
-        assertEquals(listOf("create a", "start a", "close a"), events.all())
+        assertEquals("Cannot start runtime 'test': stage START failed: not started within 200ms", error.message)
+        assertEquals(listOf("create a", "start a", "destroy a"), events.all())
     }
 
     @Test
@@ -217,67 +212,16 @@ class RuntimeTest {
             }
         }
 
-        assertEquals(listOf("PluginsResolved", "StartFailed", "Closed"), recorder.names())
+        assertEquals(listOf("PluginsResolved", "StartFailed"), recorder.names())
         val failed = recorder.events.filterIsInstance<StartFailed>().single().error
         assertEquals("Cannot start runtime 'test': stage START failed: cancelled", failed.message)
-        assertEquals(listOf("create a", "start a", "close a"), events.all())
-    }
-
-    @Test
-    fun `close during start cancels it, so no instance starts after close`() {
-        val entered = CountDownLatch(1)
-        val waiting: suspend () -> Unit = {
-            entered.countDown()
-            awaitCancellation()
-        }
-        val plugins = core(
-            service("a", "core", events),
-            service("b", "core", events, listOf("a"), onStart = waiting),
-            service("c", "core", events, listOf("b")),
-        )
-        val runtime = runtime(plugins, dataDir, listener = recorder)
-        val (starter, thrown) = startingIn(runtime)
-
-        runtime.use {
-            assertTrue(entered.await(5, TimeUnit.SECONDS))
-            runtime.close()
-            starter.join(5_000)
-        }
-
-        val error = assertNotNull(thrown() as? RuntimeStartException)
-        assertEquals(StartStage.START, error.stage)
-        assertEquals("Cannot start runtime 'test': stage START failed: closed while starting", error.message)
-        assertEquals(
-            listOf("create a", "create b", "create c", "start a", "start b", "close a", "close c", "close b"),
-            events.all(),
-        )
-        assertEquals(listOf("PluginsResolved", "StartFailed", "Closed"), recorder.names())
-        assertSame(error, recorder.events.filterIsInstance<StartFailed>().single().error)
-        val late = assertFailsWith<IllegalStateException> { runtime.services }
-        assertEquals("Runtime 'test' has no services: it is closed.", late.message)
-    }
-
-    @Test
-    fun `close during assembly fails the start at the stage it reached`() {
-        lateinit var runtime: AlexandriteRuntime
-        val listener = RuntimeListener { event ->
-            recorder.onEvent(event)
-            if (event is PluginsResolved) runtime.close()
-        }
-        runtime = runtime(core(service("a", "core", events)), dataDir, listener = listener)
-
-        val error = runtime.use { it.startFailure() }
-
-        assertEquals(StartStage.GRAPH, error.stage)
-        assertEquals("Cannot start runtime 'test': stage GRAPH failed: closed while starting", error.message)
-        assertEquals(listOf("PluginsResolved", "StartFailed", "Closed"), recorder.names())
-        assertEquals(listOf("create a", "close a"), events.all())
+        assertEquals(listOf("create a", "start a", "destroy a"), events.all())
     }
 
     // Events.
 
     @Test
-    fun `a runtime reports its plugins, its start and its close`() {
+    fun `a runtime reports its plugins, its start and its stop`() {
         val plugins = builtIn(dataDir, AgentIndex::class, TelegramIndex::class, HelloIndex::class)
 
         val loaded = runtime(plugins, dataDir, """{"plugins": {"weather": {}}}""", recorder).started().use {
@@ -296,7 +240,9 @@ class RuntimeTest {
                     unknownPluginConfig = listOf("plugins.weather"),
                 ),
                 Started,
-                Closed,
+                Ready,
+                Stopping(HOST_STOP),
+                Stopped(Termination(Termination.Cause.Requested(HOST_STOP), emptyList())),
             ),
             recorder.events,
         )
@@ -348,24 +294,26 @@ class RuntimeTest {
     }
 
     @Test
-    fun `whenever close comes, start ends in one outcome before the one Closed`() {
+    fun `whenever a stop comes, the runtime ends in one outcome`() {
         val outcomes = setOf(
-            listOf("Closed"),
-            listOf("StartFailed", "Closed"),
-            listOf("PluginsResolved", "StartFailed", "Closed"),
-            listOf("PluginsResolved", "Started", "Closed"),
+            listOf("Stopped"),
+            listOf("Stopping", "Stopped"),
+            listOf("PluginsResolved", "Stopping", "Stopped"),
+            listOf("PluginsResolved", "Started", "Stopping", "Stopped"),
+            listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
         )
 
         repeat(40) { round ->
             val recorder = Recorder()
             val runtime = runtime(core(service("a", "core")), dataDir, listener = recorder)
-            val (starter, _) = startingIn(runtime)
+            val starter = thread { runCatching { runBlocking { runtime.start() } } }
 
             Thread.sleep(round % 4L)
             runtime.close()
             starter.join(5_000)
 
             assertContains(outcomes, recorder.names(), "round $round")
+            assertEquals(RuntimeState.STOPPED, runtime.state.value)
         }
     }
 
@@ -381,25 +329,10 @@ class RuntimeTest {
 
         assertEquals(listOf("alexandrite-agent"), plugins.map { it.info.id })
         assertEquals(
-            listOf("PluginsResolved", "Started", "Closed"),
+            listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
             lines.filter { it.startsWith("WARN test: listener failed on ") }
                 .map { it.removePrefix("WARN test: listener failed on ").substringBefore('(') },
         )
-    }
-
-    @Test
-    fun `a listener may close the runtime when it starts`() {
-        lateinit var runtime: AlexandriteRuntime
-        val listener = RuntimeListener { event ->
-            recorder.onEvent(event)
-            if (event == Started) runtime.close()
-        }
-        runtime = runtime(core(service("a", "core", events)), dataDir, listener = listener)
-
-        runtime.use { it.started() }
-
-        assertEquals(listOf("PluginsResolved", "Started", "Closed"), recorder.names())
-        assertEquals(listOf("create a", "start a", "close a"), events.all())
     }
 
     // Services.
@@ -420,7 +353,7 @@ class RuntimeTest {
     }
 
     @Test
-    fun `services are available from start until close`() {
+    fun `services are available from start until stop`() {
         val runtime = runtime(core(probe("core")), dataDir)
 
         val early = assertFailsWith<IllegalStateException> { runtime.services }
@@ -429,7 +362,7 @@ class RuntimeTest {
         assertEquals("Runtime 'test' has no services until start() returns.", early.message)
         for (late in listOf({ runtime.services }, { services.get(key<Probe>()) })) {
             val error = assertFailsWith<IllegalStateException> { late() }
-            assertEquals("Runtime 'test' has no services: it is closed.", error.message)
+            assertEquals("Runtime 'test' has no services: it has stopped.", error.message)
         }
     }
 
@@ -460,7 +393,7 @@ class RuntimeTest {
             listOf(
                 "Runtime 'test' has not resolved its plugins: call start() first.",
                 "Runtime 'test' failed to start before resolving its plugins.",
-                "Runtime 'test' was closed before resolving its plugins.",
+                "Runtime 'test' was stopped before resolving its plugins.",
             ),
             messages,
         )
@@ -470,7 +403,7 @@ class RuntimeTest {
     // Lifecycle.
 
     @Test
-    fun `close closes the instances in reverse creation order, once`() {
+    fun `close stops and destroys the instances in reverse creation order, once`() {
         val plugins = explicit(
             TestIndex("store", bindings = listOf(service("db", "store", events))),
             TestIndex("turns", bindings = listOf(service("worker", "turns", events, listOf("db")))),
@@ -479,29 +412,40 @@ class RuntimeTest {
         runtime(plugins, dataDir, listener = recorder).started().use { it.close() }
 
         assertEquals(
-            listOf("create db", "create worker", "start db", "start worker", "close worker", "close db"),
+            listOf(
+                "create db",
+                "create worker",
+                "start db",
+                "start worker",
+                "stop worker",
+                "stop db",
+                "destroy worker",
+                "destroy db",
+            ),
             events.all(),
         )
-        assertEquals(listOf("PluginsResolved", "Started", "Closed"), recorder.names())
+        assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
     }
 
     @Test
-    fun `a runtime starts once and never after closing or failing`() {
+    fun `a runtime starts once and never after stopping or failing`() {
         runtime(explicit(AgentIndex()), dataDir).started().use { started ->
-            val failed = runtime(explicit(TestIndex("alexandrite-weather")), dataDir).apply { startFailure() }
-            val closed = runtime(explicit(AgentIndex()), dataDir, listener = recorder).apply { close() }
+            val failed = runtime(explicit(TestIndex("alexandrite-weather")), dataDir.resolve("failed"))
+                .apply { startFailure() }
+            val closed = runtime(explicit(AgentIndex()), dataDir.resolve("closed"), listener = recorder)
+                .apply { close() }
 
             val messages = listOf(started, failed, closed).map { runtime ->
                 assertFailsWith<IllegalStateException> { runBlocking { runtime.start() } }.message
             }
 
             assertEquals(
-                listOf("it has started", "it failed to start", "it is closed").map {
+                listOf("it has started", "it failed to start", "it has stopped").map {
                     "Cannot start runtime 'test': $it."
                 },
                 messages,
             )
-            assertEquals(listOf("Closed"), recorder.names())
+            assertEquals(listOf("Stopped"), recorder.names())
         }
     }
 
@@ -520,6 +464,8 @@ class RuntimeTest {
                 "WARN test: ignoring the config at 'plugins.weather': no plugin of the plugin set reads it",
                 "INFO test: loading plugins [alexandrite-agent], disabled [alexandrite-channel-telegram " +
                     "(NOT_CONFIGURED)]",
+                "INFO test: stopping: StopRequest(kind=SHUTDOWN, reason=requested by the host)",
+                "INFO test: stopped",
             ),
             lines,
         )

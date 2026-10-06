@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
@@ -21,7 +22,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.TimeSource
 
 class ConcurrencyTest {
     @Test
@@ -54,8 +54,8 @@ class ConcurrencyTest {
                 dispatcher.fire(rewrite, "p$i").also { dispatcher.fire(seen, "p$i") }
             }
         }.awaitAll()
-        dispatcher.drain(TimeSource.Monotonic.markNow() + 10.seconds)
-        dispatcher.close()
+        withTimeout(10.seconds) { dispatcher.onDrain() }
+        dispatcher.onDestroy()
 
         assertEquals((0 until calls).map { Interception.Proceed("p${it}ab") }, results)
         assertEquals(calls, inline.get())

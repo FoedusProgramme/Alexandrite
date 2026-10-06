@@ -1,10 +1,17 @@
 package org.foedusprogramme.alexandrite.sdk.di
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.sdk.di.StepReport.Outcome
+import org.foedusprogramme.alexandrite.sdk.di.StepReport.Step
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.TimeMark
 
-/** Validates a dependency graph, then creates, starts and closes its instances. */
+/** Validates a dependency graph, then creates its instances and takes them through their [Lifecycle]. */
 public class Container private constructor(
     private val site: Site,
     private val graph: Graph,
@@ -14,10 +21,11 @@ public class Container private constructor(
     private val level = if (parent == null) Scope.SINGLETON else Scope.CHANNEL_INSTANCE
     private val instances = ConcurrentHashMap<Node, Any>()
     private val lock = Any()
-    private val managed = mutableListOf<Any>()
+    private val managed = mutableListOf<Managed>()
     private val creating = mutableSetOf<Node>()
     private val children = LinkedHashSet<Container>()
     private val started = AtomicBoolean()
+    private val opened = AtomicBoolean()
     private val closed = AtomicBoolean()
 
     override fun <T : Any> get(key: Key<T>): T = cast(instanceOf(single(key)))
@@ -25,7 +33,7 @@ public class Container private constructor(
     override fun <T : Any> getOrNull(key: Key<T>): T? = singleOrNull(key)?.let { cast(instanceOf(it)) }
 
     override fun <T : Any> getAll(key: Key<T>): List<T> {
-        ensureOpen(key)
+        ensureNotClosed(key)
         graph.singles[key]?.let { throw DiException(Problems.wrongKind(key, all = true, listOf(it))) }
         return graph.multis[key].orEmpty().map { cast(instanceOf(it)) }
     }
@@ -40,22 +48,55 @@ public class Container private constructor(
         return { get(key) }
     }
 
-    /** Starts every managed [Startable] in creation order. */
+    /** Calls [Lifecycle.onStart] on the managed instances in creation order. */
     public suspend fun start() {
-        if (closed.get()) throw DiException(Problems.closed(site))
+        if (closed.get()) throw DiException(Problems.closed(site, START))
         if (!started.compareAndSet(false, true)) throw DiException(Problems.startedTwice(site))
-        val done = mutableListOf<Any>()
-        for (instance in synchronized(lock) { managed.toList() }) {
-            if (instance !is Startable) continue
-            if (synchronized(lock) { closed.get() }) throw DiException(Problems.closed(site))
+        for (entry in entries { it.instance is Lifecycle }) {
+            if (closed.get()) throw DiException(Problems.closed(site, START))
             try {
-                instance.start()
+                currentCoroutineContext().ensureActive()
+                entry.lifecycle.onStart()
             } catch (e: Exception) {
-                closeEach(release(done).asReversed()).forEach(e::addSuppressed)
+                stopEach(takeStarted()).forEach(e::addSuppressed)
                 throw e
             }
-            done += instance
+            synchronized(lock) { if (!closed.get()) entry.started = true }
         }
+    }
+
+    /** Calls [Lifecycle.onOpen] on the started instances in creation order. */
+    public suspend fun open() {
+        if (closed.get()) throw DiException(Problems.closed(site, OPEN))
+        if (!opened.compareAndSet(false, true)) throw DiException(Problems.openedTwice(site))
+        for (entry in entries { it.started }) {
+            if (closed.get()) throw DiException(Problems.closed(site, OPEN))
+            try {
+                currentCoroutineContext().ensureActive()
+                entry.lifecycle.onOpen()
+            } catch (e: Exception) {
+                if (currentCoroutineContext().isActive) closeOpened(e)
+                throw e
+            }
+            synchronized(lock) { entry.opened = true }
+        }
+    }
+
+    /** Calls [Lifecycle.onClose] and [Lifecycle.onDrain] while [deadline] has not passed, then [Lifecycle.onStop]. */
+    public suspend fun stop(deadline: TimeMark): List<StepReport> {
+        if (closed.get()) throw DiException(Problems.closed(site, STOP))
+        val reports = mutableListOf<StepReport>()
+        for (entry in takeOpened()) {
+            reports += entry.report(Step.CLOSE, callBefore(deadline) { entry.lifecycle.onClose() })
+        }
+        for (entry in take({ it.started && !it.drained }) { it.drained = true }) {
+            reports += entry.report(Step.DRAIN, callBefore(deadline) { entry.lifecycle.onDrain() })
+        }
+        for (entry in takeStarted()) {
+            val outcome = failureOf(entry.lifecycle::onStop)?.let(Outcome::Failed) ?: Outcome.Completed
+            reports += entry.report(Step.STOP, outcome)
+        }
+        return reports
     }
 
     /** A channel instance container that creates the channel-instance-scoped bindings of [plugins] plus [bindings]. */
@@ -85,7 +126,7 @@ public class Container private constructor(
         return problems + childGraph.plan(Scope.CHANNEL_INSTANCE, childSite).problems
     }
 
-    /** Closes live children, then every managed [AutoCloseable] in reverse creation order. */
+    /** Closes live children, then stops and destroys the managed instances in reverse creation order. */
     override fun close() {
         val (live, own) = synchronized(lock) {
             if (!closed.compareAndSet(false, true)) return
@@ -99,7 +140,8 @@ public class Container private constructor(
                 failures += e
             }
         }
-        failures += closeEach(own)
+        failures += stopEach(takeStarted())
+        failures += destroyEach(own)
         parent?.detach(this)
         val first = failures.firstOrNull() ?: return
         failures.drop(1).forEach(first::addSuppressed)
@@ -128,16 +170,29 @@ public class Container private constructor(
             plan.order.forEach(::instanceOf)
         } catch (e: Exception) {
             closed.set(true)
-            closeEach(synchronized(lock) { managed.asReversed().toList() }).forEach(e::addSuppressed)
+            destroyEach(synchronized(lock) { managed.asReversed().toList() }).forEach(e::addSuppressed)
             throw e
         }
     }
 
-    /** Takes [instances] out of the managed ones, or none when [close] has taken them. */
-    private fun release(instances: List<Any>): List<Any> = synchronized(lock) {
-        if (closed.get()) return emptyList()
-        managed.removeAll { candidate -> instances.any { it === candidate } }
-        instances
+    private fun entries(select: (Managed) -> Boolean): List<Managed> = synchronized(lock) { managed.filter(select) }
+
+    /** Marks the entries [select] picks and returns them, last created first. */
+    private fun take(select: (Managed) -> Boolean, mark: (Managed) -> Unit): List<Managed> =
+        synchronized(lock) { managed.filter(select).onEach(mark).asReversed() }
+
+    private fun takeOpened(): List<Managed> = take({ it.opened }) { it.opened = false }
+
+    private fun takeStarted(): List<Managed> = take({ it.started }) { it.started = false }
+
+    private suspend fun closeOpened(error: Exception) {
+        for (entry in takeOpened()) {
+            try {
+                entry.lifecycle.onClose()
+            } catch (e: Exception) {
+                error.addSuppressed(e)
+            }
+        }
     }
 
     private fun instanceOf(node: Node): Any = when {
@@ -158,20 +213,22 @@ public class Container private constructor(
                 throw DiException(Problems.creationFailed(node, e), e)
             }
             instances[node] = instance
-            if (node.binding.managed && managed.none { it === instance }) managed += instance
+            if (node.binding.managed && managed.none { it.instance === instance }) {
+                managed += Managed(instance, node.binding)
+            }
             return instance
         } finally {
             creating.remove(node)
         }
     }
 
-    private fun ensureOpen(key: Key<*>) {
+    private fun ensureNotClosed(key: Key<*>) {
         if (closed.get()) throw DiException(Problems.closed(site, key))
     }
 
     /** The single binding for [key], or null when nothing binds it. */
     private fun singleOrNull(key: Key<*>): Node? {
-        ensureOpen(key)
+        ensureNotClosed(key)
         val node = graph.singles[key]
         if (node == null) {
             graph.multis[key]?.let { throw DiException(Problems.wrongKind(key, all = false, it)) }
@@ -243,15 +300,46 @@ public class Container private constructor(
     }
 }
 
-private fun closeEach(instances: List<Any>): List<Exception> {
-    val failures = mutableListOf<Exception>()
-    for (instance in instances) {
-        if (instance !is AutoCloseable) continue
-        try {
-            instance.close()
-        } catch (e: Exception) {
-            failures += e
-        }
+private const val START = "start"
+private const val OPEN = "open"
+private const val STOP = "stop"
+
+private class Managed(val instance: Any, val binding: Binding<*>) {
+    var started = false
+    var opened = false
+    var drained = false
+
+    val lifecycle: Lifecycle get() = instance as Lifecycle
+
+    fun report(step: Step, outcome: Outcome): StepReport = StepReport(binding.plugin, binding.origin, step, outcome)
+}
+
+private fun stopEach(entries: List<Managed>): List<Exception> = entries.mapNotNull { failureOf(it.lifecycle::onStop) }
+
+private fun destroyEach(entries: List<Managed>): List<Exception> = entries.flatMap { entry ->
+    val instance = entry.instance
+    listOfNotNull(
+        (instance as? Lifecycle)?.let { failureOf(it::onDestroy) },
+        (instance as? AutoCloseable)?.let { failureOf(it::close) },
+    )
+}
+
+private inline fun failureOf(block: () -> Unit): Exception? = try {
+    block()
+    null
+} catch (e: Exception) {
+    e
+}
+
+/** Runs [block] within the time left until [deadline], rethrowing only the caller's cancellation. */
+private suspend fun callBefore(deadline: TimeMark, block: suspend () -> Unit): Outcome {
+    val left = -deadline.elapsedNow()
+    if (!left.isPositive()) return Outcome.NotCalled
+    return try {
+        withTimeoutOrNull(left) { block() }?.let { Outcome.Completed } ?: Outcome.TimedOut
+    } catch (e: Throwable) {
+        if (e is VirtualMachineError) throw e
+        currentCoroutineContext().ensureActive()
+        Outcome.Failed(e)
     }
-    return failures
 }

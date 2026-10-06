@@ -9,20 +9,24 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
+import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Binding
 import org.foedusprogramme.alexandrite.sdk.di.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.Key
+import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Resolver
 import org.foedusprogramme.alexandrite.sdk.di.Scope
-import org.foedusprogramme.alexandrite.sdk.di.Startable
 import org.foedusprogramme.alexandrite.sdk.di.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
+import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
+import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.LoggerFactory
 import java.net.URLClassLoader
 import java.nio.file.Files
@@ -47,17 +51,15 @@ class Events {
     fun all(): List<String> = synchronized(events) { events.toList() }
 }
 
-class Service(val name: String, private val events: Events, private val onStart: suspend () -> Unit) :
-    Startable,
-    AutoCloseable {
-    override suspend fun start() {
+class Service(val name: String, private val events: Events, private val start: suspend () -> Unit) : Lifecycle {
+    override suspend fun onStart() {
         events.record("start $name")
-        onStart()
+        start()
     }
 
-    override fun close() {
-        events.record("close $name")
-    }
+    override fun onStop() = events.record("stop $name")
+
+    override fun onDestroy() = events.record("destroy $name")
 }
 
 val hang: suspend () -> Unit = { awaitCancellation() }
@@ -81,6 +83,68 @@ fun service(
     events.record("create $name")
     Service(name, events, onStart)
 }
+
+class Worker(
+    private val name: String,
+    private val events: Events,
+    val control: RuntimeControl,
+    private val start: suspend (RuntimeControl) -> Unit,
+    private val open: suspend (RuntimeControl) -> Unit,
+    private val close: suspend (RuntimeControl) -> Unit,
+    private val drain: suspend (RuntimeControl) -> Unit,
+    private val stop: (RuntimeControl) -> Unit,
+) : Lifecycle {
+    override suspend fun onStart() {
+        events.record("start $name")
+        start(control)
+    }
+
+    override suspend fun onOpen() {
+        events.record("open $name")
+        open(control)
+    }
+
+    override suspend fun onClose() {
+        events.record("close $name")
+        close(control)
+    }
+
+    override suspend fun onDrain() {
+        events.record("drain $name")
+        drain(control)
+    }
+
+    override fun onStop() {
+        events.record("stop $name")
+        stop(control)
+    }
+
+    override fun onDestroy() = events.record("destroy $name")
+}
+
+fun worker(
+    name: String,
+    plugin: String,
+    events: Events = Events(),
+    dependencies: List<String> = emptyList(),
+    onStart: suspend (RuntimeControl) -> Unit = {},
+    onOpen: suspend (RuntimeControl) -> Unit = {},
+    onClose: suspend (RuntimeControl) -> Unit = {},
+    onDrain: suspend (RuntimeControl) -> Unit = {},
+    onStop: (RuntimeControl) -> Unit = {},
+): Binding<Worker> = binding(
+    key(name),
+    plugin,
+    name,
+    dependencies = dependencies.map { Dependency(key<Worker>(it), DependencyKind.INSTANCE, it) } +
+        Dependency(key<RuntimeControl>(), DependencyKind.INSTANCE, "control"),
+) { r ->
+    dependencies.forEach { r.get(key<Worker>(it)) }
+    events.record("create $name")
+    Worker(name, events, r.get(key()), onStart, onOpen, onClose, onDrain, onStop)
+}
+
+val HOST_STOP = StopRequest(StopKind.SHUTDOWN, "requested by the host")
 
 @HostApi
 class Probe(val values: Map<String, Any>)
@@ -218,6 +282,8 @@ class Recorder : RuntimeListener {
 
     fun names(): List<String> = events.map { it::class.simpleName.orEmpty() }
 
+    fun termination(): Termination = events.filterIsInstance<RuntimeEvent.Stopped>().single().termination
+
     fun resolved(): RuntimeEvent.PluginsResolved = events.filterIsInstance<RuntimeEvent.PluginsResolved>().single()
 }
 
@@ -228,16 +294,18 @@ fun runtime(
     listener: RuntimeListener = RuntimeListener {},
     startTimeout: Duration = 30.seconds,
     shutdownGrace: Duration = 15.seconds,
+    zone: ZoneId = ZONE,
+    source: ConfigSource = JsonConfigSource(Json.parseToJsonElement(config).jsonObject),
 ): AlexandriteRuntime {
     val runtimeConfig = RuntimeConfig.builder(dataDir)
-        .zone(ZONE)
+        .zone(zone)
         .shutdownGrace(shutdownGrace)
         .startTimeout(startTimeout)
         .name("test")
         .build()
     return AlexandriteRuntime(
         RuntimeSpec.builder(runtimeConfig, plugins)
-            .pluginConfig(JsonConfigSource(Json.parseToJsonElement(config).jsonObject))
+            .pluginConfig(source)
             .listener(listener)
             .build(),
     )
@@ -246,6 +314,10 @@ fun runtime(
 fun AlexandriteRuntime.started(): AlexandriteRuntime = apply { runBlocking { start() } }
 
 fun AlexandriteRuntime.startFailure(): RuntimeStartException = assertFailsWith { runBlocking { start() } }
+
+fun AlexandriteRuntime.stopped(request: StopRequest = HOST_STOP): Termination = runBlocking { stop(request) }
+
+fun AlexandriteRuntime.terminated(): Termination = runBlocking { awaitTermination() }
 
 fun logged(block: () -> Unit): List<String> {
     val logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java) as Logger

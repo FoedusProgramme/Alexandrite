@@ -33,6 +33,33 @@ internal enum class RuntimeProblemKind : ProblemKind {
 
     /** An enabled plugin that requires a plugin that is missing or disabled. */
     MISSING_REQUIREMENT,
+
+    /** A data directory another runtime holds. */
+    DATA_DIR_LOCKED,
+
+    /** An instance that threw while closing. */
+    CLOSE_FAILED,
+
+    /** An instance still closing at the shutdown deadline. */
+    CLOSE_TIMED_OUT,
+
+    /** An instance left open because the shutdown deadline had passed. */
+    CLOSE_NOT_CALLED,
+
+    /** A drain that threw. */
+    DRAIN_FAILED,
+
+    /** A drain still running at the shutdown deadline. */
+    DRAIN_TIMED_OUT,
+
+    /** A drain skipped because the shutdown deadline had passed. */
+    DRAIN_NOT_CALLED,
+
+    /** An instance that threw while stopping. */
+    STOP_FAILED,
+
+    /** An instance that threw while being destroyed. */
+    DESTROY_FAILED,
     ;
 
     override val id: String get() = "runtime.${name.lowercase()}"

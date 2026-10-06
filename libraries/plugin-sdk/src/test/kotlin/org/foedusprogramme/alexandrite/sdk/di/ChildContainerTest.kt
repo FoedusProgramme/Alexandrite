@@ -100,13 +100,13 @@ class ChildContainerTest {
     }
 
     @Test
-    fun `closing a child closes only its own instances`() {
+    fun `closing a child destroys only its own instances`() {
         val root = build(service("a", events = events), service("c", scope = CHANNEL_INSTANCE, events = events))
         val child = root.child("tg", setOf("test"))
 
         child.close()
 
-        assertEquals(listOf("close c"), events.starting("close"))
+        assertEquals(listOf("destroy c"), events.starting("destroy"))
         assertEquals("a", root.get(svc("a")).name)
     }
 
@@ -118,7 +118,7 @@ class ChildContainerTest {
 
         root.close()
 
-        assertEquals(listOf("close c", "close c", "close a"), events.starting("close"))
+        assertEquals(listOf("destroy c", "destroy c", "destroy a"), events.starting("destroy"))
         assertFailsWith<DiException> { live.get(svc("c")) }
     }
 
@@ -127,7 +127,7 @@ class ChildContainerTest {
         lateinit var root: Container
         val closer = binding(svc("closer"), "test", "closer", scope = CHANNEL_INSTANCE) {
             root.close()
-            Service("closer", events, emptyMap(), failStart = false, failClose = false)
+            Service("closer", events, emptyMap())
         }
         root = build(service("a", events = events), closer)
 
@@ -135,7 +135,7 @@ class ChildContainerTest {
 
         assertEquals(listOf(CLOSED), error.problems.map { it.kind })
         assertEquals("Cannot create channel instance container 'tg': container 'root' is closed.", error.message)
-        assertEquals(listOf("close a", "close closer"), events.starting("close"))
+        assertEquals(listOf("destroy a", "destroy closer"), events.starting("destroy"))
     }
 
     @Test

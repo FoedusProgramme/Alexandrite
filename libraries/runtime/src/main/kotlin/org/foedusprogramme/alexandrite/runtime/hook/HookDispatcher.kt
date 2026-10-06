@@ -11,6 +11,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -24,7 +25,6 @@ import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
-import kotlin.time.TimeMark
 
 /** Each ASYNC observer has its own queue of [asyncCapacity] events, worked off on [asyncDispatcher]. */
 internal class HookDispatcher(
@@ -33,7 +33,7 @@ internal class HookDispatcher(
     private val asyncCapacity: Int = 256,
     asyncDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : Hooks,
-    AutoCloseable {
+    Lifecycle {
     private val scope = CoroutineScope(SupervisorJob() + asyncDispatcher)
     private val points: Map<String, HookPoint<*>>
     private val interceptors: Map<String, List<InterceptorHook<*>>>
@@ -81,15 +81,15 @@ internal class HookDispatcher(
         for (hook in inlineObservers.at<ObserverHook<P>>(point)) notify(hook, payload)
     }
 
-    /** Stops taking ASYNC events and waits until the queued ones are delivered or [deadline] passes. */
-    suspend fun drain(deadline: TimeMark) {
+    /** Stops taking ASYNC events and waits until the queued ones are delivered. */
+    override suspend fun onDrain() {
         val all = queues.values.flatten()
         all.forEach { it.events.close() }
-        withTimeoutOrNull(-deadline.elapsedNow()) { all.map { it.worker }.joinAll() }
+        all.map { it.worker }.joinAll()
     }
 
     /** Stops ASYNC delivery. */
-    override fun close() {
+    override fun onDestroy() {
         queues.values.flatten().forEach { it.events.close() }
         scope.cancel()
     }

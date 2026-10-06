@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.util.ServiceLoader
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -47,7 +48,7 @@ class BuiltInRuntimeTest {
 
     @Test
     fun `a runtime of the built-in plugins starts with an empty config and leaves channels and providers off`() {
-        val events = mutableListOf<RuntimeEvent>()
+        val events = CopyOnWriteArrayList<RuntimeEvent>()
         val spec = RuntimeSpec.builder(RuntimeConfig.builder(dataDir).build(), PluginSet.builtIn())
             .listener(RuntimeListener { events += it })
             .build()
@@ -63,6 +64,9 @@ class BuiltInRuntimeTest {
             optIn.map { it.id to DisabledPlugin.Reason.NOT_CONFIGURED },
             events.filterIsInstance<RuntimeEvent.PluginsResolved>().single().disabled.map { it.id to it.reason },
         )
-        assertEquals(listOf("PluginsResolved", "Started", "Closed"), events.map { it::class.simpleName })
+        assertEquals(
+            listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
+            events.map { it::class.simpleName },
+        )
     }
 }

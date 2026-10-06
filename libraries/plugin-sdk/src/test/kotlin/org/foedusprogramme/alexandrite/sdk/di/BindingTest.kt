@@ -56,7 +56,7 @@ class BindingTest {
         val container = Container.build(
             listOf(plugin("core", service("a", plugin = "core")), plugin("extra", service("a", plugin = "extra"))),
             overrides = listOf(
-                instanceBinding(svc("a"), Service("fake", Events(), emptyMap(), false, false), "test", "test"),
+                instanceBinding(svc("a"), Service("fake", Events(), emptyMap()), "test", "test"),
             ),
         )
 

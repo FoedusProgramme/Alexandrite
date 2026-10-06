@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import dev.drewhamilton.poko.Poko
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 
 /** Told about each [RuntimeEvent]. */
 public fun interface RuntimeListener {
@@ -20,12 +21,20 @@ public sealed interface RuntimeEvent {
         public val unknownPluginConfig: List<String>,
     ) : RuntimeEvent
 
+    /** Every instance has started. */
     public data object Started : RuntimeEvent
+
+    /** Every instance is open. */
+    public data object Ready : RuntimeEvent
 
     @Poko
     public class StartFailed internal constructor(public val error: RuntimeStartException) : RuntimeEvent
 
-    public data object Closed : RuntimeEvent
+    @Poko
+    public class Stopping internal constructor(public val request: StopRequest) : RuntimeEvent
+
+    @Poko
+    public class Stopped internal constructor(public val termination: Termination) : RuntimeEvent
 }
 
 /** A plugin the plugin config leaves off. */

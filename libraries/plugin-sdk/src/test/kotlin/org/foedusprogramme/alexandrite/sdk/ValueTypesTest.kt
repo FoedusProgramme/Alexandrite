@@ -5,12 +5,15 @@ import org.foedusprogramme.alexandrite.sdk.di.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.di.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.StepReport
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.HookFailure
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
+import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import kotlin.test.Test
@@ -66,6 +69,21 @@ class ValueTypesTest {
             { HookFailure.Disallowed(HookDecision.Abort()) },
             HookFailure.Disallowed(HookDecision.Continue),
             "Disallowed(decision=Abort(reply=null))",
+        ),
+        Case(
+            { StopRequest(StopKind.SHUTDOWN, "signal") },
+            StopRequest(StopKind.RESTART, "signal"),
+            "StopRequest(kind=SHUTDOWN, reason=signal)",
+        ),
+        Case(
+            { StepReport("weather", "Radar", StepReport.Step.DRAIN, StepReport.Outcome.TimedOut) },
+            StepReport("weather", "Radar", StepReport.Step.CLOSE, StepReport.Outcome.TimedOut),
+            "StepReport(plugin=weather, origin=Radar, step=DRAIN, outcome=TimedOut)",
+        ),
+        Case(
+            { StepReport.Outcome.Failed(error) },
+            StepReport.Outcome.Failed(IllegalStateException("failed")),
+            "Failed(error=$error)",
         ),
     )
 

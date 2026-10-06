@@ -9,7 +9,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.testTimeSource
+import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -17,10 +17,10 @@ import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -33,7 +33,7 @@ class CloseTest {
         HookDispatcher(hooks.toList(), listener, asyncDispatcher = StandardTestDispatcher(testScheduler))
 
     @Test
-    fun `drain delivers the queued events, then later events are dropped silently`() = runTest {
+    fun `onDrain delivers the queued events, then later events are dropped silently`() = runTest {
         val dispatcher = dispatcher(
             TestObserver(seen, delivery = Delivery.ASYNC) {
                 delay(1.seconds)
@@ -42,7 +42,7 @@ class CloseTest {
         )
         listOf("a", "b", "c").forEach { dispatcher.fire(seen, it) }
 
-        dispatcher.drain(testTimeSource.markNow() + 1.minutes)
+        dispatcher.onDrain()
         dispatcher.fire(seen, "d")
         advanceUntilIdle()
 
@@ -52,7 +52,7 @@ class CloseTest {
     }
 
     @Test
-    fun `drain stops waiting at the deadline and close cancels the busy workers`() = runTest {
+    fun `a cancelled onDrain stops waiting and onDestroy cancels the busy workers`() = runTest {
         val cancelled = CompletableDeferred<Unit>()
         val dispatcher = dispatcher(
             TestObserver(seen, timeout = Duration.INFINITE, delivery = Delivery.ASYNC) {
@@ -65,39 +65,39 @@ class CloseTest {
         )
         dispatcher.fire(seen, "a")
 
-        dispatcher.drain(testTimeSource.markNow() + 100.milliseconds)
-        val drained = currentTime
+        val drained = withTimeoutOrNull(100.milliseconds) { dispatcher.onDrain() }
+        val waited = currentTime
         assertFalse(cancelled.isCompleted)
-        dispatcher.close()
+        dispatcher.onDestroy()
         advanceUntilIdle()
 
-        assertEquals(100, drained)
+        assertNull(drained)
+        assertEquals(100, waited)
         assertTrue(cancelled.isCompleted)
     }
 
     @Test
-    fun `drain past its deadline returns at once`() = runTest {
+    fun `onDrain with nothing queued returns at once`() = runTest {
         val dispatcher = dispatcher(TestObserver(seen, delivery = Delivery.ASYNC) { delay(1.seconds) })
-        dispatcher.fire(seen, "a")
 
-        dispatcher.drain(testTimeSource.markNow() - 1.seconds)
+        dispatcher.onDrain()
 
         assertEquals(0, currentTime)
-        dispatcher.close()
+        dispatcher.onDestroy()
     }
 
     @Test
-    fun `drain and close are idempotent`() = runTest {
+    fun `onDrain and onDestroy are idempotent`() = runTest {
         val dispatcher = dispatcher(TestObserver(seen, delivery = Delivery.ASYNC) {})
 
-        repeat(2) { dispatcher.drain(testTimeSource.markNow() + 1.seconds) }
-        repeat(2) { dispatcher.close() }
+        repeat(2) { dispatcher.onDrain() }
+        repeat(2) { dispatcher.onDestroy() }
 
         assertEquals(emptyList(), listener.all())
     }
 
     @Test
-    fun `interceptors and inline observers keep working after close`() = runTest {
+    fun `interceptors and inline observers keep working after onDestroy`() = runTest {
         val rewrite = rewritePoint()
         val dispatcher = dispatcher(
             TestInterceptor(rewrite) { HookDecision.Replace("$it!") },
@@ -105,7 +105,7 @@ class CloseTest {
             TestObserver(seen, delivery = Delivery.ASYNC) { records.add("async $it") },
         )
 
-        dispatcher.close()
+        dispatcher.onDestroy()
 
         assertEquals(Interception.Proceed("x!"), dispatcher.fire(rewrite, "x"))
         dispatcher.fire(seen, "y")

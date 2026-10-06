@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Clock
@@ -23,7 +24,7 @@ internal fun runtimeBindings(
     config: RuntimeConfig,
     plugins: List<PluginInfo>,
     hookFailures: HookFailureListener,
-    created: (HookDispatcher) -> Unit,
+    control: RuntimeControl,
 ): PluginBindings {
     val hooks = key<Hook>()
     val bindings = listOf(
@@ -32,8 +33,9 @@ internal fun runtimeBindings(
             RUNTIME_PLUGIN,
             "Hooks",
             dependencies = listOf(Dependency(hooks, DependencyKind.ALL, "hooks")),
-        ) { r -> HookDispatcher(r.getAll(hooks), hookFailures).also(created) },
+        ) { r -> HookDispatcher(r.getAll(hooks), hookFailures) },
         instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
+        instanceBinding(key<RuntimeControl>(), control, RUNTIME_PLUGIN, "RuntimeControl"),
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),

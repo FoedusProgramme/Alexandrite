@@ -48,13 +48,13 @@ class LifecycleTest {
 
         runBlocking { container.start() }
 
-        assertEquals(listOf("start a", "start b"), events.starting("start"))
+        assertEquals(listOf("start a", "start b"), events.lifecycle())
     }
 
     @Test
-    fun `a failing start closes the started instances in reverse order and rethrows`() {
+    fun `a failing start stops the started instances in reverse order and rethrows`() {
         val container = build(
-            service("a", events = events),
+            service("a", events = events, failStop = true),
             service("b", events = events),
             service("c", events = events, failStart = true),
             service("d", events = events),
@@ -63,12 +63,12 @@ class LifecycleTest {
         val error = assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
 
         assertEquals("start c failed", error.message)
-        assertEquals(listOf("start a", "start b", "start c"), events.starting("start"))
-        assertEquals(listOf("close b", "close a"), events.starting("close"))
+        assertEquals(listOf("stop a failed"), error.suppressed.map { it.message })
+        assertEquals(listOf("start a", "start b", "start c", "stop b", "stop a"), events.lifecycle())
     }
 
     @Test
-    fun `close during a start stops it before the next instance`() = runBlocking<Unit> {
+    fun `close during a start ends it before the next instance and calls nothing after destroy`() = runBlocking<Unit> {
         val gate = CompletableDeferred<Unit>()
         val container = build(service("a", events = events, startGate = gate), service("b", events = events))
         val starting = async(start = CoroutineStart.UNDISPATCHED) {
@@ -79,12 +79,11 @@ class LifecycleTest {
         gate.complete(Unit)
 
         assertEquals(listOf(DiProblemKind.CLOSED), starting.await().problems.map { it.kind })
-        assertEquals(listOf("start a"), events.starting("start"))
-        assertEquals(listOf("close b", "close a"), events.starting("close"))
+        assertEquals(listOf("start a", "destroy b", "destroy a"), events.lifecycle())
     }
 
     @Test
-    fun `a start that fails after close never closes an instance twice`() = runBlocking<Unit> {
+    fun `a start that fails after close never stops or destroys an instance twice`() = runBlocking<Unit> {
         val gate = CompletableDeferred<Unit>()
         val container = build(
             service("a", events = events),
@@ -99,12 +98,14 @@ class LifecycleTest {
         gate.complete(Unit)
 
         assertEquals("start b failed", starting.await().message)
-        assertEquals(listOf("start a", "start b"), events.starting("start"))
-        assertEquals(listOf("close c", "close b", "close a"), events.starting("close"))
+        assertEquals(
+            listOf("start a", "start b", "stop a", "destroy c", "destroy b", "destroy a"),
+            events.lifecycle(),
+        )
     }
 
     @Test
-    fun `close after a failed start skips the instances already closed`() {
+    fun `close after a failed start destroys every instance and stops none again`() {
         val container =
             build(
                 service("a", events = events),
@@ -115,7 +116,10 @@ class LifecycleTest {
 
         container.close()
 
-        assertEquals(listOf("close a", "close c", "close b"), events.starting("close"))
+        assertEquals(
+            listOf("start a", "start b", "stop a", "destroy c", "destroy b", "destroy a"),
+            events.lifecycle(),
+        )
     }
 
     @Test
@@ -127,38 +131,53 @@ class LifecycleTest {
     }
 
     @Test
-    fun `close closes instances in reverse creation order`() {
+    fun `close destroys instances in reverse creation order`() {
         val container =
             build(service("b", dep("a"), events = events), service("a", events = events), service("c", events = events))
 
         container.close()
 
-        assertEquals(listOf("close c", "close b", "close a"), events.starting("close"))
+        assertEquals(listOf("destroy c", "destroy b", "destroy a"), events.lifecycle())
+    }
+
+    @Test
+    fun `close without stop still stops the started instances before destroying them`() {
+        val container = build(service("a", events = events), service("b", events = events))
+        runBlocking { container.start() }
+
+        container.close()
+
+        assertEquals(listOf("start a", "start b", "stop b", "stop a", "destroy b", "destroy a"), events.lifecycle())
     }
 
     @Test
     fun `close continues past failures and throws the first with the others suppressed`() {
         val container = build(
             service("a", events = events),
-            service("b", events = events, failClose = true),
-            service("c", events = events, failClose = true),
+            service("b", events = events, failDestroy = true),
+            service("c", events = events, failStop = true, failDestroy = true),
         )
+        runBlocking { container.start() }
 
         val error = assertFailsWith<IllegalStateException> { container.close() }
 
-        assertEquals("close c failed", error.message)
-        assertEquals(listOf("close b failed"), error.suppressed.map { it.message })
-        assertEquals(listOf("close c", "close b", "close a"), events.starting("close"))
+        assertEquals("stop c failed", error.message)
+        assertEquals(listOf("destroy c failed", "destroy b failed"), error.suppressed.map { it.message })
+        assertEquals(
+            listOf("stop c", "stop b", "stop a", "destroy c", "destroy b", "destroy a"),
+            events.lifecycle().drop(3),
+        )
     }
 
     @Test
     fun `close is idempotent`() {
         val container = build(service("a", events = events))
+        runBlocking { container.start() }
 
         container.close()
         container.close()
 
-        assertEquals(listOf("close a"), events.starting("close"))
+        assertEquals(listOf("start a", "stop a", "destroy a"), events.lifecycle())
     }
 
     @Test
@@ -176,47 +195,92 @@ class LifecycleTest {
     }
 
     @Test
-    fun `a failing constructor names its origin and closes what was created`() {
+    fun `a failing constructor names its origin and destroys what was created`() {
         val error = assertFailsWith<DiException> {
             build(service("a", events = events), service("b", dep("a"), events = events, failCreate = true))
         }
 
         assertContains(error.message!!, "Cannot create ${svc("b")} with b (plugin test): ")
         assertIs<IllegalStateException>(error.cause)
-        assertEquals(listOf("create a", "close a"), events.all())
+        assertEquals(listOf("create a", "destroy a"), events.all())
     }
 
     // Managed instances.
 
+    private class Client(private val name: String, private val events: Events) : AutoCloseable {
+        override fun close() = events.record("auto-close $name")
+    }
+
+    private class Pool(private val events: Events) :
+        Lifecycle,
+        AutoCloseable {
+        override fun onStop() = events.record("stop pool")
+
+        override fun onDestroy() {
+            events.record("destroy pool")
+            error("destroy pool failed")
+        }
+
+        override fun close() = events.record("auto-close pool")
+    }
+
     @Test
-    fun `a managed binding is started and closed`() {
+    fun `a managed binding is started, stopped and destroyed`() {
         val container = build(service("a", events = events))
 
         runBlocking { container.start() }
         container.close()
 
-        assertEquals(listOf("create a", "start a", "close a"), events.all())
+        assertEquals(listOf("create a", "start a", "stop a", "destroy a"), events.all())
     }
 
     @Test
-    fun `an instance binding is neither started nor closed`() {
-        val given = Service("a", events, emptyMap(), failStart = false, failClose = false)
+    fun `an instance binding is neither started nor destroyed`() {
+        val given = Service("a", events, emptyMap())
         val container =
             build(instanceBinding(svc("a"), given, "test", "a"), service("b", dep("a"), events = events))
 
         runBlocking { container.start() }
         container.close()
 
-        assertEquals(listOf("create b", "start b", "close b"), events.all())
+        assertEquals(listOf("create b", "start b", "stop b", "destroy b"), events.all())
     }
 
     @Test
-    fun `an unmanaged binding is neither started nor closed`() {
+    fun `an unmanaged binding is neither started nor destroyed`() {
         val container = build(service("a", events = events, managed = false), service("b", dep("a"), events = events))
 
         runBlocking { container.start() }
         container.close()
 
-        assertEquals(listOf("create a", "create b", "start b", "close b"), events.all())
+        assertEquals(listOf("create a", "create b", "start b", "stop b", "destroy b"), events.all())
+    }
+
+    @Test
+    fun `an AutoCloseable that is no Lifecycle is closed at the destroy step`() {
+        val container = build(
+            service("a", events = events),
+            binding(key<Client>(), "test", "client") { Client("client", events) },
+            service("b", events = events),
+        )
+        runBlocking { container.start() }
+
+        container.close()
+
+        assertEquals(
+            listOf("start a", "start b", "stop b", "stop a", "destroy b", "auto-close client", "destroy a"),
+            events.lifecycle(),
+        )
+    }
+
+    @Test
+    fun `an instance that is both a Lifecycle and an AutoCloseable is destroyed, then closed`() {
+        val container = build(binding(key<Pool>(), "test", "pool") { Pool(events) })
+        runBlocking { container.start() }
+
+        val error = assertFailsWith<IllegalStateException> { container.close() }
+
+        assertEquals("destroy pool failed", error.message)
+        assertEquals(listOf("stop pool", "destroy pool", "auto-close pool"), events.all())
     }
 }

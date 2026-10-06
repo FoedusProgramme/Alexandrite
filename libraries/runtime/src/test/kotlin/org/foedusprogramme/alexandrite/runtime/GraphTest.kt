@@ -17,7 +17,9 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.PluginFiles
+import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -80,7 +82,7 @@ class GraphTest {
     }
 
     @Test
-    fun `the runtime binds hooks, the clock and each plugin's info and files`() {
+    fun `the runtime binds hooks, the clock, its control and each plugin's info and files`() {
         val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed) }
         val probe = probe(
             "probe",
@@ -89,6 +91,7 @@ class GraphTest {
             "info" to key<PluginInfo>("probe"),
             "files" to key<PluginFiles>("probe"),
             "other" to key<PluginFiles>("other"),
+            "control" to key<RuntimeControl>(),
         )
         val index = TestIndex("probe", bindings = listOf(probe, hook))
 
@@ -104,6 +107,7 @@ class GraphTest {
             assertEquals(dataDir.resolve("plugins/probe"), files.dataDir)
             assertTrue(Files.isDirectory(dataDir.resolve("plugins/probe")))
             assertEquals(dataDir.resolve("plugins/other"), (values.getValue("other") as PluginFiles).dataDir)
+            assertTrue(values.getValue("control") is RuntimeControl)
             hooks
         }
 
@@ -112,7 +116,7 @@ class GraphTest {
     }
 
     @Test
-    fun `close delivers the queued hook events before closing the container`() {
+    fun `a stop delivers the queued hook events before closing the container`() {
         val (runtime, hooks) = hooked({ delay(50.milliseconds) }, shutdownGrace = 10.seconds)
 
         runtime.use {
@@ -125,7 +129,7 @@ class GraphTest {
     }
 
     @Test
-    fun `close stops waiting for the hook events at the shutdown grace`() {
+    fun `a stop cancels the hook delivery at the shutdown grace and reports it`() {
         val cancelled = CompletableDeferred<Unit>()
         val hang: suspend () -> Unit = {
             try {
@@ -136,14 +140,24 @@ class GraphTest {
         }
         val (runtime, hooks) = hooked(hang, shutdownGrace = 100.milliseconds)
 
-        val elapsed = runtime.use {
-            runBlocking { hooks.fire(observed, "a") }
-            measureTime { runtime.close() }
-        }
+        runBlocking { hooks.fire(observed, "a") }
+        lateinit var termination: Termination
+        val elapsed = measureTime { termination = runtime.stopped() }
 
         runBlocking { withTimeout(5.seconds) { cancelled.await() } }
-        assertTrue(elapsed >= 100.milliseconds, "close returned after $elapsed")
+        assertTrue(elapsed >= 100.milliseconds, "the stop ended after $elapsed")
         assertEquals(emptyList(), events.all())
+        assertEquals(
+            listOf(
+                Problem(
+                    RuntimeProblemKind.DRAIN_TIMED_OUT,
+                    "Draining Hooks (plugin alexandrite-runtime) was cancelled: the shutdown grace of 100ms ran out.",
+                    "alexandrite-runtime",
+                    null,
+                ),
+            ),
+            termination.problems,
+        )
     }
 
     // Channel instances.
@@ -170,7 +184,7 @@ class GraphTest {
             error.problems.map { Triple(it.kind, it.plugin, it.key) },
         )
         assertContains(error.problems.first().message, "which bot (plugin alexandrite-channel-bot) needs")
-        assertEquals(listOf("create store", "close store"), events.all())
+        assertEquals(listOf("create store", "destroy store"), events.all())
     }
 
     @Test

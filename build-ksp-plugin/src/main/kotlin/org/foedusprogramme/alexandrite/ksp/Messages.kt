@@ -229,7 +229,7 @@ internal object Messages {
 
     fun suspendProvider(name: String): String =
         "Provider $name is a suspend function, but the container creates instances without suspending. " +
-            "Remove suspend, and do suspending work in Startable.start()."
+            "Remove suspend, and do suspending work in Lifecycle.onStart()."
 
     fun extensionProvider(name: String): String =
         "Provider $name is an extension function, so the container has no receiver to call it on. " +

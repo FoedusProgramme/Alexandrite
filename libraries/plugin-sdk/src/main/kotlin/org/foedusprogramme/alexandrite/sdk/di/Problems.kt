@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.DUPLICATE_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.EXTRA_SCOPE
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.MISSING
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.NESTED_CHILD
+import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.OPENED_TWICE
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.PLUGIN_MISMATCH
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.REENTRANT
 import org.foedusprogramme.alexandrite.sdk.di.DiProblemKind.SCOPE
@@ -121,9 +122,12 @@ internal object Problems {
     fun closed(site: Site, key: Key<*>): Problem =
         Problem(CLOSED, "Cannot resolve $key: ${site.label} is closed.", null, key)
 
-    fun closed(site: Site): Problem = Problem(CLOSED, "Cannot start ${site.label}: it is closed.", null, null)
+    fun closed(site: Site, action: String): Problem =
+        Problem(CLOSED, "Cannot $action ${site.label}: it is closed.", null, null)
 
     fun startedTwice(site: Site): Problem = Problem(STARTED_TWICE, "Cannot start ${site.label} twice.", null, null)
+
+    fun openedTwice(site: Site): Problem = Problem(OPENED_TWICE, "Cannot open ${site.label} twice.", null, null)
 
     fun unbound(key: Key<*>, site: Site): Problem =
         Problem(MISSING, "Nothing binds $key in ${site.label}. ${loaded(site)}", null, key)

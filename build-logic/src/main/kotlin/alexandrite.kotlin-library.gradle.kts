@@ -3,7 +3,7 @@ import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
 plugins {
     `java-library`
     kotlin("jvm")
-    id("com.diffplug.spotless")
+    id("alexandrite.spotless")
 }
 
 group = "org.foedusprogramme.alexandrite"

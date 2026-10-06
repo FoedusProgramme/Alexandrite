@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
+import org.foedusprogramme.alexandrite.sdk.problem.Problem
+import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import java.nio.file.Path
 import java.time.ZoneId
 import kotlin.test.Test
@@ -19,6 +22,10 @@ class SpecTest {
     private class Case(val make: () -> Any, val differing: Any, val printed: String)
 
     private val error = RuntimeStartException("failed", StartStage.START, emptyList(), null)
+
+    private val restart = StopRequest(StopKind.RESTART, "update")
+
+    private val problem = Problem(RuntimeProblemKind.DRAIN_FAILED, "drain failed", "weather", null)
 
     private val cases = listOf(
         Case(
@@ -50,6 +57,22 @@ class SpecTest {
             { RuntimeEvent.StartFailed(error) },
             RuntimeEvent.StartFailed(RuntimeStartException("failed", StartStage.START, emptyList(), null)),
             "StartFailed(error=$error)",
+        ),
+        Case(
+            { RuntimeEvent.Stopping(restart) },
+            RuntimeEvent.Stopping(HOST_STOP),
+            "Stopping(request=StopRequest(kind=RESTART, reason=update))",
+        ),
+        Case(
+            { RuntimeEvent.Stopped(Termination(Termination.Cause.Requested(restart), emptyList())) },
+            RuntimeEvent.Stopped(Termination(Termination.Cause.Requested(restart), listOf(problem))),
+            "Stopped(termination=Termination(cause=Requested(request=StopRequest(kind=RESTART, reason=update)), " +
+                "problems=[]))",
+        ),
+        Case(
+            { Termination(Termination.Cause.StartFailed(error), listOf(problem)) },
+            Termination(Termination.Cause.Requested(restart), listOf(problem)),
+            "Termination(cause=StartFailed(error=$error), problems=[$problem])",
         ),
     )
 

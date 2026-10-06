@@ -55,7 +55,7 @@ public interface Binding<T : Any> {
     /** The declaration named in error messages. */
     public val origin: String
 
-    /** Whether the container starts and closes the instance [create] returns. */
+    /** Whether the container starts and destroys the instance [create] returns. */
     public val managed: Boolean get() = true
 
     public fun create(resolver: Resolver): T

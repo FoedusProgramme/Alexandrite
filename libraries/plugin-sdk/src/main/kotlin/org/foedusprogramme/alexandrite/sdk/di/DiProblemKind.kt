@@ -46,6 +46,9 @@ public enum class DiProblemKind : ProblemKind {
     /** A container started twice. */
     STARTED_TWICE,
 
+    /** A container opened twice. */
+    OPENED_TWICE,
+
     /** A channel instance container created inside another. */
     NESTED_CHILD,
 
