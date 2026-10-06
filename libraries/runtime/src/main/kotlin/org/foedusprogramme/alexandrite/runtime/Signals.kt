@@ -6,37 +6,35 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import sun.misc.Signal
 import sun.misc.SignalHandler
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
-/** Starts the runtime, stops it on SIGTERM or SIGINT, halts on a second signal and returns its [Termination]. */
-public suspend fun AlexandriteRuntime.runUntilSignal(): Termination = runUntilSignal(JvmSignals)
-
-internal suspend fun AlexandriteRuntime.runUntilSignal(signals: Signals): Termination {
+internal suspend fun runUntilSignal(
+    spec: RuntimeSpec,
+    block: suspend AlexandriteRuntime.() -> Unit,
+    signals: Signals,
+): Termination {
+    val run = RuntimeRun(spec)
+    val ended = CountDownLatch(1)
     val received = AtomicBoolean()
     val trap = signals.trap { signal ->
         if (received.compareAndSet(false, true)) {
-            requestStop(StopRequest(StopKind.SHUTDOWN, "received SIG${signal.name}"))
+            run.requestStop(StopRequest(StopKind.SHUTDOWN, "received SIG${signal.name}"))
         } else {
             val status = 128 + signal.number
-            logger.warn("{}: received SIG{} while stopping, halting with status {}", name, signal.name, status)
+            logger.warn("{}: received SIG{} while stopping, halting with status {}", run.name, signal.name, status)
             signals.halt(status)
         }
     } ?: signals.onShutdown {
-        received.set(true)
-        requestStop(StopRequest(StopKind.SHUTDOWN, "the JVM is shutting down"))
-        joinTermination()
+        run.requestStop(StopRequest(StopKind.SHUTDOWN, "the JVM is shutting down"))
+        ended.await()
     }
     try {
-        try {
-            start()
-        } catch (ignored: RuntimeStartException) {
-        } catch (e: IllegalStateException) {
-            if (!received.get()) throw e
-        }
-        return awaitTermination()
+        return run.live(block)
     } finally {
+        ended.countDown()
         trap.close()
     }
 }
@@ -54,7 +52,7 @@ internal interface Signals {
     fun halt(status: Int)
 }
 
-private object JvmSignals : Signals {
+internal object JvmSignals : Signals {
     private val NAMES = listOf("TERM", "INT")
 
     override fun trap(handler: (HostSignal) -> Unit): AutoCloseable? = try {

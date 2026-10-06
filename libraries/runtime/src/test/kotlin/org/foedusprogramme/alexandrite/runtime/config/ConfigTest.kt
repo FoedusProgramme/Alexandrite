@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.runtime.ToolsIndex
 import org.foedusprogramme.alexandrite.runtime.TwinToolsIndex
 import org.foedusprogramme.alexandrite.runtime.builtIn
+import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.loaded
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
@@ -24,9 +25,8 @@ import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin.Reason.ENAB
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin.Reason.NOT_CONFIGURED
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.runtime.probe
-import org.foedusprogramme.alexandrite.runtime.runtime
+import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
-import org.foedusprogramme.alexandrite.runtime.started
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
@@ -65,12 +65,12 @@ class ConfigTest {
 
     private fun resolved(plugins: PluginSet, config: String): RuntimeEvent.PluginsResolved {
         val recorder = Recorder()
-        runtime(plugins, dataDir, config, recorder).started().close()
+        spec(plugins, dataDir, config, recorder).execute()
         return recorder.resolved()
     }
 
     private fun failure(plugins: PluginSet, config: String): RuntimeStartException =
-        runtime(plugins, dataDir, config).use { it.startFailure() }.also { assertEquals(StartStage.CONFIG, it.stage) }
+        spec(plugins, dataDir, config).startFailure().also { assertEquals(StartStage.CONFIG, it.stage) }
 
     // Plugin switch.
 
@@ -299,10 +299,10 @@ class ConfigTest {
     fun `each enabled plugin decodes its sections from its own subtree`() {
         val config = """{"plugins": {"weather": {"enabled": true, "city": "Oslo", "cache": {"size": 5}}}}"""
 
-        runtime(explicit(weather()), dataDir, config).started().use { runtime ->
+        spec(explicit(weather()), dataDir, config).execute {
             assertEquals(
                 mapOf("weather" to WeatherConfig("Oslo"), "cache" to CacheConfig(5)),
-                runtime.services.get(key<Probe>()).values,
+                services.get(key<Probe>()).values,
             )
         }
     }

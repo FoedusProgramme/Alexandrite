@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.PluginsResolved
@@ -16,6 +17,7 @@ import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
@@ -60,7 +62,7 @@ class RuntimeTest {
     fun `duplicate plugin ids fail the PLUGINS stage`() {
         val agent = AgentIndex::class.java.name
 
-        val error = runtime(builtIn(dataDir, AgentIndex::class) + AgentIndex(), dataDir).startFailure()
+        val error = spec(builtIn(dataDir, AgentIndex::class) + AgentIndex(), dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
@@ -87,7 +89,7 @@ class RuntimeTest {
             AgentIndex(),
         )
 
-        val error = runtime(plugins, dataDir).startFailure()
+        val error = spec(plugins, dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
@@ -109,7 +111,7 @@ class RuntimeTest {
 
     @Test
     fun `a built-in index whose id or config root differs from its row fails the PLUGINS stage`() {
-        val error = runtime(builtIn(dataDir, RenamedIndex::class) + MovedIndex(), dataDir).startFailure()
+        val error = spec(builtIn(dataDir, RenamedIndex::class) + MovedIndex(), dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
@@ -130,7 +132,7 @@ class RuntimeTest {
 
     @Test
     fun `a listed index that cannot be loaded fails the PLUGINS stage`() {
-        val error = runtime(builtIn(dataDir, AgentIndex::class, BrokenIndex::class), dataDir).startFailure()
+        val error = spec(builtIn(dataDir, AgentIndex::class, BrokenIndex::class), dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
@@ -144,7 +146,7 @@ class RuntimeTest {
         val plugins = classPath(dataDir, Jar(names(AgentIndex::class)), Jar(names(AgentIndex::class)))
             .use { PluginSet.builtIn(it, TEST_BUILT_INS) }
 
-        val error = runtime(plugins, dataDir).startFailure()
+        val error = spec(plugins, dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
@@ -171,17 +173,14 @@ class RuntimeTest {
             service("c", "core", events, listOf("b")),
         )
 
-        runtime(plugins, dataDir).use { runtime ->
-            val error = runtime.startFailure()
+        val error = spec(plugins, dataDir).startFailure()
 
-            assertEquals(StartStage.START, error.stage)
-            assertEquals(emptyList(), error.problems)
-            assertEquals(
-                "Cannot start runtime 'test': stage START failed: java.lang.IllegalStateException: start b failed",
-                error.message,
-            )
-            assertFailsWith<IllegalStateException> { runtime.services }
-        }
+        assertEquals(StartStage.START, error.stage)
+        assertEquals(emptyList(), error.problems)
+        assertEquals(
+            "Cannot start runtime 'test': stage START failed: java.lang.IllegalStateException: start b failed",
+            error.message,
+        )
         assertEquals(
             listOf(
                 "create a", "create b", "create c",
@@ -197,7 +196,7 @@ class RuntimeTest {
     fun `a start that outlasts the start timeout fails the START stage`() {
         val plugins = core(service("a", "core", events, onStart = hang))
 
-        val error = runtime(plugins, dataDir, startTimeout = 200.milliseconds).use { it.startFailure() }
+        val error = spec(plugins, dataDir, startTimeout = 200.milliseconds).startFailure()
 
         assertEquals(StartStage.START, error.stage)
         assertNull(error.cause)
@@ -206,18 +205,15 @@ class RuntimeTest {
     }
 
     @Test
-    fun `the caller's own timeout cancels the start without passing for the runtime's`() {
-        val plugins = core(service("a", "core", events, onStart = hang))
+    fun `the caller's own timeout stops the start without passing for the runtime's`() {
+        val spec = spec(core(service("a", "core", events, onStart = hang)), dataDir, listener = recorder)
 
-        runtime(plugins, dataDir, listener = recorder).use { runtime ->
-            assertFailsWith<TimeoutCancellationException> {
-                runBlocking { withTimeout(100.milliseconds) { runtime.start() } }
-            }
+        assertFailsWith<TimeoutCancellationException> {
+            runBlocking { withTimeout(100.milliseconds) { AlexandriteRuntime.run(spec) } }
         }
 
-        assertEquals(listOf("PluginsResolved", "StartFailed"), recorder.names())
-        val failed = recorder.events.filterIsInstance<StartFailed>().single().error
-        assertEquals("Cannot start runtime 'test': stage START failed: cancelled", failed.message)
+        assertEquals(listOf("PluginsResolved", "Stopping", "Stopped"), recorder.names())
+        assertEquals(requested(RUN_CANCELLED), recorder.termination())
         assertEquals(listOf("create a", "start a", "destroy a"), events.all())
     }
 
@@ -227,9 +223,9 @@ class RuntimeTest {
     fun `a runtime reports its plugins, its start and its stop`() {
         val plugins = builtIn(dataDir, AgentIndex::class, TelegramIndex::class, HelloIndex::class)
 
-        val loaded = runtime(plugins, dataDir, """{"plugins": {"weather": {}}}""", recorder).started().use {
-            it.plugins
-        }
+        lateinit var reported: List<LoadedPlugin>
+
+        spec(plugins, dataDir, """{"plugins": {"weather": {}}}""", recorder).execute { reported = this.plugins }
 
         val agent = loaded(AgentIndex(), BuiltInLayer.AGENT)
         assertEquals(
@@ -244,12 +240,12 @@ class RuntimeTest {
                 ),
                 Started,
                 Ready,
-                Stopping(HOST_STOP),
-                Stopped(Termination(Termination.Cause.Requested(HOST_STOP), emptyList())),
+                Stopping(BLOCK_RETURNED),
+                Stopped(requested(BLOCK_RETURNED)),
             ),
             recorder.events,
         )
-        assertEquals(listOf(agent), loaded)
+        assertEquals(listOf(agent), reported)
     }
 
     private class FailedStart(
@@ -286,20 +282,17 @@ class RuntimeTest {
         for (case in cases) {
             val recorder = Recorder()
 
-            runtime(case.plugins, dataDir, case.config, recorder).use { runtime ->
-                val error = runtime.startFailure()
+            val error = spec(case.plugins, dataDir, case.config, recorder).startFailure()
 
-                assertEquals(case.stage, error.stage)
-                assertEquals(case.events, recorder.names(), "${case.stage}")
-                assertEquals(StartFailed(error), recorder.events.last())
-            }
+            assertEquals(case.stage, error.stage)
+            assertEquals(case.events, recorder.names(), "${case.stage}")
+            assertEquals(StartFailed(error), recorder.events.last())
         }
     }
 
     @Test
-    fun `whenever a stop comes, the runtime ends in one outcome`() {
+    fun `whenever a stop comes, the run ends in one outcome`() {
         val outcomes = setOf(
-            listOf("Stopped"),
             listOf("Stopping", "Stopped"),
             listOf("PluginsResolved", "Stopping", "Stopped"),
             listOf("PluginsResolved", "Started", "Stopping", "Stopped"),
@@ -308,29 +301,27 @@ class RuntimeTest {
 
         repeat(40) { round ->
             val recorder = Recorder()
-            val runtime = runtime(core(service("a", "core")), dataDir, listener = recorder)
-            val starter = thread { runCatching { runBlocking { runtime.start() } } }
+            val run = RuntimeRun(spec(core(service("a", "core")), dataDir, listener = recorder))
+            var termination: Termination? = null
+            val runner = thread { termination = runBlocking { run.live { awaitCancellation() } } }
 
             Thread.sleep(round % 4L)
-            runtime.close()
-            starter.join(5_000)
+            run.requestStop()
+            runner.join(5_000)
 
             assertContains(outcomes, recorder.names(), "round $round")
-            assertEquals(RuntimeState.STOPPED, runtime.state.value)
+            assertEquals(requested(HOST_STOP), termination, "round $round")
         }
     }
 
     @Test
     fun `a listener that throws is logged at WARN and stops nothing`() {
-        lateinit var plugins: List<LoadedPlugin>
+        val spec = spec(explicit(AgentIndex()), dataDir, listener = { error("listener failed") })
+        lateinit var loaded: List<LoadedPlugin>
 
-        val lines = logged {
-            runtime(explicit(AgentIndex()), dataDir, listener = { error("listener failed") }).started().use {
-                plugins = it.plugins
-            }
-        }
+        val lines = logged { spec.execute { loaded = plugins } }
 
-        assertEquals(listOf("alexandrite-agent"), plugins.map { it.info.id })
+        assertEquals(listOf("alexandrite-agent"), loaded.map { it.info.id })
         assertEquals(
             listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
             lines.filter { it.startsWith("WARN test: listener failed on ") }
@@ -342,11 +333,11 @@ class RuntimeTest {
 
     @Test
     fun `services resolve only host API types`() {
-        runtime(core(service("a", "core"), probe("core")), dataDir).started().use { runtime ->
-            assertEquals(emptyMap(), runtime.services.get(key<Probe>()).values)
-            assertNull(runtime.services.getOrNull(key<Probe>("other")))
+        spec(core(service("a", "core"), probe("core")), dataDir).execute {
+            assertEquals(emptyMap(), services.get(key<Probe>()).values)
+            assertNull(services.getOrNull(key<Probe>("other")))
             for (key in listOf(key<Clock>(), key<Service>("a"))) {
-                val error = assertFailsWith<IllegalArgumentException> { runtime.services.getOrNull(key) }
+                val error = assertFailsWith<IllegalArgumentException> { services.getOrNull(key) }
                 assertContains(
                     error.message!!,
                     "is not marked @HostApi. Mark it @HostApi, or expose it through a @HostApi type.",
@@ -356,27 +347,14 @@ class RuntimeTest {
     }
 
     @Test
-    fun `services are available from start until stop`() {
-        val runtime = runtime(core(probe("core")), dataDir)
-
-        val early = assertFailsWith<IllegalStateException> { runtime.services }
-        val services = runtime.started().use { it.services }
-
-        assertEquals("Runtime 'test' has no services until start() returns.", early.message)
-        for (late in listOf({ runtime.services }, { services.get(key<Probe>()) })) {
-            val error = assertFailsWith<IllegalStateException> { late() }
-            assertEquals("Runtime 'test' has no services: it has stopped.", error.message)
-        }
-    }
-
-    @Test
-    fun `the internal resolver of the services resolves every bound type until stop`() {
+    fun `the internal resolver of the services resolves every bound type until a stop is requested`() {
         val hook = binding(key<Hook>(), "core", "Failing", multi = true) { Failing(intercepted) }
-        val runtime = runtime(core(service("a", "core"), hook), dataDir).started()
-        val resolver = runtime.services.resolver()
+        lateinit var resolver: Resolver
+        lateinit var resolved: List<Any?>
 
-        val resolved = runtime.use {
-            listOf(
+        spec(core(service("a", "core"), hook), dataDir).execute {
+            resolver = services.resolver()
+            resolved = listOf(
                 resolver.get(key<Service>("a")).name,
                 resolver.getOrNull(key<Service>("b")),
                 resolver.getAll(key<Hook>()).single().javaClass.simpleName,
@@ -386,7 +364,7 @@ class RuntimeTest {
 
         assertEquals(listOf("a", null, "Failing", ZONE), resolved)
         val error = assertFailsWith<IllegalStateException> { resolver.get(key<Service>("a")) }
-        assertEquals("Runtime 'test' has no services: it has stopped.", error.message)
+        assertEquals("Runtime 'test' has no services: a stop was requested.", error.message)
     }
 
     @Test
@@ -401,38 +379,16 @@ class RuntimeTest {
         assertEquals("Runtime 'test' is closed.", error.message)
     }
 
-    @Test
-    fun `the plugins are known once resolved and the message says why they are not`() {
-        val fresh = runtime(explicit(AgentIndex()), dataDir)
-        val failed = runtime(explicit(TestIndex("alexandrite-weather")), dataDir).apply { startFailure() }
-        val closed = runtime(explicit(AgentIndex()), dataDir).apply { close() }
-        val unbuilt = runtime(core(service("a", "core", dependencies = listOf("b"))), dataDir).apply { startFailure() }
-
-        val messages = listOf(fresh, failed, closed).map { runtime ->
-            assertFailsWith<IllegalStateException> { runtime.plugins }.message
-        }
-
-        assertEquals(
-            listOf(
-                "Runtime 'test' has not resolved its plugins: call start() first.",
-                "Runtime 'test' failed to start before resolving its plugins.",
-                "Runtime 'test' was stopped before resolving its plugins.",
-            ),
-            messages,
-        )
-        assertEquals(listOf("core"), unbuilt.plugins.map { it.info.id })
-    }
-
     // Lifecycle.
 
     @Test
-    fun `close stops and destroys the instances in reverse creation order, once`() {
+    fun `a run stops and destroys the instances in reverse creation order`() {
         val plugins = explicit(
             TestIndex("store", bindings = listOf(service("db", "store", events))),
             TestIndex("turns", bindings = listOf(service("worker", "turns", events, listOf("db")))),
         )
 
-        runtime(plugins, dataDir, listener = recorder).started().use { it.close() }
+        spec(plugins, dataDir, listener = recorder).execute()
 
         assertEquals(
             listOf(
@@ -450,35 +406,13 @@ class RuntimeTest {
         assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
     }
 
-    @Test
-    fun `a runtime starts once and never after stopping or failing`() {
-        runtime(explicit(AgentIndex()), dataDir).started().use { started ->
-            val failed = runtime(explicit(TestIndex("alexandrite-weather")), dataDir.resolve("failed"))
-                .apply { startFailure() }
-            val closed = runtime(explicit(AgentIndex()), dataDir.resolve("closed"), listener = recorder)
-                .apply { close() }
-
-            val messages = listOf(started, failed, closed).map { runtime ->
-                assertFailsWith<IllegalStateException> { runBlocking { runtime.start() } }.message
-            }
-
-            assertEquals(
-                listOf("it has started", "it failed to start", "it has stopped").map {
-                    "Cannot start runtime 'test': $it."
-                },
-                messages,
-            )
-            assertEquals(listOf("Stopped"), recorder.names())
-        }
-    }
-
     // Logging.
 
     @Test
     fun `resolution is logged at INFO, unlisted indexes and unknown plugin config at WARN`() {
         val plugins = builtIn(dataDir, AgentIndex::class, TelegramIndex::class, HelloIndex::class)
 
-        val lines = logged { runtime(plugins, dataDir, """{"plugins": {"weather": {}}}""").started().close() }
+        val lines = logged { spec(plugins, dataDir, """{"plugins": {"weather": {}}}""").execute() }
 
         assertEquals(
             listOf(
@@ -487,7 +421,7 @@ class RuntimeTest {
                 "WARN test: ignoring the config at 'plugins.weather': no plugin of the plugin set reads it",
                 "INFO test: loading plugins [alexandrite-agent], disabled [alexandrite-channel-telegram " +
                     "(NOT_CONFIGURED)]",
-                "INFO test: stopping: StopRequest(kind=SHUTDOWN, reason=requested by the host)",
+                "INFO test: stopping: $BLOCK_RETURNED",
                 "INFO test: stopped",
             ),
             lines,
@@ -499,9 +433,9 @@ class RuntimeTest {
         val hook = binding(key<Hook>(), "core", "Failing", multi = true) { Failing(intercepted) }
 
         val lines = logged {
-            runtime(core(hook, probe("core", "hooks" to key<Hooks>())), dataDir).started().use { runtime ->
-                val hooks = runtime.services.get(key<Probe>()).values.getValue("hooks") as Hooks
-                runBlocking { hooks.fire(intercepted, "payload") }
+            spec(core(hook, probe("core", "hooks" to key<Hooks>())), dataDir).execute {
+                val hooks = services.get(key<Probe>()).values.getValue("hooks") as Hooks
+                hooks.fire(intercepted, "payload")
             }
         }
 

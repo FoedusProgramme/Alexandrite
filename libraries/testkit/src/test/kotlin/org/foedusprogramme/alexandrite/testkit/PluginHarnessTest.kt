@@ -3,10 +3,13 @@ package org.foedusprogramme.alexandrite.testkit
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
+import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
@@ -16,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
@@ -28,7 +32,6 @@ import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.test.Test
-import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -75,32 +78,34 @@ class PluginHarnessTest {
     private fun harness(configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness =
         PluginHarness.builder(probe).dataRoot(directory).apply(configure).build()
 
-    private fun PluginHarness.started(): PluginHarness = apply { runBlocking { start() } }
+    private fun PluginHarness.execute(block: suspend PluginHarness.Running.() -> Unit): Termination =
+        runBlocking { run(block) }
+
+    private fun settings(configure: PluginHarness.Builder.() -> Unit): JsonObject {
+        lateinit var settings: JsonObject
+        harness(configure).execute { settings = get() }
+        return settings
+    }
 
     @Test
-    fun `a started harness resolves the plugin's components, contributions and runtime bindings`() {
-        harness().started().use { harness ->
-            val tool = harness.getAll<Tool>().single()
+    fun `a running harness resolves the plugin's components, contributions and runtime bindings`() {
+        harness().execute {
+            val tool = getAll<Tool>().single()
 
-            assertEquals("hello", harness.get<Greeter>().greeting)
-            assertEquals("carpe diem", harness.get<String>("motto"))
+            assertEquals("hello", get<Greeter>().greeting)
+            assertEquals("carpe diem", get<String>("motto"))
             assertEquals("echo", tool.definition.name)
-            assertEquals(
-                "chat-1",
-                runBlocking {
-                    tool.execute(JsonObject(emptyMap()), testToolContext("chat-1"))
-                }.content,
-            )
-            assertEquals(ZoneOffset.UTC, harness.get<Clock>().zone)
-            assertEquals(probe.info, harness.get<PluginInfo>("probe"))
+            assertEquals("chat-1", tool.execute(JsonObject(emptyMap()), testToolContext("chat-1")).content)
+            assertEquals(ZoneOffset.UTC, get<Clock>().zone)
+            assertEquals(probe.info, get<PluginInfo>("probe"))
         }
     }
 
     @Test
     fun `the plugin's config is placed below its config root`() {
-        val text = harness { config("""{"greeting": "hi", "enabled": true}""") }.started().use { it.get<JsonObject>() }
-        val tree = harness { config(JsonObject(mapOf("n" to JsonPrimitive(1)))) }.started().use { it.get<JsonObject>() }
-        val none = harness().started().use { it.get<JsonObject>() }
+        val text = settings { config("""{"greeting": "hi", "enabled": true}""") }
+        val tree = settings { config(JsonObject(mapOf("n" to JsonPrimitive(1)))) }
+        val none = settings {}
 
         assertEquals(JsonObject(mapOf("greeting" to JsonPrimitive("hi"))), text)
         assertEquals(JsonObject(mapOf("n" to JsonPrimitive(1))), tree)
@@ -112,53 +117,67 @@ class PluginHarnessTest {
     fun `only the plugin under test and the plugins added to it run`() {
         val extra = Index("extra", listOf(instanceBinding(key<String>("extra"), "added", "extra", "extra")))
 
-        harness { plugin(extra) }.started().use { harness ->
-            assertEquals("added", harness.get<String>("extra"))
-            assertEquals("extra", harness.get<PluginInfo>("extra").id)
-            assertFailsWith<DiException> { harness.get<PluginInfo>("alexandrite-agent") }
+        harness { plugin(extra) }.execute {
+            assertEquals("added", get<String>("extra"))
+            assertEquals("extra", get<PluginInfo>("extra").id)
+            assertFailsWith<DiException> { get<PluginInfo>("alexandrite-agent") }
         }
     }
 
     @Test
     fun `the harness names the plugin's own directories`() {
-        harness().started().use { harness ->
-            val files = harness.get<PluginFiles>("probe")
+        harness().execute {
+            val files = get<PluginFiles>("probe")
 
-            assertEquals(directory.resolve("plugins/probe"), harness.dataDir)
-            assertEquals(directory.resolve("cache/plugins/probe"), harness.cacheDir)
-            assertEquals(harness.dataDir, files.dataDir)
-            assertEquals(harness.cacheDir, files.cacheDir)
+            assertEquals(directory.resolve("plugins/probe"), dataDir)
+            assertEquals(directory.resolve("cache/plugins/probe"), cacheDir)
+            assertEquals(dataDir, files.dataDir)
+            assertEquals(cacheDir, files.cacheDir)
         }
     }
 
     @Test
-    fun `a temporary data directory is deleted on close and a given one is kept`() {
-        val temporary = PluginHarness.builder(probe).build().started()
-        val root = temporary.dataDir.parent.parent
-        temporary.get<PluginFiles>("probe").dataDir
+    fun `a temporary data root is deleted when the run ends and a given one is kept`() {
+        lateinit var root: Path
 
-        assertTrue(Files.isDirectory(temporary.dataDir))
-        temporary.close()
-        harness().started().use { it.get<PluginFiles>("probe").dataDir }
+        PluginHarness.builder(probe).build().execute {
+            get<PluginFiles>("probe").dataDir
+            assertTrue(Files.isDirectory(dataDir))
+            root = dataDir.parent.parent
+        }
+        harness().execute { get<PluginFiles>("probe").dataDir }
 
         assertFalse(Files.exists(root))
         assertTrue(Files.isDirectory(directory.resolve("plugins/probe")))
     }
 
     @Test
-    fun `stop returns the termination and resolving needs a started runtime`() {
-        val harness = harness { zone(ZoneId.of("Asia/Shanghai")).shutdownGrace(1.seconds) }
+    fun `run returns the termination and resolving fails once a stop is requested`() {
+        val request = StopRequest(StopKind.RESTART, "again")
 
-        val early = assertFailsWith<IllegalStateException> { harness.get<Greeter>() }
-        harness.started()
-        assertEquals(ZoneId.of("Asia/Shanghai"), harness.get<Clock>().zone)
-        val termination = runBlocking { harness.stop() }
-        val late = assertFailsWith<IllegalStateException> { harness.get<Greeter>() }
-        harness.close()
+        val termination = harness { zone(ZoneId.of("Asia/Shanghai")).shutdownGrace(1.seconds) }.execute {
+            assertEquals(ZoneId.of("Asia/Shanghai"), get<Clock>().zone)
+            requestStop(request)
+            val error = assertFailsWith<IllegalStateException> { get<Greeter>() }
+            assertEquals("Runtime 'harness' has no services: a stop was requested.", error.message)
+        }
 
-        assertEquals("The harness of plugin 'probe' has not started: call start() first.", early.message)
-        assertEquals(StopKind.SHUTDOWN, assertIs<Termination.Cause.Requested>(termination.cause).request.kind)
-        assertContains(late.message!!, "it has stopped")
+        assertEquals(request, assertIs<Termination.Cause.Requested>(termination.cause).request)
+        val returned = harness().execute {}
+        assertEquals(StopKind.SHUTDOWN, assertIs<Termination.Cause.Requested>(returned.cause).request.kind)
+    }
+
+    @Test
+    fun `a failed start returns its termination without running the block`() {
+        val missing = Dependency(key<String>("missing"), DependencyKind.INSTANCE, "missing")
+        val greeter = binding(key<Greeter>(), "broken", "Greeter", dependencies = listOf(missing)) { Greeter("never") }
+        var ran = false
+
+        val termination =
+            PluginHarness.builder(Index("broken", listOf(greeter))).dataRoot(directory).build().execute { ran = true }
+
+        assertEquals(StartStage.GRAPH, assertIs<Termination.Cause.StartFailed>(termination.cause).error.stage)
+        assertFalse(ran)
     }
 
     @Test

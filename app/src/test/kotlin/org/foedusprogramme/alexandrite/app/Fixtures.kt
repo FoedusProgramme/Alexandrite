@@ -2,7 +2,6 @@ package org.foedusprogramme.alexandrite.app
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeListener
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
@@ -38,14 +37,12 @@ class Failing(private val step: String) : Lifecycle {
 
 fun failing(plugin: String, step: String): Binding<Failing> = binding(key(), plugin, "Failing") { Failing(step) }
 
-fun runtime(
+fun spec(
     dataDir: Path,
     vararg indexes: PluginIndex,
     config: String = "{}",
     listener: RuntimeListener = RuntimeListener {},
-): AlexandriteRuntime = AlexandriteRuntime(
-    RuntimeSpec.builder(RuntimeConfig.builder(dataDir).build(), PluginSet.of(*indexes))
-        .pluginConfig(JsonConfigSource(Json.parseToJsonElement(config).jsonObject))
-        .listener(listener)
-        .build(),
-)
+): RuntimeSpec = RuntimeSpec.builder(RuntimeConfig.builder(dataDir).build(), PluginSet.of(*indexes))
+    .pluginConfig(JsonConfigSource(Json.parseToJsonElement(config).jsonObject))
+    .listener(listener)
+    .build()

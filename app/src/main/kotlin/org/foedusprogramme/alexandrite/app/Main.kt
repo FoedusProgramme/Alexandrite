@@ -10,7 +10,6 @@ import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.config.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.config.ConfigFileException
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
-import org.foedusprogramme.alexandrite.runtime.runUntilSignal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
@@ -52,7 +51,7 @@ internal fun run(
     home: Path = Path.of(System.getProperty("user.home")),
     out: PrintStream = System.out,
     err: PrintStream = System.err,
-    execute: suspend (AlexandriteRuntime) -> Termination = { it.runUntilSignal() },
+    execute: suspend (RuntimeSpec) -> Termination = { AlexandriteRuntime.runUntilSignal(it) },
 ): Int {
     val defaults = locations(Options(), environment, osName, home)
     val options = when (val command = parseArguments(args)) {
@@ -88,7 +87,7 @@ private fun host(
     locations: Locations,
     environment: Map<String, String>,
     err: PrintStream,
-    execute: suspend (AlexandriteRuntime) -> Termination,
+    execute: suspend (RuntimeSpec) -> Termination,
 ): Int {
     val source = try {
         ConfigFile.read(locations.configFile, environment)
@@ -136,7 +135,7 @@ private fun host(
         locations.dataDir,
         locations.cacheDir,
     )
-    val termination = runBlocking { execute(AlexandriteRuntime(spec)) }
+    val termination = runBlocking { execute(spec) }
     (termination.cause as? Termination.Cause.StartFailed)?.let { err.println("alexandrite: ${it.error.message}") }
     return exitCode(termination)
 }

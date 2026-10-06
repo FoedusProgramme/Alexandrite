@@ -4,14 +4,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
-import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.HookEffect
 import org.foedusprogramme.alexandrite.sdk.hook.HookFailure
@@ -33,13 +31,6 @@ class ObserveTest {
     private val records = Records()
     private val seen = seenPoint()
 
-    private fun TestScope.dispatcher(vararg hooks: Hook, asyncCapacity: Int = 256) = HookDispatcher(
-        hooks.toList(),
-        listener,
-        asyncCapacity,
-        asyncDispatcher = StandardTestDispatcher(testScheduler),
-    )
-
     private fun recording(name: String, order: Int = 0, delivery: Delivery = Delivery.INLINE) =
         TestObserver(seen, order, delivery = delivery) { records.add("$name $it") }
 
@@ -48,6 +39,7 @@ class ObserveTest {
     @Test
     fun `inline observers run in order, each awaited before the next`() = runTest {
         val dispatcher = dispatcher(
+            listener,
             TestObserver(seen, order = 2) { records.add("last at $currentTime") },
             TestObserver(seen, order = 1) {
                 delay(1.seconds)
@@ -62,7 +54,8 @@ class ObserveTest {
 
     @Test
     fun `a throwing inline observer is reported and later observers still run`() = runTest {
-        val dispatcher = dispatcher(TestObserver(seen) { error("observer failed") }, recording("second", order = 1))
+        val dispatcher =
+            dispatcher(listener, TestObserver(seen) { error("observer failed") }, recording("second", order = 1))
 
         dispatcher.fire(seen, "x")
 
@@ -72,7 +65,7 @@ class ObserveTest {
 
     @Test
     fun `an inline observer runs only for its own point`() = runTest {
-        val dispatcher = dispatcher(recording("first"))
+        val dispatcher = dispatcher(listener, recording("first"))
 
         dispatcher.fire(ObserverPoint<String>("test.other"), "x")
 
@@ -81,7 +74,7 @@ class ObserveTest {
 
     @Test
     fun `firing another observer point object with a subscribed id is rejected`() = runTest {
-        val dispatcher = dispatcher(recording("first"), recording("queued", delivery = Delivery.ASYNC))
+        val dispatcher = dispatcher(listener, recording("first"), recording("queued", delivery = Delivery.ASYNC))
 
         assertFailsWith<IllegalArgumentException> { dispatcher.fire(seenPoint(), "x") }
         advanceUntilIdle()
@@ -95,6 +88,7 @@ class ObserveTest {
     fun `observe returns before async observers run`() = runTest {
         val gate = CompletableDeferred<Unit>()
         val dispatcher = dispatcher(
+            listener,
             TestObserver(seen, delivery = Delivery.ASYNC) {
                 records.add("started $it")
                 gate.await()
@@ -116,6 +110,7 @@ class ObserveTest {
         val gate = CompletableDeferred<Unit>()
         val slow = mutableListOf<String>()
         val dispatcher = dispatcher(
+            listener,
             TestObserver(seen, delivery = Delivery.ASYNC) {
                 gate.await()
                 slow += it
@@ -140,7 +135,7 @@ class ObserveTest {
     fun `a full async queue drops the event and reports it without suspending`() = runTest {
         val gate = CompletableDeferred<Unit>()
         val slow = Slow(seen, gate, records)
-        val dispatcher = dispatcher(slow, asyncCapacity = 2)
+        val dispatcher = dispatcher(listener, slow, asyncCapacity = 2)
         dispatcher.fire(seen, "a")
         runCurrent()
 
@@ -155,6 +150,7 @@ class ObserveTest {
     @Test
     fun `a failing async observer is reported and still gets later events`() = runTest {
         val dispatcher = dispatcher(
+            listener,
             TestObserver(seen, timeout = 1.seconds, delivery = Delivery.ASYNC) {
                 when (it) {
                     "a" -> error("a failed")

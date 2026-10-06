@@ -1,35 +1,39 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.BLOCK_RETURNED
 import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.runtime.HOST_STOP
 import org.foedusprogramme.alexandrite.runtime.Probe
+import org.foedusprogramme.alexandrite.runtime.RUN_CANCELLED
 import org.foedusprogramme.alexandrite.runtime.Recorder
-import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Ready
+import org.foedusprogramme.alexandrite.runtime.RuntimeEvent
 import org.foedusprogramme.alexandrite.runtime.RuntimeListener
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
+import org.foedusprogramme.alexandrite.runtime.RuntimeRun
+import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
-import org.foedusprogramme.alexandrite.runtime.RuntimeState
 import org.foedusprogramme.alexandrite.runtime.Service
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.TestIndex
+import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.probe
-import org.foedusprogramme.alexandrite.runtime.runtime
+import org.foedusprogramme.alexandrite.runtime.requested
+import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
-import org.foedusprogramme.alexandrite.runtime.started
-import org.foedusprogramme.alexandrite.runtime.stopped
-import org.foedusprogramme.alexandrite.runtime.terminated
 import org.foedusprogramme.alexandrite.runtime.worker
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -47,8 +51,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -65,10 +71,9 @@ class LifecycleTest {
 
     private val restart = StopRequest(StopKind.RESTART, "update")
 
-    private fun core(vararg bindings: Binding<*>) = explicit(TestIndex("core", bindings = bindings.toList()))
+    private val lifecycle = listOf("create a", "start a", "open a", "close a", "drain a", "stop a", "destroy a")
 
-    private fun requested(request: StopRequest, problems: List<Problem> = emptyList()) =
-        Termination(Termination.Cause.Requested(request), problems)
+    private fun core(vararg bindings: Binding<*>) = explicit(TestIndex("core", bindings = bindings.toList()))
 
     /** Holds whoever passes it until they are interrupted or cancelled. */
     private class Gate {
@@ -106,45 +111,29 @@ class LifecycleTest {
         }
     }
 
+    private class Runner(private val run: RuntimeRun) {
+        @Volatile
+        var ran = false
+
+        @Volatile
+        var termination: Termination? = null
+
+        private val running = thread { termination = runBlocking { run.live { ran = true } } }
+
+        fun join() = running.join(5_000)
+    }
+
     // Start and stop.
 
     @Test
-    fun `each lifecycle call sees the state of its stage and the events follow the states`() {
-        lateinit var runtime: AlexandriteRuntime
-        val seen = Collections.synchronizedList(mutableListOf<String>())
-        fun record(call: String) {
-            seen += "$call ${runtime.state.value}"
-        }
-        runtime = runtime(
-            core(
-                worker(
-                    "a",
-                    "core",
-                    events,
-                    onStart = { record("start") },
-                    onOpen = { record("open") },
-                    onClose = { record("close") },
-                    onDrain = { record("drain") },
-                ),
-            ),
-            dataDir,
-            listener = recorder,
-        )
+    fun `a run starts, runs the block once ready and stops with SHUTDOWN when the block returns`() {
+        val spec = spec(core(worker("a", "core", events)), dataDir, listener = recorder)
 
-        val before = runtime.state.value
-        runtime.started()
-        val ready = runtime.state.value
-        val termination = runtime.stopped()
+        val termination = spec.execute { events.record("block") }
 
-        assertEquals(listOf(RuntimeState.NEW, RuntimeState.READY), listOf(before, ready))
-        assertEquals(RuntimeState.STOPPED, runtime.state.value)
-        assertEquals(listOf("start STARTING", "open STARTING", "close STOPPING", "drain STOPPING"), seen)
-        assertEquals(
-            listOf("create a", "start a", "open a", "close a", "drain a", "stop a", "destroy a"),
-            events.all(),
-        )
+        assertEquals(lifecycle.take(3) + "block" + lifecycle.drop(3), events.all())
         assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
-        assertEquals(requested(HOST_STOP), termination)
+        assertEquals(requested(BLOCK_RETURNED), termination)
         assertSame(termination, recorder.termination())
     }
 
@@ -155,7 +144,7 @@ class LifecycleTest {
             TestIndex("turns", bindings = listOf(worker("worker", "turns", events, listOf("db")))),
         )
 
-        runtime(plugins, dataDir).started().stopped()
+        spec(plugins, dataDir).execute()
 
         assertEquals(
             listOf(
@@ -172,46 +161,113 @@ class LifecycleTest {
     }
 
     @Test
-    fun `requestStop returns at once and the stop runs on the runtime`() {
-        val draining = CountDownLatch(1)
+    fun `a block that throws stops the runtime with FAILURE, then run rethrows the error`() {
+        val spec = spec(core(worker("a", "core", events)), dataDir, listener = recorder)
+
+        val thrown = assertFailsWith<IllegalStateException> { spec.execute { error("block failed") } }
+
+        assertEquals("block failed", thrown.message)
+        val reason = "the run block failed: java.lang.IllegalStateException: block failed"
+        assertEquals(requested(StopRequest(StopKind.FAILURE, reason)), recorder.termination())
+        assertEquals(lifecycle, events.all())
+    }
+
+    @Test
+    fun `a cancelled caller gets the CancellationException once the stop ran without being cancelled`() {
+        val ready = CompletableDeferred<Unit>()
+        val thrown = CompletableDeferred<Throwable>()
+        val worker = worker(
+            "a",
+            "core",
+            events,
+            onDrain = {
+                delay(100.milliseconds)
+                events.record("drained a")
+            },
+        )
+        val spec = spec(core(worker), dataDir, listener = recorder)
+
+        runBlocking {
+            val caller = launch {
+                try {
+                    AlexandriteRuntime.run(spec) {
+                        ready.complete(Unit)
+                        awaitCancellation()
+                    }
+                } catch (e: Throwable) {
+                    thrown.complete(e)
+                    throw e
+                }
+            }
+            ready.await()
+            caller.cancelAndJoin()
+        }
+
+        assertIs<CancellationException>(runBlocking { thrown.await() })
+        assertEquals(lifecycle.take(5) + "drained a" + lifecycle.drop(5), events.all())
+        assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
+        assertEquals(requested(RUN_CANCELLED), recorder.termination())
+    }
+
+    @Test
+    fun `requestStop returns at once and the stop runs once the block has ended`() {
+        val draining = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val worker = worker(
             "a",
             "core",
             events,
             onDrain = {
-                draining.countDown()
+                draining.complete(Unit)
                 release.await()
             },
         )
-        val runtime = runtime(core(worker), dataDir, listener = recorder).started()
+        val spec = spec(core(worker), dataDir)
 
-        runtime.requestStop(restart)
+        val termination = runBlocking {
+            val run = async(Dispatchers.Default) {
+                AlexandriteRuntime.run(spec) {
+                    requestStop(restart)
+                    events.record("requested")
+                    awaitCancellation()
+                }
+            }
+            draining.await()
+            assertFalse(run.isCompleted)
+            release.complete(Unit)
+            run.await()
+        }
 
-        assertTrue(draining.await(5, TimeUnit.SECONDS))
-        assertEquals(RuntimeState.STOPPING, runtime.state.value)
-        val stopping = assertFailsWith<IllegalStateException> { runtime.services }
-        assertEquals("Runtime 'test' has no services: it is stopping.", stopping.message)
-        release.complete(Unit)
-        assertEquals(requested(restart), runtime.terminated())
-        assertEquals(RuntimeState.STOPPED, runtime.state.value)
+        assertEquals(requested(restart), termination)
+        assertEquals(lifecycle.take(3) + "requested" + lifecycle.drop(3), events.all())
     }
 
     @Test
-    fun `a plugin stops the runtime through RuntimeControl`() {
+    fun `a plugin's stop request through RuntimeControl cancels the block`() {
         val control = CompletableDeferred<RuntimeControl>()
         val failure = StopRequest(StopKind.FAILURE, "disk full")
-        val runtime = runtime(core(worker("a", "core", onStart = { control.complete(it) })), dataDir).started()
+        val spec = spec(core(worker("a", "core", onStart = { control.complete(it) })), dataDir)
 
-        runBlocking { control.await() }.requestStop(failure)
+        val termination = spec.execute {
+            val plugin = control.await()
+            thread { plugin.requestStop(failure) }
+            try {
+                awaitCancellation()
+            } catch (e: CancellationException) {
+                events.record("block cancelled")
+                throw e
+            }
+        }
 
-        assertEquals(requested(failure), runtime.terminated())
+        assertEquals(requested(failure), termination)
+        assertEquals(listOf("block cancelled"), events.all())
     }
 
     @Test
     fun `a plugin that requests a stop from its own start cuts the start short`() {
         val failure = StopRequest(StopKind.FAILURE, "no disk")
-        val runtime = runtime(
+        var ran = false
+        val spec = spec(
             core(
                 worker("a", "core", events, onStart = { it.requestStop(failure) }),
                 worker("b", "core", events, listOf("a")),
@@ -220,12 +276,10 @@ class LifecycleTest {
             listener = recorder,
         )
 
-        val error = runtime.startFailure()
+        val termination = spec.execute { ran = true }
 
-        assertEquals(StartStage.START, error.stage)
-        assertEquals("Cannot start runtime 'test': stage START failed: stopped while starting", error.message)
-        assertEquals(RuntimeState.STOPPED, runtime.state.value)
-        assertEquals(requested(failure), runtime.terminated())
+        assertEquals(requested(failure), termination)
+        assertFalse(ran)
         assertEquals(listOf("create a", "create b", "start a", "stop a", "destroy b", "destroy a"), events.all())
         assertEquals(listOf("PluginsResolved", "Stopping", "Stopped"), recorder.names())
     }
@@ -233,11 +287,15 @@ class LifecycleTest {
     @Test
     fun `the first stop request wins and later ones are logged and ignored`() {
         val late = StopRequest(StopKind.FAILURE, "drain failed")
-        val runtime = runtime(core(worker("a", "core", onDrain = { it.requestStop(late) })), dataDir).started()
-
+        val spec = spec(core(worker("a", "core", onDrain = { it.requestStop(late) })), dataDir)
+        lateinit var runtime: AlexandriteRuntime
         lateinit var termination: Termination
+
         val lines = logged {
-            termination = runtime.stopped(restart)
+            termination = spec.execute {
+                runtime = this
+                requestStop(restart)
+            }
             runtime.requestStop()
         }
 
@@ -249,70 +307,49 @@ class LifecycleTest {
                 "INFO test: stopped",
                 "INFO test: ignoring the stop request $HOST_STOP: $restart came first",
             ),
-            lines,
+            lines.filterNot { it.startsWith("INFO test: loading plugins") },
         )
     }
 
-    @Test
-    fun `a stop before start ends the runtime at once`() {
-        val runtime = runtime(core(worker("a", "core", events)), dataDir, listener = recorder)
-
-        val termination = runtime.stopped()
-
-        assertEquals(requested(HOST_STOP), termination)
-        assertEquals(RuntimeState.STOPPED, runtime.state.value)
-        assertEquals(listOf("Stopped"), recorder.names())
-        assertEquals(emptyList(), events.all())
-        val error = assertFailsWith<IllegalStateException> { runBlocking { runtime.start() } }
-        assertEquals("Cannot start runtime 'test': it has stopped.", error.message)
-    }
-
-    private class Blocked(val stage: StartStage, val events: List<String>, val runtime: (Gate) -> AlexandriteRuntime)
+    private class Blocked(val stage: StartStage, val events: List<String>, val spec: (Gate) -> RuntimeSpec)
 
     @Test
-    fun `a stop cuts the start short at every stage`() {
+    fun `a stop cuts the start short at every stage and the block never runs`() {
         val cases = listOf(
             Blocked(StartStage.PLUGINS, listOf("Stopping", "Stopped")) { gate ->
-                runtime(explicit(GatedIndex(gate)), dataDir, listener = recorder)
+                spec(explicit(GatedIndex(gate)), dataDir, listener = recorder)
             },
             Blocked(StartStage.CONFIG, listOf("Stopping", "Stopped")) { gate ->
-                runtime(core(), dataDir, listener = recorder, source = GatedSource(gate))
+                spec(core(), dataDir, listener = recorder, source = GatedSource(gate))
             },
             Blocked(StartStage.GRAPH, listOf("PluginsResolved", "Stopping", "Stopped")) { gate ->
                 val slow = binding(key<Service>("slow"), "core", "slow") {
                     gate.block()
                     Service("slow", events) {}
                 }
-                runtime(core(slow), dataDir, listener = recorder)
+                spec(core(slow), dataDir, listener = recorder)
             },
             Blocked(StartStage.START, listOf("PluginsResolved", "Stopping", "Stopped")) { gate ->
-                runtime(core(worker("a", "core", onStart = { gate.hold() })), dataDir, listener = recorder)
+                spec(core(worker("a", "core", onStart = { gate.hold() })), dataDir, listener = recorder)
             },
             Blocked(StartStage.OPEN, listOf("PluginsResolved", "Started", "Stopping", "Stopped")) { gate ->
-                runtime(core(worker("a", "core", onOpen = { gate.hold() })), dataDir, listener = recorder)
+                spec(core(worker("a", "core", onOpen = { gate.hold() })), dataDir, listener = recorder)
             },
         )
 
         for (case in cases) {
             recorder.events.clear()
             val gate = Gate().apply { armed = false }
-            val runtime = case.runtime(gate)
+            val run = RuntimeRun(case.spec(gate))
             gate.armed = true
-            var thrown: Throwable? = null
-            val starter = thread { thrown = runCatching { runBlocking { runtime.start() } }.exceptionOrNull() }
+            val runner = Runner(run)
 
             gate.awaitEntered()
-            val termination = runtime.stopped(restart)
-            starter.join(5_000)
+            run.requestStop(restart)
+            runner.join()
 
-            val error = assertIs<RuntimeStartException>(thrown, "${case.stage}")
-            assertEquals(case.stage, error.stage)
-            assertEquals(
-                "Cannot start runtime 'test': stage ${case.stage} failed: stopped while starting",
-                error.message,
-            )
-            assertEquals(requested(restart), termination, "${case.stage}")
-            assertEquals(RuntimeState.STOPPED, runtime.state.value)
+            assertEquals(requested(restart), runner.termination, "${case.stage}")
+            assertFalse(runner.ran, "${case.stage}")
             assertEquals(case.events, recorder.names(), "${case.stage}")
         }
     }
@@ -320,16 +357,19 @@ class LifecycleTest {
     @Test
     fun `a stop during OPEN closes the opened instances, then drains and stops the started ones`() {
         val gate = Gate()
-        val runtime = runtime(
-            core(worker("a", "core", events), worker("b", "core", events, listOf("a"), onOpen = { gate.hold() })),
-            dataDir,
+        val run = RuntimeRun(
+            spec(
+                core(worker("a", "core", events), worker("b", "core", events, listOf("a"), onOpen = { gate.hold() })),
+                dataDir,
+            ),
         )
-        val starter = thread { runCatching { runBlocking { runtime.start() } } }
+        val runner = Runner(run)
 
         gate.awaitEntered()
-        runtime.stopped()
-        starter.join(5_000)
+        run.requestStop()
+        runner.join()
 
+        assertEquals(requested(HOST_STOP), runner.termination)
         assertEquals(
             listOf(
                 "create a", "create b",
@@ -347,8 +387,8 @@ class LifecycleTest {
     // Failed start.
 
     @Test
-    fun `a failed start tears down what it built and ends FAILED`() {
-        val runtime = runtime(
+    fun `a failed start tears down what it built and returns StartFailed without running the block`() {
+        val spec = spec(
             core(
                 worker("a", "core", events),
                 worker("b", "core", events, listOf("a"), onOpen = { error("open b failed") }),
@@ -356,17 +396,17 @@ class LifecycleTest {
             dataDir,
             listener = recorder,
         )
+        var ran = false
 
-        val error = runtime.startFailure()
+        val termination = spec.execute { ran = true }
 
+        val error = assertIs<Termination.Cause.StartFailed>(termination.cause).error
+        assertFalse(ran)
         assertEquals(StartStage.OPEN, error.stage)
         assertEquals(
             "Cannot start runtime 'test': stage OPEN failed: java.lang.IllegalStateException: open b failed",
             error.message,
         )
-        assertEquals(RuntimeState.FAILED, runtime.state.value)
-        val termination = runtime.terminated()
-        assertSame(error, assertIs<Termination.Cause.StartFailed>(termination.cause).error)
         assertEquals(emptyList(), termination.problems)
         assertEquals(
             listOf(
@@ -381,23 +421,25 @@ class LifecycleTest {
             events.all(),
         )
         assertEquals(listOf("PluginsResolved", "Started", "StartFailed"), recorder.names())
-        runtime(core(), dataDir).started().close()
+        assertSame(error, assertIs<RuntimeEvent.StartFailed>(recorder.events.last()).error)
+        spec(core(), dataDir).execute()
     }
 
     @Test
     fun `a stop request while a failed start tears down is ignored`() {
-        val runtime = runtime(
+        val spec = spec(
             core(
                 worker("a", "core", events, onDrain = { it.requestStop(restart) }),
                 worker("b", "core", events, onOpen = { error("open b failed") }),
             ),
             dataDir,
         )
+        lateinit var error: RuntimeStartException
 
-        runtime.startFailure()
+        val lines = logged { error = spec.startFailure() }
 
-        assertEquals(RuntimeState.FAILED, runtime.state.value)
-        assertIs<Termination.Cause.StartFailed>(runtime.terminated().cause)
+        assertEquals(StartStage.OPEN, error.stage)
+        assertContains(lines, "INFO test: ignoring the stop request $restart: its start failed")
     }
 
     // Problems while stopping.
@@ -408,17 +450,17 @@ class LifecycleTest {
 
     @Test
     fun `what fails while stopping is reported in the termination and logged`() {
-        val runtime = runtime(
+        val spec = spec(
             core(
                 worker("a", "core", onClose = { error("close a failed") }),
                 worker("b", "core", onDrain = { error("drain b failed") }, onStop = { error("stop b failed") }),
                 binding(key<FailingClient>(), "core", "c") { FailingClient("c") },
             ),
             dataDir,
-        ).started()
-
+        )
         lateinit var termination: Termination
-        val lines = logged { termination = runtime.stopped() }
+
+        val lines = logged { termination = spec.execute() }
 
         val messages = listOf(
             "Closing a (plugin core) failed: java.lang.IllegalStateException: close a failed",
@@ -445,13 +487,13 @@ class LifecycleTest {
 
     @Test
     fun `a drain still running at the shutdown grace is cancelled and the later ones are skipped`() {
-        val runtime = runtime(
+        val spec = spec(
             core(worker("a", "core", events), worker("b", "core", events, onDrain = { awaitCancellation() })),
             dataDir,
             shutdownGrace = 200.milliseconds,
-        ).started()
+        )
 
-        val termination = runtime.stopped()
+        val termination = spec.execute()
 
         assertEquals(
             listOf(
@@ -479,117 +521,47 @@ class LifecycleTest {
         assertEquals(listOf("drain b"), events.all().filter { it.startsWith("drain") })
     }
 
-    // Listener.
+    // Termination.
 
     @Test
-    fun `a listener may close, stop or request a stop from inside onEvent`() {
-        val actions = listOf<(AlexandriteRuntime) -> Unit>(
-            { it.close() },
-            { it.requestStop() },
-            { runBlocking { it.stop() } },
-        )
-
-        for ((number, action) in actions.withIndex()) {
-            val recorder = Recorder()
-            lateinit var runtime: AlexandriteRuntime
-            val listener = RuntimeListener { event ->
-                recorder.onEvent(event)
-                if (event == Ready) action(runtime)
-            }
-            runtime = runtime(core(worker("a", "core")), dataDir, listener = listener)
-
-            runtime.started()
-
-            assertEquals(requested(HOST_STOP), runtime.terminated(), "action $number")
-            assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
-        }
-    }
-
-    @Test
-    fun `awaiting the termination from inside the listener fails instead of hanging`() {
-        lateinit var runtime: AlexandriteRuntime
-        val failure = CompletableDeferred<Throwable>()
+    fun `run returns once torn down and its final event was delivered`() {
         val listener = RuntimeListener { event ->
-            if (event == Ready) {
-                runtime.requestStop()
-                failure.complete(runCatching { runBlocking { runtime.awaitTermination() } }.exceptionOrNull()!!)
-            }
+            if (event is RuntimeEvent.Stopped) Thread.sleep(200)
+            recorder.onEvent(event)
         }
-        runtime = runtime(core(), dataDir, listener = listener)
+        val spec = spec(core(worker("a", "core", onDrain = { delay(300.milliseconds) })), dataDir, listener = listener)
 
-        runtime.started().terminated()
+        val elapsed = measureTime { spec.execute() }
 
-        val error = assertIs<IllegalStateException>(runBlocking { failure.await() })
-        assertEquals(
-            "Runtime 'test' cannot await its termination from its listener or its own lifecycle calls.",
-            error.message,
-        )
-    }
-
-    @Test
-    fun `any number of callers await the same termination`() {
-        val runtime = runtime(core(worker("a", "core")), dataDir).started()
-
-        val terminations = runBlocking {
-            val waiting = List(3) { async(Dispatchers.Default) { runtime.awaitTermination() } }
-            runtime.requestStop(restart)
-            waiting.awaitAll()
-        }
-
-        assertEquals(requested(restart), terminations.first())
-        terminations.forEach { assertSame(terminations.first(), it) }
-    }
-
-    @Test
-    fun `close blocks until the runtime has terminated and its last event was delivered`() {
-        val runtime = runtime(
-            core(worker("a", "core", onDrain = { delay(300.milliseconds) })),
-            dataDir,
-            listener = recorder,
-        ).started()
-
-        val elapsed = measureTime { runtime.close() }
-
-        assertTrue(elapsed >= 300.milliseconds, "close returned after $elapsed")
-        assertEquals(RuntimeState.STOPPED, runtime.state.value)
+        assertTrue(elapsed >= 500.milliseconds, "run returned after $elapsed")
         assertEquals("Stopped", recorder.names().last())
     }
 
     // Services.
 
     @Test
-    fun `services resolve only while the runtime is ready`() {
+    fun `services resolve until a stop is requested`() {
         lateinit var runtime: AlexandriteRuntime
         val seen = Collections.synchronizedList(mutableListOf<String>())
         fun record(call: String) {
             seen += "$call: " + runCatching { runtime.services.get(key<Probe>()) }.fold({ "resolved" }, { it.message })
         }
-        runtime = runtime(
-            core(
-                probe("core"),
-                worker("a", "core", onStart = { record("start") }, onDrain = { record("drain") }),
-            ),
-            dataDir,
-        )
+        val spec = spec(core(probe("core"), worker("a", "core", onDrain = { record("drain") })), dataDir)
 
-        record("new")
-        runtime.started()
-        record("ready")
-        runtime.stopped()
-        record("stopped")
-        val failed = runtime(core(worker("a", "core", onStart = { error("no") })), dataDir).apply { startFailure() }
+        spec.execute {
+            runtime = this
+            val held = services
+            record("ready")
+            requestStop()
+            record("requested")
+            seen += "held: " + runCatching { held.get(key<Probe>()) }.fold({ "resolved" }, { it.message })
+        }
+        record("ended")
 
+        val unavailable = "Runtime 'test' has no services: a stop was requested."
         assertEquals(
-            listOf(
-                "new: Runtime 'test' has no services until start() returns.",
-                "start: Runtime 'test' has no services until start() returns.",
-                "ready: resolved",
-                "drain: Runtime 'test' has no services: it is stopping.",
-                "stopped: Runtime 'test' has no services: it has stopped.",
-            ),
+            listOf("ready: resolved") + listOf("requested", "held", "drain", "ended").map { "$it: $unavailable" },
             seen,
         )
-        val error = assertFailsWith<IllegalStateException> { failed.services }
-        assertEquals("Runtime 'test' has no services: it failed to start.", error.message)
     }
 }

@@ -54,11 +54,11 @@ class BuiltInRuntimeTest {
             .build()
         val (optIn, core) = builtIns.partition { it.layer == BuiltInLayer.CHANNEL || it.layer == BuiltInLayer.PROVIDER }
 
-        AlexandriteRuntime(spec).use { runtime ->
-            runBlocking { runtime.start() }
+        lateinit var loaded: List<String>
 
-            assertEquals(core.map { it.id }, runtime.plugins.map { it.info.id })
-        }
+        runBlocking { AlexandriteRuntime.run(spec) { loaded = plugins.map { it.info.id } } }
+
+        assertEquals(core.map { it.id }, loaded)
 
         assertEquals(
             optIn.map { it.id to DisabledPlugin.Reason.NOT_CONFIGURED },

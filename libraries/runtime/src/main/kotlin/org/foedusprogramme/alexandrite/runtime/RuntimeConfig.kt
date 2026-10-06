@@ -14,7 +14,7 @@ public class RuntimeConfig private constructor(
     public val cacheDir: Path,
     public val zone: ZoneId,
     public val shutdownGrace: Duration,
-    /** How long [AlexandriteRuntime.start] may take. */
+    /** How long the start stages may take. */
     public val startTimeout: Duration,
     /** Names the instance in messages. */
     public val name: String,

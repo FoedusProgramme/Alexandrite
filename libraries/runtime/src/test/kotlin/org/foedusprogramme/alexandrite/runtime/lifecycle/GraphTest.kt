@@ -10,19 +10,18 @@ import org.foedusprogramme.alexandrite.runtime.BotIndex
 import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.runtime.Probe
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
+import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Service
 import org.foedusprogramme.alexandrite.runtime.StartStage
-import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.runtime.ZONE
+import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.hang
 import org.foedusprogramme.alexandrite.runtime.probe
-import org.foedusprogramme.alexandrite.runtime.runtime
 import org.foedusprogramme.alexandrite.runtime.service
+import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
-import org.foedusprogramme.alexandrite.runtime.started
-import org.foedusprogramme.alexandrite.runtime.stopped
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
@@ -51,7 +50,8 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.measureTime
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 class GraphTest {
     @TempDir
@@ -75,19 +75,21 @@ class GraphTest {
         }
     }
 
-    private fun hooked(block: suspend () -> Unit, shutdownGrace: Duration): Pair<AlexandriteRuntime, Hooks> {
-        val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed, block) }
+    private fun hooked(observe: suspend () -> Unit, shutdownGrace: Duration): RuntimeSpec {
+        val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed, observe) }
         val index = TestIndex("probe", bindings = listOf(probe("probe", "hooks" to key<Hooks>()), hook))
-        val runtime = runtime(explicit(index), dataDir, shutdownGrace = shutdownGrace).started()
-        return runtime to runtime.services.get(key<Probe>()).values.getValue("hooks") as Hooks
+        return spec(explicit(index), dataDir, shutdownGrace = shutdownGrace)
     }
+
+    private val AlexandriteRuntime.hooks: Hooks
+        get() = services.get(key<Probe>()).values.getValue("hooks") as Hooks
 
     @Test
     fun `a graph problem fails the GRAPH stage with the container's problems`() {
         val plugins =
             explicit(TestIndex("weather", bindings = listOf(service("radar", "weather", events, listOf("dish")))))
 
-        val error = runtime(plugins, dataDir).use { it.startFailure() }
+        val error = spec(plugins, dataDir).startFailure()
 
         assertEquals(StartStage.GRAPH, error.stage)
         assertEquals(listOf(DiProblemKind.MISSING), error.problems.map { it.kind })
@@ -113,10 +115,12 @@ class GraphTest {
         )
         val index = TestIndex("probe", bindings = listOf(probe, hook))
 
-        val hooks = runtime(explicit(index, TestIndex("other")), dataDir).started().use { runtime ->
-            val values = runtime.services.get(key<Probe>()).values
-            val hooks = values.getValue("hooks") as Hooks
-            runBlocking { hooks.fire(observed, "early") }
+        lateinit var hooks: Hooks
+
+        spec(explicit(index, TestIndex("other")), dataDir).execute {
+            val values = services.get(key<Probe>()).values
+            hooks = values.getValue("hooks") as Hooks
+            hooks.fire(observed, "early")
             val files = values.getValue("files") as PluginFiles
 
             assertEquals(ZONE, (values.getValue("clock") as Clock).zone)
@@ -129,7 +133,6 @@ class GraphTest {
             assertTrue(Files.isDirectory(dataDir.resolve("cache/plugins/probe")))
             assertEquals(dataDir.resolve("plugins/other"), (values.getValue("other") as PluginFiles).dataDir)
             assertTrue(values.getValue("control") is RuntimeControl)
-            hooks
         }
 
         runBlocking { hooks.fire(observed, "late") }
@@ -138,15 +141,11 @@ class GraphTest {
 
     @Test
     fun `a stop delivers the queued hook events before closing the container`() {
-        val (runtime, hooks) = hooked({ delay(50.milliseconds) }, shutdownGrace = 10.seconds)
-
-        runtime.use {
-            runBlocking { listOf("a", "b").forEach { hooks.fire(observed, it) } }
-
-            runtime.close()
-
-            assertEquals(listOf("observed a", "observed b"), events.all())
+        hooked({ delay(50.milliseconds) }, shutdownGrace = 10.seconds).execute {
+            listOf("a", "b").forEach { hooks.fire(observed, it) }
         }
+
+        assertEquals(listOf("observed a", "observed b"), events.all())
     }
 
     @Test
@@ -159,11 +158,14 @@ class GraphTest {
                 cancelled.complete(Unit)
             }
         }
-        val (runtime, hooks) = hooked(hang, shutdownGrace = 100.milliseconds)
+        lateinit var returned: TimeMark
 
-        runBlocking { hooks.fire(observed, "a") }
-        lateinit var termination: Termination
-        val elapsed = measureTime { termination = runtime.stopped() }
+        val termination = hooked(hang, shutdownGrace = 100.milliseconds).execute {
+            hooks.fire(observed, "a")
+            returned = TimeSource.Monotonic.markNow()
+        }
+
+        val elapsed = returned.elapsedNow()
 
         runBlocking { withTimeout(5.seconds) { cancelled.await() } }
         assertTrue(elapsed >= 100.milliseconds, "the stop ended after $elapsed")
@@ -194,7 +196,7 @@ class GraphTest {
             ),
         )
 
-        val error = runtime(plugins, dataDir).use { it.startFailure() }
+        val error = spec(plugins, dataDir).startFailure()
 
         assertEquals(StartStage.GRAPH, error.stage)
         assertEquals(
@@ -216,7 +218,7 @@ class GraphTest {
             TestIndex("discord", bindings = listOf(channel("guild", "discord", driver))),
         )
 
-        runtime(plugins, dataDir).started().close()
+        spec(plugins, dataDir).execute()
 
         assertEquals(emptyList(), events.all())
     }

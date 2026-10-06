@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.StepReport
@@ -32,8 +33,7 @@ private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.j
 internal class Launch(
     private val spec: RuntimeSpec,
     control: RuntimeControl,
-    private val resolved: (RuntimeEvent.PluginsResolved) -> Unit,
-    private val started: () -> Unit,
+    private val emit: (RuntimeEvent) -> Unit,
 ) {
     private val name = spec.config.name
     private val assembly = Assembly(spec, control)
@@ -48,25 +48,20 @@ internal class Launch(
     var container: Container? = null
         private set
 
+    @Volatile
+    var plugins: List<LoadedPlugin> = emptyList()
+        private set
+
     /** Runs the start stages within the start timeout. */
-    suspend fun run() {
+    suspend fun start() {
         val timeout = spec.config.startTimeout
         withTimeoutOrNull(timeout) { stages() }
             ?: throw startFailure(name, stage, detail = "not started within $timeout")
     }
 
-    /** What the start throws after it ended with [error]. */
-    fun failure(error: Throwable?, stopped: Boolean, cancelled: Boolean): RuntimeStartException = when {
-        stopped -> startFailure(name, stage, detail = "stopped while starting").also { failure ->
-            if (error != null && error !is CancellationException) failure.addSuppressed(error)
-        }
-
-        error is RuntimeStartException -> error
-
-        cancelled -> startFailure(name, stage, cause = error, detail = "cancelled")
-
-        else -> startFailure(name, stage, cause = error)
-    }
+    /** What the start failed with after it ended with [error]. */
+    fun failure(error: Throwable): RuntimeStartException =
+        error as? RuntimeStartException ?: startFailure(name, stage, cause = error)
 
     /** Stops and destroys what the stages built, then releases the data directory. */
     suspend fun tearDown(deadline: TimeMark): List<Problem> {
@@ -93,7 +88,7 @@ internal class Launch(
         }
         val container = runInterruptible(Dispatchers.IO) { assemble() }
         runStage(StartStage.START) { container.start() }
-        started()
+        emit(RuntimeEvent.Started)
         runStage(StartStage.OPEN) { container.open() }
     }
 
@@ -102,14 +97,14 @@ internal class Launch(
         assembly.checkPlugins()
         stage = StartStage.CONFIG
         val resolution = assembly.resolvePlugins()
-        val loaded = resolution.enabled.map { it.member.plugin }
+        plugins = resolution.enabled.map { it.member.plugin }
         val unknown = resolution.unknownPluginConfig
-        resolved(RuntimeEvent.PluginsResolved(loaded, resolution.disabled, spec.plugins.unlisted, unknown))
+        emit(RuntimeEvent.PluginsResolved(plugins, resolution.disabled, spec.plugins.unlisted, unknown))
         stage = StartStage.GRAPH
-        val plugins = assembly.pluginBindings(resolution.enabled)
-        val built = assembly.container(resolution.enabled, plugins)
+        val bindings = assembly.pluginBindings(resolution.enabled)
+        val built = assembly.container(resolution.enabled, bindings)
         container = built
-        assembly.checkChannelInstances(built, plugins)
+        assembly.checkChannelInstances(built, bindings)
         return built
     }
 

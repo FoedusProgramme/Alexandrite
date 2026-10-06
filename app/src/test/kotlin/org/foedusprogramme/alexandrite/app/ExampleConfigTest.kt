@@ -1,6 +1,6 @@
 package org.foedusprogramme.alexandrite.app
 
-import org.foedusprogramme.alexandrite.runtime.RuntimeState
+import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.config.ConfigFile
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.junit.jupiter.api.io.TempDir
@@ -33,11 +33,8 @@ class ExampleConfigTest {
             listOf("--config", "$example", "--data-dir", "$dataDir"),
             emptyMap(),
             err = PrintStream(errors, true),
-            execute = { runtime ->
-                runtime.start()
-                assertEquals(RuntimeState.READY, runtime.state.value)
-                settings = runtime.services.resolver().get(key<AppConfig>())
-                runtime.stop()
+            execute = { spec ->
+                AlexandriteRuntime.run(spec) { settings = services.resolver().get(key<AppConfig>()) }
             },
         )
 

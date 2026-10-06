@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.runtime
 
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 
-/** Thrown when an [AlexandriteRuntime] cannot start. */
+/** Why an [AlexandriteRuntime] could not start. */
 public class RuntimeStartException internal constructor(
     message: String,
     public val stage: StartStage,

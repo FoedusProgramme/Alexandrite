@@ -8,7 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import kotlin.reflect.KClass
 
-/** Resolves the [HostApi] types of a started runtime. */
+/** Resolves the [HostApi] types of a running runtime. */
 public class RuntimeServices internal constructor(
     private val resolver: Resolver,
     /** Why the runtime has no services, null while it has them. */
@@ -18,7 +18,7 @@ public class RuntimeServices internal constructor(
 
     public fun <T : Any> getOrNull(key: Key<T>): T? = hostApi(key) { it.getOrNull(key) }
 
-    /** Resolves every bound type while the runtime is [RuntimeState.READY]. */
+    /** Resolves every bound type until a stop is requested. */
     @InternalAlexandriteApi
     public fun resolver(): Resolver = AnyType()
 

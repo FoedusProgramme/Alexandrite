@@ -6,12 +6,13 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.TestIndex
+import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.probe
-import org.foedusprogramme.alexandrite.runtime.runtime
+import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
-import org.foedusprogramme.alexandrite.runtime.started
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -28,6 +29,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class DataDirTest {
     @TempDir
@@ -50,7 +52,9 @@ class DataDirTest {
         val nested = dataDir.resolve("a/b")
         val lockFile = nested.resolve("runtime.lock")
 
-        val pid = runtime(core(), nested).started().use { Files.readString(lockFile).trim() }
+        lateinit var pid: String
+
+        spec(core(), nested).execute { pid = Files.readString(lockFile).trim() }
 
         assertEquals("${ProcessHandle.current().pid()}", pid)
         assertTrue(Files.exists(lockFile))
@@ -58,19 +62,19 @@ class DataDirTest {
 
     @Test
     fun `a second runtime of this JVM cannot use a data directory in use`() {
-        runtime(core(), dataDir).started().use {
-            val error = runtime(core(), dataDir).startFailure()
+        lateinit var second: Termination
 
-            assertEquals(StartStage.DATA_DIR, error.stage)
-            assertEquals(listOf(RuntimeProblemKind.DATA_DIR_LOCKED), error.problems.map { it.kind })
-            assertEquals(
-                "Data directory '$dataDir' is in use: another runtime of this JVM holds its lock file runtime.lock. " +
-                    "Stop that runtime or give this one another data directory.",
-                error.problems.single().message,
-            )
-        }
+        spec(core(), dataDir).execute { second = AlexandriteRuntime.run(spec(core(), dataDir)) { fail("started") } }
 
-        runtime(core(), dataDir).started().close()
+        val error = assertIs<Termination.Cause.StartFailed>(second.cause).error
+        assertEquals(StartStage.DATA_DIR, error.stage)
+        assertEquals(listOf(RuntimeProblemKind.DATA_DIR_LOCKED), error.problems.map { it.kind })
+        assertEquals(
+            "Data directory '$dataDir' is in use: another runtime of this JVM holds its lock file runtime.lock. " +
+                "Stop that runtime or give this one another data directory.",
+            error.problems.single().message,
+        )
+        spec(core(), dataDir).execute()
     }
 
     @Test
@@ -93,7 +97,7 @@ class DataDirTest {
         try {
             assertEquals("locked", holder.inputReader().readLine())
 
-            val error = runtime(core(), dataDir).startFailure()
+            val error = spec(core(), dataDir).startFailure()
 
             assertEquals(StartStage.DATA_DIR, error.stage)
             assertContains(error.message!!, "is in use: process ${holder.pid()} holds its lock file runtime.lock.")
@@ -110,7 +114,7 @@ class DataDirTest {
         val cache = dataDir.resolve("b/cache")
         val config = RuntimeConfig.builder(data).cacheDir(cache).name("test").build()
 
-        AlexandriteRuntime(RuntimeSpec.builder(config, core()).build()).started().close()
+        RuntimeSpec.builder(config, core()).build().execute()
 
         assertEquals(
             List(4) { "rwx------" },
@@ -120,7 +124,7 @@ class DataDirTest {
 
     @Test
     fun `the cache root defaults to a directory in the data directory`() {
-        runtime(core(), dataDir).started().close()
+        spec(core(), dataDir).execute()
 
         assertTrue(Files.isDirectory(dataDir.resolve("cache")))
     }
@@ -128,12 +132,10 @@ class DataDirTest {
     @Test
     fun `a plugin's data and cache directories are created owner-only when first asked for`() {
         assumePosix()
-        val runtime = runtime(explicit(TestIndex("core", bindings = listOf(files("core")))), dataDir).started()
-
-        runtime.use {
+        spec(explicit(TestIndex("core", bindings = listOf(files("core")))), dataDir).execute {
             assertFalse(Files.exists(dataDir.resolve("plugins")))
             assertFalse(Files.exists(dataDir.resolve("cache/plugins")))
-            val files = runtime.files()
+            val files = files()
 
             assertEquals(dataDir.resolve("plugins/core"), files.dataDir)
             assertEquals(dataDir.resolve("cache/plugins/core"), files.cacheDir)
@@ -152,9 +154,9 @@ class DataDirTest {
         val data = Files.createDirectories(dataDir.resolve("data"))
         val directories = listOf("", "cache", "plugins/core", "cache/plugins/core").map(data::resolve)
         directories.forEach { Files.setPosixFilePermissions(Files.createDirectories(it), open) }
-        val runtime = runtime(explicit(TestIndex("core", bindings = listOf(files("core")))), data).started()
-
-        runtime.use { listOf(it.files().dataDir, it.files().cacheDir) }
+        spec(explicit(TestIndex("core", bindings = listOf(files("core")))), data).execute {
+            listOf(files().dataDir, files().cacheDir)
+        }
 
         assertEquals(List(4) { "rwxr-xr-x" }, directories.map(::permissions))
     }
@@ -165,18 +167,18 @@ class DataDirTest {
         val data = dataDir.resolve("data")
         val config = RuntimeConfig.builder(data).cacheDir(file).name("test").build()
 
-        val error = AlexandriteRuntime(RuntimeSpec.builder(config, core()).build()).startFailure()
+        val error = RuntimeSpec.builder(config, core()).build().startFailure()
 
         assertEquals(StartStage.DATA_DIR, error.stage)
         assertIs<FileAlreadyExistsException>(error.cause)
-        runtime(core(), data).started().close()
+        spec(core(), data).execute()
     }
 
     @Test
     fun `a data directory that cannot be created fails the DATA_DIR stage`() {
         val file = Files.writeString(dataDir.resolve("file"), "")
 
-        val error = runtime(core(), file).startFailure()
+        val error = spec(core(), file).startFailure()
 
         assertEquals(StartStage.DATA_DIR, error.stage)
         assertIs<FileAlreadyExistsException>(error.cause)

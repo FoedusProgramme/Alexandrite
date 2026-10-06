@@ -3,10 +3,8 @@ package org.foedusprogramme.alexandrite.app
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
-import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
-import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
-import org.foedusprogramme.alexandrite.runtime.RuntimeState
+import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
@@ -37,24 +35,21 @@ class MainTest {
 
     private fun stopping(
         kind: StopKind = StopKind.SHUTDOWN,
-        whileReady: (AlexandriteRuntime) -> Unit = {},
-    ): suspend (AlexandriteRuntime) -> Termination = { runtime ->
-        try {
-            runtime.start()
-            whileReady(runtime)
-            runtime.stop(StopRequest(kind, "requested by the test"))
-        } catch (e: RuntimeStartException) {
-            runtime.awaitTermination()
+        whileReady: AlexandriteRuntime.() -> Unit = {},
+    ): suspend (RuntimeSpec) -> Termination = { spec ->
+        AlexandriteRuntime.run(spec) {
+            whileReady()
+            requestStop(StopRequest(kind, "requested by the test"))
         }
     }
 
     private fun host(
         vararg args: String,
         environment: Map<String, String> = emptyMap(),
-        execute: suspend (AlexandriteRuntime) -> Termination = stopping(),
+        execute: suspend (RuntimeSpec) -> Termination = stopping(),
     ): Int = run(args.toList(), environment, "Linux", home, PrintStream(out, true), PrintStream(err, true), execute)
 
-    private fun hostWith(json: String, execute: suspend (AlexandriteRuntime) -> Termination = stopping()): Int =
+    private fun hostWith(json: String, execute: suspend (RuntimeSpec) -> Termination = stopping()): Int =
         host("--config", "${config(json)}", "--data-dir", "$dataDir", execute = execute)
 
     private fun stdout(): String = out.toString(Charsets.UTF_8)
@@ -194,23 +189,23 @@ class MainTest {
 
     @Test
     fun `the host runs the configured plugins until it is stopped and exits 0`() {
-        var state: RuntimeState? = null
+        var loaded: List<String>? = null
         var settings: AppConfig? = null
         val json = """{"app": {"zone": "Asia/Shanghai", "plugins": ["notes"]}, "plugins": {"notes": {}}}"""
 
         val lines = logged {
             val code = hostWith(
                 json,
-                stopping { runtime ->
-                    state = runtime.state.value
-                    settings = runtime.services.resolver().get(key<AppConfig>())
+                stopping {
+                    loaded = plugins.map { it.info.id }
+                    settings = services.resolver().get(key<AppConfig>())
                 },
             )
 
             assertEquals(0, code)
         }
 
-        assertEquals(RuntimeState.READY, state)
+        assertContains(loaded.orEmpty(), "notes")
         assertEquals(ZoneId.of("Asia/Shanghai"), settings?.zoneId)
         assertEquals(listOf("notes"), settings?.plugins)
         assertTrue(Files.isRegularFile(dataDir.resolve("plugins/notes/notes.db")))

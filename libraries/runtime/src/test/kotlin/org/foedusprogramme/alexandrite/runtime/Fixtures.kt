@@ -27,6 +27,7 @@ import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
@@ -39,7 +40,8 @@ import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.reflect.KClass
-import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.fail
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -149,6 +151,10 @@ fun worker(
 }
 
 val HOST_STOP = StopRequest(StopKind.SHUTDOWN, "requested by the host")
+
+val BLOCK_RETURNED = StopRequest(StopKind.SHUTDOWN, "the run block returned")
+
+val RUN_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the run was cancelled")
 
 @HostApi
 class Probe(val values: Map<String, Any>)
@@ -283,7 +289,7 @@ class Recorder : RuntimeListener {
     fun resolved(): RuntimeEvent.PluginsResolved = events.filterIsInstance<RuntimeEvent.PluginsResolved>().single()
 }
 
-fun runtime(
+fun spec(
     plugins: PluginSet,
     dataDir: Path,
     config: String = "{}",
@@ -292,28 +298,27 @@ fun runtime(
     shutdownGrace: Duration = 15.seconds,
     zone: ZoneId = ZONE,
     source: ConfigSource = JsonConfigSource(Json.parseToJsonElement(config).jsonObject),
-): AlexandriteRuntime {
+): RuntimeSpec {
     val runtimeConfig = RuntimeConfig.builder(dataDir)
         .zone(zone)
         .shutdownGrace(shutdownGrace)
         .startTimeout(startTimeout)
         .name("test")
         .build()
-    return AlexandriteRuntime(
-        RuntimeSpec.builder(runtimeConfig, plugins)
-            .pluginConfig(source)
-            .listener(listener)
-            .build(),
-    )
+    return RuntimeSpec.builder(runtimeConfig, plugins)
+        .pluginConfig(source)
+        .listener(listener)
+        .build()
 }
 
-fun AlexandriteRuntime.started(): AlexandriteRuntime = apply { runBlocking { start() } }
+fun requested(request: StopRequest, problems: List<Problem> = emptyList()): Termination =
+    Termination(Termination.Cause.Requested(request), problems)
 
-fun AlexandriteRuntime.startFailure(): RuntimeStartException = assertFailsWith { runBlocking { start() } }
+fun RuntimeSpec.execute(block: suspend AlexandriteRuntime.() -> Unit = {}): Termination =
+    runBlocking { AlexandriteRuntime.run(this@execute, block) }
 
-fun AlexandriteRuntime.stopped(request: StopRequest = HOST_STOP): Termination = runBlocking { stop(request) }
-
-fun AlexandriteRuntime.terminated(): Termination = runBlocking { awaitTermination() }
+fun RuntimeSpec.startFailure(): RuntimeStartException =
+    assertIs<Termination.Cause.StartFailed>(execute { fail("the run block ran") }.cause).error
 
 fun logged(block: () -> Unit): List<String> {
     val logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java) as Logger

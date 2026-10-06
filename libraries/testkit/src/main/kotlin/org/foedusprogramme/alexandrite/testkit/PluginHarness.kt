@@ -7,11 +7,13 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Key
-import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZoneId
@@ -21,49 +23,52 @@ import kotlin.time.Duration
 /** Runs the plugin under test and the plugins added to it in a runtime of their own. */
 public class PluginHarness private constructor(
     private val id: String,
-    private val runtime: AlexandriteRuntime,
-    config: RuntimeConfig,
-    private val temporary: Boolean,
-) : AutoCloseable {
-    private val dataRoot = config.dataDir
-
-    @Volatile
-    private var resolver: Resolver? = null
-
-    /** The data directory of the plugin under test. */
-    public val dataDir: Path = dataRoot.resolve(PLUGINS).resolve(id)
-
-    /** The cache directory of the plugin under test. */
-    public val cacheDir: Path = config.cacheDir.resolve(PLUGINS).resolve(id)
-
-    public suspend fun start() {
-        runtime.start()
-        resolver = runtime.services.resolver()
-    }
-
-    public suspend fun stop(): Termination = runtime.stop()
-
-    /** Stops the runtime and deletes the temporary data directory. */
-    override fun close() {
+    private val plugins: PluginSet,
+    private val pluginConfig: ConfigSource,
+    private val dataRoot: Path?,
+    private val zone: ZoneId,
+    private val shutdownGrace: Duration?,
+) {
+    /** Starts the plugins, runs [block] once they are ready, stops them and returns how the runtime ended. */
+    public suspend fun run(block: suspend Running.() -> Unit): Termination {
+        val root = dataRoot ?: Files.createTempDirectory("alexandrite-harness-")
         try {
-            runtime.close()
+            val settings = RuntimeConfig.builder(root).zone(zone).name("harness")
+            shutdownGrace?.let(settings::shutdownGrace)
+            val config = settings.build()
+            val spec = RuntimeSpec.builder(config, plugins).pluginConfig(pluginConfig).build()
+            return AlexandriteRuntime.run(spec) { Running(this, config, id).block() }
         } finally {
-            if (temporary) dataRoot.toFile().deleteRecursively()
+            if (dataRoot == null) root.toFile().deleteRecursively()
         }
     }
 
-    /** Resolves any type the started runtime binds. */
-    public inline fun <reified T : Any> get(qualifier: String? = null): T = get(key<T>(qualifier))
+    /** What a [run] block sees of its runtime. */
+    public class Running internal constructor(
+        private val runtime: AlexandriteRuntime,
+        config: RuntimeConfig,
+        id: String,
+    ) {
+        /** The data directory of the plugin under test. */
+        public val dataDir: Path = config.dataDir.resolve(PLUGINS).resolve(id)
 
-    /** Every contribution to [T] in the started runtime. */
-    public inline fun <reified T : Any> getAll(qualifier: String? = null): List<T> = getAll(key<T>(qualifier))
+        /** The cache directory of the plugin under test. */
+        public val cacheDir: Path = config.cacheDir.resolve(PLUGINS).resolve(id)
 
-    public fun <T : Any> get(key: Key<T>): T = started().get(key)
+        /** Resolves any type the runtime binds. */
+        public inline fun <reified T : Any> get(qualifier: String? = null): T = get(key<T>(qualifier))
 
-    public fun <T : Any> getAll(key: Key<T>): List<T> = started().getAll(key)
+        /** Every contribution to [T]. */
+        public inline fun <reified T : Any> getAll(qualifier: String? = null): List<T> = getAll(key<T>(qualifier))
 
-    private fun started(): Resolver =
-        resolver ?: throw IllegalStateException("The harness of plugin '$id' has not started: call start() first.")
+        public fun <T : Any> get(key: Key<T>): T = runtime.services.resolver().get(key)
+
+        public fun <T : Any> getAll(key: Key<T>): List<T> = runtime.services.resolver().getAll(key)
+
+        public fun requestStop(request: StopRequest = StopRequest(StopKind.SHUTDOWN, "requested by the test")) {
+            runtime.requestStop(request)
+        }
+    }
 
     public class Builder internal constructor(private val plugin: PluginIndex) {
         private val extras = mutableListOf<PluginIndex>()
@@ -84,7 +89,7 @@ public class PluginHarness private constructor(
                 ?: throw IllegalArgumentException("The config of plugin '${plugin.info.id}' is no JSON object."),
         )
 
-        /** The runtime's data directory, a temporary one deleted on close unless set. */
+        /** The runtime's data directory, a temporary one deleted when the run ends unless set. */
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
 
         /** The runtime's zone, UTC unless set. */
@@ -93,18 +98,17 @@ public class PluginHarness private constructor(
         public fun shutdownGrace(shutdownGrace: Duration): Builder = apply { grace = shutdownGrace }
 
         public fun build(): PluginHarness {
-            val settings = RuntimeConfig.builder(dataRoot ?: Files.createTempDirectory("alexandrite-harness-"))
-                .zone(zone)
-                .name("harness")
-            grace?.let(settings::shutdownGrace)
-            val runtimeConfig = settings.build()
             val tree = config?.let { config ->
                 plugin.configRoot.split('.').foldRight(config) { name, child -> JsonObject(mapOf(name to child)) }
             }
-            val spec = RuntimeSpec.builder(runtimeConfig, extras.fold(PluginSet.of(plugin), PluginSet::plus))
-                .pluginConfig(JsonConfigSource(tree ?: JsonObject(emptyMap())))
-                .build()
-            return PluginHarness(plugin.info.id, AlexandriteRuntime(spec), runtimeConfig, temporary = dataRoot == null)
+            return PluginHarness(
+                plugin.info.id,
+                extras.fold(PluginSet.of(plugin), PluginSet::plus),
+                JsonConfigSource(tree ?: JsonObject(emptyMap())),
+                dataRoot,
+                zone,
+                grace,
+            )
         }
     }
 

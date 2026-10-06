@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime.hook
 
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -64,3 +66,6 @@ class Records {
 
     fun all(): List<String> = synchronized(records) { records.toList() }
 }
+
+internal fun TestScope.dispatcher(listener: HookFailureListener, vararg hooks: Hook, asyncCapacity: Int = 256) =
+    HookDispatcher(hooks.toList(), listener, asyncCapacity, StandardTestDispatcher(testScheduler))

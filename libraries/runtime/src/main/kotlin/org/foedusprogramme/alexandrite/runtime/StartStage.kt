@@ -1,6 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime
 
-/** A stage of [AlexandriteRuntime.start]. */
+/** A stage of a runtime's start. */
 public enum class StartStage {
     /** Locking the data directory. */
     DATA_DIR,
