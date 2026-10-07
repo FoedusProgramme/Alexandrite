@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -8,6 +9,7 @@ import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
+import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
@@ -19,6 +21,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -26,13 +29,16 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -115,6 +121,22 @@ class PluginHarnessTest {
     }
 
     @Test
+    fun `a plugin added to the harness gets its own config`() {
+        val section = ConfigSectionSpec(key<JsonObject>("extra"), "", JsonObject.serializer(), "ExtraSettings")
+        val extra = Index("extra", sections = listOf(section))
+        lateinit var mine: JsonObject
+        lateinit var theirs: JsonObject
+
+        harness { plugin(extra).config("""{"own": 1}""").config(extra, """{"theirs": 2}""") }.execute {
+            mine = get()
+            theirs = get("extra")
+        }
+
+        assertEquals(JsonObject(mapOf("own" to JsonPrimitive(1))), mine)
+        assertEquals(JsonObject(mapOf("theirs" to JsonPrimitive(2))), theirs)
+    }
+
+    @Test
     fun `only the plugin under test and the plugins added to it run`() {
         val extra = Index("extra", listOf(instanceBinding(key<String>("extra"), "added", "extra", "extra")))
 
@@ -166,6 +188,120 @@ class PluginHarnessTest {
         assertEquals(request, termination.request)
         val returned = harness().execute {}
         assertEquals(StopKind.SHUTDOWN, returned.request.kind)
+    }
+
+    @Test
+    fun `a temporary data root is deleted after a failed start too`() {
+        val roots = mutableListOf<Path>()
+        val builder = PluginHarness.builder(broken())
+        builder.temporaryRoot = { Files.createTempDirectory(directory, "root-").also(roots::add) }
+
+        assertFailsWith<RuntimeStartException> { builder.build().execute {} }
+
+        assertEquals(1, roots.size)
+        assertFalse(Files.exists(roots.single()))
+    }
+
+    @Test
+    fun `deleting a temporary data root leaves the targets of links alone`() {
+        assumeTrue("posix" in directory.fileSystem.supportedFileAttributeViews(), "no symbolic links")
+        val outside = Files.createDirectories(directory.resolve("outside"))
+        Files.writeString(outside.resolve("precious.txt"), "kept")
+        lateinit var root: Path
+
+        PluginHarness.builder(probe).build().execute {
+            Files.createSymbolicLink(dataDir.resolve("link"), outside)
+            root = dataDir.parent.parent
+        }
+
+        assertFalse(Files.exists(root))
+        assertEquals("kept", Files.readString(outside.resolve("precious.txt")))
+    }
+
+    @Test
+    fun `a temporary data root that cannot be deleted fails the run`() {
+        assumeTrue("posix" in directory.fileSystem.supportedFileAttributeViews(), "no POSIX permissions")
+        lateinit var locked: Path
+
+        val error = assertFailsWith<IllegalStateException> {
+            PluginHarness.builder(probe).build().execute {
+                locked = Files.createDirectories(dataDir.resolve("locked"))
+                Files.writeString(locked.resolve("file"), "")
+                Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("r-x------"))
+            }
+        }
+
+        Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwx------"))
+        val root = locked.parent.parent.parent
+        assertContains(error.message!!, "Cannot delete the temporary data root $root")
+        Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
+    }
+
+    // What a run checks.
+
+    private class Stopper(private val control: RuntimeControl, private val failStop: Boolean) : Lifecycle {
+        fun giveUp() = control.stop(StopRequest.failure("gave up"))
+
+        override fun onStop() = check(!failStop) { "cannot stop" }
+    }
+
+    private fun stopper(failStop: Boolean = false) = Index(
+        "stopper",
+        listOf(
+            binding(
+                key<Stopper>(),
+                "stopper",
+                "Stopper",
+                dependencies = listOf(Dependency(key<RuntimeControl>("stopper"), DependencyKind.INSTANCE, "control")),
+            ) { r -> Stopper(r.get(key<RuntimeControl>("stopper")), failStop) },
+        ),
+    )
+
+    @Test
+    fun `a run whose block a plugin's stop cut short fails`() {
+        val error = assertFailsWith<AssertionError> {
+            PluginHarness.builder(stopper()).dataRoot(directory).build().execute {
+                get<Stopper>().giveUp()
+                awaitCancellation()
+            }
+        }
+
+        assertEquals(
+            "The run block was cut short by StopRequest(kind=FAILURE, reason=gave up, plugin=stopper).",
+            error.message,
+        )
+    }
+
+    @Test
+    fun `a run whose stop met problems fails`() {
+        val error = assertFailsWith<AssertionError> {
+            PluginHarness.builder(stopper(failStop = true)).dataRoot(directory).build().execute {}
+        }
+
+        assertEquals(
+            "Stopping the runtime met a problem:\n- Stopping Stopper (plugin stopper) failed: " +
+                "java.lang.IllegalStateException: cannot stop",
+            error.message,
+        )
+    }
+
+    @Test
+    fun `a test that inspects the termination gets it`() {
+        val stopped = PluginHarness.builder(stopper()).dataRoot(directory).inspectTermination().build().execute {
+            get<Stopper>().giveUp()
+            awaitCancellation()
+        }
+        val failed =
+            PluginHarness.builder(stopper(failStop = true)).dataRoot(directory).inspectTermination().build().execute {}
+
+        assertEquals(StopRequest.failure("gave up").from("stopper"), stopped.request)
+        assertEquals(listOf("cannot stop"), failed.problems.map { it.message.substringAfterLast(": ") })
+    }
+
+    private fun broken(): Index {
+        val missing = Dependency(key<String>("missing"), DependencyKind.INSTANCE, "missing")
+        val greeter = binding(key<Greeter>(), "broken", "Greeter", dependencies = listOf(missing)) { Greeter("never") }
+        return Index("broken", listOf(greeter))
     }
 
     @Test

@@ -7,18 +7,28 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.PluginsResolved
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Ready
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.StartFailed
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Started
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopped
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopping
+import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.UnlistedIndexes
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
+import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
+import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
+import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
 import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
@@ -30,6 +40,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.HookEffect
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -40,6 +51,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -56,8 +68,6 @@ class RuntimeTest {
     private class Failing(override val point: InterceptorPoint<String>) : InterceptorHook<String> {
         override suspend fun intercept(payload: String): HookDecision<String> = error("hook failed")
     }
-
-    private fun core(vararg services: Binding<*>) = explicit(TestIndex("core", bindings = services.toList()))
 
     // Plugins.
 
@@ -196,10 +206,11 @@ class RuntimeTest {
     }
 
     @Test
-    fun `a start that outlasts the start timeout fails the START stage`() {
+    fun `a start that outlasts the start timeout fails the START stage`() = runTest {
         val plugins = core(service("a", "core", events, onStart = hang))
+        val spec = spec(plugins, dataDir, startTimeout = 200.milliseconds, dispatcher = virtual())
 
-        val error = spec(plugins, dataDir, startTimeout = 200.milliseconds).startFailure()
+        val error = assertFailsWith<RuntimeStartException> { AlexandriteRuntime.start(spec) }
 
         assertEquals(StartStage.START, error.stage)
         assertNull(error.cause)
@@ -208,12 +219,16 @@ class RuntimeTest {
     }
 
     @Test
-    fun `the caller's own timeout stops the start without passing for the runtime's`() {
-        val spec = spec(core(service("a", "core", events, onStart = hang)), dataDir, listener = recorder)
+    fun `the caller's own timeout stops the start without passing for the runtime's`() = runTest {
+        val spec =
+            spec(
+                core(service("a", "core", events, onStart = hang)),
+                dataDir,
+                listener = recorder,
+                dispatcher = virtual(),
+            )
 
-        assertFailsWith<TimeoutCancellationException> {
-            runBlocking { withTimeout(100.milliseconds) { AlexandriteRuntime.run(spec) } }
-        }
+        assertFailsWith<TimeoutCancellationException> { withTimeout(100.milliseconds) { AlexandriteRuntime.run(spec) } }
 
         assertEquals(listOf("PluginsResolved", "Stopping", "Stopped"), recorder.names())
         assertEquals(requested(RUN_CANCELLED), recorder.termination())
@@ -231,12 +246,12 @@ class RuntimeTest {
         val agent = loaded(AgentIndex(), BuiltInLayer.AGENT)
         assertEquals(
             listOf(
+                UnlistedIndexes(listOf(HelloIndex::class.java.name)),
                 PluginsResolved(
                     loaded = listOf(agent),
                     disabled = listOf(
                         DisabledPlugin("alexandrite-channel-telegram", DisabledPlugin.Reason.NOT_CONFIGURED),
                     ),
-                    unlisted = listOf(HelloIndex::class.java.name),
                     unknownPluginConfig = listOf("plugins.weather"),
                 ),
                 Started,
@@ -291,32 +306,33 @@ class RuntimeTest {
     }
 
     @Test
-    fun `whenever a stop comes, the run ends in one outcome`() {
-        val outcomes = setOf(
-            listOf("Stopping", "Stopped"),
-            listOf("PluginsResolved", "Stopping", "Stopped"),
-            listOf("PluginsResolved", "Started", "Stopping", "Stopped"),
-            listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
-        )
+    fun `unlisted indexes are reported even when the plugin set fails its checks`() {
+        val plugins = builtIn(dataDir, HelloIndex::class) + TestIndex("alexandrite-weather")
+        val recorder = Recorder()
 
-        repeat(40) { round ->
-            val recorder = Recorder()
-            val parent = CoroutineScope(Job())
-            val spec = spec(core(service("a", "core")), dataDir, listener = recorder)
+        spec(plugins, dataDir, listener = recorder).startFailure()
 
-            val request = runBlocking(Dispatchers.Default) {
-                val starting = async { runCatching { AlexandriteRuntime.start(spec, parent) } }
-                Thread.sleep(round % 4L)
-                parent.cancel()
-                starting.await().fold(
-                    { withTimeout(10.seconds) { it.join() }.request },
-                    { assertIs<RuntimeStartException>(it).stopRequest },
-                )
-            }
+        assertEquals(listOf("UnlistedIndexes", "StartFailed"), recorder.names())
+        assertEquals(UnlistedIndexes(listOf(HelloIndex::class.java.name)), recorder.events.first())
+    }
 
-            assertEquals(PARENT_CANCELLED, request, "round $round")
-            assertContains(outcomes, recorder.names(), "round $round")
+    @Test
+    fun `a plugin compiled against another plugin API fails the PLUGINS stage`() {
+        val newer = object : TestIndex("newer") {
+            override val info =
+                PluginInfo("newer", "newer", "1.0", "", AlexandriteSdk.API_VERSION + 1, emptyList(), "x")
         }
+
+        val error = spec(explicit(newer), dataDir).startFailure()
+
+        assertEquals(StartStage.PLUGINS, error.stage)
+        assertEquals(
+            listOf(RuntimeProblemKind.INCOMPATIBLE_SDK to "newer"),
+            error.problems.map {
+                it.kind to it.plugin
+            },
+        )
+        assertContains(error.problems.single().message, "compiled against version ${AlexandriteSdk.API_VERSION + 1}")
     }
 
     @Test
@@ -451,5 +467,58 @@ class RuntimeTest {
             "WARN test: hook ${Failing::class.java.name} failed at 'test.intercepted': " +
                 "Threw(error=java.lang.IllegalStateException: hook failed)",
         )
+    }
+
+    // Redaction.
+
+    @Serializable
+    class TokenConfig(val token: Secret)
+
+    private class Leaky(private val token: String) : Lifecycle {
+        override fun onStop() = error("GET https://user:hunter2@example.org/x?token=abc&page=2 failed, sent $token")
+    }
+
+    @Test
+    fun `decoded secrets never leave the runtime in a failed start`() {
+        val section = ConfigSectionSpec(key<TokenConfig>(), "", TokenConfig.serializer(), "TokenConfig")
+        val config = Dependency(key<TokenConfig>(), DependencyKind.INSTANCE, "config")
+        val leaky = binding(key<Service>("leaky"), "bot", "leaky", dependencies = listOf(config)) { r ->
+            error("bot ${r.get(key<TokenConfig>()).token.reveal()} is unknown")
+        }
+        val index = TestIndex("bot", bindings = listOf(leaky), sections = listOf(section))
+        val recorder = Recorder()
+        lateinit var error: RuntimeStartException
+
+        val lines = logged {
+            error = spec(explicit(index), dataDir, """{"plugins": {"bot": {"token": "s3cr3t-t0ken"}}}""", recorder)
+                .startFailure()
+        }
+
+        val texts = listOf(error.message.orEmpty()) + error.problems.map { it.message } +
+            generateSequence(error.cause) { it.cause }.map { it.toString() } + lines + recorder.events.map { "$it" }
+        assertTrue(texts.none { "s3cr3t-t0ken" in it }, "$texts")
+        assertContains(error.problems.single().message, "java.lang.IllegalStateException: bot *** is unknown")
+        assertEquals(DiProblemKind.CREATION_FAILED, error.problems.single().kind)
+    }
+
+    @Test
+    fun `secrets and URL credentials are masked in the termination and the log`() {
+        val section = ConfigSectionSpec(key<TokenConfig>(), "", TokenConfig.serializer(), "TokenConfig")
+        val config = Dependency(key<TokenConfig>(), DependencyKind.INSTANCE, "config")
+        val leaky = binding(key<Leaky>(), "bot", "leaky", dependencies = listOf(config)) { r ->
+            Leaky(r.get(key<TokenConfig>()).token.reveal())
+        }
+        val index = TestIndex("bot", bindings = listOf(leaky), sections = listOf(section))
+        lateinit var termination: Termination
+
+        val lines = logged {
+            termination = spec(explicit(index), dataDir, """{"plugins": {"bot": {"token": "s3cr3t-t0ken"}}}""")
+                .execute()
+        }
+
+        val masked = "Stopping leaky (plugin bot) failed: java.lang.IllegalStateException: " +
+            "GET https://***@example.org/x?token=***&page=2 failed, sent ***"
+        assertEquals(listOf(masked), termination.problems.map { it.message })
+        assertContains(lines, "WARN test: $masked")
     }
 }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -31,8 +32,8 @@ class ConcurrencyTest {
         val seen = seenPoint()
         val listener = RecordingListener()
         val inline = AtomicInteger()
-        val queued = Records()
-        val dispatcher = HookDispatcher(
+        val queued = Events()
+        val dispatcher = hookDispatcher(
             listOf(
                 TestInterceptor(rewrite, order = 1) {
                     yield()
@@ -43,7 +44,7 @@ class ConcurrencyTest {
                     HookDecision.Replace(it + "a")
                 },
                 TestObserver(seen) { inline.incrementAndGet() },
-                TestObserver(seen, delivery = Delivery.ASYNC) { queued.add(it) },
+                TestObserver(seen, delivery = Delivery.ASYNC) { queued.record(it) },
             ),
             listener,
             asyncCapacity = calls,

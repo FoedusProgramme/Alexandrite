@@ -20,25 +20,29 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.nio.channels.ClosedByInterruptException
+import java.nio.file.Path
 import kotlin.coroutines.CoroutineContext
 
 /** The work of the start stages from DATA_DIR to GRAPH. */
 internal class Assembly(
     private val spec: RuntimeSpec,
-    private val control: RuntimeControl,
+    private val redactor: Redactor,
+    private val control: (plugin: String) -> RuntimeControl,
     private val scopes: PluginScopes,
     private val context: CoroutineContext,
 ) {
     private val name = spec.config.name
 
     private val hookFailures = HookFailureListener { hook, point, failure ->
-        val error = (failure as? HookFailure.Threw)?.error
-        logger.warn("{}: hook {} failed at '{}': {}", name, hook.javaClass.name, point, failure, error)
+        val error = (failure as? HookFailure.Threw)?.error?.let(redactor::error)
+        val text = redactor.text("$failure")
+        logger.warn("{}: hook {} failed at '{}': {}", name, hook.javaClass.name, point, text, error)
     }
 
     fun lockDataDir(): DataDirLock {
         val dataDir = spec.config.dataDir
-        return try {
+        val lock = try {
             DataDirLock.acquire(dataDir) { holder ->
                 val message = "Data directory '$dataDir' is in use: $holder holds its lock file " +
                     "${DataDirLock.FILE_NAME}. Stop that runtime or give this one another data directory."
@@ -48,14 +52,26 @@ internal class Assembly(
         } catch (e: IOException) {
             throw startFailure(name, StartStage.DATA_DIR, cause = e)
         }
+        warnIfShared("data", dataDir)
+        return lock
     }
 
     fun createCacheDir() {
-        try {
-            createOwnerOnly(spec.config.cacheDir)
+        val cacheDir = spec.config.cacheDir
+        val inside = try {
+            createOwnerOnly(cacheDir)
+            val data = spec.config.dataDir.toRealPath()
+            val cache = cacheDir.toRealPath()
+            data.startsWith(cache) || cache.startsWith(data.resolve(PLUGINS_DIRECTORY))
         } catch (e: IOException) {
             throw startFailure(name, StartStage.DATA_DIR, cause = e)
         }
+        if (inside) {
+            val detail = "the cache directory '$cacheDir' is the data directory, holds it or lies in its " +
+                "'$PLUGINS_DIRECTORY' directory"
+            throw startFailure(name, StartStage.DATA_DIR, detail = detail)
+        }
+        warnIfShared("cache", cacheDir)
     }
 
     fun checkPlugins() {
@@ -67,10 +83,14 @@ internal class Assembly(
     }
 
     fun resolvePlugins(): ConfigResolution {
+        val secrets = mutableListOf<String>()
         val resolution = try {
-            resolveConfig(spec.plugins.members, spec.pluginConfig)
+            resolveConfig(spec.plugins.members, spec.pluginConfig, secrets)
         } catch (e: Exception) {
+            interruption(e)?.let { throw it }
             throw startFailure(name, StartStage.CONFIG, cause = e)
+        } finally {
+            redactor.add(secrets)
         }
         resolution.unknownPluginConfig.forEach {
             logger.warn("{}: ignoring the config at '{}': no plugin of the plugin set reads it", name, it)
@@ -88,6 +108,7 @@ internal class Assembly(
     fun pluginBindings(enabled: List<EnabledPlugin>): List<PluginBindings> = try {
         enabled.map { PluginBindings(it.member.id, it.member.index.bindings() + it.configBindings) }
     } catch (e: Exception) {
+        interruption(e)?.let { throw it }
         throw startFailure(name, StartStage.GRAPH, cause = e)
     }
 
@@ -95,10 +116,9 @@ internal class Assembly(
     fun container(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>): Container = try {
         val infos = enabled.map { it.member.plugin.info }
         Container.build(plugins + runtimeBindings(spec.config, infos, hookFailures, control, scopes, context))
-    } catch (e: DiException) {
-        throw startFailure(name, StartStage.GRAPH, e.problems, e)
     } catch (e: Exception) {
-        throw startFailure(name, StartStage.GRAPH, cause = e)
+        interruption(e)?.let { throw it }
+        throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
     }
 
     fun checkChannelInstances(container: Container, plugins: List<PluginBindings>) {
@@ -106,10 +126,27 @@ internal class Assembly(
             plugins.filter { plugin -> plugin.bindings.any { it.scope == Scope.CHANNEL_INSTANCE } }
                 .flatMap { container.validateChild(setOf(it.id)) }
         } catch (e: Exception) {
+            interruption(e)?.let { throw it }
             throw startFailure(name, StartStage.GRAPH, cause = e)
         }
         if (problems.isNotEmpty()) throw startFailure(name, StartStage.GRAPH, problems)
     }
+
+    private fun warnIfShared(role: String, directory: Path) {
+        if (writableByOthers(directory)) {
+            logger.warn("{}: the {} directory '{}' is writable by users other than its owner", name, role, directory)
+        }
+    }
 }
+
+/** The interruption [error] stems from, null when it stems from none. */
+private fun interruption(error: Throwable): InterruptedException? =
+    generateSequence(error) { it.cause }.firstNotNullOfOrNull { cause ->
+        when (cause) {
+            is InterruptedException -> cause
+            is ClosedByInterruptException -> InterruptedException().also { it.initCause(cause) }
+            else -> null
+        }
+    }
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)

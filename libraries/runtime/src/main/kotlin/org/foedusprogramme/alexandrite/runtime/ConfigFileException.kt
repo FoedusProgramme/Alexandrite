@@ -1,4 +1,4 @@
-package org.foedusprogramme.alexandrite.runtime.config
+package org.foedusprogramme.alexandrite.runtime
 
 import java.nio.file.Path
 

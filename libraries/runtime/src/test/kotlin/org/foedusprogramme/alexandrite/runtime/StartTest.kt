@@ -28,7 +28,6 @@ import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
-import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.util.Collections
@@ -42,20 +41,14 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
-@Timeout(60)
 class StartTest {
     @TempDir
     lateinit var dataDir: Path
 
     private val events = Events()
     private val recorder = Recorder()
-
-    private val restart = StopRequest.restart("update")
-
-    private fun core(vararg bindings: Binding<*>) = explicit(TestIndex("core", bindings = bindings.toList()))
-
-    private fun TestScope.virtual() = StandardTestDispatcher(testScheduler)
 
     // The handle.
 
@@ -67,9 +60,9 @@ class StartTest {
 
         assertEquals(RuntimeState.READY, runtime.state.value)
         assertEquals(listOf("create a", "start a", "open a"), events.all())
-        runtime.stop(restart)
+        runtime.stop(RESTART)
         assertEquals(RuntimeState.STOPPING, runtime.state.value)
-        assertEquals(requested(restart), runtime.join())
+        assertEquals(requested(RESTART), runtime.join())
         assertEquals(RuntimeState.STOPPED, runtime.state.value)
         assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
     }
@@ -77,7 +70,7 @@ class StartTest {
     @Test
     fun `start throws once a runtime ended without getting ready`() = runTest {
         val broken = core(worker("a", "core", onOpen = { error("no open") }))
-        val stopping = core(worker("a", "core", onStart = { it.stop(restart) }))
+        val stopping = core(worker("a", "core", onStart = { it.stop(RESTART) }))
 
         val failed = assertFailsWith<RuntimeStartException> {
             AlexandriteRuntime.start(spec(broken, dataDir.resolve("a"), dispatcher = virtual()))
@@ -89,9 +82,9 @@ class StartTest {
         assertEquals(StartStage.OPEN, failed.stage)
         assertNull(failed.stopRequest)
         assertEquals(StartStage.START, stopped.stage)
-        assertEquals(restart, stopped.stopRequest)
+        assertEquals(RESTART.from("core"), stopped.stopRequest)
         assertEquals(
-            "Cannot start runtime 'test': a stop was requested at stage START: $restart",
+            "Cannot start runtime 'test': a stop was requested at stage START: ${RESTART.from("core")}",
             stopped.message,
         )
     }
@@ -109,11 +102,17 @@ class StartTest {
     }
 
     @Test
-    fun `cancelling the caller of start tears the start down, then throws the CancellationException`() {
-        val spec = spec(core(service("a", "core", events, onStart = hang)), dataDir, listener = recorder)
+    fun `cancelling the caller of start tears the start down, then throws the CancellationException`() = runTest {
+        val spec =
+            spec(
+                core(service("a", "core", events, onStart = hang)),
+                dataDir,
+                listener = recorder,
+                dispatcher = virtual(),
+            )
 
         assertFailsWith<TimeoutCancellationException> {
-            runBlocking { withTimeout(100.milliseconds) { AlexandriteRuntime.start(spec) } }
+            withTimeout(100.milliseconds) { AlexandriteRuntime.start(spec) }
         }
 
         assertEquals(listOf("PluginsResolved", "Stopping", "Stopped"), recorder.names())
@@ -126,14 +125,14 @@ class StartTest {
         val first = spec(core(), dataDir.resolve("a")).started()
         val second = spec(core(), dataDir.resolve("b")).started()
 
-        thread { first.stop(restart) }.join()
+        thread { first.stop(RESTART) }.join()
         val termination = runBlocking {
-            launch(Dispatchers.IO) { second.stop(restart) }
+            launch(Dispatchers.IO) { second.stop(RESTART) }
             second.join()
         }
 
-        assertEquals(requested(restart), first.terminated())
-        assertEquals(requested(restart), termination)
+        assertEquals(requested(RESTART), first.terminated())
+        assertEquals(requested(RESTART), termination)
     }
 
     @Test
@@ -163,6 +162,19 @@ class StartTest {
         assertEquals(listOf("delivered") + List(4) { "returned" }, events.all())
         assertEquals(requested(HOST_STOP), terminations.first())
         (terminations + fromThread).forEach { assertSame(terminations.first(), it) }
+    }
+
+    @Test
+    fun `a runtime whose dispatcher rejects its coroutine stops with FAILURE`() {
+        val executor = Executors.newSingleThreadExecutor().apply { shutdown() }
+        val spec = spec(core(service("a", "core", events)), dataDir, dispatcher = executor.asCoroutineDispatcher())
+
+        val error = assertFailsWith<RuntimeStartException> {
+            runBlocking { withTimeout(10.seconds) { AlexandriteRuntime.start(spec) } }
+        }
+
+        assertEquals(StopRequest.failure("the runtime's coroutine was cancelled"), error.stopRequest)
+        assertEquals(emptyList(), events.all())
     }
 
     // Parent scope.

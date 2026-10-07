@@ -258,7 +258,7 @@ class ConfigTest {
             listOf(
                 Problem(
                     RuntimeProblemKind.INVALID_CONFIG,
-                    "Invalid config at 'channels.telegram': 'channels' is not an object",
+                    "Invalid config at 'channels': must be an object",
                     "alexandrite-channel-telegram",
                     null,
                 ),
@@ -275,7 +275,6 @@ class ConfigTest {
         val resolved = resolved(plugins, config)
 
         assertEquals(listOf("plugins.hello", "plugins.spy"), resolved.unknownPluginConfig)
-        assertEquals(listOf(HelloIndex::class.java.name), resolved.unlisted)
     }
 
     @Test
@@ -284,11 +283,11 @@ class ConfigTest {
         val read = failure(explicit(weather()), """{"plugins": []}""")
 
         assertEquals(
-            listOf("Invalid config at 'plugins': 'plugins' is not an object"),
+            listOf("Invalid config at 'plugins': must be an object"),
             alone.problems.map { it.message },
         )
         assertEquals(
-            listOf("weather" to "Invalid config at 'plugins.weather': 'plugins' is not an object"),
+            listOf("weather" to "Invalid config at 'plugins': must be an object"),
             read.problems.map { it.plugin to it.message },
         )
     }

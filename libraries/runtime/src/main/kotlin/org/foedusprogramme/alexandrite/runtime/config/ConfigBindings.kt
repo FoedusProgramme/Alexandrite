@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
+import org.foedusprogramme.alexandrite.sdk.config.collectingSecrets
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
@@ -17,7 +18,12 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import kotlin.coroutines.cancellation.CancellationException
 
 /** One unmanaged binding per config section of [index], decoded strictly from its subtree of [source]. */
-internal fun configBindings(index: PluginIndex, source: ConfigSource, json: Json = Json): List<Binding<*>> {
+internal fun configBindings(
+    index: PluginIndex,
+    source: ConfigSource,
+    secrets: MutableCollection<String>,
+    json: Json = Json,
+): List<Binding<*>> {
     val root = index.configRoot
     val sections = index.configSections()
     val paths = sections.mapTo(HashSet()) { it.path }
@@ -27,8 +33,14 @@ internal fun configBindings(index: PluginIndex, source: ConfigSource, json: Json
         val stripped = paths.mapNotNullTo(mutableSetOf()) { nestedKey(section.path, it) }
         if (section.path.isEmpty()) stripped += PluginIds.ENABLED_KEY
         val tree = source.tree(path) ?: JsonObject(emptyMap())
-        section.bind(index.info.id, path, JsonObject(tree - stripped), json)
+        section.bind(index.info.id, path, JsonObject(tree - stripped), json, secrets)
     }
+}
+
+/** The root section at [path] of [source], decoded as [configBindings] decodes a plugin's. */
+internal fun <T> decodeRootSection(source: ConfigSource, path: String, deserializer: DeserializationStrategy<T>): T {
+    val tree = source.tree(path) ?: JsonObject(emptyMap())
+    return Json.decodeConfig(path, JsonObject(tree - PluginIds.ENABLED_KEY), deserializer, mutableListOf())
 }
 
 private fun <T : Any> ConfigSectionSpec<T>.bind(
@@ -36,10 +48,16 @@ private fun <T : Any> ConfigSectionSpec<T>.bind(
     path: String,
     tree: JsonObject,
     json: Json,
-): Binding<T> = instanceBinding(key, json.decodeConfig(path, tree, deserializer), plugin, origin)
+    secrets: MutableCollection<String>,
+): Binding<T> = instanceBinding(key, json.decodeConfig(path, tree, deserializer, secrets), plugin, origin)
 
-private fun <T> Json.decodeConfig(path: String, tree: JsonObject, deserializer: DeserializationStrategy<T>): T = try {
-    decodeFromJsonElement(deserializer, tree)
+private fun <T> Json.decodeConfig(
+    path: String,
+    tree: JsonObject,
+    deserializer: DeserializationStrategy<T>,
+    secrets: MutableCollection<String>,
+): T = try {
+    collectingSecrets(secrets) { decodeFromJsonElement(deserializer, tree) }
 } catch (e: CancellationException) {
     throw e
 } catch (e: Exception) {
@@ -56,7 +74,6 @@ private fun unsectioned(paths: Set<String>): List<String> {
     return prefixes.filter { it !in paths }
 }
 
-/** The keys the unsectioned object at [path] may hold. */
 private fun allowedKeys(path: String, paths: Set<String>): Set<String> {
     val keys = paths.mapNotNullTo(sortedSetOf()) { nestedKey(path, it) }
     if (path.isEmpty()) keys += PluginIds.ENABLED_KEY
@@ -82,11 +99,17 @@ private fun nestedKey(path: String, other: String): String? = when {
     else -> null
 }?.substringBefore('.')
 
-/** [message] with every value of [tree] it quotes masked. */
-private fun redacted(message: String, tree: JsonObject): String = primitives(tree)
-    .flatMap { listOf("'$it'", "'${it.content}'") }
-    .sortedByDescending { it.length }
-    .fold(message) { masked, quoted -> masked.replace(quoted, "'***'") }
+/** [message] with every value of [tree] it quotes, and every long string value, masked. */
+private fun redacted(message: String, tree: JsonObject): String {
+    val values = primitives(tree)
+    val quoted = values.flatMap { listOf("'$it'", "'${it.content}'") }.map { it to "'***'" }
+    val bare = values.filter { it.isString && it.content.length >= MASKED_LENGTH }.map { it.content to "***" }
+    return (quoted + bare).sortedByDescending { it.first.length }
+        .fold(message) { masked, (value, mask) -> masked.replace(value, mask) }
+}
+
+/** The length from which a string value is masked where a message does not quote it. */
+private const val MASKED_LENGTH = 8
 
 private fun primitives(element: JsonElement): List<JsonPrimitive> = when (element) {
     is JsonObject -> element.values.flatMap(::primitives)

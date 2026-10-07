@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.sdk.di.container
 
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -75,24 +76,93 @@ class LazyProviderTest {
     // Concurrency.
 
     @Test
-    fun `concurrent lazy access resolves one instance`() {
-        val container = build(service("a", dep("b", DependencyKind.LAZY)), service("b"))
-        val lazyB = container.get(svc("a")).injected["b"] as Lazy<*>
+    fun `children created at once from one root are all registered and destroyed with it`() {
+        val events = Events()
+        val root = build(service("a", events = events), service("c", scope = Scope.CHANNEL_INSTANCE, events = events))
 
-        val results = concurrently { lazyB.value }
+        val children = concurrently { index -> root.child("channel $index", setOf("test")) }
+        root.close()
 
-        assertTrue(results.all { it === container.get(svc("b")) })
+        assertEquals(children.size, children.toSet().size)
+        assertEquals(List(children.size) { "destroy c" } + "destroy a", events.starting("destroy"))
+        assertTrue(children.all { child -> runCatching { child.get(svc("c")) }.isFailure })
     }
 
     @Test
-    fun `concurrent resolution from a root and its children is safe`() {
-        val root = build(service("a"), service("c", dep("a"), scope = Scope.CHANNEL_INSTANCE))
-        val children = List(4) { root.child("channel $it", setOf("test")) }
+    fun `a child created while its root closes is destroyed exactly once, by the root or by itself`() {
+        repeat(20) {
+            val events = Events()
+            val count = AtomicInteger()
+            val channel = binding(svc("c"), "test", "c", scope = Scope.CHANNEL_INSTANCE) {
+                Service("c${count.incrementAndGet()}", events, emptyMap())
+            }
+            val root = build(service("a", events = events), channel)
+            val start = CountDownLatch(1)
+            val failures = ConcurrentLinkedQueue<Throwable>()
+            val creators = List(8) { index ->
+                thread {
+                    start.await()
+                    repeat(5) {
+                        runCatching { root.child("channel $index-$it", setOf("test")) }.onFailure(failures::add)
+                    }
+                }
+            }
+            val closer = thread {
+                start.await()
+                root.close()
+            }
 
-        val results = concurrently { index -> children[index % children.size].get(svc("c")) }
+            start.countDown()
+            (creators + closer).forEach { it.join() }
 
-        assertEquals(children.map { it.get(svc("c")) }.toSet(), results.toSet())
-        assertTrue(results.all { it.dependency("a") === root.get(svc("a")) })
+            assertTrue(
+                failures.all {
+                    (it as? DiException)?.problems?.single()?.kind == DiProblemKind.CLOSED
+                },
+                "$failures",
+            )
+            assertEquals(
+                (1..count.get()).map { "destroy c$it" }.sorted(),
+                events.starting("destroy c").sorted(),
+            )
+            assertEquals(listOf("destroy a"), events.starting("destroy a"))
+        }
+    }
+
+    @Test
+    fun `resolving while the container closes either resolves or fails as closed`() {
+        repeat(20) {
+            val root = build(service("a"), service("b", dep("a", DependencyKind.LAZY)))
+            val lazyA = root.get(svc("b")).injected["a"] as Lazy<*>
+            val start = CountDownLatch(1)
+            val outcomes = ConcurrentLinkedQueue<Result<Any?>>()
+            val resolvers = List(8) {
+                thread {
+                    start.await()
+                    repeat(50) {
+                        outcomes += runCatching { root.get(svc("a")) }
+                        outcomes += runCatching { root.lazy(svc("a")).value }
+                        outcomes += runCatching { lazyA.value }
+                    }
+                }
+            }
+            val closer = thread {
+                start.await()
+                root.close()
+            }
+
+            start.countDown()
+            (resolvers + closer).forEach { it.join() }
+
+            val failures = outcomes.mapNotNull { it.exceptionOrNull() }
+            assertTrue(
+                failures.all {
+                    (it as? DiException)?.problems?.single()?.kind == DiProblemKind.CLOSED
+                },
+                "$failures",
+            )
+            assertTrue(outcomes.mapNotNull { it.getOrNull() }.toSet().size <= 1)
+        }
     }
 
     private fun <T> concurrently(threads: Int = 16, action: (Int) -> T): List<T> {
@@ -101,12 +171,12 @@ class LazyProviderTest {
         val workers = List(threads) { index ->
             thread {
                 start.await()
-                repeat(100) { results += action(index) }
+                results += action(index)
             }
         }
         start.countDown()
         workers.forEach { it.join() }
-        assertEquals(threads * 100, results.size)
+        assertEquals(threads, results.size)
         return results.toList()
     }
 }

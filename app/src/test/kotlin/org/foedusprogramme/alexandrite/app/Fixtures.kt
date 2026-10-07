@@ -11,11 +11,15 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
+import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import java.nio.file.Path
 
 class TestIndex(id: String, private val bindings: List<Binding<*>> = emptyList()) : PluginIndex {
@@ -46,3 +50,26 @@ fun spec(
     .pluginConfig(JsonConfigSource(Json.parseToJsonElement(config).jsonObject))
     .listener(listener)
     .build()
+
+class Stopper(private val control: RuntimeControl) : Lifecycle {
+    override suspend fun onStart() = control.stop(StopRequest.restart("stopped by the test plugin"))
+}
+
+/** A plugin found by name through its descriptor, which stops the runtime while it starts. */
+class StopperIndex : PluginIndex {
+    override val info =
+        PluginInfo("stopper", "Stopper", "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Stopper")
+    override val configRoot = PluginIds.thirdPartyRoot("stopper")
+
+    override fun configSections() = emptyList<ConfigSectionSpec<*>>()
+
+    override fun bindings(): List<Binding<*>> {
+        val control = key<RuntimeControl>("stopper")
+        val dependency = Dependency(control, DependencyKind.INSTANCE, "control")
+        return listOf(
+            binding(key<Stopper>(), "stopper", "Stopper", dependencies = listOf(dependency)) { r ->
+                Stopper(r.get(control))
+            },
+        )
+    }
+}

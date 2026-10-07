@@ -1,7 +1,7 @@
 package org.foedusprogramme.alexandrite.app
 
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
-import org.foedusprogramme.alexandrite.runtime.config.ConfigFile
+import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream

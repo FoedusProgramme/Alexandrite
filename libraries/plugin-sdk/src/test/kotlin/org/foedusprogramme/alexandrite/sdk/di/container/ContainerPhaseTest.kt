@@ -1,10 +1,12 @@
 package org.foedusprogramme.alexandrite.sdk.di.container
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
@@ -121,7 +123,7 @@ class ContainerPhaseTest {
     // Pairing.
 
     @Test
-    fun `a failed start leaves nothing to open, drain or stop, and close only destroys`() = runTest {
+    fun `a failed start leaves the started instances to stop, which drains and stops them`() = runTest {
         val container = build(
             phased("a"),
             phased("b"),
@@ -130,15 +132,15 @@ class ContainerPhaseTest {
         )
 
         val error = assertFailsWith<IllegalStateException> { container.start() }
-        container.open()
         val stopped = container.stop(later())
         container.close()
 
         assertEquals("start c failed", error.message)
-        assertEquals(emptyList(), stopped)
+        assertEquals(listOf(Step.DRAIN, Step.STOP).flatMap { reports(it, "b", "a") }, stopped)
         assertEquals(
             listOf(
                 "start a", "start b", "start c",
+                "drain b", "drain a",
                 "stop b", "stop a",
                 "destroy d", "destroy c", "destroy b", "destroy a",
             ),
@@ -147,7 +149,7 @@ class ContainerPhaseTest {
     }
 
     @Test
-    fun `a failing open closes the opened instances, and stop drains and stops the started ones`() = runTest {
+    fun `a failing open leaves the opened instances to stop, which closes, drains and stops them`() = runTest {
         val container = build(
             phased("a"),
             phased("b", onClose = { error("close b failed") }),
@@ -161,8 +163,13 @@ class ContainerPhaseTest {
         container.close()
 
         assertEquals("open c failed", error.message)
-        assertEquals(listOf("close b failed"), error.suppressed.map { it.message })
-        assertEquals(listOf(Step.DRAIN, Step.STOP).flatMap { reports(it, "d", "c", "b", "a") }, stopped)
+        assertEquals(emptyList(), error.suppressed.toList())
+        assertEquals("close b failed", assertIs<Outcome.Failed>(stopped[0].outcome).error.message)
+        assertEquals(
+            listOf(StepReport("test", "b", Step.CLOSE, stopped[0].outcome)) + reports(Step.CLOSE, "a") +
+                listOf(Step.DRAIN, Step.STOP).flatMap { reports(it, "d", "c", "b", "a") },
+            stopped,
+        )
         assertEquals(
             listOf(
                 "start a", "start b", "start c", "start d",
@@ -182,7 +189,7 @@ class ContainerPhaseTest {
         container.start()
         val opening = async(start = CoroutineStart.UNDISPATCHED) { container.open() }
 
-        opening.cancel()
+        opening.cancelAndJoin()
         val stopped = container.stop(later())
 
         assertEquals(
@@ -291,6 +298,73 @@ class ContainerPhaseTest {
     }
 
     @Test
+    fun `a close that fails or outlasts the deadline is reported and the later ones are skipped`() = runTest {
+        val container = build(
+            phased("a"),
+            phased("b", onClose = { awaitCancellation() }),
+            phased("c", onClose = { error("close c failed") }),
+        )
+        container.start()
+        container.open()
+
+        val stopped = container.stop(testTimeSource.markNow() + 5.seconds)
+
+        assertEquals("close c failed", assertIs<Outcome.Failed>(stopped[0].outcome).error.message)
+        assertEquals(
+            listOf(
+                Step.CLOSE to "c",
+                Step.CLOSE to "b",
+                Step.CLOSE to "a",
+            ),
+            stopped.take(3).map { it.step to it.origin },
+        )
+        assertEquals(listOf(Outcome.TimedOut, Outcome.NotCalled), stopped.subList(1, 3).map { it.outcome })
+        assertEquals(
+            reports(Step.DRAIN, "c", "b", "a", outcome = Outcome.NotCalled) + reports(Step.STOP, "c", "b", "a"),
+            stopped.drop(3),
+        )
+        assertEquals(5_000, currentTime)
+    }
+
+    @Test
+    fun `a cancelled caller of stop gets its cancellation and close stops the rest`() = runTest {
+        val draining = CompletableDeferred<Unit>()
+        val container = build(
+            phased("a"),
+            phased(
+                "b",
+                onDrain = {
+                    draining.complete(Unit)
+                    awaitCancellation()
+                },
+            ),
+        )
+        container.start()
+        val stopping = async { container.stop(later()) }
+        draining.await()
+
+        stopping.cancel()
+        assertFailsWith<CancellationException> { stopping.await() }
+        container.close()
+
+        assertEquals(
+            listOf("start a", "start b", "drain b", "stop b", "stop a", "destroy b", "destroy a"),
+            events.all(),
+        )
+    }
+
+    @Test
+    fun `a drain that throws a CancellationException of its own is reported as failed`() = runTest {
+        val container = build(phased("a"), phased("b", onDrain = { throw CancellationException("drain b gave up") }))
+        container.start()
+
+        val drained = container.stop(later()).filter { it.step == Step.DRAIN }
+
+        assertEquals("drain b gave up", assertIs<Outcome.Failed>(drained[0].outcome).error.message)
+        assertEquals(Outcome.Completed, drained[1].outcome)
+    }
+
+    @Test
     fun `past the deadline nothing is closed or drained, but every started instance is stopped`() = runTest {
         val container = build(phased("a"), phased("b"))
         container.start()
@@ -317,6 +391,7 @@ class ContainerPhaseTest {
         container.open()
 
         val twice = assertFailsWith<DiException> { container.open() }
+        container.stop(later())
         container.close()
         val closed = listOf<suspend () -> Unit>(
             { container.open() },

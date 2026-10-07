@@ -35,6 +35,27 @@ class SecretTest {
     @Test
     fun `secrets are equal by value`() {
         assertEquals(Secret("a"), Secret("a"))
+        assertEquals(Secret("a").hashCode(), Secret("a").hashCode())
         assertNotEquals(Secret("a"), Secret("b"))
+    }
+
+    @Serializable
+    data class Nested(val bots: List<BotConfig>, val backup: Secret? = null)
+
+    @Test
+    fun `the values of the secrets decoded on this thread are collected`() {
+        val tree = Json.parseToJsonElement("""{"bots": [{"token": "one"}, {"token": "two"}], "backup": "three"}""")
+        val values = mutableListOf<String>()
+
+        val config = collectingSecrets(values) { Json.decodeFromJsonElement(Nested.serializer(), tree) }
+        Json.decodeFromJsonElement(Nested.serializer(), tree)
+
+        assertEquals(listOf("one", "two", "three"), values)
+        assertEquals("two", config.bots[1].token.reveal())
+    }
+
+    @Test
+    fun `a secret is its own type on the JVM`() {
+        assertEquals(Secret::class.java, BotConfig::class.java.getMethod("getToken").returnType)
     }
 }

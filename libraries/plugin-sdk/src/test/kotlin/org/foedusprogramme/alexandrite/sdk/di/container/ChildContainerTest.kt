@@ -279,6 +279,33 @@ class ChildContainerTest {
     }
 
     @Test
+    fun `a child's getOrNull refuses a key of a plugin it is not for, like get`() {
+        val telegram = channels().child("tg", setOf("telegram"))
+
+        val error = assertFailsWith<DiException> { telegram.getOrNull(svc("guild")) }
+
+        assertEquals(UNLISTED_PLUGIN, error.problems.single().kind)
+    }
+
+    @Test
+    fun `an override of a channel binding reaches the children of the plugin it replaces`() {
+        val bot = svc("bot")
+        val fake = service("fake", key = bot, scope = CHANNEL_INSTANCE, plugin = "testkit", events = events)
+        val root = Container.build(
+            listOf(
+                plugin("core", service("core", plugin = "core", events = events)),
+                plugin("telegram", channel("bot", dep("core"), plugin = "telegram")),
+            ),
+            overrides = listOf(fake),
+        )
+
+        val telegram = root.child("tg", setOf("telegram"))
+
+        assertEquals("fake", telegram.get(bot).name)
+        assertEquals(listOf("create core", "create fake"), events.all())
+    }
+
+    @Test
     fun `a child for a plugin that is not loaded fails`() {
         val error = assertFailsWith<DiException> { channels().child("tg", setOf("telegram", "telegarm")) }
 

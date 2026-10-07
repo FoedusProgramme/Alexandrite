@@ -4,8 +4,11 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
@@ -23,6 +26,7 @@ import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private typealias Execute = suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination
@@ -43,8 +47,10 @@ class MainTest {
         { spec, block ->
             AlexandriteRuntime.run(spec) {
                 whileReady()
-                stop(StopRequest(kind, "requested by the test"))
-                block()
+                coroutineScope {
+                    launch(start = CoroutineStart.UNDISPATCHED) { block() }
+                    stop(StopRequest(kind, "requested by the test"))
+                }
             }
         }
 
@@ -131,12 +137,12 @@ class MainTest {
     @Test
     fun `invalid host settings exit 78`() {
         val cases = listOf(
-            """{"app": {"zone": "Mars/Olympus"}}""" to "zone 'Mars/Olympus' is no time zone",
+            """{"app": {"zone": "Mars/Olympus"}}""" to "zone '***' is no time zone",
             """{"app": {"shutdownGraceSeconds": -1}}""" to "shutdownGraceSeconds may not be negative",
             """{"app": {"startTimeoutSeconds": 0}}""" to "startTimeoutSeconds must be positive",
-            """{"app": {"plugins": ["Notes"]}}""" to "plugins holds 'Notes', which is no plugin id",
+            """{"app": {"plugins": ["Notes"]}}""" to "plugins holds '***', which is no plugin id",
             """{"app": {"plugin": []}}""" to "Invalid config at 'app': ",
-            """{"app": []}""" to "Invalid config at 'app': 'app' is not an object",
+            """{"app": []}""" to "Invalid config at 'app': must be an object",
         )
 
         for ((json, message) in cases) {
@@ -144,7 +150,49 @@ class MainTest {
 
             assertEquals(78, hostWith(json), json)
             assertContains(stderr(), message)
+            assertFalse("Mars" in stderr() || "Notes" in stderr(), stderr())
         }
+    }
+
+    @Test
+    fun `a named data directory gets a cache directory of its own`() {
+        lateinit var cache: Path
+
+        hostWith("{}") { spec, _ ->
+            cache = spec.config.cacheDir
+            AlexandriteRuntime.run(spec) {}
+        }
+
+        assertEquals(dataDir.resolve("cache"), cache)
+    }
+
+    @Test
+    fun `a location variable that names no valid path exits 78 naming it`() {
+        val invalid = mapOf("ALEXANDRITE_DATA_DIR" to "a\u0000b")
+
+        assertEquals(78, host("--help", environment = invalid))
+        assertEquals(78, host("--config", "${config("{}")}", environment = invalid))
+
+        assertEquals(
+            List(2) { "alexandrite: ALEXANDRITE_DATA_DIR names no valid path: Nul character not allowed." },
+            stderr().lines().filter { it.isNotEmpty() },
+        )
+        assertEquals(0, host("--version", environment = invalid))
+    }
+
+    @Test
+    fun `the host runs until signalled and exits by the stop a plugin requests`() {
+        val code = run(
+            listOf("--config", "${config("""{"app": {"plugins": ["stopper"]}, "plugins": {"stopper": {}}}""")}"),
+            mapOf("ALEXANDRITE_DATA_DIR" to "$dataDir"),
+            "Linux",
+            home,
+            PrintStream(out, true),
+            PrintStream(err, true),
+        )
+
+        assertEquals(75, code)
+        assertEquals("", stderr())
     }
 
     @Test

@@ -1,10 +1,16 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.BotIndex
@@ -14,15 +20,19 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Service
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.runtime.ZONE
 import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.hang
+import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.probe
 import org.foedusprogramme.alexandrite.runtime.service
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
+import org.foedusprogramme.alexandrite.runtime.startVirtually
+import org.foedusprogramme.alexandrite.runtime.virtual
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
@@ -55,6 +65,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class GraphTest {
     @TempDir
     lateinit var dataDir: Path
@@ -77,10 +88,14 @@ class GraphTest {
         }
     }
 
-    private fun hooked(observe: suspend () -> Unit, shutdownGrace: Duration): RuntimeSpec {
+    private fun hooked(
+        observe: suspend () -> Unit,
+        shutdownGrace: Duration,
+        dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    ): RuntimeSpec {
         val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed, observe) }
         val index = TestIndex("probe", bindings = listOf(probe("probe", "hooks" to key<Hooks>()), hook))
-        return spec(explicit(index), dataDir, shutdownGrace = shutdownGrace)
+        return spec(explicit(index), dataDir, shutdownGrace = shutdownGrace, dispatcher = dispatcher)
     }
 
     private val AlexandriteRuntime.hooks: Hooks
@@ -113,7 +128,7 @@ class GraphTest {
             "info" to key<PluginInfo>("probe"),
             "files" to key<PluginFiles>("probe"),
             "other" to key<PluginFiles>("other"),
-            "control" to key<RuntimeControl>(),
+            "control" to key<RuntimeControl>("probe"),
             "scope" to key<PluginScope>("probe"),
         )
         val index = TestIndex("probe", bindings = listOf(probe, hook))
@@ -162,18 +177,24 @@ class GraphTest {
                 cancelled.complete(Unit)
             }
         }
-        lateinit var returned: TimeMark
+        lateinit var termination: Termination
+        var stopped = 0L
 
-        val termination = hooked(hang, shutdownGrace = 100.milliseconds).execute {
-            hooks.fire(observed, "a")
-            returned = TimeSource.Monotonic.markNow()
+        val lines = logged {
+            runTest {
+                val runtime = startVirtually(hooked(hang, shutdownGrace = 100.milliseconds, dispatcher = virtual()))
+                runtime.hooks.fire(observed, "a")
+                runtime.stop()
+                termination = runtime.join()
+                stopped = currentTime
+                runCurrent()
+            }
         }
 
-        val elapsed = returned.elapsedNow()
-
-        runBlocking { withTimeout(5.seconds) { cancelled.await() } }
-        assertTrue(elapsed >= 100.milliseconds, "the stop ended after $elapsed")
+        assertTrue(cancelled.isCompleted)
+        assertEquals(100, stopped)
         assertEquals(emptyList(), events.all())
+        assertContains(lines, "WARN test: hook ${Recording::class.java.name} failed at 'test.observed': Dropped")
         assertEquals(
             listOf(
                 Problem(

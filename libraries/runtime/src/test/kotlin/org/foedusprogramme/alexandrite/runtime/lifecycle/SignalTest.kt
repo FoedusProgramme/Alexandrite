@@ -1,21 +1,33 @@
-package org.foedusprogramme.alexandrite.runtime
+package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
-import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.Events
+import org.foedusprogramme.alexandrite.runtime.Recorder
+import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
+import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.runtime.core
+import org.foedusprogramme.alexandrite.runtime.hang
+import org.foedusprogramme.alexandrite.runtime.service
+import org.foedusprogramme.alexandrite.runtime.spec
+import org.foedusprogramme.alexandrite.runtime.worker
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.Assumptions.assumeTrue
-import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
-import java.io.BufferedReader
+import sun.misc.Signal
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import kotlin.test.Test
@@ -25,15 +37,14 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
-@Timeout(60)
 class SignalTest {
     @TempDir
     lateinit var dataDir: Path
 
     private val events = Events()
-
-    private fun core(vararg bindings: Binding<*>) = explicit(TestIndex("core", bindings = bindings.toList()))
 
     private fun shutdown(reason: String) = Termination(StopRequest.shutdown(reason), emptyList())
 
@@ -70,9 +81,10 @@ class SignalTest {
         spec: RuntimeSpec,
         signals: Signals,
         block: suspend AlexandriteRuntime.() -> Unit = { awaitCancellation() },
+        hookMargin: Duration = 5.seconds,
         whileRunning: suspend () -> Unit = {},
     ): Termination = runBlocking {
-        val run = async(Dispatchers.Default) { runUntilSignal(spec, block, signals) }
+        val run = async(Dispatchers.Default) { runUntilSignal(spec, block, signals, hookMargin) }
         whileRunning()
         run.await()
     }
@@ -85,7 +97,7 @@ class SignalTest {
     // Through the seam.
 
     @Test
-    fun `the first signal requests a SHUTDOWN stop and the previous handlers are back afterwards`() {
+    fun `the first signal requests a SHUTDOWN stop and the trap is closed afterwards`() {
         val signals = FakeSignals()
         val ready = CompletableDeferred<Unit>()
         val spec = spec(core(service("a", "core", events)), dataDir)
@@ -201,23 +213,90 @@ class SignalTest {
         assertNull(signals.hook)
     }
 
+    @Test
+    fun `the shutdown hook stops waiting once the grace and its margin have passed`() {
+        val signals = FakeSignals(trappable = false)
+        val ready = CompletableDeferred<Unit>()
+        val release = CountDownLatch(1)
+        val spec = spec(core(worker("a", "core", onStop = { release.await() })), dataDir, shutdownGrace = 0.seconds)
+
+        val termination = signalled(spec, signals, untilStopped(ready), hookMargin = 0.seconds) {
+            ready.await()
+            val hook = thread(block = checkNotNull(signals.hook))
+            hook.join(TimeUnit.SECONDS.toMillis(10))
+            assertFalse(hook.isAlive)
+            release.countDown()
+        }
+
+        assertEquals(StopRequest.shutdown("the JVM is shutting down"), termination.request)
+    }
+
+    // The JVM's handlers.
+
+    @Test
+    fun `traps share the JVM's handlers, each gets every signal and the last one restores them`() {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"), "no POSIX signals")
+        val interrupt = Signal("INT")
+        val before = LinkedBlockingQueue<String>()
+        val original = Signal.handle(interrupt) { before += it.name }
+        try {
+            val first = LinkedBlockingQueue<String>()
+            val second = LinkedBlockingQueue<String>()
+            val a = JvmSignals.trap { first += it.name }
+            assumeTrue(a != null, "this JVM cannot handle signals")
+            val b = checkNotNull(JvmSignals.trap { second += it.name })
+
+            Signal.raise(interrupt)
+            assertEquals("INT", second.poll(10, TimeUnit.SECONDS))
+            assertEquals(listOf("INT"), first.toList())
+            a!!.close()
+            Signal.raise(interrupt)
+            assertEquals("INT", second.poll(10, TimeUnit.SECONDS))
+            b.close()
+            Signal.raise(interrupt)
+
+            assertEquals("INT", before.poll(10, TimeUnit.SECONDS))
+            assertEquals(listOf("INT"), first.toList())
+            assertEquals(emptyList(), second.toList() + before.toList())
+        } finally {
+            Signal.handle(interrupt, original)
+        }
+    }
+
+    @Test
+    fun `a shutdown hook can be removed more than once`() {
+        val hook = JvmSignals.onShutdown {}
+
+        hook.close()
+        hook.close()
+    }
+
     // Real signals.
 
     private class Target(private val process: Process) : AutoCloseable {
-        private val output: BufferedReader = process.inputReader()
+        private val output = LinkedBlockingQueue<String>()
         private val lines = mutableListOf<String>()
+        private val reader = thread(isDaemon = true) {
+            process.inputReader().useLines { it.forEach(output::add) }
+            output.add(END)
+        }
 
         val pid: Long get() = process.pid()
 
         fun awaitLine(line: String) {
-            while (line !in lines) lines += output.readLine() ?: error("the target ended before '$line': $lines")
+            while (line !in lines) {
+                val next = output.poll(30, TimeUnit.SECONDS) ?: error("no '$line' within 30 s: $lines")
+                if (next === END) error("the target ended before '$line': $lines")
+                lines += next
+            }
         }
 
         fun terminate() = process.toHandle().destroy()
 
         fun exitValue(): Int {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "the target did not end: $lines")
-            output.lineSequence().forEach { lines += it }
+            reader.join(TimeUnit.SECONDS.toMillis(10))
+            output.filterNot { it === END }.forEach { lines += it }
             return process.exitValue()
         }
 
@@ -225,6 +304,10 @@ class SignalTest {
 
         override fun close() {
             process.destroyForcibly()
+        }
+
+        private companion object {
+            val END = String()
         }
     }
 

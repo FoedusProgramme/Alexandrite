@@ -27,8 +27,6 @@ class SpecTest {
 
     private val error = RuntimeStartException("failed", StartStage.START, emptyList(), null, null)
 
-    private val restart = StopRequest.restart("update")
-
     private val problem = Problem(RuntimeProblemKind.DRAIN_FAILED, "drain failed", "weather", null)
 
     private val cases = listOf(
@@ -54,9 +52,14 @@ class SpecTest {
             "DisabledPlugin(id=hello, reason=ENABLED_FALSE)",
         ),
         Case(
-            { RuntimeEvent.PluginsResolved(emptyList(), emptyList(), listOf("a.Index"), emptyList()) },
-            RuntimeEvent.PluginsResolved(emptyList(), emptyList(), emptyList(), emptyList()),
-            "PluginsResolved(loaded=[], disabled=[], unlisted=[a.Index], unknownPluginConfig=[])",
+            { RuntimeEvent.PluginsResolved(emptyList(), emptyList(), listOf("plugins.a")) },
+            RuntimeEvent.PluginsResolved(emptyList(), emptyList(), emptyList()),
+            "PluginsResolved(loaded=[], disabled=[], unknownPluginConfig=[plugins.a])",
+        ),
+        Case(
+            { RuntimeEvent.UnlistedIndexes(listOf("a.Index")) },
+            RuntimeEvent.UnlistedIndexes(emptyList()),
+            "UnlistedIndexes(classes=[a.Index])",
         ),
         Case(
             { RuntimeEvent.StartFailed(error) },
@@ -64,19 +67,20 @@ class SpecTest {
             "StartFailed(error=$error)",
         ),
         Case(
-            { RuntimeEvent.Stopping(restart) },
+            { RuntimeEvent.Stopping(RESTART) },
             RuntimeEvent.Stopping(HOST_STOP),
-            "Stopping(request=StopRequest(kind=RESTART, reason=update))",
+            "Stopping(request=StopRequest(kind=RESTART, reason=update, plugin=null))",
         ),
         Case(
-            { RuntimeEvent.Stopped(Termination(restart, emptyList())) },
-            RuntimeEvent.Stopped(Termination(restart, listOf(problem))),
-            "Stopped(termination=Termination(request=StopRequest(kind=RESTART, reason=update), problems=[]))",
+            { RuntimeEvent.Stopped(Termination(RESTART, emptyList())) },
+            RuntimeEvent.Stopped(Termination(RESTART, listOf(problem))),
+            "Stopped(termination=Termination(request=StopRequest(kind=RESTART, reason=update, plugin=null), " +
+                "problems=[]))",
         ),
         Case(
-            { Termination(restart, listOf(problem)) },
+            { Termination(RESTART, listOf(problem)) },
             Termination(HOST_STOP, listOf(problem)),
-            "Termination(request=StopRequest(kind=RESTART, reason=update), problems=[$problem])",
+            "Termination(request=StopRequest(kind=RESTART, reason=update, plugin=null), problems=[$problem])",
         ),
     )
 
@@ -136,18 +140,27 @@ class SpecTest {
     }
 
     @Test
-    fun `a runtime config rejects a cache directory that is the data directory or holds it`() {
+    fun `a runtime config rejects a cache directory that is the data directory, holds it or lies in plugin data`() {
         val rejected = listOf(dataDir, Path.of("data/../data"), dataDir.toAbsolutePath(), Path.of(""))
 
         val messages = rejected.map { cache ->
             assertFailsWith<IllegalArgumentException> { RuntimeConfig.builder(dataDir).cacheDir(cache).build() }.message
+        }
+        val inPlugins = assertFailsWith<IllegalArgumentException> {
+            RuntimeConfig.builder(dataDir).cacheDir(Path.of("data/plugins/weather")).build()
         }
 
         assertEquals(
             "The cache directory may not be the data directory or hold it, was 'data' for the data directory 'data'.",
             messages.first(),
         )
+        assertEquals(
+            "The cache directory may not lie in the plugins' data, was 'data/plugins/weather' for the data " +
+                "directory 'data'.",
+            inPlugins.message,
+        )
         RuntimeConfig.builder(dataDir).cacheDir(Path.of("data-cache")).build()
+        RuntimeConfig.builder(dataDir).cacheDir(Path.of("data/cache")).build()
     }
 
     @Test

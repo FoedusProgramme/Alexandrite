@@ -7,7 +7,12 @@ import org.foedusprogramme.alexandrite.sdk.problem.Problem
 internal class Site(val label: String, val plugins: List<String>, val child: Boolean)
 
 /** A binding placed in a graph, created by the container of its [level]. */
-internal class Node(val binding: Binding<*>, val level: Scope) {
+internal class Node(
+    val binding: Binding<*>,
+    val level: Scope,
+    /** The plugins whose channel instance containers create a channel-instance-scoped node. */
+    val owners: Set<String> = setOf(binding.plugin),
+) {
     val key: Key<*> get() = binding.key
     val plugin: String get() = binding.plugin
     val origin: String get() = binding.origin
@@ -72,7 +77,7 @@ internal class Graph(
         if (dependency.kind == DependencyKind.ALL) {
             if (single != null) return Problems.wrongKind(node, dependency, listOf(single))
             val unreachable = contributions.filterNot(node::mayDependOn)
-            return if (unreachable.isEmpty()) null else Problems.scope(node, dependency, unreachable)
+            return if (unreachable.isEmpty()) null else Problems.unreachable(node, dependency, unreachable)
         }
         val unlistedSingle = unlisted[dependency.key]
         return when {

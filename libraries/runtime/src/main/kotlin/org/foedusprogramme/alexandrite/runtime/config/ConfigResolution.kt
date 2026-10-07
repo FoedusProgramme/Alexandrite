@@ -21,7 +21,12 @@ internal class ConfigResolution(
     val problems: List<Problem>,
 )
 
-internal fun resolveConfig(members: List<PluginSet.Member>, source: ConfigSource): ConfigResolution {
+/** Resolves the config of [members], adding the values of the secrets it decodes to [secrets]. */
+internal fun resolveConfig(
+    members: List<PluginSet.Member>,
+    source: ConfigSource,
+    secrets: MutableCollection<String>,
+): ConfigResolution {
     val problems = mutableListOf<Problem>()
     val enabled = mutableListOf<PluginSet.Member>()
     val disabled = mutableListOf<DisabledPlugin>()
@@ -42,7 +47,7 @@ internal fun resolveConfig(members: List<PluginSet.Member>, source: ConfigSource
     problems += unknown.problems
     val configured = enabled.map { member ->
         val config = try {
-            configBindings(member.index, source)
+            configBindings(member.index, source, secrets)
         } catch (e: ConfigException) {
             problems += invalidConfig(e, member.id)
             emptyList()
@@ -116,7 +121,6 @@ private fun missingRequirements(
 
 private class UnknownConfig(val pluginPaths: List<String>, val problems: List<Problem>)
 
-/** The config paths that no plugin of [members] reads. */
 private fun unknownConfig(
     members: List<PluginSet.Member>,
     source: ConfigSource,

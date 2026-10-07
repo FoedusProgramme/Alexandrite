@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -32,14 +33,14 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class CancellationTest {
     private val listener = RecordingListener()
-    private val records = Records()
+    private val records = Events()
 
     // Hook timeouts.
 
     @Test
     fun `an interceptor past its timeout is skipped at a fail-open point`() = runTest {
         val rewrite = rewritePoint()
-        val dispatcher = HookDispatcher(
+        val dispatcher = hookDispatcher(
             listOf(
                 TestInterceptor(rewrite, timeout = 1.seconds) {
                     delay(1.minutes)
@@ -62,7 +63,7 @@ class CancellationTest {
         val guard = guardPoint()
         val hook = TestInterceptor(guard, timeout = 2.seconds) { awaitCancellation() }
 
-        val result = HookDispatcher(listOf(hook), listener).fire(guard, "x")
+        val result = hookDispatcher(listOf(hook), listener).fire(guard, "x")
 
         assertEquals(Interception.Aborted(null, hook::class.java.name, HookFailure.TimedOut(2.seconds)), result)
         assertEquals(2000, currentTime)
@@ -71,10 +72,10 @@ class CancellationTest {
     @Test
     fun `an inline observer past its timeout is reported and later observers still run`() = runTest {
         val seen = seenPoint()
-        val dispatcher = HookDispatcher(
+        val dispatcher = hookDispatcher(
             listOf(
                 TestObserver(seen, timeout = 1.seconds) { awaitCancellation() },
-                TestObserver(seen, order = 1) { records.add("second at $currentTime") },
+                TestObserver(seen, order = 1) { records.record("second at $currentTime") },
             ),
             listener,
         )
@@ -90,17 +91,17 @@ class CancellationTest {
     @Test
     fun `cancelling the caller stops the chain and is not a failure`() = runTest {
         val guard = guardPoint()
-        val dispatcher = HookDispatcher(
+        val dispatcher = hookDispatcher(
             listOf(
                 TestInterceptor(guard) {
                     try {
                         awaitCancellation()
                     } finally {
-                        records.add("first cancelled")
+                        records.record("first cancelled")
                     }
                 },
                 TestInterceptor(guard, order = 1) {
-                    records.add("second ran")
+                    records.record("second ran")
                     HookDecision.Continue
                 },
             ),
@@ -110,9 +111,9 @@ class CancellationTest {
         val caller = launch {
             try {
                 dispatcher.fire(guard, "x")
-                records.add("caller returned")
+                records.record("caller returned")
             } catch (e: CancellationException) {
-                records.add("caller cancelled")
+                records.record("caller cancelled")
                 throw e
             }
         }
@@ -127,10 +128,10 @@ class CancellationTest {
     @Test
     fun `cancelling the caller stops inline observers and is not a failure`() = runTest {
         val seen = seenPoint()
-        val dispatcher = HookDispatcher(
+        val dispatcher = hookDispatcher(
             listOf(
                 TestObserver(seen) { awaitCancellation() },
-                TestObserver(seen, order = 1) { records.add("second ran") },
+                TestObserver(seen, order = 1) { records.record("second ran") },
             ),
             listener,
         )
@@ -148,7 +149,7 @@ class CancellationTest {
     @Test
     fun `the caller's own timeout is not reported as the hook's`() = runTest {
         val guard = guardPoint()
-        val dispatcher = HookDispatcher(listOf(TestInterceptor(guard) { awaitCancellation() }), listener)
+        val dispatcher = hookDispatcher(listOf(TestInterceptor(guard) { awaitCancellation() }), listener)
 
         val result = withTimeoutOrNull(1.seconds) { dispatcher.fire(guard, "x") }
 
@@ -161,7 +162,7 @@ class CancellationTest {
     fun `a CancellationException thrown while the caller is active is a failure`() = runTest {
         val rewrite = rewritePoint()
         val dispatcher =
-            HookDispatcher(
+            hookDispatcher(
                 listOf(
                     TestInterceptor(rewrite) {
                         throw CancellationException("not the caller's")

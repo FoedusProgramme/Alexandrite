@@ -36,16 +36,11 @@ internal fun startStopped(
     stage: StartStage,
     request: StopRequest,
     problems: List<Problem>,
+    cause: Throwable? = null,
 ): RuntimeStartException = RuntimeStartException(
     "Cannot start runtime '$runtime': a stop was requested at stage $stage: $request",
     stage,
     problems,
     request,
-    null,
+    cause,
 )
-
-internal fun RuntimeStartException.plusTeardown(teardown: List<Problem>): RuntimeStartException {
-    if (teardown.isEmpty()) return this
-    return RuntimeStartException(message.orEmpty(), stage, problems + teardown, stopRequest, cause)
-        .also { it.stackTrace = stackTrace }
-}

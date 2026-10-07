@@ -79,7 +79,7 @@ fun plugin(id: String, vararg bindings: Binding<*>): PluginBindings = PluginBind
 
 fun build(vararg bindings: Binding<*>): Container = Container.build(listOf(plugin("test", *bindings)))
 
-fun Resolver.resolve(dependency: Dependency): Any? = when (dependency.kind) {
+private fun Resolver.resolve(dependency: Dependency): Any? = when (dependency.kind) {
     DependencyKind.INSTANCE -> get(dependency.key)
     DependencyKind.OPTIONAL -> getOrNull(dependency.key)
     DependencyKind.ALL -> getAll(dependency.key)

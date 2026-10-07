@@ -63,9 +63,10 @@ class BuiltInRuntimeTest {
             resolved.disabled.map { it.id to it.reason },
         )
         assertEquals(
-            listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
+            listOf("UnlistedIndexes", "PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
             events.map { it::class.simpleName },
         )
+        assertEquals(listOf(NOTES_INDEX), events.filterIsInstance<RuntimeEvent.UnlistedIndexes>().single().classes)
     }
 
     private companion object {

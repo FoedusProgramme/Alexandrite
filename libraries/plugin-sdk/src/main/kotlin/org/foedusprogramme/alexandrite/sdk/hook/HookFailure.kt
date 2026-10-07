@@ -15,6 +15,6 @@ public sealed interface HookFailure {
     @Poko
     public class Disallowed(public val decision: HookDecision<*>) : HookFailure
 
-    /** The hook's ASYNC queue was full, so an event was dropped. */
+    /** An event queued for the hook was dropped. */
     public data object Dropped : HookFailure
 }

@@ -1,19 +1,29 @@
-package org.foedusprogramme.alexandrite.runtime
+package org.foedusprogramme.alexandrite.runtime.lifecycle
 
+import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
+import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import sun.misc.Signal
 import sun.misc.SignalHandler
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
+
+/** How long a shutdown hook waits for a stop beyond the shutdown grace. */
+private val SHUTDOWN_HOOK_MARGIN = 5.seconds
 
 internal suspend fun runUntilSignal(
     spec: RuntimeSpec,
     block: suspend AlexandriteRuntime.() -> Unit,
     signals: Signals,
+    hookMargin: Duration = SHUTDOWN_HOOK_MARGIN,
 ): Termination {
     val run = RuntimeRun(spec, RuntimeRun.RUN_CANCELLED)
     val ended = CountDownLatch(1)
@@ -28,7 +38,10 @@ internal suspend fun runUntilSignal(
         }
     } ?: signals.onShutdown {
         run.stop(StopRequest.shutdown("the JVM is shutting down"))
-        ended.await()
+        val bound = spec.config.shutdownGrace + hookMargin
+        if (!ended.await(bound.inWholeMilliseconds, TimeUnit.MILLISECONDS)) {
+            logger.warn("{}: the stop did not end within {}, the JVM shuts down regardless", run.name, bound)
+        }
     }
     try {
         return run.runBlock(block)
@@ -80,22 +93,49 @@ internal object JvmSignals : Signals {
     }
 }
 
+/** The JVM's signal handlers, shared by every trap and given back when the last one closes. */
 private object SunMiscSignals {
+    private val traps = mutableListOf<Trap>()
+    private var previous: List<Pair<Signal, SignalHandler>> = emptyList()
+
+    private class Trap(val handler: (HostSignal) -> Unit)
+
+    @Synchronized
     fun trap(names: List<String>, handler: (HostSignal) -> Unit): AutoCloseable {
-        val previous = mutableListOf<Pair<Signal, SignalHandler>>()
+        if (traps.isEmpty()) previous = install(names)
+        val trap = Trap(handler)
+        traps += trap
+        return AutoCloseable { release(trap) }
+    }
+
+    @Synchronized
+    private fun release(trap: Trap) {
+        if (traps.remove(trap) && traps.isEmpty()) {
+            restore(previous)
+            previous = emptyList()
+        }
+    }
+
+    private fun install(names: List<String>): List<Pair<Signal, SignalHandler>> {
+        val installed = mutableListOf<Pair<Signal, SignalHandler>>()
         try {
             for (name in names) {
                 val signal = Signal(name)
-                previous += signal to Signal.handle(signal) { handler(HostSignal(it.name, it.number)) }
+                installed += signal to Signal.handle(signal, ::dispatch)
             }
         } catch (e: IllegalArgumentException) {
-            restore(previous)
+            restore(installed)
             throw e
         }
-        return AutoCloseable { restore(previous) }
+        return installed
     }
 
-    private fun restore(previous: List<Pair<Signal, SignalHandler>>) {
-        for ((signal, handler) in previous.asReversed()) Signal.handle(signal, handler)
+    private fun dispatch(signal: Signal) {
+        val current = synchronized(this) { traps.toList() }
+        for (trap in current) trap.handler(HostSignal(signal.name, signal.number))
+    }
+
+    private fun restore(handlers: List<Pair<Signal, SignalHandler>>) {
+        for ((signal, handler) in handlers.asReversed()) Signal.handle(signal, handler)
     }
 }

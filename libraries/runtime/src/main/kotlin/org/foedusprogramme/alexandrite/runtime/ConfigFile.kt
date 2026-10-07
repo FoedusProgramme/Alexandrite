@@ -1,4 +1,4 @@
-package org.foedusprogramme.alexandrite.runtime.config
+package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json

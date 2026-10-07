@@ -1,7 +1,10 @@
 package org.foedusprogramme.alexandrite.sdk.runtime
 
+import org.foedusprogramme.alexandrite.sdk.di.PluginLocal
+
 /** Lets a plugin stop the runtime it runs in. */
+@PluginLocal
 public interface RuntimeControl {
-    /** Requests a stop and returns at once. */
+    /** Requests a stop in the plugin's name and returns at once. */
     public fun stop(request: StopRequest)
 }

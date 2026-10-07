@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime.hook
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
@@ -15,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import java.util.Collections
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -57,15 +59,12 @@ internal class RecordingListener : HookFailureListener {
     fun all(): List<Reported> = synchronized(reports) { reports.toList() }
 }
 
-class Records {
-    private val records = Collections.synchronizedList(mutableListOf<String>())
-
-    fun add(record: String) {
-        records += record
-    }
-
-    fun all(): List<String> = synchronized(records) { records.toList() }
-}
-
 internal fun TestScope.dispatcher(listener: HookFailureListener, vararg hooks: Hook, asyncCapacity: Int = 256) =
     HookDispatcher(hooks.toList(), listener, asyncCapacity, StandardTestDispatcher(testScheduler))
+
+internal fun hookDispatcher(
+    hooks: List<Hook>,
+    listener: HookFailureListener = HookFailureListener { _, _, _ -> },
+    asyncCapacity: Int = 256,
+    asyncContext: CoroutineContext = Dispatchers.Default,
+) = HookDispatcher(hooks, listener, asyncCapacity, asyncContext)

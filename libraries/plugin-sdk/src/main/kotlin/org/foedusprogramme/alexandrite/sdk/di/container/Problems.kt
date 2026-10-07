@@ -109,6 +109,19 @@ internal object Problems {
         dependency.key,
     )
 
+    fun unreachable(node: Node, dependency: Dependency, contributions: List<Node>): Problem {
+        val (contribute, them) =
+            if (contributions.size == 1) "contributes" to "it a singleton" else "contribute" to "them singletons"
+        return Problem(
+            SCOPE,
+            "Scope violation: channel-instance-scoped ${labels(contributions)} $contribute to ${dependency.key}, " +
+                "which singleton ${node.label} collects through parameter '${dependency.site}'. " +
+                "Make $them or make ${node.origin} channel-instance-scoped.",
+            solePlugin(contributions),
+            dependency.key,
+        )
+    }
+
     fun cycle(path: List<Node>, sites: List<String>): Problem {
         val through = if (sites.size == 1) "parameter" else "parameters"
         return Problem(
@@ -129,6 +142,9 @@ internal object Problems {
     fun startedTwice(site: Site): Problem = Problem(STARTED_TWICE, "Cannot start ${site.label} twice.", null, null)
 
     fun openedTwice(site: Site): Problem = Problem(OPENED_TWICE, "Cannot open ${site.label} twice.", null, null)
+
+    fun busy(site: Site, action: String, running: String): String =
+        "Cannot $action ${site.label} while its $running step runs."
 
     fun unbound(key: Key<*>, site: Site): Problem =
         Problem(MISSING, "Nothing binds $key in ${site.label}. ${loaded(site)}", null, key)
@@ -164,7 +180,7 @@ internal object Problems {
         node.key,
     )
 
-    fun creationFailed(node: Node, cause: Exception): Problem =
+    fun creationFailed(node: Node, cause: Throwable): Problem =
         Problem(CREATION_FAILED, "Cannot create ${node.key} with ${node.label}: $cause", node.plugin, node.key)
 
     fun nestedChild(site: Site, name: String?): Problem {

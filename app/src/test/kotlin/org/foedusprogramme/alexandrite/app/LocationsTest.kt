@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.app
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class LocationsTest {
     private val home = Path.of("/home/me")
@@ -131,11 +132,30 @@ class LocationsTest {
 
     @Test
     fun `each location falls back on its own`() {
-        val mixed = mapOf("ALEXANDRITE_DATA_DIR" to "/srv/data", "XDG_CACHE_HOME" to "/xdg/cache")
+        val mixed = mapOf("XDG_DATA_HOME" to "/xdg/data", "XDG_CACHE_HOME" to "/xdg/cache")
 
         assertEquals(
-            listOf(path("given.json"), path("/srv/data"), path("/xdg/cache/alexandrite")),
+            listOf(path("given.json"), path("/xdg/data/alexandrite"), path("/xdg/cache/alexandrite")),
             at("Linux", mixed, Options(configFile = Path.of("given.json"))),
         )
+    }
+
+    @Test
+    fun `a data directory that is named keeps its cache inside unless the cache is named too`() {
+        val named = mapOf("ALEXANDRITE_DATA_DIR" to "/srv/data", "XDG_CACHE_HOME" to "/xdg/cache")
+
+        for (os in systems) {
+            assertEquals(path("/srv/data/cache"), at(os, named)[2], os)
+            assertEquals(path("data/cache"), at(os, xdg, Options(dataDir = Path.of("data")))[2], os)
+            assertEquals(path("/var/cache/alexandrite"), at(os, named + own)[2], os)
+            assertEquals(path("cache"), at(os, named, Options(cacheDir = Path.of("cache")))[2], os)
+        }
+    }
+
+    @Test
+    fun `a variable that names no valid path is refused naming the variable`() {
+        val error = assertFailsWith<IllegalArgumentException> { at("Linux", mapOf("XDG_DATA_HOME" to "/a\u0000b")) }
+
+        assertEquals("XDG_DATA_HOME names no valid path: Nul character not allowed.", error.message)
     }
 }

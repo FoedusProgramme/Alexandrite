@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.sdk.hook
 
 /** A stage of the agent's work that hooks subscribe to. */
 public sealed class HookPoint<P : Any>(
-    /** Unique across the app. */
+    /** Unique across the runtime. */
     public val id: String,
 ) {
     override fun toString(): String = id

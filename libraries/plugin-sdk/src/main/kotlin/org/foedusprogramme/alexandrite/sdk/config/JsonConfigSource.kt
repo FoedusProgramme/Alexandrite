@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.config
 
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
 /** A [ConfigSource] over a parsed JSON config file. */
@@ -10,9 +11,10 @@ public class JsonConfigSource(private val root: JsonObject) : ConfigSource {
         require(names.none(String::isEmpty)) { "Malformed config path '$path'" }
         var node = root
         for ((index, name) in names.withIndex()) {
-            val child = node[name] ?: return null
+            val child = node[name]
+            if (child == null || child == JsonNull) return null
             node = child as? JsonObject
-                ?: throw ConfigException(path, "'${names.take(index + 1).joinToString(".")}' is not an object")
+                ?: throw ConfigException(names.take(index + 1).joinToString("."), "must be an object")
         }
         return node
     }

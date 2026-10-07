@@ -70,7 +70,7 @@ class ExitCodeTest {
     }
 
     private fun stoppedWhileStarting(kind: StopKind): RuntimeStartException {
-        val control = key<RuntimeControl>()
+        val control = key<RuntimeControl>("a")
         val stopping = binding(
             key<Stopping>(),
             "a",
@@ -101,6 +101,16 @@ class ExitCodeTest {
             ),
             StartStage.entries.associateWith { exitCode(failedAt(it)) },
         )
+    }
+
+    @Test
+    fun `a GRAPH stage that failed creating an instance exits 1`() {
+        val broken = binding(key<Int>(), "a", "Int") { throw NoClassDefFoundError("org/example/Missing") }
+
+        val error = failed(spec(dataDir, TestIndex("a", listOf(broken))))
+
+        assertEquals(StartStage.GRAPH, error.stage)
+        assertEquals(1, exitCode(error))
     }
 
     @Test

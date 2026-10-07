@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.app
 
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 
 internal object ExitCode {
@@ -27,7 +28,14 @@ internal fun exitCode(kind: StopKind): Int = when (kind) {
 internal fun exitCode(error: RuntimeStartException): Int {
     error.stopRequest?.let { return exitCode(it.kind) }
     return when (error.stage) {
-        StartStage.PLUGINS, StartStage.CONFIG, StartStage.GRAPH -> ExitCode.CONFIG
+        StartStage.PLUGINS, StartStage.CONFIG -> ExitCode.CONFIG
+        StartStage.GRAPH -> if (invalidGraph(error)) ExitCode.CONFIG else ExitCode.FAILURE
         StartStage.DATA_DIR, StartStage.START, StartStage.OPEN -> ExitCode.FAILURE
     }
+}
+
+/** Whether [error] failed on the shape of the graph. */
+private fun invalidGraph(error: RuntimeStartException): Boolean {
+    val kinds = error.problems.mapNotNull { it.kind as? DiProblemKind }
+    return kinds.isNotEmpty() && DiProblemKind.CREATION_FAILED !in kinds
 }

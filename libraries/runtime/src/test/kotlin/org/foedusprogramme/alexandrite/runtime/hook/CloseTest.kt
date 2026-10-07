@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
@@ -23,7 +24,7 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class CloseTest {
     private val listener = RecordingListener()
-    private val records = Records()
+    private val records = Events()
     private val seen = seenPoint()
 
     @Test
@@ -32,7 +33,7 @@ class CloseTest {
             listener,
             TestObserver(seen, delivery = Delivery.ASYNC) {
                 delay(1.seconds)
-                records.add(it)
+                records.record(it)
             },
         )
         listOf("a", "b", "c").forEach { dispatcher.fire(seen, it) }
@@ -98,8 +99,8 @@ class CloseTest {
         val dispatcher = dispatcher(
             listener,
             TestInterceptor(rewrite) { HookDecision.Replace("$it!") },
-            TestObserver(seen) { records.add("inline $it") },
-            TestObserver(seen, delivery = Delivery.ASYNC) { records.add("async $it") },
+            TestObserver(seen) { records.record("inline $it") },
+            TestObserver(seen, delivery = Delivery.ASYNC) { records.record("async $it") },
         )
 
         dispatcher.onDestroy()

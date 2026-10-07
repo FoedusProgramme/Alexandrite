@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime.hook
 
 import kotlinx.coroutines.test.runTest
+import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -22,12 +23,12 @@ import kotlin.test.assertNull
 
 class InterceptTest {
     private val listener = RecordingListener()
-    private val records = Records()
+    private val records = Events()
     private val rewrite = rewritePoint()
 
     private fun appending(suffix: String, order: Int = 0, point: InterceptorPoint<String> = rewrite) =
         TestInterceptor(point, order) {
-            records.add(suffix)
+            records.record(suffix)
             HookDecision.Replace(it + suffix)
         }
 
@@ -37,7 +38,7 @@ class InterceptTest {
     fun `interceptors run by ascending order and ties keep the list order`() = runTest {
         val hooks = listOf(appending("c", order = 5), appending("a", order = -1), appending("d", 5), appending("b"))
 
-        val result = HookDispatcher(hooks).fire(rewrite, "")
+        val result = hookDispatcher(hooks).fire(rewrite, "")
 
         assertEquals(Interception.Proceed("abcd"), result)
     }
@@ -45,7 +46,7 @@ class InterceptTest {
     @Test
     fun `a hook runs only for its own point`() = runTest {
         val other = InterceptorPoint<String>("test.other", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
-        val dispatcher = HookDispatcher(listOf(appending("a"), appending("b", point = other)))
+        val dispatcher = hookDispatcher(listOf(appending("a"), appending("b", point = other)))
 
         val result = dispatcher.fire(rewrite, "")
 
@@ -55,7 +56,7 @@ class InterceptTest {
 
     @Test
     fun `firing another point object with a subscribed id is rejected`() = runTest {
-        val dispatcher = HookDispatcher(listOf(appending("a")))
+        val dispatcher = hookDispatcher(listOf(appending("a")))
 
         val error = assertFailsWith<IllegalArgumentException> { dispatcher.fire(rewritePoint(), "") }
 
@@ -69,7 +70,7 @@ class InterceptTest {
     @Test
     fun `two point objects sharing an id are rejected naming both hooks`() {
         val error = assertFailsWith<IllegalArgumentException> {
-            HookDispatcher(listOf(Rewriter(rewritePoint()), Watcher(ObserverPoint("test.rewrite"))))
+            hookDispatcher(listOf(Rewriter(rewritePoint()), Watcher(ObserverPoint("test.rewrite"))))
         }
 
         assertContains(error.message!!, "'test.rewrite'")
@@ -94,7 +95,7 @@ class InterceptTest {
             },
         )
 
-        val result = HookDispatcher(hooks).fire(rewrite, "x")
+        val result = hookDispatcher(hooks).fire(rewrite, "x")
 
         assertEquals(Interception.Proceed("xa!"), result)
         assertEquals(listOf("xa", "xa"), seen)
@@ -102,7 +103,7 @@ class InterceptTest {
 
     @Test
     fun `abort stops the chain and names the hook`() = runTest {
-        val dispatcher = HookDispatcher(listOf(appending("a"), Denier(rewrite), appending("b", order = 1)), listener)
+        val dispatcher = hookDispatcher(listOf(appending("a"), Denier(rewrite), appending("b", order = 1)), listener)
 
         val result = dispatcher.fire(rewrite, "x")
 
@@ -113,7 +114,7 @@ class InterceptTest {
 
     @Test
     fun `without interceptors the original payload proceeds`() = runTest {
-        assertEquals(Interception.Proceed("x"), HookDispatcher(emptyList()).fire(rewrite, "x"))
+        assertEquals(Interception.Proceed("x"), hookDispatcher(emptyList()).fire(rewrite, "x"))
     }
 
     // Disallowed decisions.
@@ -122,10 +123,10 @@ class InterceptTest {
     fun `a replace at a point without REPLACE is a disallowed decision`() = runTest {
         val point = InterceptorPoint<String>("test.deny", setOf(HookEffect.ABORT), FailurePolicy.FAIL_OPEN)
         val next = TestInterceptor(point, order = 1) {
-            records.add("next got $it")
+            records.record("next got $it")
             HookDecision.Continue
         }
-        val dispatcher = HookDispatcher(listOf(Rewriter(point), next), listener)
+        val dispatcher = hookDispatcher(listOf(Rewriter(point), next), listener)
 
         val result = dispatcher.fire(point, "x")
 
@@ -142,7 +143,7 @@ class InterceptTest {
     @Test
     fun `an abort at a point without ABORT is a disallowed decision`() = runTest {
         val point = InterceptorPoint<String>("test.replace", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
-        val dispatcher = HookDispatcher(listOf(Denier(point), appending("b", order = 1, point = point)), listener)
+        val dispatcher = hookDispatcher(listOf(Denier(point), appending("b", order = 1, point = point)), listener)
 
         val result = dispatcher.fire(point, "x")
 
@@ -157,7 +158,7 @@ class InterceptTest {
 
     @Test
     fun `a failing interceptor at a fail-open point is skipped with the payload unchanged`() = runTest {
-        val dispatcher = HookDispatcher(listOf(appending("a"), Crasher(rewrite), appending("b", order = 1)), listener)
+        val dispatcher = hookDispatcher(listOf(appending("a"), Crasher(rewrite), appending("b", order = 1)), listener)
 
         val result = dispatcher.fire(rewrite, "x")
 
@@ -170,7 +171,7 @@ class InterceptTest {
     @Test
     fun `a failing interceptor at a fail-closed point stops the chain with the failure and no reply`() = runTest {
         val guard = guardPoint()
-        val dispatcher = HookDispatcher(listOf(Crasher(guard), appending("b", order = 1, point = guard)), listener)
+        val dispatcher = hookDispatcher(listOf(Crasher(guard), appending("b", order = 1, point = guard)), listener)
 
         val result = dispatcher.fire(guard, "x")
 
@@ -186,7 +187,7 @@ class InterceptTest {
     fun `a disallowed decision at a fail-closed point stops the chain`() = runTest {
         val guard = guardPoint()
 
-        val result = HookDispatcher(listOf(Rewriter(guard)), listener).fire(guard, "x")
+        val result = hookDispatcher(listOf(Rewriter(guard)), listener).fire(guard, "x")
 
         assertEquals(
             Interception.Aborted(
@@ -202,7 +203,7 @@ class InterceptTest {
     fun `the fail-closed policy applies even at a point that allows no abort decision`() = runTest {
         val point = InterceptorPoint<String>("test.strict", emptySet(), FailurePolicy.FAIL_CLOSED)
 
-        val result = HookDispatcher(listOf(Crasher(point)), listener).fire(point, "x")
+        val result = hookDispatcher(listOf(Crasher(point)), listener).fire(point, "x")
 
         val aborted = assertIs<Interception.Aborted>(result)
         assertEquals(Crasher::class.java.name, aborted.hook)
@@ -211,7 +212,7 @@ class InterceptTest {
 
     @Test
     fun `an exception thrown by the listener does not reach the caller`() = runTest {
-        val dispatcher = HookDispatcher(listOf(Crasher(rewrite)), { _, _, _ -> error("listener failed") })
+        val dispatcher = hookDispatcher(listOf(Crasher(rewrite)), { _, _, _ -> error("listener failed") })
 
         assertEquals(Interception.Proceed("x"), dispatcher.fire(rewrite, "x"))
     }
@@ -219,7 +220,7 @@ class InterceptTest {
     @Test
     fun `a virtual machine error is not a hook failure`() = runTest {
         val exhausted = TestInterceptor(rewrite) { throw OutOfMemoryError("exhausted") }
-        val dispatcher = HookDispatcher(listOf(exhausted), listener)
+        val dispatcher = hookDispatcher(listOf(exhausted), listener)
 
         assertFailsWith<OutOfMemoryError> { dispatcher.fire(rewrite, "x") }
         assertEquals(emptyList(), listener.all())

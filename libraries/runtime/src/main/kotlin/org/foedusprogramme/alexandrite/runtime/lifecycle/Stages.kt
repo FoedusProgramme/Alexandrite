@@ -29,16 +29,17 @@ import kotlin.time.TimeMark
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
-/** One start of a runtime in its scope [context]: its stages, and the teardown of what they built. */
-internal class Launch(
+/** The start stages of one runtime in its scope [context], and the teardown of what they built. */
+internal class Stages(
     private val spec: RuntimeSpec,
-    control: RuntimeControl,
+    private val redactor: Redactor,
+    control: (plugin: String) -> RuntimeControl,
     private val emit: (RuntimeEvent) -> Unit,
     context: CoroutineContext,
 ) {
     private val name = spec.config.name
-    private val scopes = PluginScopes(name, context)
-    private val assembly = Assembly(spec, control, scopes, context)
+    private val scopes = PluginScopes(name, redactor, context)
+    private val assembly = Assembly(spec, redactor, control, scopes, context)
 
     @Volatile
     private var stage: StartStage = StartStage.DATA_DIR
@@ -50,7 +51,6 @@ internal class Launch(
     var container: Container? = null
         private set
 
-    /** Runs the start stages within the start timeout. */
     suspend fun start() {
         val timeout = spec.config.startTimeout
         withTimeoutOrNull(timeout) { stages() }
@@ -69,19 +69,34 @@ internal class Launch(
     suspend fun tearDown(deadline: TimeMark): List<Problem> {
         val grace = spec.config.shutdownGrace
         val problems = mutableListOf<Problem>()
+        val fatal = mutableListOf<VirtualMachineError>()
+        fun failed(kind: RuntimeProblemKind, what: String, error: Throwable) {
+            if (error is VirtualMachineError) fatal += error
+            val message = redactor.text("$what failed: $error")
+            logger.error("{}: {}", name, message, redactor.error(error))
+            problems += Problem(kind, message, null, null)
+        }
         val built = container
         try {
-            built?.stop(deadline)?.mapNotNullTo(problems) { problem(name, it, grace) }
-        } catch (e: Exception) {
-            logger.error("{}: stopping failed", name, e)
-            problems += Problem(RuntimeProblemKind.STOP_FAILED, "Stopping failed: $e", null, null)
-        }
-        try {
-            problems += scopes.cancel(deadline, grace)
-            built?.let { problems += destroyProblems(name, it) }
+            try {
+                built?.stop(deadline)?.mapNotNullTo(problems) { problem(it, grace) }
+            } catch (e: Throwable) {
+                failed(RuntimeProblemKind.STOP_FAILED, "Stopping", e)
+            }
+            try {
+                problems += scopes.cancel(deadline, grace)
+            } catch (e: Throwable) {
+                failed(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the plugin scopes", e)
+            }
+            try {
+                built?.destroy()?.mapNotNullTo(problems) { problem(it, grace) }
+            } catch (e: Throwable) {
+                failed(RuntimeProblemKind.DESTROY_FAILED, "Destroying", e)
+            }
         } finally {
-            lock?.let { release(name, it) }
+            lock?.let(::release)
         }
+        fatal.firstOrNull()?.let { throw it }
         return problems
     }
 
@@ -97,12 +112,12 @@ internal class Launch(
 
     private fun assemble(): Container {
         stage = StartStage.PLUGINS
+        spec.plugins.unlisted.takeIf { it.isNotEmpty() }?.let { emit(RuntimeEvent.UnlistedIndexes(it)) }
         assembly.checkPlugins()
         stage = StartStage.CONFIG
         val resolution = assembly.resolvePlugins()
         val plugins = resolution.enabled.map { it.member.plugin }
-        val unknown = resolution.unknownPluginConfig
-        emit(RuntimeEvent.PluginsResolved(plugins, resolution.disabled, spec.plugins.unlisted, unknown))
+        emit(RuntimeEvent.PluginsResolved(plugins, resolution.disabled, resolution.unknownPluginConfig))
         stage = StartStage.GRAPH
         val bindings = assembly.pluginBindings(resolution.enabled)
         val built = assembly.container(resolution.enabled, bindings)
@@ -122,19 +137,27 @@ internal class Launch(
         }
         currentCoroutineContext().ensureActive()
     }
-}
 
-private fun problem(name: String, report: StepReport, grace: Duration): Problem? {
-    val what = "${report.step.action} ${report.origin} (plugin ${report.plugin})"
-    val outcome = report.outcome
-    val message = when (outcome) {
-        Outcome.Completed -> return null
-        is Outcome.Failed -> "${what.capitalized()} failed: ${outcome.error}"
-        Outcome.TimedOut -> "${what.capitalized()} was cancelled: the shutdown grace of $grace ran out."
-        Outcome.NotCalled -> "Skipped $what: the shutdown grace of $grace had run out."
+    private fun problem(report: StepReport, grace: Duration): Problem? {
+        val what = "${report.step.action} ${report.origin} (plugin ${report.plugin})"
+        val outcome = report.outcome
+        val message = when (outcome) {
+            Outcome.Completed -> return null
+            is Outcome.Failed -> "${what.capitalized()} failed: ${outcome.error}"
+            Outcome.TimedOut -> "${what.capitalized()} was cancelled: the shutdown grace of $grace ran out."
+            Outcome.NotCalled -> "Skipped $what: the shutdown grace of $grace had run out."
+        }.let(redactor::text)
+        logger.warn("{}: {}", name, message, (outcome as? Outcome.Failed)?.error?.let(redactor::error))
+        return Problem(kind(report), message, report.plugin, null)
     }
-    logger.warn("{}: {}", name, message, (outcome as? Outcome.Failed)?.error)
-    return Problem(kind(report), message, report.plugin, null)
+
+    private fun release(lock: DataDirLock) {
+        try {
+            lock.close()
+        } catch (e: IOException) {
+            logger.warn("{}: cannot release the data directory", name, redactor.error(e))
+        }
+    }
 }
 
 private val Step.action: String
@@ -142,6 +165,7 @@ private val Step.action: String
         Step.CLOSE -> "closing"
         Step.DRAIN -> "draining"
         Step.STOP -> "stopping"
+        Step.DESTROY -> "destroying"
     }
 
 private fun kind(report: StepReport): RuntimeProblemKind = when (report.step) {
@@ -158,30 +182,14 @@ private fun kind(report: StepReport): RuntimeProblemKind = when (report.step) {
     )
 
     Step.STOP -> RuntimeProblemKind.STOP_FAILED
+
+    Step.DESTROY -> RuntimeProblemKind.DESTROY_FAILED
 }
 
 private fun <T> Outcome.pick(failed: T, timedOut: T, notCalled: T): T = when (this) {
     Outcome.TimedOut -> timedOut
     Outcome.NotCalled -> notCalled
     else -> failed
-}
-
-private fun destroyProblems(name: String, container: Container): List<Problem> = try {
-    container.close()
-    emptyList()
-} catch (e: Exception) {
-    (listOf(e) + e.suppressed).map { error ->
-        logger.warn("{}: destroying an instance failed", name, error)
-        Problem(RuntimeProblemKind.DESTROY_FAILED, "Destroying an instance failed: $error", null, null)
-    }
-}
-
-private fun release(name: String, lock: DataDirLock) {
-    try {
-        lock.close()
-    } catch (e: IOException) {
-        logger.warn("{}: cannot release the data directory", name, e)
-    }
 }
 
 private fun String.capitalized(): String = replaceFirstChar(Char::uppercaseChar)

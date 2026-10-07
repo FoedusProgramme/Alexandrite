@@ -1,7 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime.hook
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -30,12 +30,12 @@ import kotlin.coroutines.CoroutineContext
 /** Each ASYNC observer has its own queue of [asyncCapacity] events, worked off in a child scope of [asyncContext]. */
 internal class HookDispatcher(
     hooks: List<Hook>,
-    private val listener: HookFailureListener = HookFailureListener.NONE,
+    private val listener: HookFailureListener,
     private val asyncCapacity: Int = 256,
-    asyncContext: CoroutineContext = Dispatchers.Default,
+    asyncContext: CoroutineContext,
 ) : Hooks,
     Lifecycle {
-    private val scope = CoroutineScope(asyncContext + SupervisorJob(asyncContext[Job]))
+    private val scope by lazy { CoroutineScope(asyncContext + SupervisorJob(asyncContext[Job])) }
     private val points: Map<String, HookPoint<*>>
     private val interceptors: Map<String, List<InterceptorHook<*>>>
     private val inlineObservers: Map<String, List<ObserverHook<*>>>
@@ -50,6 +50,8 @@ internal class HookDispatcher(
         inlineObservers = observers[Delivery.INLINE].orEmpty().groupBy { it.point.id }
         queues = observers[Delivery.ASYNC].orEmpty().map { Queue(it) }.groupBy { it.hook.point.id }
     }
+
+    val hasAsyncObservers: Boolean get() = queues.isNotEmpty()
 
     override suspend fun <P : Any> fire(point: InterceptorPoint<P>, payload: P): Interception<P> {
         var current = payload
@@ -86,11 +88,17 @@ internal class HookDispatcher(
     override suspend fun onDrain() {
         val all = queues.values.flatten()
         all.forEach { it.events.close() }
-        all.map { it.worker }.joinAll()
+        try {
+            all.map { it.worker }.joinAll()
+        } catch (e: CancellationException) {
+            all.filterNot { it.worker.isCompleted }.forEach { report(it.hook, it.hook.point, HookFailure.Dropped) }
+            throw e
+        }
     }
 
     /** Stops ASYNC delivery. */
     override fun onDestroy() {
+        if (queues.isEmpty()) return
         queues.values.flatten().forEach { it.events.close() }
         scope.cancel()
     }

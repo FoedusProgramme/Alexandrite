@@ -12,7 +12,7 @@ public interface Resolver {
     /** The instance of the single binding for [key], or null when nothing binds it. */
     public fun <T : Any> getOrNull(key: Key<T>): T?
 
-    /** Every multibinding contribution for [key] by plugin and declaration order, overrides and extras last. */
+    /** Every multibinding contribution for [key] by plugin id and binding order, a child container's extras last. */
     public fun <T : Any> getAll(key: Key<T>): List<T>
 
     /** A [Lazy] that resolves [key] on first access. */

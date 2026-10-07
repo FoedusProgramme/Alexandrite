@@ -8,8 +8,10 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.TestIndex
+import org.foedusprogramme.alexandrite.runtime.core
 import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
+import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.probe
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
@@ -22,6 +24,7 @@ import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -35,8 +38,6 @@ import kotlin.test.fail
 class DataDirTest {
     @TempDir
     lateinit var dataDir: Path
-
-    private fun core() = explicit(TestIndex("core"))
 
     private fun files(id: String) = probe("core", "files" to key<PluginFiles>(id))
 
@@ -100,7 +101,8 @@ class DataDirTest {
             return
         }
         try {
-            assertEquals("locked", holder.inputReader().readLine())
+            val firstLine = CompletableFuture.supplyAsync { holder.inputReader().readLine() }
+            assertEquals("locked", firstLine.get(30, TimeUnit.SECONDS))
 
             val error = spec(core(), dataDir).startFailure()
 
@@ -109,6 +111,75 @@ class DataDirTest {
         } finally {
             holder.outputStream.close()
             if (!holder.waitFor(10, TimeUnit.SECONDS)) holder.destroyForcibly()
+        }
+    }
+
+    @Test
+    fun `a data directory reached through a link is in use by the runtime that holds it`() {
+        assumePosix()
+        val link = Files.createSymbolicLink(dataDir.resolveSibling("${dataDir.fileName}-link"), dataDir)
+        lateinit var error: RuntimeStartException
+
+        try {
+            spec(core(), dataDir).execute { error = spec(core(), link).startFailure() }
+        } finally {
+            Files.delete(link)
+        }
+
+        assertEquals(listOf(RuntimeProblemKind.DATA_DIR_LOCKED), error.problems.map { it.kind })
+    }
+
+    @Test
+    fun `a lock file that is a link fails the DATA_DIR stage and its target is left alone`() {
+        assumePosix()
+        val target = Files.writeString(
+            Files.createDirectories(dataDir.resolve("elsewhere")).resolve("precious"),
+            "kept",
+        )
+        val data = Files.createDirectories(dataDir.resolve("data"))
+        Files.createSymbolicLink(data.resolve("runtime.lock"), target)
+
+        val error = spec(core(), data).startFailure()
+
+        assertEquals(StartStage.DATA_DIR, error.stage)
+        assertContains(error.message!!, "is not a regular file")
+        assertEquals("kept", Files.readString(target))
+    }
+
+    @Test
+    fun `a data or cache directory others may write to is logged at WARN`() {
+        assumePosix()
+        val data = Files.createDirectories(dataDir.resolve("data"))
+        Files.setPosixFilePermissions(data, PosixFilePermissions.fromString("rwxrwxr-x"))
+
+        val lines = logged { spec(core(), data).execute() }
+
+        assertEquals(
+            listOf("WARN test: the data directory '$data' is writable by users other than its owner"),
+            lines.filter { it.startsWith("WARN") },
+        )
+    }
+
+    @Test
+    fun `a cache directory that leads into the plugins' data through a link fails the DATA_DIR stage`() {
+        assumePosix()
+        val data = Files.createDirectories(dataDir.resolve("data/plugins/core"))
+        val cache = Files.createSymbolicLink(dataDir.resolve("cache"), data)
+        val config = RuntimeConfig.builder(dataDir.resolve("data")).cacheDir(cache).name("test").build()
+
+        val error = RuntimeSpec.builder(config, core()).build().startFailure()
+
+        assertEquals(StartStage.DATA_DIR, error.stage)
+        assertContains(error.message!!, "the cache directory '$cache' is the data directory, holds it or lies in")
+    }
+
+    @Test
+    fun `a plugin's cache directory is created again after it was deleted`() {
+        spec(explicit(TestIndex("core", bindings = listOf(files("core")))), dataDir).execute {
+            val cache = files().cacheDir
+            Files.delete(cache)
+
+            assertTrue(Files.isDirectory(files().cacheDir))
         }
     }
 

@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.runtime
 import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import org.foedusprogramme.alexandrite.runtime.lifecycle.PLUGINS_DIRECTORY
 import java.nio.file.Path
 import java.time.ZoneId
 import kotlin.time.Duration
@@ -53,9 +54,15 @@ public class RuntimeConfig private constructor(
         public fun dispatcher(dispatcher: CoroutineDispatcher): Builder = apply { this.dispatcher = dispatcher }
 
         public fun build(): RuntimeConfig {
-            require(!dataDir.toAbsolutePath().normalize().startsWith(cacheDir.toAbsolutePath().normalize())) {
+            val data = dataDir.toAbsolutePath().normalize()
+            val cache = cacheDir.toAbsolutePath().normalize()
+            require(!data.startsWith(cache)) {
                 "The cache directory may not be the data directory or hold it, was '$cacheDir' for the data " +
                     "directory '$dataDir'."
+            }
+            require(!cache.startsWith(data.resolve(PLUGINS_DIRECTORY))) {
+                "The cache directory may not lie in the plugins' data, was '$cacheDir' for the data directory " +
+                    "'$dataDir'."
             }
             return RuntimeConfig(dataDir, cacheDir, zone, shutdownGrace, startTimeout, name, dispatcher)
         }

@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime.plugin
 
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
+import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 
@@ -37,6 +38,13 @@ private fun identityProblem(member: PluginSet.Member): Problem? {
     val row = member.row
     fun problem(kind: RuntimeProblemKind, message: String) = Problem(kind, message, id, null)
     return when {
+        member.plugin.info.sdkApi != AlexandriteSdk.API_VERSION -> problem(
+            RuntimeProblemKind.INCOMPATIBLE_SDK,
+            "Incompatible plugin '$id' (${member.className}): it was compiled against version " +
+                "${member.plugin.info.sdkApi} of the plugin API, but this runtime has version " +
+                "${AlexandriteSdk.API_VERSION}. Use a build of the plugin for this runtime.",
+        )
+
         !PluginIds.PATTERN.matches(id) -> problem(
             RuntimeProblemKind.MALFORMED_ID,
             "Malformed plugin id '$id' of ${member.className}: a plugin id is lowercase words of letters and " +

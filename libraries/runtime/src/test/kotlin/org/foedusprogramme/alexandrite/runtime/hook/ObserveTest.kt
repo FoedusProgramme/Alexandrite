@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -28,11 +29,11 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class ObserveTest {
     private val listener = RecordingListener()
-    private val records = Records()
+    private val records = Events()
     private val seen = seenPoint()
 
     private fun recording(name: String, order: Int = 0, delivery: Delivery = Delivery.INLINE) =
-        TestObserver(seen, order, delivery = delivery) { records.add("$name $it") }
+        TestObserver(seen, order, delivery = delivery) { records.record("$name $it") }
 
     // Inline.
 
@@ -40,10 +41,10 @@ class ObserveTest {
     fun `inline observers run in order, each awaited before the next`() = runTest {
         val dispatcher = dispatcher(
             listener,
-            TestObserver(seen, order = 2) { records.add("last at $currentTime") },
+            TestObserver(seen, order = 2) { records.record("last at $currentTime") },
             TestObserver(seen, order = 1) {
                 delay(1.seconds)
-                records.add("first done")
+                records.record("first done")
             },
         )
 
@@ -90,14 +91,14 @@ class ObserveTest {
         val dispatcher = dispatcher(
             listener,
             TestObserver(seen, delivery = Delivery.ASYNC) {
-                records.add("started $it")
+                records.record("started $it")
                 gate.await()
-                records.add("finished $it")
+                records.record("finished $it")
             },
         )
 
         dispatcher.fire(seen, "x")
-        records.add("returned")
+        records.record("returned")
         runCurrent()
         gate.complete(Unit)
         runCurrent()
@@ -155,7 +156,7 @@ class ObserveTest {
                 when (it) {
                     "a" -> error("a failed")
                     "b" -> delay(2.seconds)
-                    else -> records.add("got $it")
+                    else -> records.record("got $it")
                 }
             },
         )
@@ -171,10 +172,10 @@ class ObserveTest {
 
     @Test
     fun `a listener that throws an error does not stop an async observer`() = runTest {
-        val dispatcher = HookDispatcher(
+        val dispatcher = hookDispatcher(
             listOf(
                 TestObserver(seen, delivery = Delivery.ASYNC) {
-                    if (it == "a") error("a failed") else records.add("got $it")
+                    if (it == "a") error("a failed") else records.record("got $it")
                 },
             ),
             { _, _, _ -> TODO("listener") },
@@ -189,12 +190,12 @@ class ObserveTest {
 
     @Test
     fun `the async capacity must be positive`() {
-        assertFailsWith<IllegalArgumentException> { HookDispatcher(emptyList(), asyncCapacity = 0) }
+        assertFailsWith<IllegalArgumentException> { hookDispatcher(emptyList(), asyncCapacity = 0) }
     }
 
-    private class Slow(point: ObserverPoint<String>, gate: CompletableDeferred<Unit>, records: Records) :
+    private class Slow(point: ObserverPoint<String>, gate: CompletableDeferred<Unit>, records: Events) :
         TestObserver<String>(point, delivery = Delivery.ASYNC, block = {
             gate.await()
-            records.add("slow $it")
+            records.record("slow $it")
         })
 }

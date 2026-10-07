@@ -73,7 +73,12 @@ class ValueTypesTest {
         Case(
             { StopRequest(StopKind.SHUTDOWN, "signal") },
             StopRequest(StopKind.RESTART, "signal"),
-            "StopRequest(kind=SHUTDOWN, reason=signal)",
+            "StopRequest(kind=SHUTDOWN, reason=signal, plugin=null)",
+        ),
+        Case(
+            { StopRequest.failure("disk full").from("store") },
+            StopRequest.failure("disk full"),
+            "StopRequest(kind=FAILURE, reason=disk full, plugin=store)",
         ),
         Case(
             { StepReport("weather", "Radar", StepReport.Step.DRAIN, StepReport.Outcome.TimedOut) },

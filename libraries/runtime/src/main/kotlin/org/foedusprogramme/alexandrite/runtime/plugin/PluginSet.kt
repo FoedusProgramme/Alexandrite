@@ -142,7 +142,6 @@ private fun brokenIndex(name: String, row: BuiltInPlugin, cause: Throwable): Pro
     null,
 )
 
-/** The class names each service file on [classLoader] lists. */
 private fun serviceFiles(classLoader: ClassLoader): List<List<String>> =
     resources(classLoader, PluginIndex.SERVICE_FILE).map { file ->
         read(file).lineSequence().map { it.substringBefore('#').trim() }.filter { it.isNotEmpty() }.toList()

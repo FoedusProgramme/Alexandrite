@@ -21,14 +21,14 @@ import kotlin.coroutines.CoroutineContext
 
 private const val RUNTIME_PLUGIN = "alexandrite-runtime"
 
-private const val PLUGINS = "plugins"
+internal const val PLUGINS_DIRECTORY = "plugins"
 
 /** What the runtime itself binds for [plugins]. */
 internal fun runtimeBindings(
     config: RuntimeConfig,
     plugins: List<PluginInfo>,
     hookFailures: HookFailureListener,
-    control: RuntimeControl,
+    control: (plugin: String) -> RuntimeControl,
     scopes: PluginScopes,
     context: CoroutineContext,
 ): PluginBindings {
@@ -39,17 +39,19 @@ internal fun runtimeBindings(
             RUNTIME_PLUGIN,
             "Hooks",
             dependencies = listOf(Dependency(hooks, DependencyKind.ALL, "hooks")),
-        ) { r -> HookDispatcher(r.getAll(hooks), hookFailures, asyncContext = context) },
+        ) { r ->
+            val dispatcher = HookDispatcher(r.getAll(hooks), hookFailures, asyncContext = context)
+            if (dispatcher.hasAsyncObservers) dispatcher else object : Hooks by dispatcher {}
+        },
         instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
-        instanceBinding(key<RuntimeControl>(), control, RUNTIME_PLUGIN, "RuntimeControl"),
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
             instanceBinding(
                 key<PluginFiles>(plugin.id),
                 PluginDirectories(
-                    config.dataDir.resolve(PLUGINS).resolve(plugin.id),
-                    config.cacheDir.resolve(PLUGINS).resolve(plugin.id),
+                    config.dataDir.resolve(PLUGINS_DIRECTORY).resolve(plugin.id),
+                    config.cacheDir.resolve(PLUGINS_DIRECTORY).resolve(plugin.id),
                 ),
                 RUNTIME_PLUGIN,
                 "PluginFiles of ${plugin.id}",
@@ -60,12 +62,18 @@ internal fun runtimeBindings(
                 RUNTIME_PLUGIN,
                 "PluginScope of ${plugin.id}",
             ),
+            instanceBinding(
+                key<RuntimeControl>(plugin.id),
+                control(plugin.id),
+                RUNTIME_PLUGIN,
+                "RuntimeControl of ${plugin.id}",
+            ),
         )
     }
     return PluginBindings(RUNTIME_PLUGIN, bindings)
 }
 
-private class PluginDirectories(data: Path, cache: Path) : PluginFiles {
-    override val dataDir: Path by lazy { data.also(::createOwnerOnly) }
-    override val cacheDir: Path by lazy { cache.also(::createOwnerOnly) }
+private class PluginDirectories(private val data: Path, private val cache: Path) : PluginFiles {
+    override val dataDir: Path get() = data.also(::createOwnerOnly)
+    override val cacheDir: Path get() = cache.also(::createOwnerOnly)
 }

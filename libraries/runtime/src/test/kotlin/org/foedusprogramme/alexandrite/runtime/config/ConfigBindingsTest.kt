@@ -4,7 +4,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
-import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
+import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
@@ -57,19 +57,12 @@ class ConfigBindingsTest {
     private val disk = spec("cache.disk", DiskConfig.serializer())
     private val alerts = spec("alerts.severe", AlertConfig.serializer())
 
-    private fun index(vararg sections: ConfigSectionSpec<*>) = object : PluginIndex {
-        override val info = PluginInfo("weather", "Weather", "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "")
-        override val configRoot: String = "plugins.weather"
-
-        override fun bindings(): List<Binding<*>> = emptyList()
-
-        override fun configSections(): List<ConfigSectionSpec<*>> = sections.toList()
-    }
+    private fun index(vararg sections: ConfigSectionSpec<*>) = TestIndex("weather", sections = sections.toList())
 
     private fun source(json: String) = JsonConfigSource(Json.parseToJsonElement(json).jsonObject)
 
     private fun bindings(json: String, vararg sections: ConfigSectionSpec<*>) =
-        configBindings(index(*sections), source(json))
+        configBindings(index(*sections), source(json), mutableListOf())
 
     private fun decoded(json: String, vararg sections: ConfigSectionSpec<*>): Container =
         Container.build(emptyList(), overrides = bindings(json, *sections))
@@ -200,16 +193,15 @@ class ConfigBindingsTest {
     @Test
     fun `a non-object on the way to a section fails naming the full path`() {
         val cases = mapOf(
-            """{"plugins": {"weather": {"cache": "big"}}}""" to ("plugins.weather.cache" to "plugins.weather.cache"),
-            """{"plugins": {"weather": ["sunny"]}}""" to ("plugins.weather" to "plugins.weather"),
-            """{"plugins": "weather"}""" to ("plugins.weather" to "plugins"),
+            """{"plugins": {"weather": {"cache": "big"}}}""" to "plugins.weather.cache",
+            """{"plugins": {"weather": ["sunny"]}}""" to "plugins.weather",
+            """{"plugins": "weather"}""" to "plugins",
         )
 
-        for ((json, expected) in cases) {
-            val (path, offender) = expected
+        for ((json, offender) in cases) {
             val error = failure(json, cache)
-            assertEquals(path, error.path, json)
-            assertEquals("Invalid config at '$path': '$offender' is not an object", error.message, json)
+            assertEquals(offender, error.path, json)
+            assertEquals("Invalid config at '$offender': must be an object", error.message, json)
         }
     }
 
@@ -242,5 +234,34 @@ class ConfigBindingsTest {
         assertEquals("plugins.weather.bot", error.path)
         assertEquals("Invalid config at 'plugins.weather.bot': port of '***' must be positive", error.message)
         assertFalse(generateSequence<Throwable>(error) { it.cause }.any { "s3cr3t" in it.message.orEmpty() })
+    }
+
+    @Test
+    fun `a long string of the config is masked even where an error does not quote it`() {
+        val checked = spec("bot", CheckedConfig.serializer())
+
+        val error = failure("""{"plugins": {"weather": {"bot": {"token": "abcdefgh12", "port": 0}}}}""", checked)
+
+        assertEquals("Invalid config at 'plugins.weather.bot': port of '***' must be positive", error.message)
+        val bare = spec("bare", BareConfig.serializer())
+        val unquoted = failure("""{"plugins": {"weather": {"bare": {"token": "abcdefgh12"}}}}""", bare)
+        assertEquals("Invalid config at 'plugins.weather.bare': token *** is too short", unquoted.message)
+    }
+
+    @Serializable
+    data class BareConfig(val token: String) {
+        init {
+            require(token.length > 20) { "token $token is too short" }
+        }
+    }
+
+    @Test
+    fun `the values of the decoded secrets are collected`() {
+        val bot = spec("bot", BotConfig.serializer())
+        val secrets = mutableListOf<String>()
+
+        configBindings(index(bot), source("""{"plugins": {"weather": {"bot": {"token": "s3cr3t"}}}}"""), secrets)
+
+        assertEquals(listOf("s3cr3t"), secrets)
     }
 }

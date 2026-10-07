@@ -6,11 +6,16 @@ import ch.qos.logback.core.read.ListAppender
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.testTimeSource
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import org.foedusprogramme.alexandrite.runtime.lifecycle.RuntimeRun
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
@@ -147,14 +152,16 @@ fun worker(
     plugin,
     name,
     dependencies = dependencies.map { Dependency(key<Worker>(it), DependencyKind.INSTANCE, it) } +
-        Dependency(key<RuntimeControl>(), DependencyKind.INSTANCE, "control"),
+        Dependency(key<RuntimeControl>(plugin), DependencyKind.INSTANCE, "control"),
 ) { r ->
     dependencies.forEach { r.get(key<Worker>(it)) }
     events.record("create $name")
-    Worker(name, events, r.get(key()), onStart, onOpen, onClose, onDrain, onStop)
+    Worker(name, events, r.get(key(plugin)), onStart, onOpen, onClose, onDrain, onStop)
 }
 
 val HOST_STOP = StopRequest.shutdown("requested by the host")
+
+val RESTART = StopRequest.restart("update")
 
 val BLOCK_RETURNED = StopRequest.shutdown("the run block returned")
 
@@ -255,6 +262,8 @@ val TEST_BUILT_INS: List<BuiltInPlugin> = listOf(
     BuiltInPlugin(MISSING_INDEX, "alexandrite-missing", BuiltInLayer.AGENT, "missing"),
 )
 
+fun core(vararg bindings: Binding<*>): PluginSet = explicit(TestIndex("core", bindings = bindings.toList()))
+
 fun loaded(index: PluginIndex, layer: BuiltInLayer? = null): LoadedPlugin =
     LoadedPlugin(index.info, layer, index.configRoot)
 
@@ -322,6 +331,13 @@ fun spec(
 }
 
 fun requested(request: StopRequest, problems: List<Problem> = emptyList()): Termination = Termination(request, problems)
+
+fun TestScope.virtual(): CoroutineDispatcher = StandardTestDispatcher(testScheduler)
+
+/** Starts a runtime of [spec] whose shutdown grace runs on the virtual time of this test. */
+@OptIn(ExperimentalCoroutinesApi::class)
+suspend fun TestScope.startVirtually(spec: RuntimeSpec): AlexandriteRuntime =
+    RuntimeRun(spec, PARENT_CANCELLED, testTimeSource).start(null)
 
 fun RuntimeSpec.execute(block: suspend AlexandriteRuntime.() -> Unit = {}): Termination =
     runBlocking { AlexandriteRuntime.run(this@execute, block) }

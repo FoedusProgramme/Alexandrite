@@ -74,4 +74,5 @@ internal fun usage(defaults: Locations): String =
 
     Each default comes from ALEXANDRITE_CONFIG, ALEXANDRITE_DATA_DIR and ALEXANDRITE_CACHE_DIR when set,
     else from XDG_CONFIG_HOME, XDG_DATA_HOME and XDG_CACHE_HOME, else from the platform's own locations.
+    The cache is the data directory's "cache" directory when only the data directory is named.
     """.trimIndent()

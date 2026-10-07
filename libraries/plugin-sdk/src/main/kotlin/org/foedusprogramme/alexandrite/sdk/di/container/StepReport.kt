@@ -20,6 +20,9 @@ public class StepReport(
         CLOSE,
         DRAIN,
         STOP,
+
+        /** [Lifecycle.onDestroy], then [AutoCloseable.close]. */
+        DESTROY,
     }
 
     /** How the call of one instance ended. */

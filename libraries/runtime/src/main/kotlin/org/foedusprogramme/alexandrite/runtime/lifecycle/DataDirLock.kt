@@ -4,20 +4,23 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.channels.OverlappingFileLockException
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.StandardOpenOption.CREATE
 import java.nio.file.StandardOpenOption.READ
 import java.nio.file.StandardOpenOption.WRITE
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 
 /** The lock that keeps a data directory to one runtime. */
-internal class DataDirLock private constructor(private val directory: Path, private val channel: FileChannel) :
+internal class DataDirLock private constructor(private val key: Any, private val channel: FileChannel) :
     AutoCloseable {
     override fun close() {
         try {
             channel.close()
         } finally {
-            held.remove(directory)
+            held.remove(key)
         }
     }
 
@@ -26,24 +29,31 @@ internal class DataDirLock private constructor(private val directory: Path, priv
 
         private const val THIS_JVM = "another runtime of this JVM"
 
-        /** Real paths of the data directories that runtimes of this JVM hold. */
-        private val held: MutableSet<Path> = ConcurrentHashMap.newKeySet()
+        /** The lock files that runtimes of this JVM hold, by file key. */
+        private val held: MutableSet<Any> = ConcurrentHashMap.newKeySet()
 
         /** Locks [dataDir], calling [inUse] with the holder when another runtime has it. */
         fun acquire(dataDir: Path, inUse: (holder: String) -> Nothing): DataDirLock {
             createOwnerOnly(dataDir)
-            val directory = dataDir.toRealPath()
-            if (!held.add(directory)) inUse(THIS_JVM)
+            val file = dataDir.toRealPath().resolve(FILE_NAME)
             try {
-                return DataDirLock(directory, lockedChannel(directory.resolve(FILE_NAME), inUse))
+                Files.createFile(file)
+            } catch (e: FileAlreadyExistsException) {
+            }
+            val attributes = Files.readAttributes(file, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+            if (!attributes.isRegularFile) throw IOException("The lock file $file is not a regular file.")
+            val key = attributes.fileKey() ?: file
+            if (!held.add(key)) inUse(THIS_JVM)
+            try {
+                return DataDirLock(key, lockedChannel(file, inUse))
             } catch (e: Throwable) {
-                held.remove(directory)
+                held.remove(key)
                 throw e
             }
         }
 
         private fun lockedChannel(file: Path, inUse: (holder: String) -> Nothing): FileChannel {
-            val channel = FileChannel.open(file, CREATE, READ, WRITE)
+            val channel = FileChannel.open(file, READ, WRITE, NOFOLLOW_LINKS)
             try {
                 val lock = try {
                     channel.tryLock()

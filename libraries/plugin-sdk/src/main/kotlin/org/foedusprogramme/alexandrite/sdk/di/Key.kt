@@ -24,10 +24,9 @@ public class Key<T : Any> @PublishedApi internal constructor(public val type: KT
     }
 }
 
-/** The [Key] of [T]. */
 public inline fun <reified T : Any> key(qualifier: String? = null): Key<T> = Key(typeOf<T>(), qualifier)
 
-internal fun KType.render(): String {
+private fun KType.render(): String {
     val name = when (val classifier = classifier) {
         is KClass<*> -> classifier.qualifiedName ?: classifier.java.name
         else -> classifier.toString()

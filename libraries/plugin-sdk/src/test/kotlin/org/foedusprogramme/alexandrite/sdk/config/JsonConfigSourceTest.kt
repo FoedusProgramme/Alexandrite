@@ -32,17 +32,22 @@ class JsonConfigSourceTest {
 
         assertNull(source.tree("tools.web"))
         assertNull(source.tree("channels.web"))
+        assertNull(source("""{"tools": {"web": null}}""").tree("tools.web.proxy"))
     }
 
     @Test
-    fun `a non-object at the path fails naming it`() {
-        val source = source("""{"tools": {"exec": "make", "web": null}, "channels": []}""")
-        val offenders = mapOf("tools.exec" to "tools.exec", "tools.web" to "tools.web", "channels.web" to "channels")
+    fun `a non-object on the way fails naming its own path`() {
+        val source = source("""{"tools": {"exec": "make"}, "channels": []}""")
+        val offenders = mapOf(
+            "tools.exec" to "tools.exec",
+            "tools.exec.shell" to "tools.exec",
+            "channels.web" to "channels",
+        )
 
         for ((path, prefix) in offenders) {
             val error = assertFailsWith<ConfigException> { source.tree(path) }
-            assertEquals(path, error.path)
-            assertEquals("Invalid config at '$path': '$prefix' is not an object", error.message)
+            assertEquals(prefix, error.path)
+            assertEquals("Invalid config at '$prefix': must be an object", error.message)
         }
     }
 

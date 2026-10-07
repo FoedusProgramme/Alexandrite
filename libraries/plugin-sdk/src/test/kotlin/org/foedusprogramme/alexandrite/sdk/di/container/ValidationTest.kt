@@ -163,7 +163,34 @@ class ValidationTest {
             )
         }
 
-        assertContains(error.message!!, "depends on channel-instance-scoped t2 (plugin test) through parameter 'tools'")
+        assertContains(
+            error.message!!,
+            "Scope violation: channel-instance-scoped t2 (plugin test) contributes to " +
+                "@Named(\"tools\") $serviceType, which singleton a (plugin test) collects through parameter 'tools'. " +
+                "Make it a singleton or make a channel-instance-scoped.",
+        )
+    }
+
+    @Test
+    fun `channel contributions a singleton collects are the fault of their plugin`() {
+        val error = assertFailsWith<DiException> {
+            Container.build(
+                listOf(
+                    plugin("core", service("registry", dep("tools", DependencyKind.ALL), plugin = "core")),
+                    plugin(
+                        "relay",
+                        service("t", key = svc("tools"), multi = true, scope = CHANNEL_INSTANCE, plugin = "relay"),
+                    ),
+                ),
+            )
+        }
+
+        assertEquals(
+            listOf(Triple(SCOPE, "relay", svc("tools"))),
+            error.problems.map {
+                Triple(it.kind, it.plugin, it.key)
+            },
+        )
     }
 
     @Test

@@ -14,12 +14,15 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.testTimeSource
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.Events
+import org.foedusprogramme.alexandrite.runtime.PARENT_CANCELLED
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeState
 import org.foedusprogramme.alexandrite.runtime.TestIndex
+import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.spec
@@ -40,6 +43,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -79,10 +83,12 @@ class PluginScopeTest {
         vararg pollers: Binding<Poller>,
         parent: CoroutineScope? = null,
         dispatcher: CoroutineDispatcher = StandardTestDispatcher(testScheduler),
+        shutdownGrace: Duration = 1.seconds,
     ): AlexandriteRuntime {
         val indexes = pollers.groupBy { it.plugin }.map { (id, bound) -> TestIndex(id, bindings = bound) }
-        val spec = spec(explicit(*indexes.toTypedArray()), dataDir, shutdownGrace = 1.seconds, dispatcher = dispatcher)
-        return AlexandriteRuntime.start(spec, parent)
+        val spec =
+            spec(explicit(*indexes.toTypedArray()), dataDir, shutdownGrace = shutdownGrace, dispatcher = dispatcher)
+        return RuntimeRun(spec, PARENT_CANCELLED, testTimeSource).start(parent)
     }
 
     private fun AlexandriteRuntime.poller(name: String): Poller = services.resolver().get(key(name))
@@ -179,7 +185,7 @@ class PluginScopeTest {
     }
 
     @Test
-    fun `coroutines still running at the shutdown deadline are reported and the teardown goes on`() {
+    fun `coroutines still running at the shutdown deadline are reported and abandoned`() {
         val release = CompletableDeferred<Unit>()
         val parent = CoroutineScope(Job())
         val message = "Coroutines of plugin core were still running: the shutdown grace of 1s ran out."
@@ -202,14 +208,48 @@ class PluginScopeTest {
                     runtime.join().problems,
                 )
                 assertEquals(listOf("open straggler", "stop straggler", "destroy straggler"), events.all())
-                assertFalse(parent.coroutineContext.job.children.none())
+                assertTrue(parent.coroutineContext.job.children.none())
                 release.complete(Unit)
                 runCurrent()
                 assertEquals("straggler done", events.all().last())
-                assertTrue(parent.coroutineContext.job.children.none())
             }
         }
 
         assertContains(lines, "WARN test: $message")
+    }
+
+    @Test
+    fun `run returns although a coroutine ignores its cancellation`() {
+        val release = CompletableDeferred<Unit>()
+        val index = TestIndex(
+            "core",
+            bindings = listOf(
+                poller("straggler", "core") {
+                    withContext(NonCancellable) { release.await() }
+                    events.record("straggler done")
+                },
+            ),
+        )
+
+        val termination = spec(explicit(index), dataDir, shutdownGrace = 0.seconds).execute()
+
+        assertContains(termination.problems.map { it.kind }, RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE)
+        assertFalse("straggler done" in events.all())
+        release.complete(Unit)
+    }
+
+    @Test
+    fun `a grace of zero still lets a cancelled coroutine finish without a report`() = runTest {
+        val runtime = started(poller("poller", "core") { awaitCancellation() }, shutdownGrace = 0.seconds)
+        runCurrent()
+
+        runtime.stop()
+
+        assertEquals(
+            emptyList(),
+            runtime.join().problems.filter {
+                it.kind == RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE
+            },
+        )
     }
 }

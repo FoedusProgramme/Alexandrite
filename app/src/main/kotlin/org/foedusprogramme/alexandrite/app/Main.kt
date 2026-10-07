@@ -2,19 +2,16 @@ package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.ConfigFile
+import org.foedusprogramme.alexandrite.runtime.ConfigFileException
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.Termination
-import org.foedusprogramme.alexandrite.runtime.config.ConfigFile
-import org.foedusprogramme.alexandrite.runtime.config.ConfigFileException
+import org.foedusprogramme.alexandrite.runtime.decodeSection
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
-import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
-import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.PrintStream
@@ -57,12 +54,17 @@ internal fun run(
         AlexandriteRuntime.runUntilSignal(spec, block)
     },
 ): Int {
-    val defaults = locations(Options(), environment, osName, home)
+    fun located(options: Options): Locations? = try {
+        locations(options, environment, osName, home)
+    } catch (e: IllegalArgumentException) {
+        err.println("alexandrite: ${e.message}")
+        null
+    }
     val options = when (val command = parseArguments(args)) {
         is Command.Run -> command.options
 
         Command.Help -> {
-            out.println(usage(defaults))
+            out.println(usage(located(Options()) ?: return ExitCode.CONFIG))
             return ExitCode.OK
         }
 
@@ -74,12 +76,13 @@ internal fun run(
         is Command.Invalid -> {
             err.println("alexandrite: ${command.message}")
             err.println()
-            err.println(usage(defaults))
+            err.println(usage(located(Options()) ?: return ExitCode.USAGE))
             return ExitCode.USAGE
         }
     }
+    val locations = located(options) ?: return ExitCode.CONFIG
     return try {
-        host(locations(options, environment, osName, home), environment, err, execute)
+        host(locations, environment, err, execute)
     } catch (e: Exception) {
         logger.error("Unexpected error", e)
         err.println("alexandrite: unexpected error: $e")
@@ -106,10 +109,7 @@ private fun host(
         return ExitCode.CONFIG
     }
     val settings = try {
-        appConfig(source)
-    } catch (e: IllegalArgumentException) {
-        err.println("alexandrite: Invalid config at '$APP_ROOT': ${e.message?.lineSequence()?.first()}")
-        return ExitCode.CONFIG
+        source.decodeSection(APP_ROOT, AppConfig.serializer())
     } catch (e: ConfigException) {
         err.println("alexandrite: ${e.message}")
         return ExitCode.CONFIG
@@ -151,11 +151,6 @@ private fun host(
         if (e.stopRequest == null) err.println("alexandrite: ${e.message}")
         exitCode(e)
     }
-}
-
-private fun appConfig(source: ConfigSource): AppConfig {
-    val tree = source.tree(APP_ROOT) ?: JsonObject(emptyMap())
-    return Json.decodeFromJsonElement(AppConfig.serializer(), JsonObject(tree - PluginIds.ENABLED_KEY))
 }
 
 private fun exampleConfig(): String {

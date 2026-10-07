@@ -25,6 +25,9 @@ public enum class RuntimeProblemKind : ProblemKind {
     /** A built-in index whose id or config root differs from its row in the built-in list. */
     MISMATCHED_INDEX,
 
+    /** A plugin compiled against another API version of the SDK. */
+    INCOMPATIBLE_SDK,
+
     /** Config that cannot be read or decoded. */
     INVALID_CONFIG,
 
