@@ -1,6 +1,11 @@
 package org.foedusprogramme.alexandrite.runtime
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.PluginsResolved
@@ -11,7 +16,6 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopped
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.Stopping
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
-import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
@@ -34,6 +38,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -221,9 +226,7 @@ class RuntimeTest {
     fun `a runtime reports its plugins, its start and its stop`() {
         val plugins = builtIn(dataDir, AgentIndex::class, TelegramIndex::class, HelloIndex::class)
 
-        lateinit var reported: List<LoadedPlugin>
-
-        spec(plugins, dataDir, """{"plugins": {"weather": {}}}""", recorder).execute { reported = this.plugins }
+        spec(plugins, dataDir, """{"plugins": {"weather": {}}}""", recorder).execute()
 
         val agent = loaded(AgentIndex(), BuiltInLayer.AGENT)
         assertEquals(
@@ -243,7 +246,6 @@ class RuntimeTest {
             ),
             recorder.events,
         )
-        assertEquals(listOf(agent), reported)
     }
 
     private class FailedStart(
@@ -299,12 +301,20 @@ class RuntimeTest {
 
         repeat(40) { round ->
             val recorder = Recorder()
-            val runtime = AlexandriteRuntime.launch(spec(core(service("a", "core")), dataDir, listener = recorder))
+            val parent = CoroutineScope(Job())
+            val spec = spec(core(service("a", "core")), dataDir, listener = recorder)
 
-            Thread.sleep(round % 4L)
-            runtime.requestStop()
+            val request = runBlocking(Dispatchers.Default) {
+                val starting = async { runCatching { AlexandriteRuntime.start(spec, parent) } }
+                Thread.sleep(round % 4L)
+                parent.cancel()
+                starting.await().fold(
+                    { withTimeout(10.seconds) { it.join() }.request },
+                    { assertIs<RuntimeStartException>(it).stopRequest },
+                )
+            }
 
-            assertEquals(requested(HOST_STOP), runtime.terminated(), "round $round")
+            assertEquals(PARENT_CANCELLED, request, "round $round")
             assertContains(outcomes, recorder.names(), "round $round")
         }
     }
@@ -312,11 +322,11 @@ class RuntimeTest {
     @Test
     fun `a listener that throws is logged at WARN and stops nothing`() {
         val spec = spec(explicit(AgentIndex()), dataDir, listener = { error("listener failed") })
-        lateinit var loaded: List<LoadedPlugin>
+        lateinit var termination: Termination
 
-        val lines = logged { spec.execute { loaded = plugins } }
+        val lines = logged { termination = spec.execute() }
 
-        assertEquals(listOf("alexandrite-agent"), loaded.map { it.info.id })
+        assertEquals(requested(BLOCK_RETURNED), termination)
         assertEquals(
             listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"),
             lines.filter { it.startsWith("WARN test: listener failed on ") }
@@ -330,7 +340,9 @@ class RuntimeTest {
     fun `services resolve only host API types`() {
         spec(core(service("a", "core"), probe("core")), dataDir).execute {
             assertEquals(emptyMap(), services.get(key<Probe>()).values)
+            assertEquals(emptyMap(), services.get<Probe>().values)
             assertNull(services.getOrNull(key<Probe>("other")))
+            assertNull(services.getOrNull<Probe>("other"))
             for (key in listOf(key<Clock>(), key<Service>("a"))) {
                 val error = assertFailsWith<IllegalArgumentException> { services.getOrNull(key) }
                 assertContains(

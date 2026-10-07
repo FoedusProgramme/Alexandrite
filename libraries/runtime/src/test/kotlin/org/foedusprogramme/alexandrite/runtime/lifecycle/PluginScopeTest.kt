@@ -75,14 +75,14 @@ class PluginScopeTest {
             dependencies = listOf(Dependency(key<PluginScope>(plugin), DependencyKind.INSTANCE, "scope")),
         ) { r -> Poller(name, events, r.get(key<PluginScope>(plugin)), poll) }
 
-    private fun TestScope.launched(
+    private suspend fun TestScope.started(
         vararg pollers: Binding<Poller>,
         parent: CoroutineScope? = null,
         dispatcher: CoroutineDispatcher = StandardTestDispatcher(testScheduler),
     ): AlexandriteRuntime {
         val indexes = pollers.groupBy { it.plugin }.map { (id, bound) -> TestIndex(id, bindings = bound) }
         val spec = spec(explicit(*indexes.toTypedArray()), dataDir, shutdownGrace = 1.seconds, dispatcher = dispatcher)
-        return AlexandriteRuntime.launch(spec, parent)
+        return AlexandriteRuntime.start(spec, parent)
     }
 
     private fun AlexandriteRuntime.poller(name: String): Poller = services.resolver().get(key(name))
@@ -90,7 +90,7 @@ class PluginScopeTest {
     @Test
     fun `a coroutine launched when opening runs until the stop and is cancelled after onStop and before onDestroy`() =
         runTest {
-            val runtime = launched(
+            val runtime = started(
                 poller("poller", "core") {
                     events.record("polling")
                     try {
@@ -101,12 +101,11 @@ class PluginScopeTest {
                 },
             )
 
-            runtime.awaitReady()
             runCurrent()
             assertEquals(listOf("open poller", "polling"), events.all())
-            runtime.requestStop()
+            runtime.stop()
 
-            assertEquals(emptyList(), runtime.awaitTermination().problems)
+            assertEquals(emptyList(), runtime.join().problems)
             assertEquals(
                 listOf("open poller", "polling", "stop poller", "cancelled", "destroy poller"),
                 events.all(),
@@ -116,17 +115,16 @@ class PluginScopeTest {
     @Test
     fun `each plugin has a scope of its own, named after it and on the runtime's dispatcher`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
-        val runtime = launched(poller("a", "first") {}, poller("b", "second") {}, dispatcher = dispatcher)
+        val runtime = started(poller("a", "first") {}, poller("b", "second") {}, dispatcher = dispatcher)
 
-        runtime.awaitReady()
         val first = runtime.poller("a").scope.coroutineContext
         val second = runtime.poller("b").scope.coroutineContext
 
         assertEquals(listOf("first", "second"), listOf(first, second).map { it[CoroutineName]?.name })
         assertNotSame(first.job, second.job)
         assertEquals(listOf(dispatcher, dispatcher), listOf(first, second).map { it[ContinuationInterceptor] })
-        runtime.requestStop()
-        runtime.awaitTermination()
+        runtime.stop()
+        runtime.join()
         assertTrue(first.job.isCancelled && second.job.isCancelled)
     }
 
@@ -137,21 +135,20 @@ class PluginScopeTest {
 
         val lines = logged {
             runTest {
-                val runtime = launched(
+                val runtime = started(
                     poller("crashing", "core") { error("poll failed") },
                     poller("steady", "core") { awaitCancellation() },
                     poller("other", "other") { awaitCancellation() },
                 )
 
-                runtime.awaitReady()
                 runCurrent()
                 steady = runtime.poller("steady").job
                 other = runtime.poller("other").job
 
                 assertEquals(RuntimeState.READY, runtime.state.value)
                 assertTrue(steady.isActive && other.isActive)
-                runtime.requestStop()
-                assertEquals(emptyList(), runtime.awaitTermination().problems)
+                runtime.stop()
+                assertEquals(emptyList(), runtime.join().problems)
             }
         }
 
@@ -160,25 +157,24 @@ class PluginScopeTest {
     }
 
     @Test
-    fun `a plugin's coroutine cannot await the termination of its runtime`() = runTest {
+    fun `a plugin's coroutine cannot join its runtime`() = runTest {
         val handle = CompletableDeferred<AlexandriteRuntime>()
-        val runtime = launched(
+        val runtime = started(
             poller("waiter", "core") {
-                val error = runCatching { handle.await().awaitTermination() }.exceptionOrNull()
+                val error = runCatching { handle.await().join() }.exceptionOrNull()
                 events.record("${error?.javaClass?.simpleName}: ${error?.message}")
             },
         )
         handle.complete(runtime)
 
-        runtime.awaitReady()
         runCurrent()
-        runtime.requestStop()
-        runtime.awaitTermination()
+        runtime.stop()
+        runtime.join()
 
         assertContains(
             events.all(),
-            "IllegalStateException: Runtime 'test' cannot await its termination from its listener, its lifecycle " +
-                "calls or its plugins' coroutines.",
+            "IllegalStateException: Runtime 'test' cannot be joined from its listener, its lifecycle calls or its " +
+                "plugins' coroutines.",
         )
     }
 
@@ -190,7 +186,7 @@ class PluginScopeTest {
 
         val lines = logged {
             runTest {
-                val runtime = launched(
+                val runtime = started(
                     poller("straggler", "core") {
                         withContext(NonCancellable) { release.await() }
                         events.record("straggler done")
@@ -198,13 +194,12 @@ class PluginScopeTest {
                     parent = parent,
                 )
 
-                runtime.awaitReady()
                 runCurrent()
-                runtime.requestStop()
+                runtime.stop()
 
                 assertEquals(
                     listOf(Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, "core", null)),
-                    runtime.awaitTermination().problems,
+                    runtime.join().problems,
                 )
                 assertEquals(listOf("open straggler", "stop straggler", "destroy straggler"), events.all())
                 assertFalse(parent.coroutineContext.job.children.none())

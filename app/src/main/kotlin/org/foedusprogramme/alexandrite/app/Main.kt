@@ -1,11 +1,13 @@
 package org.foedusprogramme.alexandrite.app
 
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.config.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.config.ConfigFileException
@@ -51,7 +53,9 @@ internal fun run(
     home: Path = Path.of(System.getProperty("user.home")),
     out: PrintStream = System.out,
     err: PrintStream = System.err,
-    execute: suspend (RuntimeSpec) -> Termination = { AlexandriteRuntime.runUntilSignal(it) },
+    execute: suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination = { spec, block ->
+        AlexandriteRuntime.runUntilSignal(spec, block)
+    },
 ): Int {
     val defaults = locations(Options(), environment, osName, home)
     val options = when (val command = parseArguments(args)) {
@@ -87,7 +91,7 @@ private fun host(
     locations: Locations,
     environment: Map<String, String>,
     err: PrintStream,
-    execute: suspend (RuntimeSpec) -> Termination,
+    execute: suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination,
 ): Int {
     val source = try {
         ConfigFile.read(locations.configFile, environment)
@@ -127,7 +131,7 @@ private fun host(
         err.println("alexandrite: ${e.message}")
         return ExitCode.CONFIG
     }
-    val spec = RuntimeSpec.builder(config, plugins).pluginConfig(source).listener(HostListener(logger)).build()
+    val spec = RuntimeSpec.builder(config, plugins).pluginConfig(source).build()
     logger.info(
         "Alexandrite {} starting with config {}, data {}, cache {}",
         alexandriteVersion,
@@ -135,9 +139,18 @@ private fun host(
         locations.dataDir,
         locations.cacheDir,
     )
-    val termination = runBlocking { execute(spec) }
-    (termination.cause as? Termination.Cause.StartFailed)?.let { err.println("alexandrite: ${it.error.message}") }
-    return exitCode(termination)
+    return try {
+        val termination = runBlocking {
+            execute(spec) {
+                logger.info("Alexandrite {} is ready", alexandriteVersion)
+                awaitCancellation()
+            }
+        }
+        exitCode(termination.request.kind)
+    } catch (e: RuntimeStartException) {
+        if (e.stopRequest == null) err.println("alexandrite: ${e.message}")
+        exitCode(e)
+    }
 }
 
 private fun appConfig(source: ConfigSource): AppConfig {

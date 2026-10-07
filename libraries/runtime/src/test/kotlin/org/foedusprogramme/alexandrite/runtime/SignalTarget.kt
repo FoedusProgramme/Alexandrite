@@ -20,5 +20,5 @@ fun main(args: Array<String>) {
     }
     val spec = spec(explicit(index), Path.of(args[0]), listener = listener, shutdownGrace = 60.seconds)
     val termination = runBlocking { AlexandriteRuntime.runUntilSignal(spec) }
-    println("stopped: ${(termination.cause as Termination.Cause.Requested).request.reason}")
+    println("stopped: ${termination.request.reason}")
 }

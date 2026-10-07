@@ -2,9 +2,12 @@ package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -12,8 +15,10 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.BLOCK_RETURNED
+import org.foedusprogramme.alexandrite.runtime.BotIndex
 import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.runtime.HOST_STOP
+import org.foedusprogramme.alexandrite.runtime.PARENT_CANCELLED
 import org.foedusprogramme.alexandrite.runtime.Probe
 import org.foedusprogramme.alexandrite.runtime.RUN_CANCELLED
 import org.foedusprogramme.alexandrite.runtime.Recorder
@@ -33,15 +38,14 @@ import org.foedusprogramme.alexandrite.runtime.probe
 import org.foedusprogramme.alexandrite.runtime.requested
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
-import org.foedusprogramme.alexandrite.runtime.terminated
 import org.foedusprogramme.alexandrite.runtime.worker
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.io.TempDir
@@ -56,6 +60,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -69,7 +74,7 @@ class LifecycleTest {
     private val events = Events()
     private val recorder = Recorder()
 
-    private val restart = StopRequest(StopKind.RESTART, "update")
+    private val restart = StopRequest.restart("update")
 
     private val lifecycle = listOf("create a", "start a", "open a", "close a", "drain a", "stop a", "destroy a")
 
@@ -108,6 +113,17 @@ class LifecycleTest {
         override fun tree(path: String): JsonObject? {
             gate.block()
             return null
+        }
+    }
+
+    /** What starting [spec] throws when its parent scope is cancelled at [gate]. */
+    private fun cutShort(spec: RuntimeSpec, gate: Gate): RuntimeStartException {
+        val parent = CoroutineScope(Job())
+        return runBlocking(Dispatchers.Default) {
+            val start = async { assertFailsWith<RuntimeStartException> { AlexandriteRuntime.start(spec, parent) } }
+            gate.awaitEntered()
+            parent.cancel()
+            start.await()
         }
     }
 
@@ -156,7 +172,7 @@ class LifecycleTest {
 
         assertEquals("block failed", thrown.message)
         val reason = "the run block failed: java.lang.IllegalStateException: block failed"
-        assertEquals(requested(StopRequest(StopKind.FAILURE, reason)), recorder.termination())
+        assertEquals(requested(StopRequest.failure(reason)), recorder.termination())
         assertEquals(lifecycle, events.all())
     }
 
@@ -198,7 +214,7 @@ class LifecycleTest {
     }
 
     @Test
-    fun `requestStop returns at once and the stop runs once the block has ended`() {
+    fun `stop returns at once and the stop runs once the block has ended`() {
         val draining = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val worker = worker(
@@ -215,7 +231,7 @@ class LifecycleTest {
         val termination = runBlocking {
             val run = async(Dispatchers.Default) {
                 AlexandriteRuntime.run(spec) {
-                    requestStop(restart)
+                    stop(restart)
                     events.record("requested")
                     awaitCancellation()
                 }
@@ -233,12 +249,12 @@ class LifecycleTest {
     @Test
     fun `a plugin's stop request through RuntimeControl cancels the block`() {
         val control = CompletableDeferred<RuntimeControl>()
-        val failure = StopRequest(StopKind.FAILURE, "disk full")
+        val failure = StopRequest.failure("disk full")
         val spec = spec(core(worker("a", "core", onStart = { control.complete(it) })), dataDir)
 
         val termination = spec.execute {
             val plugin = control.await()
-            thread { plugin.requestStop(failure) }
+            thread { plugin.stop(failure) }
             try {
                 awaitCancellation()
             } catch (e: CancellationException) {
@@ -252,39 +268,42 @@ class LifecycleTest {
     }
 
     @Test
-    fun `a plugin that requests a stop from its own start cuts the start short`() {
-        val failure = StopRequest(StopKind.FAILURE, "no disk")
+    fun `a plugin that requests a stop from its own start cuts the start short and the run throws`() {
+        val failure = StopRequest.failure("no disk")
         var ran = false
         val spec = spec(
             core(
-                worker("a", "core", events, onStart = { it.requestStop(failure) }),
+                worker("a", "core", events, onStart = { it.stop(failure) }),
                 worker("b", "core", events, listOf("a")),
             ),
             dataDir,
             listener = recorder,
         )
 
-        val termination = spec.execute { ran = true }
+        val error = assertFailsWith<RuntimeStartException> { spec.execute { ran = true } }
 
-        assertEquals(requested(failure), termination)
+        assertEquals(failure, error.stopRequest)
+        assertEquals(StartStage.START, error.stage)
+        assertEquals(emptyList(), error.problems)
         assertFalse(ran)
         assertEquals(listOf("create a", "create b", "start a", "stop a", "destroy b", "destroy a"), events.all())
         assertEquals(listOf("PluginsResolved", "Stopping", "Stopped"), recorder.names())
+        assertEquals(requested(failure), recorder.termination())
     }
 
     @Test
     fun `the first stop request wins and later ones are logged and ignored`() {
-        val late = StopRequest(StopKind.FAILURE, "drain failed")
-        val spec = spec(core(worker("a", "core", onDrain = { it.requestStop(late) })), dataDir)
+        val late = StopRequest.failure("drain failed")
+        val spec = spec(core(worker("a", "core", onDrain = { it.stop(late) })), dataDir)
         lateinit var runtime: AlexandriteRuntime
         lateinit var termination: Termination
 
         val lines = logged {
             termination = spec.execute {
                 runtime = this
-                requestStop(restart)
+                stop(restart)
             }
-            runtime.requestStop()
+            runtime.stop()
         }
 
         assertEquals(requested(restart), termination)
@@ -302,7 +321,7 @@ class LifecycleTest {
     private class Blocked(val stage: StartStage, val events: List<String>, val spec: (Gate) -> RuntimeSpec)
 
     @Test
-    fun `a stop cuts the start short at every stage and the runtime never gets ready`() {
+    fun `a stop cuts the start short at every stage and the start throws`() {
         val cases = listOf(
             Blocked(StartStage.PLUGINS, listOf("Stopping", "Stopped")) { gate ->
                 spec(explicit(GatedIndex(gate)), dataDir, listener = recorder)
@@ -330,13 +349,12 @@ class LifecycleTest {
             val gate = Gate().apply { armed = false }
             val spec = case.spec(gate)
             gate.armed = true
-            val runtime = AlexandriteRuntime.launch(spec)
 
-            gate.awaitEntered()
-            runtime.requestStop(restart)
+            val error = cutShort(spec, gate)
 
-            assertEquals(requested(restart), runtime.terminated(), "${case.stage}")
-            assertFalse(runBlocking { runtime.awaitReady() }, "${case.stage}")
+            assertEquals(PARENT_CANCELLED, error.stopRequest, "${case.stage}")
+            assertEquals(case.stage, error.stage)
+            assertEquals(requested(PARENT_CANCELLED), recorder.termination(), "${case.stage}")
             assertEquals(case.events, recorder.names(), "${case.stage}")
         }
     }
@@ -344,17 +362,14 @@ class LifecycleTest {
     @Test
     fun `a stop during OPEN closes the opened instances, then drains and stops the started ones`() {
         val gate = Gate()
-        val runtime = AlexandriteRuntime.launch(
-            spec(
-                core(worker("a", "core", events), worker("b", "core", events, listOf("a"), onOpen = { gate.hold() })),
-                dataDir,
-            ),
+        val spec = spec(
+            core(worker("a", "core", events), worker("b", "core", events, listOf("a"), onOpen = { gate.hold() })),
+            dataDir,
         )
 
-        gate.awaitEntered()
-        runtime.requestStop()
+        val error = cutShort(spec, gate)
 
-        assertEquals(requested(HOST_STOP), runtime.terminated())
+        assertEquals(StartStage.OPEN, error.stage)
         assertEquals(
             listOf(
                 "create a", "create b",
@@ -372,7 +387,7 @@ class LifecycleTest {
     // Failed start.
 
     @Test
-    fun `a failed start tears down what it built and returns StartFailed without running the block`() {
+    fun `a failed start tears down what it built and throws without running the block`() {
         val spec = spec(
             core(
                 worker("a", "core", events),
@@ -383,16 +398,16 @@ class LifecycleTest {
         )
         var ran = false
 
-        val termination = spec.execute { ran = true }
+        val error = assertFailsWith<RuntimeStartException> { spec.execute { ran = true } }
 
-        val error = assertIs<Termination.Cause.StartFailed>(termination.cause).error
         assertFalse(ran)
         assertEquals(StartStage.OPEN, error.stage)
+        assertNull(error.stopRequest)
         assertEquals(
             "Cannot start runtime 'test': stage OPEN failed: java.lang.IllegalStateException: open b failed",
             error.message,
         )
-        assertEquals(emptyList(), termination.problems)
+        assertEquals(emptyList(), error.problems)
         assertEquals(
             listOf(
                 "create a", "create b",
@@ -414,7 +429,7 @@ class LifecycleTest {
     fun `a stop request while a failed start tears down is ignored`() {
         val spec = spec(
             core(
-                worker("a", "core", events, onDrain = { it.requestStop(restart) }),
+                worker("a", "core", events, onDrain = { it.stop(restart) }),
                 worker("b", "core", events, onOpen = { error("open b failed") }),
             ),
             dataDir,
@@ -431,6 +446,40 @@ class LifecycleTest {
 
     private class FailingClient(private val name: String) : AutoCloseable {
         override fun close() = error("close $name failed")
+    }
+
+    @Test
+    fun `what fails while a failed start is torn down follows the problems that failed it`() {
+        val client = binding(key<FailingClient>(), "core", "c") { FailingClient("c") }
+        val spec =
+            spec(explicit(TestIndex("core", bindings = listOf(client)), BotIndex()), dataDir, listener = recorder)
+
+        val error = spec.startFailure()
+
+        assertEquals(StartStage.GRAPH, error.stage)
+        assertEquals(listOf(DiProblemKind.MISSING, RuntimeProblemKind.DESTROY_FAILED), error.problems.map { it.kind })
+        assertEquals(
+            "Destroying an instance failed: java.lang.IllegalStateException: close c failed",
+            error.problems.last().message,
+        )
+        assertEquals(listOf("- ${error.problems.first().message}"), error.message!!.lines().drop(1))
+        assertSame(error, assertIs<RuntimeEvent.StartFailed>(recorder.events.last()).error)
+    }
+
+    @Test
+    fun `what fails while a start that a stop cut short is torn down is in the problems of both`() {
+        val failure = StopRequest.failure("no disk")
+        val spec = spec(
+            core(worker("a", "core", onStart = { it.stop(failure) }, onStop = { error("stop a failed") })),
+            dataDir,
+            listener = recorder,
+        )
+
+        val error = assertFailsWith<RuntimeStartException> { spec.execute() }
+
+        assertEquals(failure, error.stopRequest)
+        assertEquals(listOf(RuntimeProblemKind.STOP_FAILED), error.problems.map { it.kind })
+        assertEquals(requested(failure, error.problems), recorder.termination())
     }
 
     @Test
@@ -537,7 +586,7 @@ class LifecycleTest {
             runtime = this
             val held = services
             record("ready")
-            requestStop()
+            stop()
             record("requested")
             seen += "held: " + runCatching { held.get(key<Probe>()) }.fold({ "resolved" }, { it.message })
         }

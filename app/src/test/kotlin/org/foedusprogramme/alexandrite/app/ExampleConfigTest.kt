@@ -33,7 +33,7 @@ class ExampleConfigTest {
             listOf("--config", "$example", "--data-dir", "$dataDir"),
             emptyMap(),
             err = PrintStream(errors, true),
-            execute = { spec ->
+            execute = { spec, _ ->
                 AlexandriteRuntime.run(spec) { settings = services.resolver().get(key<AppConfig>()) }
             },
         )

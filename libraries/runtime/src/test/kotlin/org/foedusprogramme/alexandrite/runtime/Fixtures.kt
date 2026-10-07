@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
@@ -33,7 +34,6 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.LoggerFactory
 import java.net.URLClassLoader
@@ -43,7 +43,8 @@ import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.reflect.KClass
-import kotlin.test.assertIs
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.fail
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -153,13 +154,15 @@ fun worker(
     Worker(name, events, r.get(key()), onStart, onOpen, onClose, onDrain, onStop)
 }
 
-val HOST_STOP = StopRequest(StopKind.SHUTDOWN, "requested by the host")
+val HOST_STOP = StopRequest.shutdown("requested by the host")
 
-val BLOCK_RETURNED = StopRequest(StopKind.SHUTDOWN, "the run block returned")
+val BLOCK_RETURNED = StopRequest.shutdown("the run block returned")
 
-val RUN_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the run was cancelled")
+val RUN_CANCELLED = StopRequest.shutdown("the run was cancelled")
 
-val PARENT_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the parent scope was cancelled")
+val PARENT_CANCELLED = StopRequest.shutdown("the parent scope was cancelled")
+
+val START_CANCELLED = StopRequest.shutdown("the start was cancelled")
 
 @HostApi
 class Probe(val values: Map<String, Any>)
@@ -318,16 +321,18 @@ fun spec(
         .build()
 }
 
-fun requested(request: StopRequest, problems: List<Problem> = emptyList()): Termination =
-    Termination(Termination.Cause.Requested(request), problems)
+fun requested(request: StopRequest, problems: List<Problem> = emptyList()): Termination = Termination(request, problems)
 
 fun RuntimeSpec.execute(block: suspend AlexandriteRuntime.() -> Unit = {}): Termination =
     runBlocking { AlexandriteRuntime.run(this@execute, block) }
 
-fun AlexandriteRuntime.terminated(): Termination = runBlocking { withTimeout(10.seconds) { awaitTermination() } }
+fun RuntimeSpec.started(parent: CoroutineScope? = null): AlexandriteRuntime =
+    runBlocking { withTimeout(10.seconds) { AlexandriteRuntime.start(this@started, parent) } }
+
+fun AlexandriteRuntime.terminated(): Termination = runBlocking { withTimeout(10.seconds) { join() } }
 
 fun RuntimeSpec.startFailure(): RuntimeStartException =
-    assertIs<Termination.Cause.StartFailed>(execute { fail("the run block ran") }.cause).error
+    assertFailsWith<RuntimeStartException> { execute { fail("the run block ran") } }.also { assertNull(it.stopRequest) }
 
 fun logged(block: () -> Unit): List<String> {
     val logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java) as Logger

@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.testkit
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
@@ -35,7 +36,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -153,30 +154,32 @@ class PluginHarnessTest {
 
     @Test
     fun `run returns the termination and resolving fails once a stop is requested`() {
-        val request = StopRequest(StopKind.RESTART, "again")
+        val request = StopRequest.restart("again")
 
         val termination = harness { zone(ZoneId.of("Asia/Shanghai")).shutdownGrace(1.seconds) }.execute {
             assertEquals(ZoneId.of("Asia/Shanghai"), get<Clock>().zone)
-            requestStop(request)
+            stop(request)
             val error = assertFailsWith<IllegalStateException> { get<Greeter>() }
             assertEquals("Runtime 'harness' has no services: a stop was requested.", error.message)
         }
 
-        assertEquals(request, assertIs<Termination.Cause.Requested>(termination.cause).request)
+        assertEquals(request, termination.request)
         val returned = harness().execute {}
-        assertEquals(StopKind.SHUTDOWN, assertIs<Termination.Cause.Requested>(returned.cause).request.kind)
+        assertEquals(StopKind.SHUTDOWN, returned.request.kind)
     }
 
     @Test
-    fun `a failed start returns its termination without running the block`() {
+    fun `a failed start throws without running the block`() {
         val missing = Dependency(key<String>("missing"), DependencyKind.INSTANCE, "missing")
         val greeter = binding(key<Greeter>(), "broken", "Greeter", dependencies = listOf(missing)) { Greeter("never") }
         var ran = false
 
-        val termination =
+        val error = assertFailsWith<RuntimeStartException> {
             PluginHarness.builder(Index("broken", listOf(greeter))).dataRoot(directory).build().execute { ran = true }
+        }
 
-        assertEquals(StartStage.GRAPH, assertIs<Termination.Cause.StartFailed>(termination.cause).error.stage)
+        assertEquals(StartStage.GRAPH, error.stage)
+        assertNull(error.stopRequest)
         assertFalse(ran)
     }
 

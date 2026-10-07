@@ -23,41 +23,35 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.foedusprogramme.alexandrite.runtime.Termination.Cause
 import org.foedusprogramme.alexandrite.runtime.lifecycle.Launch
-import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
-/** An Alexandrite instance that runs its whole life in a coroutine of its own. */
+/** A started Alexandrite instance that runs in a coroutine of its own until its final event. */
 public interface AlexandriteRuntime {
     public val state: StateFlow<RuntimeState>
 
-    /** Returns true once it is [RuntimeState.READY], or false once it ended without getting there. */
-    public suspend fun awaitReady(): Boolean
-
-    /** Returns how it ended once its final event was delivered. */
-    public suspend fun awaitTermination(): Termination
-
-    /** Requests a stop unless one was requested before, and returns at once. */
-    public fun requestStop(request: StopRequest = StopRequest(StopKind.SHUTDOWN, "requested by the host"))
-
-    /** Resolves the [HostApi] types while it is ready. */
+    /** Resolves the [HostApi] types until a stop is requested. */
     public val services: RuntimeServices
 
-    /** The plugins it loaded. */
-    public val plugins: List<LoadedPlugin>
+    /** Requests a stop unless one was requested before, and returns at once. */
+    public fun stop(request: StopRequest = StopRequest.shutdown("requested by the host"))
+
+    /** Returns how it ended once its final event was delivered. */
+    public suspend fun join(): Termination
 
     public companion object {
-        /** Starts a runtime of [spec] as a child of [parent] and returns at once. */
-        public fun launch(spec: RuntimeSpec, parent: CoroutineScope? = null): AlexandriteRuntime =
-            RuntimeRun(spec, RuntimeRun.PARENT_CANCELLED).also { it.start(parent) }
+        /**
+         * Starts a runtime of [spec] as a child of [parent] and returns it once it is ready, or throws why it did
+         * not start.
+         */
+        public suspend fun start(spec: RuntimeSpec, parent: CoroutineScope? = null): AlexandriteRuntime =
+            RuntimeRun(spec, RuntimeRun.PARENT_CANCELLED).start(parent)
 
         /** Runs [block] on a runtime of [spec] once it is ready, then stops it and returns how it ended. */
         public suspend fun run(
@@ -78,10 +72,12 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
     AlexandriteRuntime {
     val name = spec.config.name
     private val ending = CompletableDeferred<Ending>()
-    private val ready = CompletableDeferred<Boolean>()
+
+    /** Null once it is ready, otherwise what ended it before then. */
+    private val ready = CompletableDeferred<Throwable?>()
     private val terminated = CompletableDeferred<Termination>()
     private val blockEnded = CompletableDeferred<Unit>()
-    private val mutableState = MutableStateFlow(RuntimeState.STARTING)
+    private val mutableState = MutableStateFlow(RuntimeState.READY)
     private val events = Channel<RuntimeEvent>(Channel.UNLIMITED)
     private val job = SupervisorJob()
     private val scope = CoroutineScope(
@@ -94,18 +90,14 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
 
     override val state: StateFlow<RuntimeState> = mutableState.asStateFlow()
 
-    override suspend fun awaitReady(): Boolean = ready.await()
-
-    override suspend fun awaitTermination(): Termination {
-        check(terminated.isCompleted || OWNER.get() !== this) {
-            "Runtime '$name' cannot await its termination from its listener, its lifecycle calls or its plugins' " +
-                "coroutines."
+    override val services: RuntimeServices
+        get() {
+            unavailable()?.let { throw IllegalStateException(it) }
+            return handle
         }
-        return terminated.await()
-    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun requestStop(request: StopRequest) {
+    override fun stop(request: StopRequest) {
         if (settle(Cause.Requested(request))) return
         val first = when (val cause = ending.getCompleted().cause) {
             is Cause.Requested -> "${cause.request} came first"
@@ -114,18 +106,26 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
         logger.info("{}: ignoring the stop request {}: {}", name, request, first)
     }
 
-    override val services: RuntimeServices
-        get() {
-            unavailable()?.let { throw IllegalStateException(it) }
-            return handle
+    override suspend fun join(): Termination {
+        check(terminated.isCompleted || OWNER.get() !== this) {
+            "Runtime '$name' cannot be joined from its listener, its lifecycle calls or its plugins' coroutines."
         }
+        return terminated.await()
+    }
 
-    override val plugins: List<LoadedPlugin> get() = stages.plugins
-
-    /** Starts the life without a block. */
-    fun start(parent: CoroutineScope?) {
+    /** Starts the life without a block and returns once it is ready. */
+    suspend fun start(parent: CoroutineScope?): AlexandriteRuntime {
         blockEnded.complete(Unit)
         begin(parent)
+        val failure = try {
+            ready.await()
+        } catch (e: CancellationException) {
+            settle(Cause.Requested(START_CANCELLED))
+            withContext(NonCancellable) { terminated.join() }
+            throw e
+        }
+        if (failure != null) throw failure
+        return this
     }
 
     /** Starts the life in the caller's scope, runs [block] once ready, and returns once the runtime's job completed. */
@@ -134,7 +134,7 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
         var ran = false
         val error = try {
             stoppable {
-                if (awaitReady()) {
+                if (ready.await() == null) {
                     ran = true
                     block()
                 }
@@ -147,13 +147,13 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
             when {
                 callerCancelled -> Cause.Requested(parentCancelled)
                 error == null -> Cause.Requested(BLOCK_RETURNED)
-                else -> Cause.Requested(StopRequest(StopKind.FAILURE, "the run block failed: $error"))
+                else -> Cause.Requested(StopRequest.failure("the run block failed: $error"))
             },
         )
-        val termination = withContext(NonCancellable) { terminated.await() }
+        withContext(NonCancellable) { terminated.join() }
         val stoppedByRequest = error is CancellationException && !settled
         if (error != null && (callerCancelled || (ran && !stoppedByRequest))) throw error
-        termination
+        terminated.await()
     }
 
     /** Starts the life, which [parent] waits for and stops when it is cancelled. */
@@ -176,13 +176,11 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
         val ended = runCatching { startAndEnd() }
         events.close()
         withContext(NonCancellable) { delivery.join() }
-        ended.onSuccess {
-            mutableState.value = if (it.cause is Cause.Requested) RuntimeState.STOPPED else RuntimeState.FAILED
-        }
-        ready.complete(false)
+        mutableState.value = RuntimeState.STOPPED
+        ready.complete(ended.exceptionOrNull())
         terminated.completeWith(ended)
         job.complete()
-        ended.getOrThrow()
+        ended.onFailure { if (it !is RuntimeStartException) throw it }
     }
 
     private suspend fun startAndEnd(): Termination {
@@ -203,7 +201,7 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
             !settle(Cause.StartFailed(stages.failure(error))) && error !is CancellationException ->
                 logger.warn("{}: the start failed after a stop was requested", name, error)
         }
-        return end()
+        return end(opened)
     }
 
     /** Runs [work] until it ends or a stop is requested, and returns what it threw. */
@@ -222,27 +220,29 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
     }
 
     /** Tears down what the start built once the block has ended, and queues the final event. */
-    private suspend fun end(): Termination = withContext(NonCancellable) {
+    private suspend fun end(opened: Boolean): Termination = withContext(NonCancellable) {
         val (cause, deadline) = ending.await()
         blockEnded.await()
         if (cause is Cause.Requested) emit(RuntimeEvent.Stopping(cause.request))
-        val termination = Termination(cause, stages.tearDown(deadline))
+        val problems = stages.tearDown(deadline)
         when (cause) {
             is Cause.Requested -> {
                 logger.info("{}: stopped", name)
+                val termination = Termination(cause.request, problems)
                 emit(RuntimeEvent.Stopped(termination))
+                if (!opened) throw stages.stopped(cause.request, problems)
+                termination
             }
 
-            is Cause.StartFailed -> emit(RuntimeEvent.StartFailed(cause.error))
+            is Cause.StartFailed -> {
+                val error = cause.error.plusTeardown(problems)
+                emit(RuntimeEvent.StartFailed(error))
+                throw error
+            }
         }
-        termination
     }
 
-    private fun becomeReady(): Boolean {
-        if (!mutableState.compareAndSet(RuntimeState.STARTING, RuntimeState.READY)) return false
-        ready.complete(true)
-        return true
-    }
+    private fun becomeReady(): Boolean = !ending.isCompleted && ready.complete(null)
 
     /** Settles how the run ends unless it was settled before, and returns whether [cause] settled it. */
     private fun settle(cause: Cause): Boolean {
@@ -270,35 +270,35 @@ internal class RuntimeRun(private val spec: RuntimeSpec, private val parentCance
     }
 
     /** Why the run has no services, null while it has them. */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private fun unavailable(): String? = when {
-        ending.isCompleted -> when (ending.getCompleted().cause) {
-            is Cause.Requested -> "Runtime '$name' has no services: a stop was requested."
-            is Cause.StartFailed -> "Runtime '$name' has no services: its start failed."
-        }
-
-        mutableState.value != RuntimeState.READY -> "Runtime '$name' has no services until it is ready."
-
-        else -> null
-    }
+    private fun unavailable(): String? =
+        if (ending.isCompleted) "Runtime '$name' has no services: a stop was requested." else null
 
     private inner class Control : RuntimeControl {
-        override fun requestStop(request: StopRequest) = this@RuntimeRun.requestStop(request)
+        override fun stop(request: StopRequest) = this@RuntimeRun.stop(request)
+    }
+
+    /** Why a run ends. */
+    private sealed interface Cause {
+        class Requested(val request: StopRequest) : Cause
+
+        class StartFailed(val error: RuntimeStartException) : Cause
     }
 
     /** How a run ends, and by when its instances must be closed and drained. */
     private data class Ending(val cause: Cause, val deadline: TimeMark)
 
     companion object {
-        val RUN_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the run was cancelled")
+        val RUN_CANCELLED = StopRequest.shutdown("the run was cancelled")
 
-        val PARENT_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the parent scope was cancelled")
+        val PARENT_CANCELLED = StopRequest.shutdown("the parent scope was cancelled")
 
         private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
-        private val BLOCK_RETURNED = StopRequest(StopKind.SHUTDOWN, "the run block returned")
+        private val START_CANCELLED = StopRequest.shutdown("the start was cancelled")
 
-        private val LIFE_CANCELLED = StopRequest(StopKind.FAILURE, "the runtime's coroutine was cancelled")
+        private val BLOCK_RETURNED = StopRequest.shutdown("the run block returned")
+
+        private val LIFE_CANCELLED = StopRequest.failure("the runtime's coroutine was cancelled")
 
         /** The runtime whose coroutine runs on the current thread. */
         private val OWNER = ThreadLocal<RuntimeRun?>()

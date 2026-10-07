@@ -1,6 +1,5 @@
 package org.foedusprogramme.alexandrite.runtime
 
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -21,14 +20,14 @@ internal suspend fun runUntilSignal(
     val received = AtomicBoolean()
     val trap = signals.trap { signal ->
         if (received.compareAndSet(false, true)) {
-            run.requestStop(StopRequest(StopKind.SHUTDOWN, "received SIG${signal.name}"))
+            run.stop(StopRequest.shutdown("received SIG${signal.name}"))
         } else {
             val status = 128 + signal.number
             logger.warn("{}: received SIG{} while stopping, halting with status {}", run.name, signal.name, status)
             signals.halt(status)
         }
     } ?: signals.onShutdown {
-        run.requestStop(StopRequest(StopKind.SHUTDOWN, "the JVM is shutting down"))
+        run.stop(StopRequest.shutdown("the JVM is shutting down"))
         ended.await()
     }
     try {

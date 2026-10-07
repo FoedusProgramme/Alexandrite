@@ -12,7 +12,6 @@ import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,7 +28,10 @@ public class PluginHarness private constructor(
     private val zone: ZoneId,
     private val shutdownGrace: Duration?,
 ) {
-    /** Starts the plugins, runs [block] once they are ready, stops them and returns how the runtime ended. */
+    /**
+     * Starts the plugins, runs [block] once they are ready, stops them and returns how the runtime ended, or throws
+     * why they did not start.
+     */
     public suspend fun run(block: suspend Running.() -> Unit): Termination {
         val root = dataRoot ?: Files.createTempDirectory("alexandrite-harness-")
         try {
@@ -65,8 +67,8 @@ public class PluginHarness private constructor(
 
         public fun <T : Any> getAll(key: Key<T>): List<T> = runtime.services.resolver().getAll(key)
 
-        public fun requestStop(request: StopRequest = StopRequest(StopKind.SHUTDOWN, "requested by the test")) {
-            runtime.requestStop(request)
+        public fun stop(request: StopRequest = StopRequest.shutdown("requested by the test")) {
+            runtime.stop(request)
         }
     }
 

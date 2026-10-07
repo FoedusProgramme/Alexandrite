@@ -3,6 +3,7 @@ package com.example.notes
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -17,8 +18,8 @@ import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -108,10 +109,12 @@ class NotesPluginTest {
 
     @Test
     fun `a file name with a directory is refused at start`() {
-        val termination = harness("""{"fileName": "../notes.db"}""") { fail("the block ran") }
+        val error = assertFailsWith<RuntimeStartException> {
+            harness("""{"fileName": "../notes.db"}""") { fail("the block ran") }
+        }
 
         assertContains(
-            assertIs<Termination.Cause.StartFailed>(termination.cause).error.message!!,
+            error.message!!,
             "Invalid config at 'plugins.notes': fileName must name a file without a directory",
         )
     }

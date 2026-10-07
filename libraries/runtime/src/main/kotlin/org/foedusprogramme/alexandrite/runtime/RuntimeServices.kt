@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
+import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import kotlin.reflect.KClass
 
@@ -53,3 +54,8 @@ public class RuntimeServices internal constructor(
         override fun <T : Any> provider(key: Key<T>): () -> T = resolve { it.provider(key) }
     }
 }
+
+public inline fun <reified T : Any> RuntimeServices.get(qualifier: String? = null): T = get(key<T>(qualifier))
+
+public inline fun <reified T : Any> RuntimeServices.getOrNull(qualifier: String? = null): T? =
+    getOrNull(key<T>(qualifier))

@@ -102,6 +102,14 @@ class ValueTypesTest {
     }
 
     @Test
+    fun `stop requests are built by kind`() {
+        assertEquals(
+            listOf(StopKind.SHUTDOWN, StopKind.RESTART, StopKind.FAILURE).map { StopRequest(it, "why") },
+            listOf(StopRequest.shutdown("why"), StopRequest.restart("why"), StopRequest.failure("why")),
+        )
+    }
+
+    @Test
     fun `values have no copy or component functions`() {
         for (case in cases) {
             val type = case.make().javaClass

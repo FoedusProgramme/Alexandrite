@@ -11,14 +11,15 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
-import org.foedusprogramme.alexandrite.runtime.plugin.LoadedPlugin
 import org.foedusprogramme.alexandrite.runtime.startFailure
+import org.foedusprogramme.alexandrite.runtime.startStopped
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.StepReport
 import org.foedusprogramme.alexandrite.sdk.di.container.StepReport.Outcome
 import org.foedusprogramme.alexandrite.sdk.di.container.StepReport.Step
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
+import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.IOException
@@ -49,10 +50,6 @@ internal class Launch(
     var container: Container? = null
         private set
 
-    @Volatile
-    var plugins: List<LoadedPlugin> = emptyList()
-        private set
-
     /** Runs the start stages within the start timeout. */
     suspend fun start() {
         val timeout = spec.config.startTimeout
@@ -63,6 +60,10 @@ internal class Launch(
     /** What the start failed with after it ended with [error]. */
     fun failure(error: Throwable): RuntimeStartException =
         error as? RuntimeStartException ?: startFailure(name, stage, cause = error)
+
+    /** What the start throws after [request] cut it short and its teardown met [problems]. */
+    fun stopped(request: StopRequest, problems: List<Problem>): RuntimeStartException =
+        startStopped(name, stage, request, problems)
 
     /** Stops and destroys what the stages built, then releases the data directory. */
     suspend fun tearDown(deadline: TimeMark): List<Problem> {
@@ -99,7 +100,7 @@ internal class Launch(
         assembly.checkPlugins()
         stage = StartStage.CONFIG
         val resolution = assembly.resolvePlugins()
-        plugins = resolution.enabled.map { it.member.plugin }
+        val plugins = resolution.enabled.map { it.member.plugin }
         val unknown = resolution.unknownPluginConfig
         emit(RuntimeEvent.PluginsResolved(plugins, resolution.disabled, spec.plugins.unlisted, unknown))
         stage = StartStage.GRAPH

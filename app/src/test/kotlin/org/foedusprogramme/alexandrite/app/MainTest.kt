@@ -3,10 +3,14 @@ package org.foedusprogramme.alexandrite.app
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.io.TempDir
@@ -21,6 +25,8 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+private typealias Execute = suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination
+
 class MainTest {
     @TempDir
     lateinit var directory: Path
@@ -33,23 +39,22 @@ class MainTest {
 
     private fun config(json: String): Path = Files.writeString(directory.resolve("alexandrite.json"), json)
 
-    private fun stopping(
-        kind: StopKind = StopKind.SHUTDOWN,
-        whileReady: AlexandriteRuntime.() -> Unit = {},
-    ): suspend (RuntimeSpec) -> Termination = { spec ->
-        AlexandriteRuntime.run(spec) {
-            whileReady()
-            requestStop(StopRequest(kind, "requested by the test"))
+    private fun stopping(kind: StopKind = StopKind.SHUTDOWN, whileReady: AlexandriteRuntime.() -> Unit = {}): Execute =
+        { spec, block ->
+            AlexandriteRuntime.run(spec) {
+                whileReady()
+                stop(StopRequest(kind, "requested by the test"))
+                block()
+            }
         }
-    }
 
     private fun host(
         vararg args: String,
         environment: Map<String, String> = emptyMap(),
-        execute: suspend (RuntimeSpec) -> Termination = stopping(),
+        execute: Execute = stopping(),
     ): Int = run(args.toList(), environment, "Linux", home, PrintStream(out, true), PrintStream(err, true), execute)
 
-    private fun hostWith(json: String, execute: suspend (RuntimeSpec) -> Termination = stopping()): Int =
+    private fun hostWith(json: String, execute: Execute = stopping()): Int =
         host("--config", "${config(json)}", "--data-dir", "$dataDir", execute = execute)
 
     private fun stdout(): String = out.toString(Charsets.UTF_8)
@@ -177,7 +182,7 @@ class MainTest {
 
     @Test
     fun `an unexpected error exits 1`() {
-        assertEquals(1, hostWith("{}") { error("boom") })
+        assertEquals(1, hostWith("{}") { _, _ -> error("boom") })
 
         assertContains(stderr(), "alexandrite: unexpected error: java.lang.IllegalStateException: boom")
     }
@@ -188,8 +193,21 @@ class MainTest {
     }
 
     @Test
+    fun `a start that a stop cut short exits by the stop's kind and prints nothing`() {
+        val cancelled = CoroutineScope(Job()).apply { cancel() }
+
+        val code = hostWith("{}") { spec, _ ->
+            AlexandriteRuntime.start(spec, cancelled)
+            error("started")
+        }
+
+        assertEquals(0, code)
+        assertEquals("", stderr())
+    }
+
+    @Test
     fun `the host runs the configured plugins until it is stopped and exits 0`() {
-        var loaded: List<String>? = null
+        var notes: PluginInfo? = null
         var settings: AppConfig? = null
         val json = """{"app": {"zone": "Asia/Shanghai", "plugins": ["notes"]}, "plugins": {"notes": {}}}"""
 
@@ -197,7 +215,7 @@ class MainTest {
             val code = hostWith(
                 json,
                 stopping {
-                    loaded = plugins.map { it.info.id }
+                    notes = services.resolver().get(key<PluginInfo>("notes"))
                     settings = services.resolver().get(key<AppConfig>())
                 },
             )
@@ -205,7 +223,7 @@ class MainTest {
             assertEquals(0, code)
         }
 
-        assertContains(loaded.orEmpty(), "notes")
+        assertEquals("notes", notes?.id)
         assertEquals(ZoneId.of("Asia/Shanghai"), settings?.zoneId)
         assertEquals(listOf("notes"), settings?.plugins)
         assertTrue(Files.isRegularFile(dataDir.resolve("plugins/notes/notes.db")))

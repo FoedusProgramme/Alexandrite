@@ -32,33 +32,30 @@ class MultiInstanceTest {
             val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed) }
             val probe = probe("probe", "hooks" to key<Hooks>(), "clock" to key<Clock>())
             val plugins = explicit(TestIndex("probe", bindings = listOf(probe, hook)))
-            AlexandriteRuntime.launch(spec(plugins, dataDir.resolve(directory), listener = recorder, zone = zone))
+            spec(plugins, dataDir.resolve(directory), listener = recorder, zone = zone).started()
         }
 
-        suspend fun values(): Map<String, Any> {
-            check(runtime.awaitReady())
-            return runtime.services.get(key<Probe>()).values
-        }
+        fun values(): Map<String, Any> = runtime.services.get<Probe>().values
 
         suspend fun fire(payload: String) = (values().getValue("hooks") as Hooks).fire(observed, payload)
     }
 
     @Test
-    fun `two launched runtimes run side by side with their own hooks, events and clock`() {
+    fun `two started runtimes run side by side with their own hooks, events and clock`() {
         val first = Instance("first", ZoneId.of("Asia/Shanghai"))
         val second = Instance("second", ZoneId.of("UTC"))
 
         runBlocking {
             first.fire("to first")
             second.fire("to second")
-            first.runtime.requestStop()
-            first.runtime.awaitTermination()
+            first.runtime.stop()
+            first.runtime.join()
 
             assertEquals(RuntimeState.READY, second.runtime.state.value)
             second.fire("still second")
             assertEquals(ZoneId.of("UTC"), (second.values().getValue("clock") as Clock).zone)
-            second.runtime.requestStop()
-            second.runtime.awaitTermination()
+            second.runtime.stop()
+            second.runtime.join()
         }
 
         assertEquals(listOf("to first"), first.events.all())

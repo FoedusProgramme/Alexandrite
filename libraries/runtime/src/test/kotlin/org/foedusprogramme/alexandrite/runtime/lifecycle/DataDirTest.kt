@@ -5,8 +5,8 @@ import org.foedusprogramme.alexandrite.runtime.Probe
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
-import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -62,11 +63,15 @@ class DataDirTest {
 
     @Test
     fun `a second runtime of this JVM cannot use a data directory in use`() {
-        lateinit var second: Termination
+        lateinit var error: RuntimeStartException
 
-        spec(core(), dataDir).execute { second = AlexandriteRuntime.run(spec(core(), dataDir)) { fail("started") } }
+        spec(core(), dataDir).execute {
+            error =
+                assertFailsWith<RuntimeStartException> {
+                    AlexandriteRuntime.run(spec(core(), dataDir)) { fail("started") }
+                }
+        }
 
-        val error = assertIs<Termination.Cause.StartFailed>(second.cause).error
         assertEquals(StartStage.DATA_DIR, error.stage)
         assertEquals(listOf(RuntimeProblemKind.DATA_DIR_LOCKED), error.problems.map { it.kind })
         assertEquals(

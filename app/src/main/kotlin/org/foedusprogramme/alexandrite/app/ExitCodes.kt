@@ -1,7 +1,7 @@
 package org.foedusprogramme.alexandrite.app
 
+import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
-import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 
 internal object ExitCode {
@@ -18,14 +18,15 @@ internal object ExitCode {
     const val CONFIG = 78
 }
 
-internal fun exitCode(termination: Termination): Int = when (val cause = termination.cause) {
-    is Termination.Cause.Requested -> when (cause.request.kind) {
-        StopKind.SHUTDOWN -> ExitCode.OK
-        StopKind.RESTART -> ExitCode.RESTART
-        StopKind.FAILURE -> ExitCode.FAILURE
-    }
+internal fun exitCode(kind: StopKind): Int = when (kind) {
+    StopKind.SHUTDOWN -> ExitCode.OK
+    StopKind.RESTART -> ExitCode.RESTART
+    StopKind.FAILURE -> ExitCode.FAILURE
+}
 
-    is Termination.Cause.StartFailed -> when (cause.error.stage) {
+internal fun exitCode(error: RuntimeStartException): Int {
+    error.stopRequest?.let { return exitCode(it.kind) }
+    return when (error.stage) {
         StartStage.PLUGINS, StartStage.CONFIG, StartStage.GRAPH -> ExitCode.CONFIG
         StartStage.DATA_DIR, StartStage.START, StartStage.OPEN -> ExitCode.FAILURE
     }

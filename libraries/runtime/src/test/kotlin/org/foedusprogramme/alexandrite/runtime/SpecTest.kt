@@ -7,7 +7,6 @@ import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import java.nio.file.Path
 import java.time.ZoneId
@@ -26,9 +25,9 @@ class SpecTest {
 
     private class Case(val make: () -> Any, val differing: Any, val printed: String)
 
-    private val error = RuntimeStartException("failed", StartStage.START, emptyList(), null)
+    private val error = RuntimeStartException("failed", StartStage.START, emptyList(), null, null)
 
-    private val restart = StopRequest(StopKind.RESTART, "update")
+    private val restart = StopRequest.restart("update")
 
     private val problem = Problem(RuntimeProblemKind.DRAIN_FAILED, "drain failed", "weather", null)
 
@@ -61,7 +60,7 @@ class SpecTest {
         ),
         Case(
             { RuntimeEvent.StartFailed(error) },
-            RuntimeEvent.StartFailed(RuntimeStartException("failed", StartStage.START, emptyList(), null)),
+            RuntimeEvent.StartFailed(RuntimeStartException("failed", StartStage.START, emptyList(), null, null)),
             "StartFailed(error=$error)",
         ),
         Case(
@@ -70,15 +69,14 @@ class SpecTest {
             "Stopping(request=StopRequest(kind=RESTART, reason=update))",
         ),
         Case(
-            { RuntimeEvent.Stopped(Termination(Termination.Cause.Requested(restart), emptyList())) },
-            RuntimeEvent.Stopped(Termination(Termination.Cause.Requested(restart), listOf(problem))),
-            "Stopped(termination=Termination(cause=Requested(request=StopRequest(kind=RESTART, reason=update)), " +
-                "problems=[]))",
+            { RuntimeEvent.Stopped(Termination(restart, emptyList())) },
+            RuntimeEvent.Stopped(Termination(restart, listOf(problem))),
+            "Stopped(termination=Termination(request=StopRequest(kind=RESTART, reason=update), problems=[]))",
         ),
         Case(
-            { Termination(Termination.Cause.StartFailed(error), listOf(problem)) },
-            Termination(Termination.Cause.Requested(restart), listOf(problem)),
-            "Termination(cause=StartFailed(error=$error), problems=[$problem])",
+            { Termination(restart, listOf(problem)) },
+            Termination(HOST_STOP, listOf(problem)),
+            "Termination(request=StopRequest(kind=RESTART, reason=update), problems=[$problem])",
         ),
     )
 

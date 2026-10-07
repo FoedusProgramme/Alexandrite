@@ -5,9 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
-import org.foedusprogramme.alexandrite.runtime.Termination.Cause
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
-import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -23,8 +21,8 @@ import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -37,8 +35,7 @@ class SignalTest {
 
     private fun core(vararg bindings: Binding<*>) = explicit(TestIndex("core", bindings = bindings.toList()))
 
-    private fun shutdown(reason: String) =
-        Termination(Cause.Requested(StopRequest(StopKind.SHUTDOWN, reason)), emptyList())
+    private fun shutdown(reason: String) = Termination(StopRequest.shutdown(reason), emptyList())
 
     private class FakeSignals(private val trappable: Boolean = true, private val early: HostSignal? = null) :
         Signals {
@@ -130,7 +127,7 @@ class SignalTest {
     }
 
     @Test
-    fun `a signal while starting stops the start`() {
+    fun `a signal while starting stops the start, which throws`() {
         val signals = FakeSignals()
         val starting = CompletableDeferred<Unit>()
         var ran = false
@@ -144,33 +141,41 @@ class SignalTest {
             dataDir,
         )
 
-        val termination = signalled(spec, signals, { ran = true }) {
-            starting.await()
-            signals.raise("TERM", 15)
+        val error = assertFailsWith<RuntimeStartException> {
+            signalled(spec, signals, { ran = true }) {
+                starting.await()
+                signals.raise("TERM", 15)
+            }
         }
 
-        assertEquals(shutdown("received SIGTERM"), termination)
+        assertEquals(StopRequest.shutdown("received SIGTERM"), error.stopRequest)
+        assertEquals(StartStage.START, error.stage)
         assertFalse(ran)
+        assertNull(signals.handler)
     }
 
     @Test
     fun `a signal before the start stops the runtime without starting it`() {
         val signals = FakeSignals(early = HostSignal("TERM", 15))
-        val termination = signalled(spec(core(service("a", "core", events)), dataDir), signals)
 
-        assertEquals(shutdown("received SIGTERM"), termination)
+        val error = assertFailsWith<RuntimeStartException> {
+            signalled(spec(core(service("a", "core", events)), dataDir), signals)
+        }
+
+        assertEquals(StopRequest.shutdown("received SIGTERM"), error.stopRequest)
+        assertEquals(StartStage.DATA_DIR, error.stage)
         assertEquals(emptyList(), events.all())
     }
 
     @Test
-    fun `a failed start returns its termination instead of throwing`() {
+    fun `a failed start throws and gives the signals back`() {
         val signals = FakeSignals()
         val spec = spec(core(service("a", "core", events) { error("no start") }), dataDir)
 
-        val termination = signalled(spec, signals)
+        val error = assertFailsWith<RuntimeStartException> { signalled(spec, signals) }
 
-        val cause = assertIs<Cause.StartFailed>(termination.cause)
-        assertEquals(StartStage.START, cause.error.stage)
+        assertEquals(StartStage.START, error.stage)
+        assertNull(error.stopRequest)
         assertNull(signals.handler)
     }
 
