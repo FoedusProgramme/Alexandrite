@@ -29,4 +29,10 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    inputs.files(
+        fileTree(rootDir.parentFile) {
+            include("libraries/**/src/main/kotlin/**", "app/src/main/kotlin/**")
+            exclude("**/build/**")
+        },
+    ).withPropertyName("moduleSources").withPathSensitivity(PathSensitivity.RELATIVE)
 }

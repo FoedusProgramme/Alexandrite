@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope
+import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
@@ -64,7 +65,14 @@ class SdkContractTest {
             List::class to LIST,
             Lazy::class to LAZY,
             Unit::class to UNIT,
+            String::class to STRING,
+            Suppress::class to SUPPRESS,
         )
+    }
+
+    @Test
+    fun `the hook SPI the processor checks is the SDK's`() {
+        assertNames(Hook::class to HOOK)
     }
 
     @Test

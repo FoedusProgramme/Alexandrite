@@ -7,12 +7,8 @@ import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
-import java.nio.file.Files
-import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
-
-private val SUFFIXES = listOf("", "-wal", "-shm")
 
 @Singleton
 internal class NotesDatabase(private val files: PluginFiles, private val config: NotesConfig) : Lifecycle {
@@ -21,8 +17,15 @@ internal class NotesDatabase(private val files: PluginFiles, private val config:
     @Volatile
     private var connection: Connection? = null
 
+    /** Whether [use] still runs blocks. */
+    private var serving = true
+
     override suspend fun onStart() {
         lock.withLock { withContext(Dispatchers.IO) { connection = open() } }
+    }
+
+    override suspend fun onDrain() {
+        lock.withLock { serving = false }
     }
 
     override fun onStop() {
@@ -32,28 +35,16 @@ internal class NotesDatabase(private val files: PluginFiles, private val config:
 
     /** Runs [block] with the connection, one block at a time. */
     suspend fun <T> use(block: (Connection) -> T): T = lock.withLock {
-        withContext(Dispatchers.IO) {
-            block(connection ?: throw IllegalStateException("The notes database is closed."))
-        }
+        val open = connection?.takeIf { serving } ?: throw IllegalStateException("The notes database is closed.")
+        withContext(Dispatchers.IO) { block(open) }
     }
 
-    /** Deletes the database file and starts an empty one. */
-    suspend fun delete() {
-        lock.withLock {
-            withContext(Dispatchers.IO) {
-                connection?.close()
-                connection = null
-                val file = file()
-                for (suffix in SUFFIXES) Files.deleteIfExists(file.resolveSibling("${file.fileName}$suffix"))
-                connection = open()
-            }
-        }
+    suspend fun clear() {
+        use { connection -> connection.createStatement().use { it.executeUpdate("DELETE FROM notes") } }
     }
-
-    private fun file(): Path = files.dataDir.resolve(config.fileName)
 
     private fun open(): Connection {
-        val connection = DriverManager.getConnection("jdbc:sqlite:${file()}")
+        val connection = DriverManager.getConnection("jdbc:sqlite:${files.dataDir.resolve(config.fileName).toUri()}")
         try {
             connection.createStatement().use { statement ->
                 statement.execute("PRAGMA journal_mode=WAL")

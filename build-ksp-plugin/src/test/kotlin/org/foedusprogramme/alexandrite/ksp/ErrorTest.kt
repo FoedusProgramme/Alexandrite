@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.ksp
 import com.google.devtools.ksp.symbol.ClassKind
 import com.google.devtools.ksp.symbol.Modifier
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class ErrorTest : FailingSamples() {
     // Parameters.
@@ -90,6 +92,43 @@ class ErrorTest : FailingSamples() {
             *types.withIndex().map { (index, type) ->
                 "class S$index(" to Messages.projectedArgument("c", "sample.S$index", type.second)
             }.toTypedArray(),
+        )
+    }
+
+    @Test
+    fun `a lazy or provider of a list, lazy or function is rejected`() {
+        val list = "kotlin.collections.List<sample.Clock>"
+        val lazy = "kotlin.Lazy<sample.Clock>"
+        val provider = "() -> sample.Clock"
+        val types = listOf(
+            Triple("Lazy<List<Clock>>", "kotlin.Lazy<$list>", list),
+            Triple("() -> List<Clock>", "() -> $list", list),
+            Triple("Lazy<Lazy<Clock>>", "kotlin.Lazy<$lazy>", lazy),
+            Triple("() -> Lazy<Clock>", "() -> $lazy", lazy),
+            Triple("Lazy<() -> Clock>", "kotlin.Lazy<$provider>", provider),
+            Triple("() -> () -> Clock", "() -> $provider", provider),
+        )
+        assertErrors(
+            types.withIndex().joinToString("\n") { (index, type) -> "@Singleton class S$index(val c: ${type.first})" },
+            *types.withIndex().map { (index, type) ->
+                "class S$index(" to Messages.wrappedWrapper("c", "sample.S$index", type.second, type.third)
+            }.toTypedArray(),
+        )
+    }
+
+    @Test
+    fun `a blank qualifier is rejected`() {
+        assertErrors(
+            """
+            @Singleton @Named("") class Blank
+            @Singleton @Named(" ") class Spaced
+            @Singleton class Uses(@Named("") val clock: Clock)
+            @Provides @Named("") fun blankClock(): Clock = Clock()
+            """,
+            "class Blank" to Messages.blankNamed("sample.Blank"),
+            "class Spaced" to Messages.blankNamed("sample.Spaced"),
+            "class Uses" to Messages.blankNamedParameter("clock", "sample.Uses"),
+            "fun blankClock" to Messages.blankNamed("sample.blankClock()"),
         )
     }
 
@@ -402,6 +441,7 @@ class ErrorTest : FailingSamples() {
 
     @Test
     fun `a provider's parameters follow the rules of constructor parameters`() {
+        val server = "sample.server(sample.Clock, kotlin.Int, kotlin.String)"
         assertErrors(
             """
             @Provides
@@ -411,9 +451,9 @@ class ErrorTest : FailingSamples() {
                 vararg names: String,
             ): Runnable = Runnable {}
             """,
-            "clock: Clock" to Messages.defaultValue("clock", "sample.server()"),
-            "port: Int" to Messages.unqualified("port", "sample.server()", "kotlin.Int"),
-            "vararg names" to Messages.vararg("names", "sample.server()"),
+            "clock: Clock" to Messages.defaultValue("clock", server),
+            "port: Int" to Messages.unqualified("port", server, "kotlin.Int"),
+            "vararg names" to Messages.vararg("names", server),
         )
     }
 
@@ -564,14 +604,27 @@ class ErrorTest : FailingSamples() {
     }
 
     @Test
-    fun `a property with an explicit backing field hides a package like any other declaration`() {
+    fun `a package named like a class the generated index imports is rejected`() {
+        val port = source("Port.kt", "package Binding\n\ninterface Port\n")
+        val uses = source("Uses.kt", "package sample\n\n@$SINGLETON class Uses(val port: Binding.Port)\n")
+        compile(workingDir, port, uses, entry("sample")).use { compiled ->
+            assertFalse(compiled.succeeded)
+            assertEquals(
+                listOf(Reported("Uses.kt", 3, Messages.generatedName("sample.Uses", "Binding", BINDING))),
+                reported(compiled.messages),
+            )
+        }
+    }
+
+    @Test
+    fun `a property with an explicit backing field hides a package like any other property`() {
         assertErrors(
             """
-            @Singleton class Engine(@Named("name") val name: String)
-            val kotlin: List<Int>
+            @Singleton class Engine
+            val sample: List<Int>
                 field = mutableListOf()
             """,
-            "val kotlin" to Messages.hiddenPackage("sample.kotlin", "kotlin", "sample"),
+            "val sample" to Messages.hiddenPackage("sample.sample", "sample", "sample"),
         )
     }
 }

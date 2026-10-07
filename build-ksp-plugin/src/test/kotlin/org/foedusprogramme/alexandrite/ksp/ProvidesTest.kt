@@ -7,6 +7,9 @@ import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
+import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.io.TempDir
@@ -14,6 +17,8 @@ import java.io.File
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -120,13 +125,13 @@ class ProvidesTest {
 
         assertEquals(
             mapOf(
-                "Connections.connection()" to listOf(
+                "Connections.connection(java.time.Clock)" to listOf(
                     "@Named(\"connection\") sample.provided.Connection CHANNEL_INSTANCE <- " +
                         "clock: INSTANCE java.time.Clock",
                     "@Named(\"connection\") $probe CHANNEL_INSTANCE unmanaged <- " +
                         "@Binds: INSTANCE @Named(\"connection\") sample.provided.Connection",
                 ),
-                "Greetings.greeting()" to listOf(
+                "Greetings.greeting($pluginFiles)" to listOf(
                     "@Named(\"greeting\") kotlin.String SINGLETON <- " +
                         "files: INSTANCE @Named(\"sample-plugin\") $pluginFiles",
                 ),
@@ -138,7 +143,7 @@ class ProvidesTest {
                         "@Binds: INSTANCE @Named(\"store\") sample.provided.Store",
                 ),
                 "clock()" to listOf("java.time.Clock SINGLETON <- "),
-                "echo()" to listOf(
+                "echo(kotlin.String)" to listOf(
                     "sample.provided.Echo SINGLETON <- greeting: INSTANCE @Named(\"greeting\") kotlin.String",
                     "$probe SINGLETON multi unmanaged <- @Contribute: INSTANCE sample.provided.Echo",
                 ),
@@ -175,9 +180,18 @@ class ProvidesTest {
 
             import org.foedusprogramme.alexandrite.sdk.di.Singleton
             import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
+            import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+            import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
+            import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 
             @Singleton
-            class Store(val files: PluginFiles, val later: Lazy<PluginFiles>)
+            class Store(
+                val files: PluginFiles,
+                val later: Lazy<PluginFiles>,
+                val info: PluginInfo,
+                val scope: PluginScope,
+                val control: RuntimeControl,
+            )
             """,
         )
         compile(
@@ -188,9 +202,57 @@ class ProvidesTest {
         ).use { compiled ->
             compiled.assertSucceeded()
 
-            val qualified = key<PluginFiles>("weather")
+            val files = key<PluginFiles>("weather")
             val binding = compiled.indexes().single().bindings().single { it.origin == "sample.Store" }
-            assertEquals(listOf(qualified, qualified), binding.dependencies.map { it.key })
+            val expected = listOf(
+                files,
+                files,
+                key<PluginInfo>("weather"),
+                key<PluginScope>("weather"),
+                key<RuntimeControl>("weather"),
+            )
+            assertEquals(expected, binding.dependencies.map { it.key })
+        }
+    }
+
+    @Test
+    fun `a provider in a companion object is called through it, and overloads have their own origins`() {
+        val clocks = source(
+            "Clocks.kt",
+            """
+            package sample
+
+            import org.foedusprogramme.alexandrite.sdk.di.Named
+            import org.foedusprogramme.alexandrite.sdk.di.Provides
+            import java.time.Clock
+            import java.time.ZoneId
+
+            class Clocks {
+                companion object {
+                    @Provides
+                    @Named("utc")
+                    fun clock(): Clock = Clock.systemUTC()
+
+                    @Provides
+                    @Named("zoned")
+                    fun clock(@Named("zone") zone: String): Clock = Clock.system(ZoneId.of(zone))
+                }
+            }
+            """,
+        )
+        compile(workingDir.resolve("companion"), clocks, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            val index = compiled.indexes().single()
+            assertEquals(
+                listOf("sample.Clocks.Companion.clock()", "sample.Clocks.Companion.clock(kotlin.String)"),
+                index.bindings().map { it.origin }.filter { it.startsWith("sample.Clocks") },
+            )
+            val zone = instanceBinding(key<String>("zone"), "Asia/Shanghai", "test", "test")
+            Container.build(listOf(index.pluginBindings()), listOf(zone)).use { container ->
+                assertEquals(ZoneOffset.UTC, container.get(key<Clock>("utc")).zone)
+                assertEquals(ZoneId.of("Asia/Shanghai"), container.get(key<Clock>("zoned")).zone)
+            }
         }
     }
 

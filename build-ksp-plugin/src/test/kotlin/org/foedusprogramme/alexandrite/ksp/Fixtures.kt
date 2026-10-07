@@ -52,14 +52,16 @@ class Recorder {
 /** An error the processor reported, at [line] of [file] when it has a location. */
 data class Reported(val file: String?, val line: Int?, val message: String)
 
-/** The errors the processor reported in [messages]. */
-fun reported(messages: String): Set<Reported> = messages.lines().mapNotNullTo(HashSet()) { line ->
+/** The errors the processor reported in [messages], sorted. */
+fun reported(messages: String): List<Reported> = messages.lines().mapNotNull { line ->
     REPORTED.matchEntire(line)?.destructured?.let { (path, number, message) ->
         Reported(path.substringAfterLast('/').ifEmpty { null }, number.toIntOrNull(), message)
     }
-}
+}.sortedWith(REPORTED_ORDER)
 
 private val REPORTED = Regex("""e: \[ksp] (?:(\S+\.kt):(\d+): )?(.*)""")
+
+private val REPORTED_ORDER = compareBy<Reported>({ it.file }, { it.line }, { it.message })
 
 /** Compiles samples that must fail and compares their errors with the expected ones. */
 abstract class FailingSamples {
@@ -70,7 +72,7 @@ abstract class FailingSamples {
     fun assertErrors(code: String, vararg expected: Pair<String?, String>, entry: Boolean = true) {
         val sample = SAMPLE_HEADER + code.trimIndent()
         val lines = sample.lines()
-        val located = expected.mapTo(HashSet()) { (marker, message) ->
+        val located = expected.map { (marker, message) ->
             if (marker == null) {
                 Reported(null, null, message)
             } else {
@@ -78,7 +80,7 @@ abstract class FailingSamples {
                 assertTrue(line > 0, "no line with '$marker' in the sample")
                 Reported("Sample.kt", line, message)
             }
-        }
+        }.sortedWith(REPORTED_ORDER)
         val sources = listOfNotNull(source("Sample.kt", sample), ENTRY.takeIf { entry })
         compile(workingDir, *sources.toTypedArray()).use { compiled ->
             assertFalse(compiled.succeeded, "the compilation should fail")
@@ -128,6 +130,11 @@ class Compiled(private val compilation: KotlinCompilation, private val result: J
     fun descriptorText(id: String): String = resources.resolve(PluginIndex.descriptorPath(id)).readText()
 
     fun descriptor(id: String): JsonObject = Json.parseToJsonElement(descriptorText(id)).jsonObject
+
+    /** The files the processors generated. */
+    fun generated(): List<String> = compilation.kspSourcesDir.walk().filter { it.isFile }
+        .map { it.relativeTo(compilation.kspSourcesDir).invariantSeparatorsPath }
+        .toList()
 
     fun assertSucceeded() = assertTrue(succeeded, messages)
 

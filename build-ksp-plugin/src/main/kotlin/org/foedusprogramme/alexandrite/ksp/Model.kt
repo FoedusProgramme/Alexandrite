@@ -50,6 +50,10 @@ internal class Component(
     val factory: String,
     /** The first segments of the names the generated bindings refer to. */
     val roots: Set<String>,
+    /** The [roots] that the generated code writes where an expression is expected. */
+    val expressionRoots: Set<String>,
+    /** The opt-in markers that the generated bindings need. */
+    val markers: Set<String>,
 ) {
     /** [key] and the keys of [binds]. */
     val singleKeys: List<Key> get() = listOf(key) + binds.map { it.key }
@@ -61,6 +65,7 @@ internal class Section(
     val type: String,
     val path: String,
     val roots: Set<String>,
+    val markers: Set<String>,
 )
 
 /** The `@Plugin` class and what it says about the plugin. */
@@ -83,7 +88,13 @@ internal class Implementation(
 )
 
 /** A top-level declaration, which hides a package of the same name from code in its package. */
-internal class TopLevelName(val packageName: String, val name: String, val label: String, val location: Location)
+internal class TopLevelName(
+    val packageName: String,
+    val name: String,
+    val label: String,
+    val location: Location,
+    val property: Boolean,
+)
 
 /** Why no parameter can inject a bound key. */
 internal enum class KeyProblem {

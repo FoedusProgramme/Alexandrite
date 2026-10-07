@@ -86,6 +86,22 @@ class MiswiringTest : FailingSamples() {
         )
     }
 
+    @Test
+    fun `a channel-instance-scoped hook is rejected`() {
+        assertErrors(
+            bases + "\n" +
+                """
+                @ChannelInstanceScoped @Contribute(Hook::class) class Scoped : BaseObserver()
+                @ChannelInstanceScoped @Contribute(Tool::class) class ScopedTool : BaseTool()
+                object Observers {
+                    @Provides @ChannelInstanceScoped @Contribute(Hook::class) fun observer(): BaseObserver = Scoped()
+                }
+                """.trimIndent(),
+            "class Scoped " to Messages.channelInstanceHook("sample.Scoped"),
+            "fun observer" to Messages.channelInstanceHook("sample.Observers.observer()"),
+        )
+    }
+
     // Same-plugin dependencies.
 
     @Test
@@ -118,7 +134,8 @@ class MiswiringTest : FailingSamples() {
             "maybe: Settings?" to Messages.unannotatedDependency("maybe", "sample.Server", "sample.Settings"),
             "later: Lazy<Settings>" to Messages.unannotatedDependency("later", "sample.Server", "sample.Settings"),
             "make: () -> Settings" to Messages.unannotatedDependency("make", "sample.Server", "sample.Settings"),
-            "fun fresh" to Messages.unannotatedDependency("settings", "sample.fresh()", "sample.Settings"),
+            "fun fresh" to
+                Messages.unannotatedDependency("settings", "sample.fresh(sample.Settings)", "sample.Settings"),
         )
     }
 
@@ -147,7 +164,7 @@ class MiswiringTest : FailingSamples() {
             "listeners: List" to Messages.scopeBreak("listeners", "sample.Registry", listOf("sample.Ear")),
             "clock: ()" to Messages.scopeBreak("clock", "sample.Registry", listOf("sample.chat()")),
             "fun registryClock" to
-                Messages.scopeBreak("session", "sample.registryClock()", listOf("sample.Session")),
+                Messages.scopeBreak("session", "sample.registryClock(sample.Session?)", listOf("sample.Session")),
         )
     }
 

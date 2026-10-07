@@ -20,6 +20,7 @@ internal const val SCOPE = "$CONTAINER.Scope"
 internal const val BINDING_FUNCTION = "$CONTAINER.binding"
 
 internal const val PLUGIN = "org.foedusprogramme.alexandrite.sdk.plugin.Plugin"
+internal const val HOOK = "org.foedusprogramme.alexandrite.sdk.hook.Hook"
 internal const val PLUGIN_INDEX = "org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex"
 internal const val PLUGIN_INFO = "org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo"
 internal const val ALEXANDRITE_SDK = "org.foedusprogramme.alexandrite.sdk.AlexandriteSdk"
@@ -30,8 +31,14 @@ internal const val CONFIG_SECTION_SPEC = "org.foedusprogramme.alexandrite.sdk.co
 internal const val SERIALIZABLE = "kotlinx.serialization.Serializable"
 
 internal const val LIST = "kotlin.collections.List"
+internal const val LIST_OF = "kotlin.collections.listOf"
+internal const val EMPTY_LIST = "kotlin.collections.emptyList"
 internal const val LAZY = "kotlin.Lazy"
 internal const val UNIT = "kotlin.Unit"
+internal const val STRING = "kotlin.String"
+internal const val OPT_IN = "kotlin.OptIn"
+internal const val REQUIRES_OPT_IN = "kotlin.RequiresOptIn"
+internal const val SUPPRESS = "kotlin.Suppress"
 
 internal val COMPONENT_ANNOTATIONS = listOf(PLUGIN, SINGLETON, CHANNEL_INSTANCE_SCOPED, BINDS, CONTRIBUTE)
 

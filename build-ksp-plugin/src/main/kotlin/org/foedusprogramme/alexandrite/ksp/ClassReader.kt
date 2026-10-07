@@ -19,7 +19,7 @@ internal class ClassReader(private val declaration: KSClassDeclaration, symbols:
         }
         val type = checkNotNull(declaration.asStarProjectedType().expand()) { label }
         val constructor = constructor()
-        return result(component(type, constructor?.parameters, sourceName(label), provider = false))
+        return result(component(type, constructor, sourceName(label), provider = false))
     }
 
     private fun classProblem(): String? {

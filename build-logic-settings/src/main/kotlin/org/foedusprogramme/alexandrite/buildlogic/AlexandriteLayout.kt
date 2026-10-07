@@ -62,6 +62,8 @@ sealed class Location {
 data class AlexandriteModule(
     val path: String,
     val layer: Layer,
+    /** The Gradle group, one per family and one for all slots */
+    val group: String,
     val jarName: String,
     val configRoot: String?,
     /** The name its `PluginIndex` carries */
@@ -112,7 +114,6 @@ object AlexandriteLayout {
 
     private const val PACKAGE = "org.foedusprogramme.alexandrite"
 
-    /** Location Map */
     val LOCATIONS: List<Location> = listOf(
         Location.Slot("libraries/plugin-sdk", Layer.SDK),
         Location.Slot("libraries/internal", Layer.INTERNAL),
@@ -174,6 +175,10 @@ object AlexandriteLayout {
     )
 
     val TEST_LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(
+        Layer.AGENT to setOf(Layer.TESTKIT),
+        Layer.TOOLS to setOf(Layer.TESTKIT),
+        Layer.CHANNEL to setOf(Layer.TESTKIT),
+        Layer.PROVIDER to setOf(Layer.TESTKIT),
         Layer.KSP to setOf(Layer.SDK),
         Layer.EXAMPLE to setOf(Layer.TESTKIT),
         Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
@@ -204,6 +209,7 @@ object AlexandriteLayout {
                         return AlexandriteModule(
                             path,
                             location.layer,
+                            PACKAGE,
                             location.jarName,
                             location.configRoot,
                             location.moduleName,
@@ -219,6 +225,7 @@ object AlexandriteLayout {
                         return AlexandriteModule(
                             path,
                             location.layer,
+                            "$PACKAGE.${location.directory.substringAfterLast('/')}",
                             location.jarPrefix + name,
                             location.configRootPrefix + name,
                             location.moduleNamePrefix + name,

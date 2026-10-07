@@ -80,7 +80,7 @@ internal class AlexandriteProcessor(
         val placement = if (indexClass == null) {
             listOf(Problem(Messages.missingPackage(options.id), NonExistLocation))
         } else {
-            hiddenPackages(indexClass.substringBeforeLast('.'))
+            hiddenNames(indexClass)
         }
         val wiring = WiringCheck(registry, sections, implementations).problems()
         val reported = problems + unresolved.values.flatten() + wiring + listOfNotNull(entryProblem()) + placement
@@ -105,12 +105,24 @@ internal class AlexandriteProcessor(
         }
     }
 
-    /** Reports the declarations of [packageName] that hide a package the index refers to. */
-    private fun hiddenPackages(packageName: String): List<Problem> {
+    /** Reports the names that would hide a package the index of [indexClass] refers to. */
+    private fun hiddenNames(indexClass: String): List<Problem> {
+        val packageName = indexClass.substringBeforeLast('.')
         val roots = registry.all.flatMapTo(HashSet()) { it.roots } + sections.flatMap { it.roots }
-        return topLevelNames.filter { it.packageName == packageName && it.name in roots }.map {
-            Problem(Messages.hiddenPackage(it.label, it.name, packageName), it.location)
+        val expressionRoots = registry.all.flatMapTo(HashSet()) { it.expressionRoots } + sections.flatMap { it.roots }
+        val hiding = topLevelNames.filter {
+            it.packageName == packageName && it.name in (if (it.property) expressionRoots else roots)
         }
+        val generated = generatedNames(indexClass)
+
+        fun clashes(label: String, location: Location, used: Set<String>): List<Problem> =
+            used.filter { it in generated }.map {
+                Problem(Messages.generatedName(label, it, generated.getValue(it)), location)
+            }
+
+        return hiding.map { Problem(Messages.hiddenPackage(it.label, it.name, packageName), it.location) } +
+            registry.all.flatMap { clashes(it.origin, it.location, it.roots) } +
+            sections.flatMap { clashes(it.origin, it.location, it.roots) }
     }
 
     private fun log(problem: Problem) {
@@ -125,7 +137,8 @@ internal class AlexandriteProcessor(
         fun read(file: KSFile, declarations: List<KSDeclaration>) {
             file.declarations.filter { it is KSClassDeclaration || it is KSTypeAlias || it is KSPropertyDeclaration }
                 .mapTo(topLevelNames) {
-                    TopLevelName(it.packageName.asString(), it.simpleName.asString(), it.name, it.location)
+                    val property = it is KSPropertyDeclaration
+                    TopLevelName(it.packageName.asString(), it.simpleName.asString(), it.name, it.location, property)
                 }
             for (declaration in declarations) {
                 when (declaration) {

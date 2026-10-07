@@ -19,7 +19,12 @@ internal fun KSAnnotation.types(): List<KSType> = (value as? List<*>).orEmpty().
 
 internal val KSDeclaration.name: String get() = (qualifiedName ?: simpleName).asString()
 
-internal fun providesLabel(function: KSFunctionDeclaration): String = "${function.name}()"
+/** `sample.Clocks.utc(java.time.ZoneId)` for a function with a `ZoneId` parameter. */
+internal fun providesLabel(function: KSFunctionDeclaration): String =
+    function.parameters.joinToString(prefix = "${function.name}(", postfix = ")") { parameter ->
+        val type = parameter.type.resolve()
+        type.expand()?.source() ?: type.declaration.name
+    }
 
 /** The declaration this one aliases, through every type alias. */
 internal val KSDeclaration.actual: KSDeclaration

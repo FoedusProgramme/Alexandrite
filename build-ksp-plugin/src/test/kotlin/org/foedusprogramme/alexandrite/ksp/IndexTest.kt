@@ -544,6 +544,147 @@ class IndexTest {
         }
     }
 
+    @Test
+    fun `the generated index compiles in a package named like a member of the index`() {
+        for (root in listOf("info", "configRoot")) {
+            val weather = source(
+                "Weather.kt",
+                """
+                package $root.weather
+
+                import kotlinx.serialization.Serializable
+                import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+                import org.foedusprogramme.alexandrite.sdk.di.Provides
+                import org.foedusprogramme.alexandrite.sdk.di.Singleton
+                import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
+
+                @Plugin(name = "Weather")
+                class WeatherPlugin(val station: Station, val forecast: Forecast)
+
+                @Singleton
+                class Station(val config: StationConfig)
+
+                class Forecast
+
+                @Provides
+                fun forecast(): Forecast = Forecast()
+
+                @ConfigSection
+                @Serializable
+                class StationConfig(val name: String = "north")
+                """,
+            )
+            compile(workingDir.resolve(root), weather, options = sampleOptions("weather")).use { compiled ->
+                compiled.assertSucceeded()
+
+                val index = compiled.indexes().single()
+                val sections = sectionBindings(index, Json.parseToJsonElement("{}").jsonObject)
+                Container.build(listOf(index.pluginBindings()), sections).close()
+            }
+        }
+    }
+
+    @Test
+    fun `names declared in the index's package do not change what the generated index means`() {
+        val shadows = source(
+            "Shadows.kt",
+            """
+            package sample
+
+            import org.foedusprogramme.alexandrite.sdk.di.Singleton
+
+            @Singleton
+            class Engine(val clock: java.time.Clock)
+
+            val java = 0
+            val info = 0
+            class List
+            class String
+            class Contents
+            annotation class OptIn
+            annotation class Suppress
+            fun listOf(vararg items: Any): Int = items.size
+            fun <T> emptyList(): Int = 0
+            """,
+        )
+        compile(workingDir.resolve("shadows"), shadows, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            val index = compiled.indexes().single()
+            assertEquals(listOf("sample.Engine", "sample.SamplePlugin"), index.bindings().map { it.origin })
+            assertEquals(emptyList(), index.configSections())
+            val clock = instanceBinding(key<java.time.Clock>(), java.time.Clock.systemUTC(), "test", "test")
+            Container.build(listOf(index.pluginBindings()), listOf(clock)).close()
+        }
+    }
+
+    @Test
+    fun `deprecated and opt-in components are indexed without warnings`() {
+        val marked = source(
+            "Marked.kt",
+            """
+            package sample
+
+            import kotlinx.serialization.Serializable
+            import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+            import org.foedusprogramme.alexandrite.sdk.di.Provides
+            import org.foedusprogramme.alexandrite.sdk.di.Singleton
+
+            @RequiresOptIn(level = RequiresOptIn.Level.WARNING)
+            annotation class Preview
+
+            @RequiresOptIn
+            annotation class Unstable
+
+            @Deprecated("Use Engine")
+            @Singleton
+            class OldEngine
+
+            @Preview
+            @Singleton
+            class Engine
+
+            @OptIn(Preview::class)
+            @Singleton
+            class Car(val engine: Engine, val tuning: Tuning)
+
+            class Wheel
+
+            @Unstable
+            object Parts {
+                @Provides
+                fun wheel(): Wheel = Wheel()
+            }
+
+            class Horn
+
+            @Deprecated("Gone")
+            @Provides
+            fun horn(): Horn = Horn()
+
+            @Preview
+            @ConfigSection
+            @Serializable
+            class Tuning(val level: Int = 0)
+            """,
+        )
+        compile(workingDir.resolve("marked"), marked, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            assertEquals(
+                listOf(
+                    "sample.Car",
+                    "sample.Engine",
+                    "sample.OldEngine",
+                    "sample.Parts.wheel()",
+                    "sample.SamplePlugin",
+                    "sample.horn()",
+                ),
+                compiled.indexes().single().bindings().map { it.origin },
+            )
+        }
+    }
+
     private companion object {
         @TempDir
         lateinit var sharedDir: File

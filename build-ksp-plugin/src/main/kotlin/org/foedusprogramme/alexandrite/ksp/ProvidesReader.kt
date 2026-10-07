@@ -20,7 +20,7 @@ internal class ProvidesReader(private val function: KSFunctionDeclaration, symbo
             else -> returnProblem(type)?.let { report(it) }
         }
         if (failed || type == null) return result(null)
-        return result(component(type, function.parameters, sourceName(function.name), provider = true))
+        return result(component(type, function, sourceName(function.name), provider = true))
     }
 
     private fun placeProblem(): String? {

@@ -10,11 +10,15 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.testToolContext
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
 import java.time.ZoneId
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -27,8 +31,12 @@ class NotesPluginTest {
     @TempDir
     lateinit var directory: Path
 
-    private fun harness(config: String? = null, block: suspend PluginHarness.Running.() -> Unit): Termination {
-        val builder = PluginHarness.builder(NotesIndex()).dataRoot(directory).zone(ZoneId.of("Asia/Shanghai"))
+    private fun harness(
+        config: String? = null,
+        dataRoot: Path = directory,
+        block: suspend PluginHarness.Running.() -> Unit,
+    ): Termination {
+        val builder = PluginHarness.builder(NotesIndex()).dataRoot(dataRoot).zone(ZoneId.of("Asia/Shanghai"))
         config?.let(builder::config)
         return runBlocking { builder.build().run(block) }
     }
@@ -52,7 +60,7 @@ class NotesPluginTest {
             assertTrue(listed[1].startsWith("#2 (") && listed[1].endsWith(") call home"), listed[1])
             assertEquals("Deleted every note.", call("notes.reset").content)
             assertEquals("No notes.", call("notes.list").content)
-            assertEquals("Saved note #1.", call("notes.add", "text" to "again").content)
+            assertEquals("Saved note #3.", call("notes.add", "text" to "again").content)
         }
     }
 
@@ -108,15 +116,67 @@ class NotesPluginTest {
     }
 
     @Test
-    fun `a file name with a directory is refused at start`() {
-        val error = assertFailsWith<RuntimeStartException> {
-            harness("""{"fileName": "../notes.db"}""") { fail("the block ran") }
-        }
-
-        assertContains(
-            error.message!!,
-            "Invalid config at 'plugins.notes': fileName must name a file without a directory",
+    fun `a file name that is no plain file name is refused at start`() {
+        val names = listOf(
+            "../notes.db",
+            "a/notes.db",
+            "a\\\\notes.db",
+            "C:notes.db",
+            "notes.db?mode=memory",
+            "x#y.db",
+            "..",
+            " ",
         )
+        for (name in names) {
+            val error = assertFailsWith<RuntimeStartException>(name) {
+                harness("""{"fileName": "$name"}""") { fail("the block ran") }
+            }
+
+            assertContains(
+                error.message!!,
+                "Invalid config at 'plugins.notes': fileName must be a plain file name, such as notes.db",
+            )
+        }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `a data directory whose name holds URL characters is used as it is`() {
+        val root = directory.resolve("odd #% dir?journal_mode=MEMORY&x=1")
+
+        harness(dataRoot = root) {
+            call("notes.add", "text" to "kept")
+
+            assertTrue(Files.isRegularFile(dataDir.resolve("notes.db")))
+        }
+        harness(dataRoot = root) { assertContains(call("notes.list").content, "kept") }
+    }
+
+    @Test
+    fun `a stop waits for the block in flight, closes the connection and refuses later blocks`() {
+        lateinit var database: NotesDatabase
+        val entered = CountDownLatch(1)
+        var closedInBlock: Boolean? = null
+        lateinit var worker: Thread
+
+        harness {
+            database = get<NotesDatabase>()
+            worker = thread {
+                runBlocking {
+                    database.use { connection ->
+                        entered.countDown()
+                        Thread.sleep(200)
+                        closedInBlock = connection.isClosed
+                    }
+                }
+            }
+            entered.await()
+        }
+        worker.join()
+
+        assertEquals(false, closedInBlock)
+        val error = assertFailsWith<IllegalStateException> { runBlocking { database.use { } } }
+        assertEquals("The notes database is closed.", error.message)
     }
 
     @Test

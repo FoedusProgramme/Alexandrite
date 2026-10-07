@@ -201,7 +201,7 @@ class PluginOptionsTest {
     fun `an unusable option fails the compilation with how to set it`() {
         compile(workingDir, entry("sample"), options = mapOf(PLUGIN_OPTION to "weather")).use { compiled ->
             assertFalse(compiled.succeeded)
-            assertEquals(setOf(Reported(null, null, Messages.missingVersion())), reported(compiled.messages))
+            assertEquals(listOf(Reported(null, null, Messages.missingVersion())), reported(compiled.messages))
         }
     }
 
@@ -238,7 +238,7 @@ class PluginOptionsTest {
         compile(workingDir, *sources, options = sampleOptions("my-weather")).use { compiled ->
             assertFalse(compiled.succeeded)
             assertEquals(
-                setOf(Reported(null, null, Messages.missingPackage("my-weather"))),
+                listOf(Reported(null, null, Messages.missingPackage("my-weather"))),
                 reported(compiled.messages),
             )
         }

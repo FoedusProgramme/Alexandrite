@@ -44,13 +44,15 @@ internal class AddNoteTool(private val database: NotesDatabase, private val cloc
         if (text.isNullOrEmpty()) return ToolResult("Give the note as a non-empty string 'text'.", isError = true)
         val createdAt = ISO_OFFSET_DATE_TIME.format(OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS))
         val id = database.use { connection ->
-            connection.prepareStatement("INSERT INTO notes (text, created_at) VALUES (?, ?)").use { insert ->
+            connection.prepareStatement(
+                "INSERT INTO notes (text, created_at) VALUES (?, ?) RETURNING id",
+            ).use { insert ->
                 insert.setString(1, text)
                 insert.setString(2, createdAt)
-                insert.executeUpdate()
-            }
-            connection.createStatement().use {
-                it.executeQuery("SELECT last_insert_rowid()").use { row -> row.getLong(1) }
+                insert.executeQuery().use { row ->
+                    check(row.next()) { "The insert returned no id." }
+                    row.getLong(1)
+                }
             }
         }
         return ToolResult("Saved note #$id.")
@@ -92,7 +94,7 @@ internal class ResetNotesTool(private val database: NotesDatabase) : Tool {
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-        database.delete()
+        database.clear()
         return ToolResult("Deleted every note.")
     }
 }

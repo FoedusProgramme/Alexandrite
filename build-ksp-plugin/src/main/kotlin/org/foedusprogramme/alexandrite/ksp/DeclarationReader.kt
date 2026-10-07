@@ -3,7 +3,9 @@ package org.foedusprogramme.alexandrite.ksp
 import com.google.devtools.ksp.symbol.ClassKind
 import com.google.devtools.ksp.symbol.KSClassDeclaration
 import com.google.devtools.ksp.symbol.KSDeclaration
+import com.google.devtools.ksp.symbol.KSFunctionDeclaration
 import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.KSTypeParameter
 import com.google.devtools.ksp.symbol.KSValueParameter
 
 /** Reads what component classes and @Provides functions have in common. */
@@ -16,6 +18,7 @@ internal abstract class DeclarationReader(
 
     private val problems = mutableListOf<Problem>()
     private val roots = mutableSetOf<String>()
+    private val markers = mutableSetOf<String>()
 
     protected val failed: Boolean get() = problems.isNotEmpty()
 
@@ -27,20 +30,24 @@ internal abstract class DeclarationReader(
 
     protected fun <T : Any> result(value: T?): Read<T> = Read(value.takeIf { !failed }, problems.toList())
 
-    /** The component bound under [type] and created by calling [factory] with [parameters]. */
+    /** The component bound under [type] and created by calling [callee], written [factory]. */
     protected fun component(
         type: ExpandedType,
-        parameters: List<KSValueParameter>?,
+        callee: KSFunctionDeclaration?,
         factory: String,
         provider: Boolean,
     ): Component? {
         val channelInstanceScoped = symbols.has(declaration, CHANNEL_INSTANCE_SCOPED)
         if (channelInstanceScoped && symbols.has(declaration, SINGLETON)) report(Messages.twoScopes(label))
         val qualifier = qualifier
-        val dependencies = parameters?.mapNotNull(::dependency)
-        val binds = extraKeys(BINDS, type, qualifier, provider)
-        val contributes = extraKeys(CONTRIBUTE, type, qualifier, provider)
-        if (failed || dependencies == null) return null
+        if (qualifier != null && qualifier.isBlank()) report(Messages.blankNamed(label))
+        val dependencies = callee?.parameters?.mapNotNull(::dependency)
+        val binds = extraKeys(BINDS, type, qualifier, provider, channelInstanceScoped)
+        val contributes = extraKeys(CONTRIBUTE, type, qualifier, provider, channelInstanceScoped)
+        if (failed || callee == null || dependencies == null) return null
+        use(type)
+        markers += symbols.optInMarkers(callee)
+        val expressionRoots = setOf(root(declaration.name)) + markers.map(::root)
         val created = type.declaration as? KSClassDeclaration
         return Component(
             label,
@@ -54,18 +61,30 @@ internal abstract class DeclarationReader(
             contributes,
             spis = created?.let(symbols::contributedSpis).orEmpty().map { it.name },
             factory,
-            roots = roots + type.roots() + root(declaration.name),
+            roots = roots + expressionRoots,
+            expressionRoots,
+            markers.toSet(),
         )
     }
 
     /** The problem that keeps anything from injecting [type] qualified with [qualifier], null when nothing does. */
-    protected fun keyProblem(type: ExpandedType, qualifier: String?): KeyProblem? = when {
-        type.className == LIST -> KeyProblem.ALL
-        type.className == LAZY -> KeyProblem.LAZY
-        type.isFunction || type.isSuspendFunction -> KeyProblem.FUNCTION
+    protected fun keyProblem(type: ExpandedType, qualifier: String?): KeyProblem? = wrapperProblem(type) ?: when {
         qualifier == null && type.className in QUALIFIED_ONLY -> KeyProblem.UNQUALIFIED
         symbols.has(type.declaration, PLUGIN_LOCAL) -> KeyProblem.PLUGIN_LOCAL
         else -> null
+    }
+
+    private fun wrapperProblem(type: ExpandedType): KeyProblem? = when {
+        type.className == LIST -> KeyProblem.ALL
+        type.className == LAZY -> KeyProblem.LAZY
+        type.isFunction || type.isSuspendFunction -> KeyProblem.FUNCTION
+        else -> null
+    }
+
+    /** Records the roots and opt-in markers of [type]. */
+    private fun use(type: ExpandedType) {
+        roots += type.roots()
+        type.declarations().forEach { markers += symbols.optInMarkers(it) }
     }
 
     private fun dependency(parameter: KSValueParameter): Dependency? {
@@ -98,8 +117,12 @@ internal abstract class DeclarationReader(
             else -> type.arguments.single().type
         }
         if (keyType == null || keyType.nullable) return fail(Messages.projectedArgument(name, label, type.source()))
+        if ((kind == DependencyKind.LAZY || kind == DependencyKind.PROVIDER) && wrapperProblem(keyType) != null) {
+            return fail(Messages.wrappedWrapper(name, label, type.source(), keyType.source()))
+        }
         val keyClass = keyType.declaration
         val named = symbols.annotation(parameter, NAMED)?.value as String?
+        if (named != null && named.isBlank()) return fail(Messages.blankNamedParameter(name, label))
         val qualifier = when {
             !symbols.has(keyClass, PLUGIN_LOCAL) -> named
             named == null -> pluginId
@@ -109,7 +132,7 @@ internal abstract class DeclarationReader(
             return fail(Messages.unqualified(name, label, keyType.source()))
         }
         val unannotated = kind != DependencyKind.ALL && keyClass is KSClassDeclaration && isUnannotatedClass(keyClass)
-        roots += keyType.roots()
+        use(keyType)
         return Dependency(Key(keyType.source(), qualifier), kind, name, parameter.location, unannotated)
     }
 
@@ -119,6 +142,7 @@ internal abstract class DeclarationReader(
         type: ExpandedType,
         qualifier: String?,
         provider: Boolean,
+        channelInstanceScoped: Boolean,
     ): List<Bound> {
         val annotation = symbols.annotation(declaration, annotationName) ?: return emptyList()
         val annotationLabel = Messages.annotationLabel(annotationName)
@@ -137,13 +161,16 @@ internal abstract class DeclarationReader(
                 supertype == null || supertype.hasTypeParameter ->
                     Messages.unknownArguments(label, annotationLabel, boundName, provider)
 
+                annotationName == CONTRIBUTE && channelInstanceScoped && boundName == HOOK ->
+                    Messages.channelInstanceHook(label)
+
                 else -> boundProblem(annotationName, boundClass, supertype, qualifier)
             }
             if (problem != null || supertype == null) {
                 problem?.let(::report)
                 return@mapNotNull null
             }
-            roots += supertype.roots()
+            use(supertype)
             Bound(Key(supertype.source(), qualifier), boundName)
         }
     }
@@ -171,6 +198,12 @@ internal abstract class DeclarationReader(
         declaration.classKind == ClassKind.CLASS &&
         declaration.isConcrete &&
         !symbols.hasAny(declaration, INDEXED_CLASS_ANNOTATIONS)
+}
+
+/** The classes [source] writes. */
+private fun ExpandedType.declarations(): List<KSDeclaration> {
+    val own = if (declaration is KSTypeParameter) emptyList() else listOf(declaration)
+    return own + arguments.flatMap { it.type?.declarations().orEmpty() }
 }
 
 private val QUALIFIED_ONLY = setOf(

@@ -7,12 +7,12 @@ plugins {
     id("alexandrite.spotless")
 }
 
-group = "org.foedusprogramme.alexandrite"
+val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
+
+group = module.group
 version = "0.1.0-SNAPSHOT"
 
 val libs = the<VersionCatalogsExtension>().named("libs")
-
-val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
 
 base {
     archivesName = module.jarName
@@ -48,7 +48,7 @@ if (module.layer != Layer.EXAMPLE) {
     }
 }
 
-if (module.layer in AlexandriteLayout.INDEXED_LAYERS) {
+if (module.builtIn && module.layer in AlexandriteLayout.INDEXED_LAYERS) {
     apply(plugin = "alexandrite.ksp")
 }
 

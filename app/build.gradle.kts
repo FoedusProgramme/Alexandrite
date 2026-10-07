@@ -29,3 +29,9 @@ val versionResource = tasks.register<WriteProperties>("versionResource") {
 sourceSets.main {
     resources.srcDir(versionResource.map { it.destinationFile.get().asFile.parentFile })
 }
+
+tasks.test {
+    inputs.file("src/dist/config/alexandrite.example.json")
+        .withPropertyName("exampleConfig")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}

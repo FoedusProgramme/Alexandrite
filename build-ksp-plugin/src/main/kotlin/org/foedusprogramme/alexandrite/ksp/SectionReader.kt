@@ -22,7 +22,15 @@ internal class SectionReader(private val declaration: KSClassDeclaration, privat
             path.substringBefore('.') == ENABLED -> problems += Messages.reservedPath(label, path)
         }
         val section = if (problems.isEmpty()) {
-            Section(label, declaration.location, sourceName(label), path, setOf(root(label)))
+            val markers = symbols.optInMarkers(declaration)
+            Section(
+                label,
+                declaration.location,
+                sourceName(label),
+                path,
+                setOf(root(label)) + markers.map(::root),
+                markers,
+            )
         } else {
             null
         }

@@ -10,8 +10,8 @@ internal object Messages {
             "are ${known.joinToString()}."
     }
 
-    fun missingPlugin(): String = "The KSP option '$PLUGIN_OPTION' is not set. Apply the alexandrite.ksp convention " +
-        "plugin, or set the plugin id in the build file: ksp { arg(\"$PLUGIN_OPTION\", \"my-plugin\") }."
+    fun missingPlugin(): String = "The KSP option '$PLUGIN_OPTION' is not set. Set the plugin id in the build file: " +
+        "ksp { arg(\"$PLUGIN_OPTION\", \"my-plugin\") }."
 
     fun malformedPlugin(id: String): String = "The KSP option '$PLUGIN_OPTION' is '$id'. ${pluginIdRule()}"
 
@@ -61,6 +61,10 @@ internal object Messages {
         "$declaration is declared in package $packageName, where the generated index refers to names that start " +
             "with '$root', so it would hide them. Rename it, or set the KSP option '$PACKAGE_OPTION' to put the " +
             "index in another package."
+
+    fun generatedName(name: String, root: String, meaning: String): String =
+        "$name refers to names that start with '$root', but in the generated index '$root' is $meaning, so they " +
+            "would not resolve. Rename the package or class '$root'."
 
     fun missingEntry(id: String): String = "Plugin '$id' has no @Plugin class. Annotate its entry class with " +
         "@Plugin(name = \"…\"): every plugin has exactly one."
@@ -115,6 +119,12 @@ internal object Messages {
     fun twoScopes(name: String): String =
         "$name is annotated both @Singleton and @ChannelInstanceScoped. Keep only the one for the scope it needs."
 
+    fun blankNamed(name: String): String = "$name is annotated @Named with a blank name. Name it, or remove @Named."
+
+    fun channelInstanceHook(name: String): String =
+        "$name is @ChannelInstanceScoped but contributes to Hook, and the runtime collects every hook once for all " +
+            "channel instances. Remove @ChannelInstanceScoped."
+
     fun sectionComponent(name: String): String =
         "$name is a @ConfigSection, so it cannot also be a component. Inject it into a component instead."
 
@@ -162,6 +172,13 @@ internal object Messages {
     fun projectedArgument(parameter: String, owner: String, type: String): String =
         "Parameter '$parameter' of $owner has type $type, whose type argument is nullable or a star projection. " +
             "Keys are non-null types: inject List<T>, Lazy<T> or () -> T with a non-null T."
+
+    fun wrappedWrapper(parameter: String, owner: String, type: String, argument: String): String =
+        "Parameter '$parameter' of $owner has type $type, but nothing binds $argument itself: List<T>, Lazy<T> " +
+            "and () -> T are ways of injecting a binding. Inject $argument directly."
+
+    fun blankNamedParameter(parameter: String, owner: String): String =
+        "Parameter '$parameter' of $owner is annotated @Named with a blank name. Name it, or remove @Named."
 
     fun unqualified(parameter: String, owner: String, type: String): String =
         "Parameter '$parameter' of $owner has type $type, which is too general to inject without a qualifier. " +

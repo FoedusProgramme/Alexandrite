@@ -59,6 +59,22 @@ class RoundsTest {
     }
 
     @Test
+    fun `a declaration whose types never resolve is reported, and nothing is generated`() {
+        val uses = source(
+            "Uses.kt",
+            "package sample\n\nimport org.foedusprogramme.alexandrite.sdk.di.*\n\n@Singleton class UsesMissing(val m: Missing)",
+        )
+        compile(workingDir, uses, entry("sample")).use { compiled ->
+            assertFalse(compiled.succeeded)
+            assertEquals(
+                listOf(Reported("Uses.kt", 5, Messages.unresolvedTypes("sample.UsesMissing"))),
+                reported(compiled.messages),
+            )
+            assertEquals(emptyList(), compiled.generated())
+        }
+    }
+
+    @Test
     fun `a scope break whose channel-instance-scoped side comes in a later round is rejected`() {
         compileWithGenerated(
             """
@@ -69,7 +85,7 @@ class RoundsTest {
         ).use { compiled ->
             assertFalse(compiled.succeeded)
             val expected = Messages.scopeBreak("port", "sample.Registry", listOf("sample.GeneratedPort"))
-            assertEquals(setOf(Reported("Uses.kt", 6, expected)), reported(compiled.messages))
+            assertEquals(listOf(Reported("Uses.kt", 6, expected)), reported(compiled.messages))
         }
     }
 }

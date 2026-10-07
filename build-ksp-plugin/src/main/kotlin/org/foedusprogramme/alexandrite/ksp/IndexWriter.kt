@@ -6,7 +6,6 @@ import com.google.devtools.ksp.processing.Dependencies
 /** Writes the index of a plugin, its service file and its descriptor. */
 internal class IndexWriter(
     private val options: PluginOptions,
-    /** The fully qualified name of the index class. */
     private val indexClass: String,
     private val entry: PluginEntry,
 ) {
@@ -34,25 +33,15 @@ internal class IndexWriter(
     private fun source(sections: Collection<Section>, components: Collection<Component>): String {
         val bindings = components.sortedBy { it.origin }.flatMap(::componentBindings)
         val specs = sections.sortedBy { it.path }.map(::sectionSpec)
-        val imports = listOf(
-            ALEXANDRITE_SDK,
-            INTERNAL_API,
-            CONFIG_SECTION_SPEC,
-            BINDING,
-            DEPENDENCY,
-            DEPENDENCY_KIND,
-            SCOPE,
-            BINDING_FUNCTION,
-            KEY_FUNCTION,
-            PLUGIN_INDEX,
-            PLUGIN_INFO,
-        )
+        val markers = (components.flatMap { it.markers } + sections.flatMap { it.markers }).toSortedSet() - INTERNAL_API
+        val optIns = listOf(simpleName(INTERNAL_API)) + markers.map(::sourceName)
         return buildString {
-            appendLine("@file:OptIn(${INTERNAL_API.substringAfterLast('.')}::class)")
+            appendLine("@file:OptIn(${optIns.joinToString { "$it::class" }})")
+            appendLine("@file:Suppress(\"DEPRECATION\")")
             appendLine()
             appendLine("package ${sourceName(packageName)}")
             appendLine()
-            imports.forEach { appendLine("import $it") }
+            (IMPORTED_CLASSES + IMPORTED_FUNCTIONS).sorted().forEach { appendLine("import $it") }
             appendLine()
             appendLine("public class ${sourceName(className)} : PluginIndex {")
             appendLine("    override val info: PluginInfo = PluginInfo(")
@@ -67,9 +56,15 @@ internal class IndexWriter(
             appendLine()
             appendLine("    override val configRoot: String = ${literal(options.configRoot)}")
             appendLine()
-            appendList("override fun bindings(): List<Binding<*>>", bindings)
+            appendLine("    override fun bindings(): List<Binding<*>> = $CONTENTS.bindings()")
             appendLine()
-            appendList("override fun configSections(): List<ConfigSectionSpec<*>>", specs)
+            appendLine("    override fun configSections(): List<ConfigSectionSpec<*>> = $CONTENTS.configSections()")
+            appendLine()
+            appendLine("    private object $CONTENTS {")
+            appendList("fun bindings(): List<Binding<*>>", bindings)
+            appendLine()
+            appendList("fun configSections(): List<ConfigSectionSpec<*>>", specs)
+            appendLine("    }")
             appendLine("}")
         }
     }
@@ -94,12 +89,12 @@ internal class IndexWriter(
 
     private fun StringBuilder.appendList(declaration: String, elements: List<String>) {
         if (elements.isEmpty()) {
-            appendLine("    $declaration = emptyList()")
+            appendLine("        $declaration = emptyList()")
             return
         }
-        appendLine("    $declaration = listOf(")
-        elements.forEach { appendLine(it.prependIndent("        ") + ",") }
-        appendLine("    )")
+        appendLine("        $declaration = listOf(")
+        elements.forEach { appendLine(it.prependIndent("            ") + ",") }
+        appendLine("        )")
     }
 
     private fun sectionSpec(section: Section): String = buildString {
@@ -198,3 +193,30 @@ internal class IndexWriter(
 }
 
 private const val RESOLVER = "alexandriteResolver"
+
+private const val CONTENTS = "Contents"
+
+private val IMPORTED_CLASSES = listOf(
+    OPT_IN,
+    STRING,
+    SUPPRESS,
+    LIST,
+    ALEXANDRITE_SDK,
+    INTERNAL_API,
+    CONFIG_SECTION_SPEC,
+    BINDING,
+    DEPENDENCY,
+    DEPENDENCY_KIND,
+    SCOPE,
+    PLUGIN_INDEX,
+    PLUGIN_INFO,
+)
+
+private val IMPORTED_FUNCTIONS = listOf(EMPTY_LIST, LIST_OF, BINDING_FUNCTION, KEY_FUNCTION)
+
+/** The class names that the generated index of [indexClass] brings into scope, with what each stands for. */
+internal fun generatedNames(indexClass: String): Map<String, String> = IMPORTED_CLASSES.associateBy(::simpleName) +
+    (simpleName(indexClass) to "the index class itself") +
+    (CONTENTS to "a nested object of the index class")
+
+private fun simpleName(name: String): String = name.substringAfterLast('.')

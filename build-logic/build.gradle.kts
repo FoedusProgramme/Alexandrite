@@ -24,4 +24,17 @@ dependencies {
     implementation(libs.spotless.gradle.plugin)
     implementation(libs.ksp.gradle.plugin)
     implementation("org.foedusprogramme.alexandrite.buildlogic:build-logic-settings")
+
+    testImplementation(gradleTestKit())
+    testImplementation(kotlin("test"))
+    testImplementation(platform(libs.junit.bom))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    inputs.file("../gradle/libs.versions.toml")
+        .withPropertyName("versionCatalog")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }
