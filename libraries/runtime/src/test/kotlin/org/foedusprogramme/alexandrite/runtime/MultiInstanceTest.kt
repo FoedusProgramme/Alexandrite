@@ -1,11 +1,5 @@
 package org.foedusprogramme.alexandrite.runtime
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
@@ -19,7 +13,6 @@ import java.time.Clock
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 
 class MultiInstanceTest {
     @TempDir
@@ -35,46 +28,37 @@ class MultiInstanceTest {
     private inner class Instance(directory: String, zone: ZoneId) {
         val events = Events()
         val recorder = Recorder()
-        private val ready = CompletableDeferred<AlexandriteRuntime>()
-        private val spec = run {
+        val runtime: AlexandriteRuntime = run {
             val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed) }
             val probe = probe("probe", "hooks" to key<Hooks>(), "clock" to key<Clock>())
             val plugins = explicit(TestIndex("probe", bindings = listOf(probe, hook)))
-            spec(plugins, dataDir.resolve(directory), listener = recorder, zone = zone)
+            AlexandriteRuntime.launch(spec(plugins, dataDir.resolve(directory), listener = recorder, zone = zone))
         }
 
-        fun startIn(scope: CoroutineScope): Deferred<Termination> = scope.async(Dispatchers.Default) {
-            AlexandriteRuntime.run(spec) {
-                ready.complete(this)
-                awaitCancellation()
-            }
+        suspend fun values(): Map<String, Any> {
+            check(runtime.awaitReady())
+            return runtime.services.get(key<Probe>()).values
         }
-
-        suspend fun values(): Map<String, Any> = ready.await().services.get(key<Probe>()).values
 
         suspend fun fire(payload: String) = (values().getValue("hooks") as Hooks).fire(observed, payload)
-
-        suspend fun requestStop() = ready.await().requestStop()
     }
 
     @Test
-    fun `two runtimes run side by side with their own hooks, events and clock`() {
+    fun `two launched runtimes run side by side with their own hooks, events and clock`() {
         val first = Instance("first", ZoneId.of("Asia/Shanghai"))
         val second = Instance("second", ZoneId.of("UTC"))
 
         runBlocking {
-            val firstRun = first.startIn(this)
-            val secondRun = second.startIn(this)
             first.fire("to first")
             second.fire("to second")
-            first.requestStop()
-            firstRun.await()
+            first.runtime.requestStop()
+            first.runtime.awaitTermination()
 
-            assertFalse(secondRun.isCompleted)
+            assertEquals(RuntimeState.READY, second.runtime.state.value)
             second.fire("still second")
             assertEquals(ZoneId.of("UTC"), (second.values().getValue("clock") as Clock).zone)
-            second.requestStop()
-            secondRun.await()
+            second.runtime.requestStop()
+            second.runtime.awaitTermination()
         }
 
         assertEquals(listOf("to first"), first.events.all())

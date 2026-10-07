@@ -16,7 +16,7 @@ internal suspend fun runUntilSignal(
     block: suspend AlexandriteRuntime.() -> Unit,
     signals: Signals,
 ): Termination {
-    val run = RuntimeRun(spec)
+    val run = RuntimeRun(spec, RuntimeRun.RUN_CANCELLED)
     val ended = CountDownLatch(1)
     val received = AtomicBoolean()
     val trap = signals.trap { signal ->
@@ -32,7 +32,7 @@ internal suspend fun runUntilSignal(
         ended.await()
     }
     try {
-        return run.live(block)
+        return run.runBlock(block)
     } finally {
         ended.countDown()
         trap.close()

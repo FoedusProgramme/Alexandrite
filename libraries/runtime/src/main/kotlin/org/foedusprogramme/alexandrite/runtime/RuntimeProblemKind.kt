@@ -61,6 +61,9 @@ public enum class RuntimeProblemKind : ProblemKind {
     /** An instance that threw while stopping. */
     STOP_FAILED,
 
+    /** A plugin scope with coroutines still running at the shutdown deadline. */
+    PLUGIN_SCOPE_NOT_DONE,
+
     /** An instance that threw while being destroyed. */
     DESTROY_FAILED,
     ;

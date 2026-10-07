@@ -178,7 +178,7 @@ class ObserveTest {
                 },
             ),
             { _, _, _ -> TODO("listener") },
-            asyncDispatcher = StandardTestDispatcher(testScheduler),
+            asyncContext = StandardTestDispatcher(testScheduler),
         )
 
         listOf("a", "b").forEach { dispatcher.fire(seen, it) }

@@ -3,8 +3,11 @@ package org.foedusprogramme.alexandrite.runtime
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
@@ -156,6 +159,8 @@ val BLOCK_RETURNED = StopRequest(StopKind.SHUTDOWN, "the run block returned")
 
 val RUN_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the run was cancelled")
 
+val PARENT_CANCELLED = StopRequest(StopKind.SHUTDOWN, "the parent scope was cancelled")
+
 @HostApi
 class Probe(val values: Map<String, Any>)
 
@@ -298,12 +303,14 @@ fun spec(
     shutdownGrace: Duration = 15.seconds,
     zone: ZoneId = ZONE,
     source: ConfigSource = JsonConfigSource(Json.parseToJsonElement(config).jsonObject),
+    dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ): RuntimeSpec {
     val runtimeConfig = RuntimeConfig.builder(dataDir)
         .zone(zone)
         .shutdownGrace(shutdownGrace)
         .startTimeout(startTimeout)
         .name("test")
+        .dispatcher(dispatcher)
         .build()
     return RuntimeSpec.builder(runtimeConfig, plugins)
         .pluginConfig(source)
@@ -316,6 +323,8 @@ fun requested(request: StopRequest, problems: List<Problem> = emptyList()): Term
 
 fun RuntimeSpec.execute(block: suspend AlexandriteRuntime.() -> Unit = {}): Termination =
     runBlocking { AlexandriteRuntime.run(this@execute, block) }
+
+fun AlexandriteRuntime.terminated(): Termination = runBlocking { withTimeout(10.seconds) { awaitTermination() } }
 
 fun RuntimeSpec.startFailure(): RuntimeStartException =
     assertIs<Termination.Cause.StartFailed>(execute { fail("the run block ran") }.cause).error

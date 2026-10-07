@@ -20,9 +20,15 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 
 /** The work of the start stages from DATA_DIR to GRAPH. */
-internal class Assembly(private val spec: RuntimeSpec, private val control: RuntimeControl) {
+internal class Assembly(
+    private val spec: RuntimeSpec,
+    private val control: RuntimeControl,
+    private val scopes: PluginScopes,
+    private val context: CoroutineContext,
+) {
     private val name = spec.config.name
 
     private val hookFailures = HookFailureListener { hook, point, failure ->
@@ -88,7 +94,7 @@ internal class Assembly(private val spec: RuntimeSpec, private val control: Runt
     /** The container of [plugins] and of what the runtime binds for [enabled]. */
     fun container(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>): Container = try {
         val infos = enabled.map { it.member.plugin.info }
-        Container.build(plugins + runtimeBindings(spec.config, infos, hookFailures, control))
+        Container.build(plugins + runtimeBindings(spec.config, infos, hookFailures, control, scopes, context))
     } catch (e: DiException) {
         throw startFailure(name, StartStage.GRAPH, e.problems, e)
     } catch (e: Exception) {

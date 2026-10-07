@@ -13,9 +13,11 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import java.nio.file.Path
 import java.time.Clock
+import kotlin.coroutines.CoroutineContext
 
 private const val RUNTIME_PLUGIN = "alexandrite-runtime"
 
@@ -27,6 +29,8 @@ internal fun runtimeBindings(
     plugins: List<PluginInfo>,
     hookFailures: HookFailureListener,
     control: RuntimeControl,
+    scopes: PluginScopes,
+    context: CoroutineContext,
 ): PluginBindings {
     val hooks = key<Hook>()
     val bindings = listOf(
@@ -35,7 +39,7 @@ internal fun runtimeBindings(
             RUNTIME_PLUGIN,
             "Hooks",
             dependencies = listOf(Dependency(hooks, DependencyKind.ALL, "hooks")),
-        ) { r -> HookDispatcher(r.getAll(hooks), hookFailures) },
+        ) { r -> HookDispatcher(r.getAll(hooks), hookFailures, asyncContext = context) },
         instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
         instanceBinding(key<RuntimeControl>(), control, RUNTIME_PLUGIN, "RuntimeControl"),
     ) + plugins.flatMap { plugin ->
@@ -49,6 +53,12 @@ internal fun runtimeBindings(
                 ),
                 RUNTIME_PLUGIN,
                 "PluginFiles of ${plugin.id}",
+            ),
+            instanceBinding(
+                key<PluginScope>(plugin.id),
+                scopes.create(plugin.id),
+                RUNTIME_PLUGIN,
+                "PluginScope of ${plugin.id}",
             ),
         )
     }

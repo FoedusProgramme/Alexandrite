@@ -1,8 +1,8 @@
 package org.foedusprogramme.alexandrite.runtime.hook
 
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -25,16 +25,17 @@ import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
+import kotlin.coroutines.CoroutineContext
 
-/** Each ASYNC observer has its own queue of [asyncCapacity] events, worked off on [asyncDispatcher]. */
+/** Each ASYNC observer has its own queue of [asyncCapacity] events, worked off in a child scope of [asyncContext]. */
 internal class HookDispatcher(
     hooks: List<Hook>,
     private val listener: HookFailureListener = HookFailureListener.NONE,
     private val asyncCapacity: Int = 256,
-    asyncDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    asyncContext: CoroutineContext = Dispatchers.Default,
 ) : Hooks,
     Lifecycle {
-    private val scope = CoroutineScope(SupervisorJob() + asyncDispatcher)
+    private val scope = CoroutineScope(asyncContext + SupervisorJob(asyncContext[Job]))
     private val points: Map<String, HookPoint<*>>
     private val interceptors: Map<String, List<InterceptorHook<*>>>
     private val inlineObservers: Map<String, List<ObserverHook<*>>>

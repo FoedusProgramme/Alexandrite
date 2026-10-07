@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime
 
+import kotlinx.coroutines.Dispatchers
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
@@ -36,7 +37,7 @@ class SpecTest {
             { RuntimeConfig.builder(dataDir).zone(ZONE).build() },
             RuntimeConfig.builder(dataDir).zone(ZONE).name("other").build(),
             "RuntimeConfig(dataDir=data, cacheDir=data${java.io.File.separator}cache, zone=Asia/Shanghai, " +
-                "shutdownGrace=15s, startTimeout=30s, name=alexandrite)",
+                "shutdownGrace=15s, startTimeout=30s, name=alexandrite, dispatcher=Dispatchers.Default)",
         ),
         Case(
             { loaded(HelloIndex()) },
@@ -93,6 +94,7 @@ class SpecTest {
         assertEquals(15.seconds, config.shutdownGrace)
         assertEquals(30.seconds, config.startTimeout)
         assertEquals("alexandrite", config.name)
+        assertSame(Dispatchers.Default, config.dispatcher)
     }
 
     @Test
@@ -103,12 +105,13 @@ class SpecTest {
             .shutdownGrace(Duration.ZERO)
             .startTimeout(5.milliseconds)
             .name("edge")
+            .dispatcher(Dispatchers.IO)
             .build()
 
         assertEquals(
-            listOf(Path.of("cache"), ZONE, Duration.ZERO, 5.milliseconds, "edge"),
+            listOf(Path.of("cache"), ZONE, Duration.ZERO, 5.milliseconds, "edge", Dispatchers.IO),
             with(config) {
-                listOf(cacheDir, zone, shutdownGrace, startTimeout, name)
+                listOf(cacheDir, zone, shutdownGrace, startTimeout, name, dispatcher)
             },
         )
     }

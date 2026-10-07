@@ -131,4 +131,29 @@ class EndToEndTest {
             assertTrue(errors.all { "Uses.kt" in it && "Internal Alexandrite API" in it }, compiled.messages)
         }
     }
+
+    @Test
+    fun `plugin code needs an opt-in to implement the plugin scope`() {
+        val implements = source(
+            "Scope.kt",
+            """
+            package sample
+
+            import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
+            import kotlin.coroutines.EmptyCoroutineContext
+
+            class Scope : PluginScope {
+                override val coroutineContext = EmptyCoroutineContext
+            }
+            """.trimIndent(),
+        )
+
+        compile(workingDir, implements, entry("sample")).use { compiled ->
+            val errors = compiled.messages.lines().filter { it.startsWith("e: ") }
+
+            assertFalse(compiled.succeeded)
+            assertTrue(errors.isNotEmpty(), compiled.messages)
+            assertTrue(errors.all { "Scope.kt" in it && "Internal Alexandrite API" in it }, compiled.messages)
+        }
+    }
 }

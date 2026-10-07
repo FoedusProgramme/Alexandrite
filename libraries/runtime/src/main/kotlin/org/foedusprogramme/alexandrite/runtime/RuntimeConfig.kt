@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import dev.drewhamilton.poko.Poko
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import java.nio.file.Path
 import java.time.ZoneId
 import kotlin.time.Duration
@@ -18,6 +20,8 @@ public class RuntimeConfig private constructor(
     public val startTimeout: Duration,
     /** Names the instance in messages. */
     public val name: String,
+    /** Runs the runtime's coroutines. */
+    public val dispatcher: CoroutineDispatcher,
 ) {
     public class Builder internal constructor(private val dataDir: Path) {
         private var cacheDir: Path = dataDir.resolve("cache")
@@ -25,6 +29,7 @@ public class RuntimeConfig private constructor(
         private var shutdownGrace: Duration = 15.seconds
         private var startTimeout: Duration = 30.seconds
         private var name: String = "alexandrite"
+        private var dispatcher: CoroutineDispatcher = Dispatchers.Default
 
         public fun cacheDir(cacheDir: Path): Builder = apply { this.cacheDir = cacheDir }
 
@@ -45,12 +50,14 @@ public class RuntimeConfig private constructor(
             this.name = name
         }
 
+        public fun dispatcher(dispatcher: CoroutineDispatcher): Builder = apply { this.dispatcher = dispatcher }
+
         public fun build(): RuntimeConfig {
             require(!dataDir.toAbsolutePath().normalize().startsWith(cacheDir.toAbsolutePath().normalize())) {
                 "The cache directory may not be the data directory or hold it, was '$cacheDir' for the data " +
                     "directory '$dataDir'."
             }
-            return RuntimeConfig(dataDir, cacheDir, zone, shutdownGrace, startTimeout, name)
+            return RuntimeConfig(dataDir, cacheDir, zone, shutdownGrace, startTimeout, name, dispatcher)
         }
     }
 

@@ -21,10 +21,11 @@ application {
     mainClass = "org.foedusprogramme.alexandrite.app.MainKt"
 }
 
-tasks.processResources {
-    val version = project.version.toString()
-    inputs.property("version", version)
-    filesMatching("alexandrite-version.properties") {
-        expand("version" to version)
-    }
+val versionResource = tasks.register<WriteProperties>("versionResource") {
+    destinationFile = layout.buildDirectory.file("generated/version/alexandrite-version.properties")
+    property("version", project.version.toString())
+}
+
+sourceSets.main {
+    resources.srcDir(versionResource.map { it.destinationFile.get().asFile.parentFile })
 }

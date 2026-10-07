@@ -20,7 +20,6 @@ import org.foedusprogramme.alexandrite.runtime.Recorder
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent
 import org.foedusprogramme.alexandrite.runtime.RuntimeListener
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
-import org.foedusprogramme.alexandrite.runtime.RuntimeRun
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.Service
@@ -34,6 +33,7 @@ import org.foedusprogramme.alexandrite.runtime.probe
 import org.foedusprogramme.alexandrite.runtime.requested
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
+import org.foedusprogramme.alexandrite.runtime.terminated
 import org.foedusprogramme.alexandrite.runtime.worker
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -109,18 +109,6 @@ class LifecycleTest {
             gate.block()
             return null
         }
-    }
-
-    private class Runner(private val run: RuntimeRun) {
-        @Volatile
-        var ran = false
-
-        @Volatile
-        var termination: Termination? = null
-
-        private val running = thread { termination = runBlocking { run.live { ran = true } } }
-
-        fun join() = running.join(5_000)
     }
 
     // Start and stop.
@@ -314,7 +302,7 @@ class LifecycleTest {
     private class Blocked(val stage: StartStage, val events: List<String>, val spec: (Gate) -> RuntimeSpec)
 
     @Test
-    fun `a stop cuts the start short at every stage and the block never runs`() {
+    fun `a stop cuts the start short at every stage and the runtime never gets ready`() {
         val cases = listOf(
             Blocked(StartStage.PLUGINS, listOf("Stopping", "Stopped")) { gate ->
                 spec(explicit(GatedIndex(gate)), dataDir, listener = recorder)
@@ -340,16 +328,15 @@ class LifecycleTest {
         for (case in cases) {
             recorder.events.clear()
             val gate = Gate().apply { armed = false }
-            val run = RuntimeRun(case.spec(gate))
+            val spec = case.spec(gate)
             gate.armed = true
-            val runner = Runner(run)
+            val runtime = AlexandriteRuntime.launch(spec)
 
             gate.awaitEntered()
-            run.requestStop(restart)
-            runner.join()
+            runtime.requestStop(restart)
 
-            assertEquals(requested(restart), runner.termination, "${case.stage}")
-            assertFalse(runner.ran, "${case.stage}")
+            assertEquals(requested(restart), runtime.terminated(), "${case.stage}")
+            assertFalse(runBlocking { runtime.awaitReady() }, "${case.stage}")
             assertEquals(case.events, recorder.names(), "${case.stage}")
         }
     }
@@ -357,19 +344,17 @@ class LifecycleTest {
     @Test
     fun `a stop during OPEN closes the opened instances, then drains and stops the started ones`() {
         val gate = Gate()
-        val run = RuntimeRun(
+        val runtime = AlexandriteRuntime.launch(
             spec(
                 core(worker("a", "core", events), worker("b", "core", events, listOf("a"), onOpen = { gate.hold() })),
                 dataDir,
             ),
         )
-        val runner = Runner(run)
 
         gate.awaitEntered()
-        run.requestStop()
-        runner.join()
+        runtime.requestStop()
 
-        assertEquals(requested(HOST_STOP), runner.termination)
+        assertEquals(requested(HOST_STOP), runtime.terminated())
         assertEquals(
             listOf(
                 "create a", "create b",

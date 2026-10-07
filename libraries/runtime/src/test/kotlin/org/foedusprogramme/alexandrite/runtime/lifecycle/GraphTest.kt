@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -35,6 +36,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.junit.jupiter.api.io.TempDir
@@ -102,7 +104,7 @@ class GraphTest {
     }
 
     @Test
-    fun `the runtime binds hooks, the clock, its control and each plugin's info and files`() {
+    fun `the runtime binds hooks, the clock, its control and each plugin's info, files and scope`() {
         val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed) }
         val probe = probe(
             "probe",
@@ -112,6 +114,7 @@ class GraphTest {
             "files" to key<PluginFiles>("probe"),
             "other" to key<PluginFiles>("other"),
             "control" to key<RuntimeControl>(),
+            "scope" to key<PluginScope>("probe"),
         )
         val index = TestIndex("probe", bindings = listOf(probe, hook))
 
@@ -133,6 +136,7 @@ class GraphTest {
             assertTrue(Files.isDirectory(dataDir.resolve("cache/plugins/probe")))
             assertEquals(dataDir.resolve("plugins/other"), (values.getValue("other") as PluginFiles).dataDir)
             assertTrue(values.getValue("control") is RuntimeControl)
+            assertEquals("probe", (values.getValue("scope") as PluginScope).coroutineContext[CoroutineName]?.name)
         }
 
         runBlocking { hooks.fire(observed, "late") }

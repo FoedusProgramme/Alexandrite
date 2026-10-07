@@ -1,7 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent.PluginsResolved
@@ -31,7 +30,6 @@ import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.time.Clock
-import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -301,16 +299,13 @@ class RuntimeTest {
 
         repeat(40) { round ->
             val recorder = Recorder()
-            val run = RuntimeRun(spec(core(service("a", "core")), dataDir, listener = recorder))
-            var termination: Termination? = null
-            val runner = thread { termination = runBlocking { run.live { awaitCancellation() } } }
+            val runtime = AlexandriteRuntime.launch(spec(core(service("a", "core")), dataDir, listener = recorder))
 
             Thread.sleep(round % 4L)
-            run.requestStop()
-            runner.join(5_000)
+            runtime.requestStop()
 
+            assertEquals(requested(HOST_STOP), runtime.terminated(), "round $round")
             assertContains(outcomes, recorder.names(), "round $round")
-            assertEquals(requested(HOST_STOP), termination, "round $round")
         }
     }
 

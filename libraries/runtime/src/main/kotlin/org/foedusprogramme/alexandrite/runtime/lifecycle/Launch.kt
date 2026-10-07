@@ -1,11 +1,9 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent
@@ -24,19 +22,22 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.TimeMark
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
-/** One start of a runtime: its stages, and the teardown of what they built. */
+/** One start of a runtime in its scope [context]: its stages, and the teardown of what they built. */
 internal class Launch(
     private val spec: RuntimeSpec,
     control: RuntimeControl,
     private val emit: (RuntimeEvent) -> Unit,
+    context: CoroutineContext,
 ) {
     private val name = spec.config.name
-    private val assembly = Assembly(spec, control)
+    private val scopes = PluginScopes(name, context)
+    private val assembly = Assembly(spec, control, scopes, context)
 
     @Volatile
     private var stage: StartStage = StartStage.DATA_DIR
@@ -67,14 +68,16 @@ internal class Launch(
     suspend fun tearDown(deadline: TimeMark): List<Problem> {
         val grace = spec.config.shutdownGrace
         val problems = mutableListOf<Problem>()
+        val built = container
         try {
-            container?.let { built ->
-                built.stop(deadline).mapNotNullTo(problems) { problem(name, it, grace) }
-                problems += destroyProblems(name, built)
-            }
+            built?.stop(deadline)?.mapNotNullTo(problems) { problem(name, it, grace) }
         } catch (e: Exception) {
             logger.error("{}: stopping failed", name, e)
             problems += Problem(RuntimeProblemKind.STOP_FAILED, "Stopping failed: $e", null, null)
+        }
+        try {
+            problems += scopes.cancel(deadline, grace)
+            built?.let { problems += destroyProblems(name, it) }
         } finally {
             lock?.let { release(name, it) }
         }
@@ -82,11 +85,10 @@ internal class Launch(
     }
 
     private suspend fun stages() {
-        withContext(Dispatchers.IO) {
-            lock = assembly.lockDataDir()
-            assembly.createCacheDir()
-        }
-        val container = runInterruptible(Dispatchers.IO) { assemble() }
+        currentCoroutineContext().ensureActive()
+        lock = assembly.lockDataDir()
+        assembly.createCacheDir()
+        val container = runInterruptible { assemble() }
         runStage(StartStage.START) { container.start() }
         emit(RuntimeEvent.Started)
         runStage(StartStage.OPEN) { container.open() }
@@ -163,8 +165,8 @@ private fun <T> Outcome.pick(failed: T, timedOut: T, notCalled: T): T = when (th
     else -> failed
 }
 
-private suspend fun destroyProblems(name: String, container: Container): List<Problem> = try {
-    withContext(Dispatchers.IO) { container.close() }
+private fun destroyProblems(name: String, container: Container): List<Problem> = try {
+    container.close()
     emptyList()
 } catch (e: Exception) {
     (listOf(e) + e.suppressed).map { error ->
@@ -173,9 +175,9 @@ private suspend fun destroyProblems(name: String, container: Container): List<Pr
     }
 }
 
-private suspend fun release(name: String, lock: DataDirLock) {
+private fun release(name: String, lock: DataDirLock) {
     try {
-        withContext(Dispatchers.IO) { lock.close() }
+        lock.close()
     } catch (e: IOException) {
         logger.warn("{}: cannot release the data directory", name, e)
     }
