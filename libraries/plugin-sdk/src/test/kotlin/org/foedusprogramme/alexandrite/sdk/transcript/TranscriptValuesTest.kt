@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.sdk.transcript
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import kotlin.test.Test
@@ -141,6 +142,22 @@ class TranscriptValuesTest {
             assertEquals(printed, make().toString())
             assertTrue(make().javaClass.methods.none { it.name == "copy" || it.name.startsWith("component") }, printed)
         }
+    }
+
+    @Test
+    fun `an entry given a record keeps everything else`() {
+        fun stored(entry: TranscriptEntry): JsonObject =
+            JsonObject(Json.parseToJsonElement(TranscriptCodec.encode(entry)).jsonObject - "record")
+
+        for (entry in goldens.values.flatten()) {
+            val recorded = entry.withRecord(record(99))
+
+            assertEquals(record(99), recorded.record)
+            assertEquals(entry.javaClass, recorded.javaClass)
+            assertEquals(stored(entry), stored(recorded))
+        }
+        val unknown = goldens.getValue("unknown").first() as UnknownEntry
+        assertEquals(unknown.json, unknown.withRecord(record(99)).json)
     }
 
     @Test

@@ -7,7 +7,6 @@ import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
-import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -22,16 +21,20 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
+import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnInitiator
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
-import org.foedusprogramme.alexandrite.testkit.TestChatStates
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** A plugin of the harness, whose config root is that of a third-party plugin. */
@@ -49,7 +52,8 @@ internal class DoublesPlugin(
     submitter: RecordingTurnSubmitter?,
     initiator: RecordingTurnInitiator?,
     control: RecordingAgentControl?,
-    states: TestChatStates?,
+    store: MemoryStore?,
+    chatStates: ChatStateStore?,
 ) : HarnessPlugin(ID, "Test doubles") {
     private val bindings = buildList {
         if (models.isNotEmpty()) {
@@ -66,7 +70,12 @@ internal class DoublesPlugin(
             add(instanceBinding(key<TurnInitiation>(), initiation, ID, "RecordingTurnInitiator"))
         }
         control?.let { add(instanceBinding(key<AgentControl>(), it, ID, "RecordingAgentControl")) }
-        states?.let { add(instanceBinding(key<ChatStateStore>(), it.store, ID, "TestChatStates")) }
+        store?.let {
+            add(instanceBinding(key<ConversationStore>(), it.conversations, ID, "MemoryStore.conversations"))
+            add(instanceBinding(key<TranscriptStore>(), it.transcripts, ID, "MemoryStore.transcripts"))
+            add(instanceBinding(key<MediaStore>(), it.media, ID, "MemoryStore.media"))
+        }
+        chatStates?.let { add(instanceBinding(key<ChatStateStore>(), it, ID, "MemoryStore.chatStates")) }
     }
 
     val empty: Boolean get() = bindings.isEmpty()

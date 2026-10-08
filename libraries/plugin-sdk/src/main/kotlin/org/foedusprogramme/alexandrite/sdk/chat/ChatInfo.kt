@@ -21,6 +21,12 @@ public value class ChatKind internal constructor(public val id: String) {
 
         /** A chat the channel cannot classify. */
         public val UNKNOWN: ChatKind = ChatKind("unknown")
+
+        /** The values this version knows. */
+        public val entries: List<ChatKind> = listOf(DIRECT, GROUP, BROADCAST, UNKNOWN)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): ChatKind = ChatKind(id)
     }
 }
 

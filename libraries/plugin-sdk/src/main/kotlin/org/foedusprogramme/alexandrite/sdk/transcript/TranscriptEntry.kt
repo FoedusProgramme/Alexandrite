@@ -14,6 +14,9 @@ import java.time.Instant
 public interface TranscriptEntry {
     /** Null until the entry is stored. */
     public val record: EntryRecord?
+
+    /** This entry with [record] as its record. */
+    public fun withRecord(record: EntryRecord): TranscriptEntry
 }
 
 /** Where and when the store keeps an entry. */
@@ -36,6 +39,8 @@ public class UserEntry(
     init {
         require(parts.isNotEmpty()) { "A user entry has at least one part." }
     }
+
+    override fun withRecord(record: EntryRecord): UserEntry = UserEntry(record, parts, origin)
 }
 
 /** One response of a model. */
@@ -49,6 +54,9 @@ public class AssistantEntry(
 ) : TranscriptEntry {
     /** Whether the response holds neither visible text nor a tool call. */
     public val blank: Boolean get() = parts.none { (it is TextPart && it.text.isNotBlank()) || it is ToolCallPart }
+
+    override fun withRecord(record: EntryRecord): AssistantEntry =
+        AssistantEntry(record, parts, producedBy, providerData)
 }
 
 /** The result of one tool call. */
@@ -61,7 +69,10 @@ public class ToolResultEntry(
     public val toolName: String,
     public val content: List<ToolOutputPart>,
     public val outcome: ToolOutcome,
-) : TranscriptEntry
+) : TranscriptEntry {
+    override fun withRecord(record: EntryRecord): ToolResultEntry =
+        ToolResultEntry(record, callId, toolName, content, outcome)
+}
 
 /** A summary of the conversation that stands in for the entries it covers. */
 @OptIn(InternalAlexandriteApi::class)
@@ -71,13 +82,17 @@ public class SummaryEntry(
     public val text: String,
     /** The last entry the summary covers. */
     public val through: EntryId,
-) : TranscriptEntry
+) : TranscriptEntry {
+    override fun withRecord(record: EntryRecord): SummaryEntry = SummaryEntry(record, text, through)
+}
 
 /** A notice the agent sent the chat, which no model is sent. */
 @OptIn(InternalAlexandriteApi::class)
 @Poko
 public class NoticeEntry(override val record: EntryRecord?, public val text: String, public val kind: NoticeKind) :
-    TranscriptEntry
+    TranscriptEntry {
+    override fun withRecord(record: EntryRecord): NoticeEntry = NoticeEntry(record, text, kind)
+}
 
 /** An entry of a type this version does not know, as stored. */
 @OptIn(InternalAlexandriteApi::class)
@@ -87,7 +102,10 @@ public class UnknownEntry(
     public val type: String,
     /** The stored object, its type included. */
     public val json: JsonObject,
-) : TranscriptEntry
+) : TranscriptEntry {
+    /** Keeps [json] as it was read. */
+    override fun withRecord(record: EntryRecord): UnknownEntry = UnknownEntry(record, type, json)
+}
 
 /** Why the agent sent a notice. */
 @JvmInline
@@ -104,5 +122,11 @@ public value class NoticeKind internal constructor(public val id: String) {
 
         /** The turn failed. */
         public val FAILED: NoticeKind = NoticeKind("failed")
+
+        /** The values this version knows. */
+        public val entries: List<NoticeKind> = listOf(BLANK_REPLY, HOOK_ABORTED, FAILED)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): NoticeKind = NoticeKind(id)
     }
 }

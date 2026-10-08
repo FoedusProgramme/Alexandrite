@@ -139,6 +139,21 @@ public value class FinishKind internal constructor(public val id: String) {
 
         /** Any other reason. */
         public val OTHER: FinishKind = FinishKind("other")
+
+        /** The values this version knows. */
+        public val entries: List<FinishKind> = listOf(
+            END_TURN,
+            TOOL_USE,
+            STOP_SEQUENCE,
+            MAX_OUTPUT_TOKENS,
+            CONTEXT_WINDOW_EXCEEDED,
+            PAUSED,
+            REFUSAL,
+            OTHER,
+        )
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): FinishKind = FinishKind(id)
     }
 }
 

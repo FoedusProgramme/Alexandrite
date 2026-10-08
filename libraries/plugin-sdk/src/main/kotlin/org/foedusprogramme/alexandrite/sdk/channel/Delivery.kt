@@ -59,5 +59,12 @@ public value class DeliveryFailure internal constructor(public val id: String) {
 
         /** A failure the channel cannot classify. */
         public val UNKNOWN: DeliveryFailure = DeliveryFailure("unknown")
+
+        /** The values this version knows. */
+        public val entries: List<DeliveryFailure> =
+            listOf(FORBIDDEN, CHAT_GONE, WINDOW_CLOSED, RATE_LIMITED, TOO_LONG, UNSUPPORTED, TRANSIENT, UNKNOWN)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): DeliveryFailure = DeliveryFailure(id)
     }
 }

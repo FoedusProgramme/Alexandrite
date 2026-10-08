@@ -10,3 +10,4 @@ alexandrite-app AlexandriteAppIndex
 alexandrite-channel-telegram AlexandriteChannelTelegramIndex
 alexandrite-provider-anthropic AlexandriteProviderAnthropicIndex
 alexandrite-provider-openai-compatible AlexandriteProviderOpenaiCompatibleIndex
+alexandrite-store-sqlite AlexandriteStoreSqliteIndex

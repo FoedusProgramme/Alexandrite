@@ -71,5 +71,11 @@ public value class Markup internal constructor(public val id: String) {
 
         /** Markdown as models write it: CommonMark with the GitHub extensions, which each channel renders as it can. */
         public val MARKDOWN: Markup = Markup("markdown")
+
+        /** The values this version knows. */
+        public val entries: List<Markup> = listOf(PLAIN, MARKDOWN)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): Markup = Markup(id)
     }
 }

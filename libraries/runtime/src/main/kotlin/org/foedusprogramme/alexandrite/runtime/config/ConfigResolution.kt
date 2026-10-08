@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.runtime.channel.pluginChannel
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.runtime.store.duplicateStores
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
@@ -57,6 +58,7 @@ internal fun resolveConfig(
     val channels = enabled.associate { it.id to pluginChannel(it.id, bindings.getValue(it.id)) }
     channels.values.flatMapTo(problems) { it.problems }
     problems += duplicateChannelTypes(channels)
+    problems += listOfNotNull(duplicateStores(enabled, bindings))
     problems += missingRequirements(members, enabled, disabled)
     val unknown = unknownConfig(members, source, failedRoots)
     problems += unknown.problems

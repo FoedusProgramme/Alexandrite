@@ -97,6 +97,12 @@ public value class ReasoningEffort internal constructor(public val id: String) {
 
         /** The most the model offers. */
         public val MAX: ReasoningEffort = ReasoningEffort("max")
+
+        /** The values this version knows. */
+        public val entries: List<ReasoningEffort> = listOf(NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): ReasoningEffort = ReasoningEffort(id)
     }
 }
 

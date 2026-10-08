@@ -51,6 +51,8 @@ internal class Component(
     val contributes: List<Bound>,
     /** The contributed SPIs that [createdClass] implements. */
     val spis: List<String>,
+    /** The bound SPIs that [createdClass] implements. */
+    val boundSpis: List<String>,
     /** The class or function the binding calls with the dependencies. */
     val factory: String,
     /** The first segments of the names the generated bindings refer to. */
@@ -84,7 +86,7 @@ internal class PluginEntry(
     val requires: List<String>,
 )
 
-/** A concrete class of the plugin that implements contributed SPIs. */
+/** A concrete class of the plugin that implements contributed or bound SPIs. */
 internal class Implementation(
     val className: String,
     val location: Location,
@@ -92,6 +94,7 @@ internal class Implementation(
     /** Whether an annotation makes it a component. */
     val annotated: Boolean,
     val spis: List<String>,
+    val boundSpis: List<String>,
 )
 
 /** A top-level declaration, which hides a package of the same name from code in its package. */

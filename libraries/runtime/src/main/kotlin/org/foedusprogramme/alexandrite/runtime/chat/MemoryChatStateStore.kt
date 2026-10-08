@@ -3,7 +3,7 @@ package org.foedusprogramme.alexandrite.runtime.chat
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
-import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import java.util.concurrent.ConcurrentHashMap
 
 /** A [ChatStateStore] that keeps the values in memory. */

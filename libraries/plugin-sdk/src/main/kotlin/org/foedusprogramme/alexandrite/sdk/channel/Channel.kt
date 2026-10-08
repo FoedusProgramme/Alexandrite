@@ -56,5 +56,11 @@ public value class ReplyEnd internal constructor(public val id: String) {
 
         /** The runtime is stopping. */
         public val SHUTDOWN: ReplyEnd = ReplyEnd("shutdown")
+
+        /** The values this version knows. */
+        public val entries: List<ReplyEnd> = listOf(CANCELLED, FAILED, SHUTDOWN)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): ReplyEnd = ReplyEnd(id)
     }
 }

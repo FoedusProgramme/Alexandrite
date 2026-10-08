@@ -49,6 +49,11 @@ public annotation class ContributedSpi(
     val named: Boolean = false,
 )
 
+/** Marks an SPI whose implementation is bound. */
+@Target(AnnotationTarget.CLASS)
+@Retention(AnnotationRetention.BINARY)
+public annotation class BoundSpi
+
 /** Marks a service type each plugin gets its own instance of, qualified by the plugin id. */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.BINARY)

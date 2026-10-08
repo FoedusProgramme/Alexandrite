@@ -10,8 +10,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatState
-import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
+import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 

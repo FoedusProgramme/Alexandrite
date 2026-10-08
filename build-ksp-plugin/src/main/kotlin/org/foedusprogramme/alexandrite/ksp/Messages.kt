@@ -230,6 +230,10 @@ internal object Messages {
         "$name lists $spi in @Binds, but $spi is an SPI whose implementations are contributed, not bound. " +
             "Use @Contribute(${simple(spi)}::class) instead."
 
+    fun contributedBoundSpi(name: String, spi: String): String =
+        "$name lists $spi in @Contribute, but $spi is an SPI whose implementation is bound, not contributed. " +
+            "Use @Binds(${simple(spi)}::class) instead."
+
     fun namedContribution(name: String, bound: String, contribution: String): String =
         "$name gives its contribution to $bound the name '$contribution', but $bound is not a named SPI, so its " +
             "contributions carry no name. Remove the name from @Contribute."
@@ -340,6 +344,28 @@ internal object Messages {
         }
         return "$name returns $type, which implements $spi, but does not contribute it, so it is never used as one. " +
             "$remedy."
+    }
+
+    fun unbound(name: String, spi: String, binds: Boolean, isObject: Boolean): String {
+        val type = simple(spi)
+        val remedy = when {
+            isObject -> "Provide it with @Provides @Binds($type::class) fun ${providerName(name)}() = " +
+                "${simple(name)}, or make it a class annotated @Binds($type::class)"
+
+            binds -> "Add $type::class to its @Binds"
+
+            else -> "Annotate it with @Binds($type::class)"
+        }
+        return "$name implements $spi, but does not bind it, so it is never used as one. $remedy."
+    }
+
+    fun unboundProvider(name: String, type: String, spi: String, binds: Boolean): String {
+        val remedy = if (binds) {
+            "Add ${simple(spi)}::class to its @Binds"
+        } else {
+            "Annotate it with @Binds(${simple(spi)}::class)"
+        }
+        return "$name returns $type, which implements $spi, but does not bind it, so it is never used as one. $remedy."
     }
 
     fun unannotatedDependency(parameter: String, owner: String, type: String): String =

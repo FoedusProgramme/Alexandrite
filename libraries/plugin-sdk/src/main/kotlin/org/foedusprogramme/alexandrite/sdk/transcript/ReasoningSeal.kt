@@ -34,5 +34,11 @@ public value class SealKind internal constructor(public val id: String) {
 
         /** Reasoning text the provider wants back as it was. */
         public val PLAIN: SealKind = SealKind("plain")
+
+        /** The values this version knows. */
+        public val entries: List<SealKind> = listOf(SIGNATURE, REDACTED, ENCRYPTED, PLAIN)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): SealKind = SealKind(id)
     }
 }

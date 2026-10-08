@@ -89,6 +89,7 @@ class SubclassOptInTest {
 
         class Entry : org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry {
             override val record get() = TODO()
+            override fun withRecord(record: org.foedusprogramme.alexandrite.sdk.transcript.EntryRecord) = TODO()
         }
 
         class Origin : org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
@@ -309,6 +310,12 @@ class SubclassOptInTest {
             org.foedusprogramme.alexandrite.sdk.turn.TurnPhase.RUNNING -> 1
             ELSE
         }
+
+        fun state(state: org.foedusprogramme.alexandrite.sdk.store.ConversationState): Int = when (state) {
+            org.foedusprogramme.alexandrite.sdk.store.ConversationState.ACTIVE -> 0
+            org.foedusprogramme.alexandrite.sdk.store.ConversationState.SEALED -> 1
+            ELSE
+        }
     """.trimIndent()
 
     /** A channel as a third-party plugin writes it. */
@@ -374,6 +381,64 @@ class SubclassOptInTest {
         class EchoProvider : ModelProvider {
             override val endpoints = listOf(Echo())
         }
+    """.trimIndent()
+
+    /** A store backend as a third-party plugin writes it. */
+    private val store = """
+        import org.foedusprogramme.alexandrite.sdk.chat.*
+        import org.foedusprogramme.alexandrite.sdk.di.*
+        import org.foedusprogramme.alexandrite.sdk.store.*
+        import org.foedusprogramme.alexandrite.sdk.transcript.*
+        import java.time.Instant
+
+        @Singleton @Binds(ConversationStore::class)
+        class Conversations : ConversationStore {
+            override suspend fun current(key: AgentChatKey) = info(key, ConversationKind.USER_LANE)
+            override suspend fun heartbeatBase(key: AgentChatKey) = info(key, ConversationKind.of("heartbeat_base"))
+            override suspend fun newConversation(key: AgentChatKey) = Rotation(null, info(key, ConversationKind.USER_LANE))
+            override suspend fun createDelegated(key: AgentChatKey, lineage: TurnLineage, fork: ForkPoint?) =
+                info(key, ConversationKind.DELEGATED).toBuilder().lineage(lineage).fork(fork).build()
+            override suspend fun conversation(id: ConversationId): ConversationInfo? = null
+            override suspend fun startTurn(turn: TurnInfo) {}
+            override suspend fun endTurn(id: TurnId, end: TurnEndKind) = end in TurnEndKind.entries
+            override suspend fun turn(id: TurnId): TurnRecord? =
+                TurnRecord.builder(id, ConversationId("c"), AgentChatKey.parse("main@t:a:b"), TurnKind.of("x"), Instant.EPOCH)
+                    .end(TurnEndKind.of("completed"))
+                    .build()
+
+            private fun info(key: AgentChatKey, kind: ConversationKind) =
+                ConversationInfo.builder(ConversationId("c"), kind, key, ConversationState.ACTIVE, Instant.EPOCH).build()
+        }
+
+        @Singleton @Binds(TranscriptStore::class)
+        class Transcripts : TranscriptStore {
+            override suspend fun append(turn: TurnId, entries: List<TranscriptEntry>) = entries.mapIndexed { index, it ->
+                it.withRecord(EntryRecord(EntryId(index + 1L), ConversationId("c"), turn, Instant.EPOCH))
+            }
+            override suspend fun entries(conversation: ConversationId) = listOf(
+                TranscriptCodec.decode("{\"type\":\"poll\"}"),
+                UnknownEntry(null, "poll", kotlinx.serialization.json.JsonObject(emptyMap())),
+            )
+            override suspend fun tail(conversation: ConversationId, count: Int) = entries(conversation).takeLast(count)
+            override suspend fun entry(id: EntryId): TranscriptEntry? = null
+            override suspend fun entries(message: ChannelMessageRef) = emptyList<TranscriptEntry>()
+            override suspend fun deleteMessage(message: ChannelMessageRef) = 0
+        }
+
+        @Singleton @Binds(MediaStore::class)
+        class Media : MediaStore {
+            override suspend fun put(bytes: ByteArray, kind: MediaKind, mediaType: String) = StoredMedia(MediaId("m"))
+            override suspend fun read(id: MediaId): ByteArray? = null
+            override suspend fun info(id: MediaId) = MediaInfo(id, MediaKind.of("image"), "image/png", 0, "", Instant.EPOCH)
+        }
+
+        @Singleton @Binds(ChatStateStore::class)
+        class States : ChatStateStore {
+            override suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String? = null
+            override suspend fun write(plugin: String, name: String, agent: AgentId?, chat: ChatAddress, json: String?) {}
+        }
+
+        suspend fun inline(media: MediaStore, entry: TranscriptEntry) = media.storeInline(entry)
     """.trimIndent()
 
     /** A command plugin, a hook and a channel's submission as a third-party plugin writes them. */
@@ -462,6 +527,11 @@ class SubclassOptInTest {
     @Test
     fun `a plugin implements a channel and its reply sink without the internal API`() {
         assertEquals(emptyList(), errors(channel))
+    }
+
+    @Test
+    fun `a plugin implements a store backend without the internal API`() {
+        assertEquals(emptyList(), errors(store))
     }
 
     @Test

@@ -46,16 +46,3 @@ public interface ChatState<K : Any, T : Any> {
     /** Removes the value stored for [key] itself. */
     public suspend fun reset(key: K)
 }
-
-/** The stored values of every plugin's [ChatState]s. */
-@InternalAlexandriteApi
-public interface ChatStateStore {
-    /**
-     * The JSON stored for the state [name] of [plugin] at [chat], for [agent] or for the chat itself when it is null,
-     * null when there is none.
-     */
-    public suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String?
-
-    /** Stores [json] where [read] reads it, or removes it when null. */
-    public suspend fun write(plugin: String, name: String, agent: AgentId?, chat: ChatAddress, json: String?)
-}

@@ -59,5 +59,11 @@ public value class MediaKind internal constructor(public val id: String) {
 
         /** A document or any other file. */
         public val FILE: MediaKind = MediaKind("file")
+
+        /** The values this version knows. */
+        public val entries: List<MediaKind> = listOf(IMAGE, AUDIO, VIDEO, FILE)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): MediaKind = MediaKind(id)
     }
 }

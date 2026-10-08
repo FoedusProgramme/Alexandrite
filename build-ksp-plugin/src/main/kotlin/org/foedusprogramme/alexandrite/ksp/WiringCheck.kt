@@ -51,26 +51,39 @@ internal class WiringCheck(
         }
     }
 
-    /** Reports the classes that implement a contributed SPI and the bindings that create them without contributing. */
+    /** Reports the classes and bindings that implement a contributed or bound SPI but do not contribute or bind it. */
     private fun contributionProblems(): List<Problem> {
         val created = registry.createdClasses()
         val bindings = registry.all.flatMap { component ->
             val contributed = component.contributes.mapTo(HashSet()) { it.className }
-            component.spis.filter { it !in contributed }.map { spi ->
+            val bound = component.binds.mapTo(HashSet()) { it.className }
+            val uncontributed = component.spis.filter { it !in contributed }.map { spi ->
                 val contributes = component.contributes.isNotEmpty()
-                val message = if (component.provider) {
+                if (component.provider) {
                     Messages.uncontributedProvider(component.origin, component.key.type, spi, contributes)
                 } else {
                     Messages.uncontributed(component.origin, spi, contributes, isObject = false)
                 }
-                Problem(message, component.location)
             }
+            val unbound = component.boundSpis.filter { it !in bound }.map { spi ->
+                val binds = component.binds.isNotEmpty()
+                if (component.provider) {
+                    Messages.unboundProvider(component.origin, component.key.type, spi, binds)
+                } else {
+                    Messages.unbound(component.origin, spi, binds, isObject = false)
+                }
+            }
+            (uncontributed + unbound).map { Problem(it, component.location) }
         }
+        val provided = registry.all.filter { it.provider }.mapTo(HashSet()) { it.createdClass }
         val classes = implementations.filter { !it.annotated && it.className !in created }.flatMap { implementation ->
-            implementation.spis.map { spi ->
-                val message = Messages.uncontributed(implementation.className, spi, false, implementation.isObject)
-                Problem(message, implementation.location)
+            val uncontributed = implementation.spis.map { spi ->
+                Messages.uncontributed(implementation.className, spi, false, implementation.isObject)
             }
+            val unbound = implementation.boundSpis.filter { it !in provided }.map { spi ->
+                Messages.unbound(implementation.className, spi, false, implementation.isObject)
+            }
+            (uncontributed + unbound).map { Problem(it, implementation.location) }
         }
         return bindings + classes
     }

@@ -137,5 +137,26 @@ public value class ModelErrorKind internal constructor(public val id: String) {
 
         /** A response that breaks its protocol or the stream contract. */
         public val PROTOCOL: ModelErrorKind = ModelErrorKind("protocol")
+
+        /** The values this version knows. */
+        public val entries: List<ModelErrorKind> = listOf(
+            AUTHENTICATION,
+            PERMISSION_DENIED,
+            QUOTA_EXHAUSTED,
+            RATE_LIMITED,
+            OVERLOADED,
+            SERVER_ERROR,
+            TIMEOUT,
+            CONNECTION,
+            INVALID_REQUEST,
+            CONTEXT_WINDOW_EXCEEDED,
+            MODEL_NOT_FOUND,
+            CONTENT_FILTERED,
+            UNSUPPORTED,
+            PROTOCOL,
+        )
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): ModelErrorKind = ModelErrorKind(id)
     }
 }

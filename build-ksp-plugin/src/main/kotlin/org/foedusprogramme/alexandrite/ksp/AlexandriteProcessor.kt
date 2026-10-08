@@ -182,13 +182,15 @@ internal class AlexandriteProcessor(
             }
             if (declaration.isConcrete && !declaration.isLocal) {
                 val spis = symbols.contributedSpis(declaration)
-                if (spis.isNotEmpty()) {
+                val boundSpis = symbols.boundSpis(declaration)
+                if (spis.isNotEmpty() || boundSpis.isNotEmpty()) {
                     implementations += Implementation(
                         declaration.name,
                         declaration.location,
                         isObject = declaration.shape == Shape.OBJECT,
                         annotated = component,
                         spis.map { it.name },
+                        boundSpis.map { it.name },
                     )
                 }
             }

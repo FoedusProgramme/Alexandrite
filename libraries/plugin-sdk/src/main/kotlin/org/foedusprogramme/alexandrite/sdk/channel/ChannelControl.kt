@@ -32,5 +32,11 @@ public value class InstanceState internal constructor(public val id: String) {
         public val STOPPING: InstanceState = InstanceState("stopping")
 
         public val STOPPED: InstanceState = InstanceState("stopped")
+
+        /** The values this version knows. */
+        public val entries: List<InstanceState> = listOf(STARTING, OPEN, STOPPING, STOPPED)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): InstanceState = InstanceState(id)
     }
 }

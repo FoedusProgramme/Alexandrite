@@ -164,6 +164,7 @@ public class PluginHarness private constructor(
         private var initiator: RecordingTurnInitiator? = null
         private var control: RecordingAgentControl? = null
         private var states: TestChatStates? = null
+        private var store: MemoryStore? = null
 
         internal var temporaryRoot: () -> Path = { Files.createTempDirectory("alexandrite-harness-") }
 
@@ -231,8 +232,17 @@ public class PluginHarness private constructor(
         /** Keeps every plugin's chat states in [states]. */
         public fun chatStates(states: TestChatStates): Builder = apply { this.states = states }
 
+        /** Binds every port of [store] as the runtime's store. */
+        public fun store(store: MemoryStore): Builder = apply { this.store = store }
+
         public fun build(): PluginHarness {
-            val doubles = DoublesPlugin(models, submitter, initiator, control, states)
+            val store = store
+            val states = states
+            require(store == null || states == null || states.store === store) {
+                "The harness binds one store, so its chat states must be TestChatStates(store) of its MemoryStore."
+            }
+            val chatStates = (store ?: states?.store)?.chatStates
+            val doubles = DoublesPlugin(models, submitter, initiator, control, store, chatStates)
             val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
             val all = configs + recording.associate { it.configRoot to it.config() }
             val tree = all.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->

@@ -172,6 +172,7 @@ class PublicApiTest {
 
         suspend fun harness(index: PluginIndex, other: PluginIndex, root: Path): List<Any> {
             val model = ScriptedModel()
+            val store = MemoryStore(java.time.Clock.systemUTC())
             val builder: PluginHarness.Builder = PluginHarness.builder(index)
             val harness = builder
                 .plugin(other)
@@ -188,7 +189,8 @@ class PublicApiTest {
                 .turnSubmitter(RecordingTurnSubmitter())
                 .turnInitiator(RecordingTurnInitiator())
                 .agentControl(RecordingAgentControl())
-                .chatStates(TestChatStates())
+                .store(store)
+                .chatStates(TestChatStates(store))
                 .build()
             val seen = mutableListOf<Any>()
             val block: suspend PluginHarness.Running.() -> Unit = {
@@ -198,7 +200,14 @@ class PublicApiTest {
                 seen.addAll(getAll(key<ModelProvider>()))
                 stop()
             }
+            seen.addAll(listOf(store.conversations, store.transcripts, store.media, store.chatStates))
             return seen + harness.run(block)
+        }
+
+        suspend fun stores(backend: PluginIndex): List<String> {
+            val checks: List<StoreCheck> = STORE_CONTRACT
+            for (check in checks) check.run { PluginHarness.builder(backend) }
+            return checks.map { it.name } + TestChatStates().store.toString()
         }
     """.trimIndent()
 
@@ -222,11 +231,11 @@ class PublicApiTest {
 
             package leak
 
-            fun store(): org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore? = null
+            fun initiation(): org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation? = null
 
-            fun take(stores: List<org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore>): Int = stores.size
+            fun take(initiations: List<org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation>): Int = initiations.size
         """.trimIndent()
-        val caller = "fun one() = leak.store()\n\nfun two() = leak.take(listOf())"
+        val caller = "fun one() = leak.initiation()\n\nfun two() = leak.take(listOf())"
 
         val errors = errors("Leak.kt" to leaking, "Use.kt" to caller)
 

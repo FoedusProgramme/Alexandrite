@@ -112,6 +112,13 @@ public value class TurnKind internal constructor(public val id: String) {
 
         /** A message from another main agent. */
         public val AGENT_MESSAGE: TurnKind = TurnKind("agent_message")
+
+        /** The values this version knows. */
+        public val entries: List<TurnKind> =
+            listOf(MESSAGE, COMMAND, HEARTBEAT, REMINDER, APPROVAL, DELEGATED, AGENT_MESSAGE)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): TurnKind = TurnKind(id)
     }
 }
 
@@ -127,6 +134,12 @@ public value class ReplyTarget internal constructor(public val id: String) {
 
         /** Only the turn's initiator. */
         public val CALLER: ReplyTarget = ReplyTarget("caller")
+
+        /** The values this version knows. */
+        public val entries: List<ReplyTarget> = listOf(CHAT, CALLER)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): ReplyTarget = ReplyTarget(id)
     }
 }
 

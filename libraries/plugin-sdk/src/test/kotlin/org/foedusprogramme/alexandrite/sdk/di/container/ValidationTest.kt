@@ -37,7 +37,7 @@ class ValidationTest {
         assertEquals(
             """
             Cannot build container 'root' (4 problems):
-            - Ambiguous binding: @Named("registry") $serviceType is bound by registry (plugin core) and registry (plugin extra). Remove all but one of them.
+            - Ambiguous binding: @Named("registry") $serviceType is bound by registry (plugin core) and registry (plugin extra). Remove all but one of them, or switch off all but one of their plugins.
             - Scope violation: singleton registry (plugin core) depends on channel-instance-scoped state (plugin core) through parameter 'state'. Make registry channel-instance-scoped or drop the dependency.
             - Missing binding: nothing binds @Named("clock") $serviceType, which tool (plugin core) needs for parameter 'clock'. Loaded plugins: core, extra.
             - Dependency cycle: a (plugin core) -> b (plugin core) -> a (plugin core), through parameters 'b', 'a'. Inject one of them as Lazy or a provider.

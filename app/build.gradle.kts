@@ -11,6 +11,7 @@ dependencies {
     implementation(project(":libraries:channels:telegram"))
     implementation(project(":libraries:providers:openai-compatible"))
     implementation(project(":libraries:providers:anthropic"))
+    implementation(project(":libraries:stores:sqlite"))
     runtimeOnly(libs.logback.classic)
 
     testImplementation(project(":examples:notes"))

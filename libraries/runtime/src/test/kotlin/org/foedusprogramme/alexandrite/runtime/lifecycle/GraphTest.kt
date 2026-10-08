@@ -39,7 +39,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
-import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.agentState
@@ -66,6 +65,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
+import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path

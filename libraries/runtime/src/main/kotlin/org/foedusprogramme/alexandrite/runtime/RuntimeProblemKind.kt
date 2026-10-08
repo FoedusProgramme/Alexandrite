@@ -49,6 +49,9 @@ public enum class RuntimeProblemKind : ProblemKind {
     /** Channel contributions of a plugin other than one named, channel-instance-scoped Channel. */
     CHANNEL_CONTRIBUTIONS,
 
+    /** Enabled plugins that each bind store ports. */
+    DUPLICATE_STORE,
+
     /** A data directory another runtime holds. */
     DATA_DIR_LOCKED,
 

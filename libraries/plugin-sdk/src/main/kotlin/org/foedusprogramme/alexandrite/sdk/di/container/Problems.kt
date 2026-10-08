@@ -37,11 +37,15 @@ internal object Problems {
         id,
     )
 
-    fun ambiguous(key: Key<*>, bound: List<Node>): Problem = Problem(
-        AMBIGUOUS,
-        "Ambiguous binding: $key is bound by ${labels(bound, " and ")}. Remove all but one of them.",
-        solePlugin(bound),
-    )
+    fun ambiguous(key: Key<*>, bound: List<Node>): Problem {
+        val plugin = solePlugin(bound)
+        val remedy = if (plugin == null) ", or switch off all but one of their plugins" else ""
+        return Problem(
+            AMBIGUOUS,
+            "Ambiguous binding: $key is bound by ${labels(bound, " and ")}. Remove all but one of them$remedy.",
+            plugin,
+        )
+    }
 
     fun conflicting(key: Key<*>, singles: List<Node>, contributions: List<Node>): Problem = Problem(
         CONFLICTING,

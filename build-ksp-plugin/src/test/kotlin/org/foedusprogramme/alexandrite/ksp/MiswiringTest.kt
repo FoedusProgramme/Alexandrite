@@ -5,6 +5,26 @@ import kotlin.test.Test
 class MiswiringTest : FailingSamples() {
     private val tool = "org.foedusprogramme.alexandrite.sdk.tool.Tool"
     private val hook = "org.foedusprogramme.alexandrite.sdk.hook.Hook"
+    private val store = "org.foedusprogramme.alexandrite.sdk.store.ChatStateStore"
+
+    private val baseStore = """
+        abstract class BaseStore : $store {
+            override suspend fun read(
+                plugin: String,
+                name: String,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                chat: ChatAddress,
+            ): String? = null
+
+            override suspend fun write(
+                plugin: String,
+                name: String,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                chat: ChatAddress,
+                json: String?,
+            ) {}
+        }
+    """.trimIndent()
 
     private val bases = """
         abstract class BaseTool : Tool {
@@ -83,6 +103,53 @@ class MiswiringTest : FailingSamples() {
                 """.trimIndent(),
             "fun tool" to Messages.providedSpi("sample.tool()", tool),
             "fun echo" to Messages.uncontributedProvider("sample.echo()", "sample.Echo", tool, contributes = false),
+        )
+    }
+
+    @Test
+    fun `a concrete class that implements a bound SPI without binding it is rejected`() {
+        assertErrors(
+            baseStore + "\n" +
+                """
+                class Loose : BaseStore()
+                @Singleton class Unbound : BaseStore()
+                @Binds(Runnable::class) class Both : BaseStore(), Runnable {
+                    override fun run() {}
+                }
+                object Single : BaseStore()
+                @Binds($store::class) class Bound : BaseStore()
+                """.trimIndent(),
+            "class Loose" to Messages.unbound("sample.Loose", store, binds = false, isObject = false),
+            "class Unbound" to Messages.unbound("sample.Unbound", store, binds = false, isObject = false),
+            "class Both" to Messages.unbound("sample.Both", store, binds = true, isObject = false),
+            "object Single" to Messages.unbound("sample.Single", store, binds = false, isObject = true),
+        )
+    }
+
+    @Test
+    fun `a bound SPI listed in @Contribute is rejected`() {
+        assertErrors(
+            baseStore + "\n" + "@Binds($store::class) @Contribute($store::class) class Twice : BaseStore()",
+            "class Twice" to Messages.contributedBoundSpi("sample.Twice", store),
+        )
+    }
+
+    @Test
+    fun `a provider of a bound SPI implementation must bind it, and one that returns the SPI binds it`() {
+        assertErrors(
+            baseStore + "\n" +
+                """
+                class Files : BaseStore()
+                class Memory : BaseStore()
+                class Cache : BaseStore()
+                object Stores {
+                    @Provides fun store(): $store = Files()
+                    @Provides fun memory(): Memory = Memory()
+                    @Provides @Named("cache") @Binds($store::class) fun cache(): Cache = Cache()
+                }
+                """.trimIndent(),
+            "fun memory" to
+                Messages.unboundProvider("sample.Stores.memory()", "sample.Memory", store, binds = false),
         )
     }
 

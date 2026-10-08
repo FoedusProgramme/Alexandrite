@@ -10,7 +10,7 @@ enum class Layer {
     /** Embeddable engine. */
     RUNTIME,
 
-    /** The turn pipeline, permissions, store and automation. */
+    /** The turn pipeline, permissions and automation. */
     AGENT,
 
     /** Built-in tools. */
@@ -21,6 +21,9 @@ enum class Layer {
 
     /** Model back ends. */
     PROVIDER,
+
+    /** Storage back ends. */
+    STORE,
 
     /** Doubles for plugin authors. */
     TESTKIT,
@@ -132,6 +135,12 @@ object AlexandriteLayout {
             jarPrefix = "alexandrite-provider-",
             packagePrefix = "$PACKAGE.provider.",
         ),
+        Location.Family(
+            "libraries/stores",
+            Layer.STORE,
+            jarPrefix = "alexandrite-store-",
+            packagePrefix = "$PACKAGE.store.",
+        ),
         Location.Slot("libraries/testkit", Layer.TESTKIT),
         Location.Slot("build-ksp-plugin", Layer.KSP, jarName = "alexandrite-ksp"),
         Location.Family(
@@ -161,6 +170,7 @@ object AlexandriteLayout {
         Layer.TOOLS to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.CHANNEL to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.PROVIDER to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.STORE to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.TESTKIT to setOf(Layer.SDK, Layer.INTERNAL, Layer.RUNTIME),
         Layer.EXAMPLE to setOf(Layer.SDK),
         Layer.APP to setOf(
@@ -171,6 +181,7 @@ object AlexandriteLayout {
             Layer.TOOLS,
             Layer.CHANNEL,
             Layer.PROVIDER,
+            Layer.STORE,
         ),
     )
 
@@ -179,6 +190,7 @@ object AlexandriteLayout {
         Layer.TOOLS to setOf(Layer.TESTKIT),
         Layer.CHANNEL to setOf(Layer.TESTKIT),
         Layer.PROVIDER to setOf(Layer.TESTKIT),
+        Layer.STORE to setOf(Layer.TESTKIT),
         Layer.KSP to setOf(Layer.SDK),
         Layer.EXAMPLE to setOf(Layer.TESTKIT),
         Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
@@ -186,7 +198,7 @@ object AlexandriteLayout {
 
     /** Layers whose modules get a generated `PluginIndex` */
     val INDEXED_LAYERS: Set<Layer> =
-        setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.EXAMPLE, Layer.APP)
+        setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.STORE, Layer.EXAMPLE, Layer.APP)
 
     /** The grammar of the module names of [INDEXED_LAYERS] */
     val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
@@ -271,9 +283,9 @@ object AlexandriteLayout {
         return "Modules are out of place:\n" +
             problems.joinToString("\n") { "  - $it" } + "\n" +
             "Modules may live only at:\n" + locationList() + "\n" +
-            "Every slot must hold its module; a channel, provider or example is added by creating its directory. " +
-            "A new kind of module needs a new slot or family in the location map, with its layer's dependency " +
-            "rules, in $LAYOUT_LOCATION."
+            "Every slot must hold its module; a channel, provider, store or example is added by creating its " +
+            "directory. A new kind of module needs a new slot or family in the location map, with its layer's " +
+            "dependency rules, in $LAYOUT_LOCATION."
     }
 
     /** Null when the module name of every indexed module in [modules] is a plugin id. */

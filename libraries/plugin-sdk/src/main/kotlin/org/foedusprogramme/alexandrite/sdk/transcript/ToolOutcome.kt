@@ -67,5 +67,11 @@ public value class NotRunReason internal constructor(public val id: String) {
 
         /** A `tool.before` hook refused the call. */
         public val HOOK_DENIED: NotRunReason = NotRunReason("hook_denied")
+
+        /** The values this version knows. */
+        public val entries: List<NotRunReason> = listOf(INVALID_ARGUMENTS, UNKNOWN_TOOL, HOOK_DENIED)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): NotRunReason = NotRunReason(id)
     }
 }

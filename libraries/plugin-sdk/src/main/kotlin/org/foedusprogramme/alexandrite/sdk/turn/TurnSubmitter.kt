@@ -97,6 +97,12 @@ public value class RefusalReason internal constructor(public val id: String) {
 
         /** No agent serves the chat. */
         public val NO_AGENT: RefusalReason = RefusalReason("no_agent")
+
+        /** The values this version knows. */
+        public val entries: List<RefusalReason> = listOf(QUEUE_FULL, SHUTTING_DOWN, UNKNOWN_CHAT, NO_AGENT)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): RefusalReason = RefusalReason(id)
     }
 }
 

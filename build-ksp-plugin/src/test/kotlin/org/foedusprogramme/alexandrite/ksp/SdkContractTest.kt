@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Binds
+import org.foedusprogramme.alexandrite.sdk.di.BoundSpi
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
@@ -45,6 +46,7 @@ class SdkContractTest {
             Contribute::class to CONTRIBUTE,
             Provides::class to PROVIDES,
             ContributedSpi::class to CONTRIBUTED_SPI,
+            BoundSpi::class to BOUND_SPI,
             PluginLocal::class to PLUGIN_LOCAL,
             Plugin::class to PLUGIN,
             ConfigSection::class to CONFIG_SECTION,

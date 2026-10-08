@@ -26,6 +26,11 @@ internal class Symbols {
         .filter { has(it, CONTRIBUTED_SPI) }
         .distinctBy { it.name }
 
+    fun boundSpis(declaration: KSClassDeclaration): List<KSClassDeclaration> = supertypes(declaration)
+        .mapNotNull { it.declaration.actual as? KSClassDeclaration }
+        .filter { has(it, BOUND_SPI) }
+        .distinctBy { it.name }
+
     fun isNamedSpi(declaration: KSDeclaration): Boolean =
         annotation(declaration, CONTRIBUTED_SPI)?.argument(NAMED_SPI) == true
 

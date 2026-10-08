@@ -102,6 +102,12 @@ public value class TurnPhase internal constructor(public val id: String) {
         public val QUEUED: TurnPhase = TurnPhase("queued")
 
         public val RUNNING: TurnPhase = TurnPhase("running")
+
+        /** The values this version knows. */
+        public val entries: List<TurnPhase> = listOf(QUEUED, RUNNING)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): TurnPhase = TurnPhase(id)
     }
 }
 

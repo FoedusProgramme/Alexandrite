@@ -60,6 +60,7 @@ internal abstract class DeclarationReader(
             binds,
             contributes,
             spis = created?.let(symbols::contributedSpis).orEmpty().map { it.name },
+            boundSpis = created?.let(symbols::boundSpis).orEmpty().map { it.name },
             factory,
             roots = roots + expressionRoots,
             expressionRoots,
@@ -194,6 +195,7 @@ internal abstract class DeclarationReader(
                 Messages.uninjectableBound(label, boundName, supertype.source(), it)
             }
         }
+        if (symbols.has(boundClass, BOUND_SPI)) return Messages.contributedBoundSpi(label, boundName)
         val spis = (boundClass as? KSClassDeclaration)?.let(symbols::contributedSpis).orEmpty()
         if (isSpi || spis.isEmpty()) return nameProblem(boundClass, name)
         return Messages.contributedSubtype(label, boundName, spis.map { it.name })

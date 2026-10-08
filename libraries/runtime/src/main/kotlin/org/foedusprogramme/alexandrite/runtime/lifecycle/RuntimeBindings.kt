@@ -10,7 +10,6 @@ import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
 import org.foedusprogramme.alexandrite.runtime.turn.PluginTurnInitiator
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
-import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
@@ -24,6 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
+import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
 import java.nio.file.Path
