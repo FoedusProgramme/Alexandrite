@@ -471,6 +471,45 @@ class RuntimeTest {
         )
     }
 
+    @Test
+    fun `a hook's decision to replace the payload or stop the chain is logged at DEBUG`() {
+        val decided =
+            InterceptorPoint<String>(
+                "test.decided",
+                setOf(HookEffect.REPLACE, HookEffect.ABORT),
+                FailurePolicy.FAIL_OPEN,
+            )
+        val replacing = object : InterceptorHook<String> {
+            override val point = decided
+
+            override suspend fun intercept(payload: String): HookDecision<String> = HookDecision.Replace("$payload!")
+        }
+        val stopping = object : InterceptorHook<String> {
+            override val point = decided
+            override val order = 1
+
+            override suspend fun intercept(payload: String): HookDecision<String> = HookDecision.Abort("secret")
+        }
+        val hooks = listOf(replacing, stopping).mapIndexed { index, hook ->
+            binding(key<Hook>(), "core", "Hook $index", multi = true) { hook }
+        }
+
+        val lines = logged {
+            spec(core(*hooks.toTypedArray(), probe("core", "hooks" to key<Hooks>())), dataDir).execute {
+                val hooks = services.get(key<Probe>()).values.getValue("hooks") as Hooks
+                hooks.fire(decided, "payload")
+            }
+        }
+
+        assertEquals(
+            listOf(
+                "DEBUG test: hook ${replacing.javaClass.name} replaced the payload at 'test.decided'",
+                "DEBUG test: hook ${stopping.javaClass.name} stopped the chain at 'test.decided'",
+            ),
+            lines.filter { it.startsWith("DEBUG") },
+        )
+    }
+
     // Redaction.
 
     @Serializable

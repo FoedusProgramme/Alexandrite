@@ -10,10 +10,12 @@ import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.config.ConfigResolution
 import org.foedusprogramme.alexandrite.runtime.config.EnabledPlugin
 import org.foedusprogramme.alexandrite.runtime.config.resolveConfig
+import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
 import org.foedusprogramme.alexandrite.runtime.plugin.pluginProblems
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.di.Key
@@ -25,10 +27,12 @@ import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.HookFailure
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
+import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.IOException
@@ -50,6 +54,11 @@ internal class Assembly(
         val error = (failure as? HookFailure.Threw)?.error?.let(redactor::error)
         val text = redactor.text("$failure")
         logger.warn("{}: hook {} failed at '{}': {}", name, hook.javaClass.name, point, text, error)
+    }
+
+    private val hookDecisions = HookDecisionListener { hook, point, decision ->
+        val what = if (decision is HookDecision.Abort) "stopped the chain" else "replaced the payload"
+        logger.debug("{}: hook {} {} at '{}'", name, hook.javaClass.name, what, point)
     }
 
     private val unreadableStates = UnreadableStateListener { plugin, state, key, error ->
@@ -145,16 +154,33 @@ internal class Assembly(
     }
 
     /** The container of [plugins] and of what the runtime binds for [enabled]. */
-    fun container(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>, directory: ChannelDirectory): Container =
-        try {
-            val infos = enabled.map { it.member.plugin.info }
-            val runtime =
-                runtimeBindings(spec.config, infos, hookFailures, unreadableStates, control, scopes, directory, context)
-            Container.build(plugins + runtime)
-        } catch (e: Exception) {
-            interruption(e)?.let { throw it }
-            throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
-        }
+    fun container(
+        enabled: List<EnabledPlugin>,
+        plugins: List<PluginBindings>,
+        directory: ChannelDirectory,
+        channels: ChannelControl,
+    ): Container = try {
+        val infos = enabled.map { it.member.plugin.info }
+        val initiation = key<TurnInitiation>()
+        val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
+        val runtime = runtimeBindings(
+            spec.config,
+            infos,
+            hookFailures,
+            hookDecisions,
+            unreadableStates,
+            control,
+            scopes,
+            directory,
+            channels,
+            initiated,
+            context,
+        )
+        Container.build(plugins + runtime)
+    } catch (e: Exception) {
+        interruption(e)?.let { throw it }
+        throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
+    }
 
     /** Checks that each channel plugin contributes one channel-instance-scoped Channel and no other plugin any. */
     fun checkChannels(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>) {

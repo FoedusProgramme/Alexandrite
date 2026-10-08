@@ -116,6 +116,35 @@ class ConfigFileTest {
     }
 
     @Test
+    fun `a key that an object holds twice fails naming its JSON path but no value`() {
+        val cases = mapOf(
+            """{"plugins": {"chan": {"instances": {"work": {"token": "secret"}, "work": {}}}}}""" to
+                "plugins.chan.instances.work",
+            """{"app": {}, "tools": {}, "app": {}}""" to "app",
+            """{"tools": {"web": {"keys": [{"a": 1}, {"b": "secret", "b": 2}]}}}""" to "tools.web.keys[1].b",
+            """{"a\"b": {"\u0078": 1, "x": 2}}""" to "a\"b.x",
+        )
+
+        for ((text, path) in cases) {
+            val error = assertFailsWith<ConfigFileException.DuplicateKey>(text) { read(text) }
+
+            assertEquals(path, error.path)
+            assertEquals(
+                "Config file ${directory.resolve("alexandrite.json")}: the key at '$path' appears more than once " +
+                    "in its object.",
+                error.message,
+            )
+        }
+    }
+
+    @Test
+    fun `equal keys in different objects and strings that look like keys are kept`() {
+        val text = """{"a": {"x": 1}, "b": {"x": "\"x\": {", "y": ["x", "x", {"x": [{"x": 1}]}]}, "c": {"x,": 1}}"""
+
+        assertEquals(json(text), read(text))
+    }
+
+    @Test
     fun `a byte order mark before the JSON is skipped`() {
         assertEquals(json("""{"a": 1}"""), read("\uFEFF{\"a\": 1}"))
     }

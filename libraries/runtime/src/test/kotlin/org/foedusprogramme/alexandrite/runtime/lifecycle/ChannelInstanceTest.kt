@@ -3,11 +3,14 @@ package org.foedusprogramme.alexandrite.runtime.lifecycle
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -19,16 +22,21 @@ import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
+import org.foedusprogramme.alexandrite.runtime.get
 import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startVirtually
+import org.foedusprogramme.alexandrite.runtime.started
+import org.foedusprogramme.alexandrite.runtime.terminated
 import org.foedusprogramme.alexandrite.runtime.virtual
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
+import org.foedusprogramme.alexandrite.sdk.channel.InstanceState
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
@@ -36,6 +44,8 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -52,6 +62,9 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
@@ -425,6 +438,100 @@ class ChannelInstanceTest {
             ),
             termination.problems.filter { it.kind == RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE },
         )
+    }
+
+    // Control.
+
+    @Test
+    fun `a controlled stop closes, drains, stops and destroys one instance while the others and the root run on`() {
+        val ada = ChatUser(UserAddress(work, "7"), "Ada", null, isBot = false, isAdmin = true)
+        val away = ChannelInstanceId(ChannelType("chan"), "away")
+
+        val lines = logged {
+            channels().execute {
+                val control = services.get<ChannelControl>()
+                val directory = services.resolver().get(key<ChannelDirectory>())
+
+                assertEquals(InstanceState.OPEN, control.state(work))
+                assertTrue(control.stop(work, ada))
+
+                assertEquals(InstanceState.STOPPED, control.state(work))
+                assertEquals(InstanceState.OPEN, control.state(home))
+                assertNull(directory.channel(work))
+                assertNotNull(directory.channel(home))
+                assertFalse(control.stop(work, null))
+                assertNull(control.state(away))
+                assertFalse(control.stop(away, null))
+            }
+        }
+
+        assertEquals(
+            listOf(
+                "close work", "drain work", "stop work", "cancelled work", "destroy work",
+                "close home", "close agent",
+                "drain agent", "drain home",
+                "stop home", "cancelled home", "stop agent", "cancelled agent",
+                "destroy home", "destroy agent",
+            ),
+            events.all().dropWhile { it != "open home" }.drop(1),
+        )
+        assertContains(lines, "INFO test: stopping channel instance chan:work at the request of chan:work@7")
+        assertContains(lines, "INFO test: stopped channel instance chan:work")
+    }
+
+    @Test
+    fun `what fails while one instance stops is logged, and the run goes on`() {
+        val steps = Steps(close = { check(it.id != work) { "close ${it.id.name} failed" } })
+
+        val lines = logged {
+            val termination = channels(steps).execute {
+                val control = services.get<ChannelControl>()
+
+                assertTrue(control.stop(work, null))
+                assertEquals(InstanceState.STOPPED, control.state(work))
+            }
+
+            assertEquals(emptyList(), termination.problems)
+        }
+
+        assertContains(
+            lines,
+            "WARN test: Closing Bot (plugin chan) in channel instance container 'chan:work' failed: " +
+                "java.lang.IllegalStateException: close work failed",
+        )
+        assertContains(events.all(), "destroy work")
+    }
+
+    @Test
+    fun `the runtime's stop waits for an instance that is stopping alone`() {
+        val draining = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val steps = Steps(
+            drain = {
+                if (it.id == work) {
+                    draining.complete(Unit)
+                    release.await()
+                }
+            },
+        )
+        val runtime = channels(steps).started()
+        val control = runtime.services.get<ChannelControl>()
+
+        runBlocking {
+            val stopped = async(Dispatchers.Default) { control.stop(work, null) }
+            draining.await()
+            runtime.stop()
+            delay(200)
+            release.complete(Unit)
+            assertTrue(stopped.await())
+        }
+        runtime.terminated()
+
+        assertEquals(
+            listOf("drain work", "stop work", "cancelled work", "destroy work", "close home", "close agent"),
+            events.all().dropWhile { it != "drain work" }.take(6),
+        )
+        assertEquals(InstanceState.STOPPED, control.state(home))
     }
 
     // Channel rules.

@@ -33,6 +33,7 @@ internal class HookDispatcher(
     private val listener: HookFailureListener,
     private val asyncCapacity: Int = 256,
     asyncContext: CoroutineContext,
+    private val decisions: HookDecisionListener = HookDecisionListener { _, _, _ -> },
 ) : Hooks,
     Lifecycle {
     private val scope by lazy { CoroutineScope(asyncContext + SupervisorJob(asyncContext[Job])) }
@@ -64,6 +65,7 @@ internal class HookDispatcher(
                     if (!point.allows(decision)) {
                         HookFailure.Disallowed(decision)
                     } else {
+                        if (decision != HookDecision.Continue) tell(hook, point, decision)
                         when (decision) {
                             HookDecision.Continue -> Unit
                             is HookDecision.Replace -> current = decision.payload
@@ -118,6 +120,14 @@ internal class HookDispatcher(
             if (e is VirtualMachineError) throw e
             currentCoroutineContext().ensureActive()
             Outcome.Failed(HookFailure.Threw(e))
+        }
+    }
+
+    private fun tell(hook: Hook, point: HookPoint<*>, decision: HookDecision<*>) {
+        try {
+            decisions.onDecision(hook, point, decision)
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
         }
     }
 

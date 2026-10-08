@@ -13,6 +13,13 @@ public sealed class ConfigFileException(public val file: Path, message: String, 
     public class Invalid internal constructor(file: Path, detail: String, cause: Throwable?) :
         ConfigFileException(file, "Config file $file $detail", cause)
 
+    /** An object holds a key twice. */
+    public class DuplicateKey internal constructor(
+        file: Path,
+        /** The JSON path of the key. */
+        public val path: String,
+    ) : ConfigFileException(file, "Config file $file: the key at '$path' appears more than once in its object.", null)
+
     /** A string value refers to an environment variable that is not set. */
     public class UnsetVariable internal constructor(
         file: Path,

@@ -113,6 +113,34 @@ class InterceptTest {
     }
 
     @Test
+    fun `each replacing or stopping decision is told, a continuing or disallowed one is not`() = runTest {
+        val told = mutableListOf<String>()
+        val decisions = HookDecisionListener { hook, point, decision ->
+            told += "${hook::class.simpleName} $point $decision"
+        }
+        val guard = guardPoint()
+        val hooks = listOf(
+            TestInterceptor(rewrite) { HookDecision.Continue },
+            Rewriter(rewrite),
+            Denier(rewrite),
+            Rewriter(guard),
+            Denier(guard),
+        )
+        val dispatcher = HookDispatcher(hooks, listener, asyncContext = coroutineContext, decisions = decisions)
+
+        dispatcher.fire(rewrite, "x")
+        dispatcher.fire(guard, "x")
+
+        assertEquals(
+            listOf(
+                "Rewriter test.rewrite Replace(payload=rewritten)",
+                "Denier test.rewrite Abort(reply=denied)",
+            ),
+            told,
+        )
+    }
+
+    @Test
     fun `without interceptors the original payload proceeds`() = runTest {
         assertEquals(Interception.Proceed("x"), hookDispatcher(emptyList()).fire(rewrite, "x"))
     }

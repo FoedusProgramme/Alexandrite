@@ -41,7 +41,7 @@ public enum class ObserverDelivery {
     ASYNC,
 }
 
-/** What an [InterceptorHook] does with the payload. */
+/** What an [InterceptorHook] does with the payload, logged at DEBUG unless it is [Continue]. */
 public sealed interface HookDecision<out P : Any> {
     public data object Continue : HookDecision<Nothing>
 

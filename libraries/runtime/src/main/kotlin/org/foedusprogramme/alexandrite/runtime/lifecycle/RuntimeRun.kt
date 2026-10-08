@@ -67,7 +67,8 @@ internal class RuntimeRun(
                 logger.error("{}: the runtime failed", name, redactor.error(error))
             },
     )
-    private val stages = Stages(spec, redactor, { plugin -> Control(plugin) }, ::emit, scope.coroutineContext)
+    private val stages =
+        Stages(spec, redactor, { plugin -> Control(plugin) }, ::emit, scope.coroutineContext, timeSource)
     private val life = scope.launch(start = CoroutineStart.LAZY) { live() }
     private val handle by lazy { RuntimeServices(checkNotNull(stages.container), ::unavailable) }
 

@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeEvent
@@ -14,6 +16,10 @@ import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.channel.InstanceDirectory
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startStopped
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
+import org.foedusprogramme.alexandrite.sdk.channel.InstanceState
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.StepReport
 import org.foedusprogramme.alexandrite.sdk.di.container.StepReport.Outcome
@@ -28,6 +34,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
@@ -38,6 +45,8 @@ internal class Stages(
     control: (plugin: String) -> RuntimeControl,
     private val emit: (RuntimeEvent) -> Unit,
     context: CoroutineContext,
+    /** Measures the shutdown grace of an instance that [ChannelControl] stops. */
+    private val timeSource: TimeSource,
 ) {
     private val name = spec.config.name
     private val scopes = PluginScopes(name, redactor, context)
@@ -59,6 +68,8 @@ internal class Stages(
     /** The channel instance containers in config order. */
     private val instances = CopyOnWriteArrayList<InstanceContainer>()
 
+    private val channels: ChannelControl = InstanceControl()
+
     suspend fun start() {
         val timeout = spec.config.startTimeout
         withTimeoutOrNull(timeout) { stages() }
@@ -75,7 +86,8 @@ internal class Stages(
 
     /**
      * Stops and destroys what the stages built, then releases the data directory: the channel instances close before
-     * the root and drain after it, and each instance's scope is cancelled once it has stopped.
+     * the root and drain after it, and each instance's scope is cancelled once it has stopped. Instances that
+     * [ChannelControl] stops are waited for first.
      */
     suspend fun tearDown(deadline: TimeMark): List<Problem> {
         val grace = spec.config.shutdownGrace
@@ -95,7 +107,10 @@ internal class Stages(
             }
         }
         val root = container
-        val children = instances.toList().asReversed()
+        val all = instances.toList()
+        val owned = all.filter { it.claim(setOf(InstanceState.STARTING, InstanceState.OPEN)) }
+        all.filterNot { it in owned }.forEach { it.stopped.await() }
+        val children = owned.asReversed()
         try {
             for (child in children) {
                 step(RuntimeProblemKind.CLOSE_FAILED, "Closing ${child.label}") { child.container.closeAll(deadline) }
@@ -113,6 +128,7 @@ internal class Stages(
                 } catch (e: Throwable) {
                     failed(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the scope of ${child.label}", e)
                 }
+                child.markStopped()
             }
             root?.let { step(RuntimeProblemKind.STOP_FAILED, "Stopping") { it.stopAll() } }
             try {
@@ -122,6 +138,7 @@ internal class Stages(
             }
             root?.let { step(RuntimeProblemKind.DESTROY_FAILED, "Destroying") { it.destroy() } }
         } finally {
+            owned.forEach(InstanceContainer::markStopped)
             lock?.let(::release)
         }
         fatal.firstOrNull()?.let { throw it }
@@ -141,6 +158,7 @@ internal class Stages(
             runStage(StartStage.OPEN, instance) {
                 instance.container.open()
                 directory?.join(instance.id, instance.channel)
+                instance.opened()
             }
         }
     }
@@ -158,7 +176,7 @@ internal class Stages(
         val ids = resolution.enabled.flatMap { plugin -> plugin.config.instances.map { it.id } }
         val directory = InstanceDirectory(ids.toCollection(LinkedHashSet())).also { directory = it }
         assembly.checkChannels(resolution.enabled, bindings)
-        val built = assembly.container(resolution.enabled, bindings, directory)
+        val built = assembly.container(resolution.enabled, bindings, directory, channels)
         container = built
         assembly.checkChannelInstances(built, resolution.enabled, bindings)
         assembly.createInstances(built, resolution.enabled, instances::add)
@@ -178,6 +196,38 @@ internal class Stages(
         currentCoroutineContext().ensureActive()
     }
 
+    /** Closes, drains, stops and destroys [child] alone within the shutdown grace, as [by] asked. */
+    private suspend fun stopAlone(child: InstanceContainer, by: ChatUser?) {
+        val grace = spec.config.shutdownGrace
+        val deadline = timeSource.markNow() + grace
+        if (by == null) {
+            logger.info("{}: stopping channel instance {}", name, child.id)
+        } else {
+            logger.info("{}: stopping channel instance {} at the request of {}", name, child.id, by.address)
+        }
+        suspend fun step(what: String, block: suspend () -> List<StepReport>) {
+            try {
+                block().forEach { problem(it, grace) }
+            } catch (e: Exception) {
+                logger.error("{}: {}", name, redactor.text("$what ${child.label} failed: $e"), redactor.error(e))
+            }
+        }
+        try {
+            step("Closing") { child.container.closeAll(deadline) }
+            step("Draining") { child.container.drainAll(deadline) }
+            directory?.leave(child.id)
+            step("Stopping") { child.container.stopAll() }
+            step("Cancelling the scope of") {
+                scopes.cancel(child.scope, child.plugin, child.id, deadline, grace)
+                emptyList()
+            }
+            step("Destroying") { child.container.destroy() }
+        } finally {
+            child.markStopped()
+        }
+        logger.info("{}: stopped channel instance {}", name, child.id)
+    }
+
     private fun problem(report: StepReport, grace: Duration): Problem? {
         val where = report.container?.let { " in $it" }.orEmpty()
         val what = "${report.step.action} ${report.origin} (plugin ${report.plugin})$where"
@@ -190,6 +240,21 @@ internal class Stages(
         }.let(redactor::text)
         logger.warn("{}: {}", name, message, (outcome as? Outcome.Failed)?.error?.let(redactor::error))
         return Problem(kind(report), message, report.plugin)
+    }
+
+    /** The [ChannelControl] over the instance containers of these stages. */
+    private inner class InstanceControl : ChannelControl {
+        override fun state(instance: ChannelInstanceId): InstanceState? {
+            if (directory?.instances?.contains(instance) != true) return null
+            return instances.firstOrNull { it.id == instance }?.state ?: InstanceState.STARTING
+        }
+
+        override suspend fun stop(instance: ChannelInstanceId, by: ChatUser?): Boolean {
+            val child = instances.firstOrNull { it.id == instance } ?: return false
+            if (!child.claim(setOf(InstanceState.OPEN))) return false
+            withContext(NonCancellable) { stopAlone(child, by) }
+            return true
+        }
     }
 
     private fun release(lock: DataDirLock) {

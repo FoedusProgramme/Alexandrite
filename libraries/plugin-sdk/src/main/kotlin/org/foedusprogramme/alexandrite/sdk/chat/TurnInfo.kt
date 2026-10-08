@@ -8,7 +8,8 @@ import kotlinx.serialization.Serializable
  *
  * - The chat is the worker key of top-level turns; delegated runs never queue on their chat's worker, and per-turn
  *   locks are per conversation.
- * - Only CHAT-target turns open a reply (`Channel.openReply`) and fire `response.preview` and `response.before`.
+ * - Only CHAT-target turns open a reply (`Channel.openReply`) and fire `response.preview`, and `response.before` fires
+ *   for every reply sent to a chat.
  * - `TurnOutcome.replayable` is false once any run the turn delegated has persisted anything.
  * - Authority flows only from a live `ToolContext`, which is valid only during `Tool.execute`; `TurnInitiator` never
  *   creates a turn with a principal.

@@ -110,6 +110,73 @@ class SubclassOptInTest {
         class Event : org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 
         class Choice : org.foedusprogramme.alexandrite.sdk.model.ToolChoice
+
+        class Channels : org.foedusprogramme.alexandrite.sdk.channel.ChannelControl {
+            override fun state(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
+            override suspend fun stop(
+                instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+        }
+
+        class Submitter : org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter {
+            override fun submit(submission: org.foedusprogramme.alexandrite.sdk.turn.Submission) = TODO()
+        }
+
+        class Ticket : org.foedusprogramme.alexandrite.sdk.turn.TurnTicket {
+            override val turn get() = TODO()
+            override suspend fun outcome() = TODO()
+            override fun cancel() = TODO()
+        }
+
+        class Ending : org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome {
+            override val replayable get() = TODO()
+        }
+
+        class Initiator : org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator {
+            override fun initiate(turn: org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn) = TODO()
+        }
+
+        class Initiation : org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation {
+            override fun initiate(plugin: String, turn: org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn) = TODO()
+        }
+
+        class Route : org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute
+
+        class CommandRun : org.foedusprogramme.alexandrite.sdk.turn.CommandContext {
+            override val turn get() = TODO()
+            override suspend fun reply(
+                text: String,
+                markup: org.foedusprogramme.alexandrite.sdk.channel.Markup,
+            ) = TODO()
+        }
+
+        class Agent : org.foedusprogramme.alexandrite.sdk.turn.AgentControl {
+            override fun turns(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress?) = TODO()
+            override fun cancel(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override fun cancelTurn(
+                turn: org.foedusprogramme.alexandrite.sdk.chat.TurnId,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override fun cancelRun(
+                run: org.foedusprogramme.alexandrite.sdk.chat.RunId,
+                tree: Boolean,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun newConversation(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun settings(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun updateSettings(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                update: org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+        }
     """.trimIndent()
 
     /** `when`s over open hierarchies and enumerations, each with an `ELSE` line. */
@@ -202,6 +269,46 @@ class SubclassOptInTest {
             org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd.SHUTDOWN -> 2
             ELSE
         }
+
+        fun instance(state: org.foedusprogramme.alexandrite.sdk.channel.InstanceState): Int = when (state) {
+            org.foedusprogramme.alexandrite.sdk.channel.InstanceState.STARTING -> 0
+            org.foedusprogramme.alexandrite.sdk.channel.InstanceState.OPEN -> 1
+            org.foedusprogramme.alexandrite.sdk.channel.InstanceState.STOPPING -> 2
+            org.foedusprogramme.alexandrite.sdk.channel.InstanceState.STOPPED -> 3
+            ELSE
+        }
+
+        fun outcome(outcome: org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome): Int = when (outcome) {
+            is org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome.Completed -> 0
+            is org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome.Absorbed -> 1
+            org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome.TakenBack -> 2
+            org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome.Cancelled -> 3
+            is org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome.Failed -> 4
+            is org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome.ShutDown -> 5
+            ELSE
+        }
+
+        fun route(route: org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute): Int = when (route) {
+            org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute.None -> 0
+            is org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute.ToChat -> 1
+            is org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute.AgentHomes -> 2
+            is org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute.Broadcast -> 3
+            ELSE
+        }
+
+        fun refusal(reason: org.foedusprogramme.alexandrite.sdk.turn.RefusalReason): Int = when (reason) {
+            org.foedusprogramme.alexandrite.sdk.turn.RefusalReason.QUEUE_FULL -> 0
+            org.foedusprogramme.alexandrite.sdk.turn.RefusalReason.SHUTTING_DOWN -> 1
+            org.foedusprogramme.alexandrite.sdk.turn.RefusalReason.UNKNOWN_CHAT -> 2
+            org.foedusprogramme.alexandrite.sdk.turn.RefusalReason.NO_AGENT -> 3
+            ELSE
+        }
+
+        fun phase(phase: org.foedusprogramme.alexandrite.sdk.turn.TurnPhase): Int = when (phase) {
+            org.foedusprogramme.alexandrite.sdk.turn.TurnPhase.QUEUED -> 0
+            org.foedusprogramme.alexandrite.sdk.turn.TurnPhase.RUNNING -> 1
+            ELSE
+        }
     """.trimIndent()
 
     /** A channel as a third-party plugin writes it. */
@@ -269,6 +376,54 @@ class SubclassOptInTest {
         }
     """.trimIndent()
 
+    /** A command plugin, a hook and a channel's submission as a third-party plugin writes them. */
+    private val turns = """
+        import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
+        import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+        import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
+        import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
+        import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
+        import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+        import org.foedusprogramme.alexandrite.sdk.turn.*
+
+        class Commands(private val control: AgentControl, private val initiator: TurnInitiator) : CommandHandler {
+            override val commands = listOf(CommandSpec.builder("new", "Starts a new conversation.").build())
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
+                if (!invocation.issuer.isAdmin) {
+                    context.reply("Only admins start new conversations.")
+                    return
+                }
+                val conversation = control.newConversation(invocation.chat, invocation.issuer)
+                context.reply("Started ${'$'}conversation.")
+                val greeting = InitiatedTurn.builder(invocation.chat, TurnKind.HEARTBEAT, "Greet the chat.")
+                    .route(ReplyRoute.ToChat(invocation.chat))
+                    .build()
+                when (val admission = initiator.initiate(greeting)) {
+                    is Admission.Accepted -> admission.ticket.outcome().replayable
+                    is Admission.Refused -> admission.reason == RefusalReason.QUEUE_FULL
+                }
+            }
+        }
+
+        class ReadOnly : InterceptorHook<TurnStart> {
+            override val point = TurnPoints.TURN_START
+
+            override suspend fun intercept(payload: TurnStart): HookDecision<TurnStart> =
+                HookDecision.Replace(payload.withTools(payload.tools.filter { it.risk == ToolRisk.READ_ONLY }))
+        }
+
+        class Recall : InterceptorHook<TurnContext> {
+            override val point = TurnPoints.CONTEXT_INJECT
+
+            override suspend fun intercept(payload: TurnContext): HookDecision<TurnContext> =
+                HookDecision.Replace(payload + TurnContextItem("recall", "Ada likes tea."))
+        }
+
+        fun accepted(submitter: TurnSubmitter, message: IncomingMessage): Boolean =
+            submitter.submit(Submission.Message(message)) is Admission.Accepted
+    """.trimIndent()
+
     /** The errors of compiling [source]. */
     private fun errors(source: String): List<String> = KotlinCompilation().apply {
         workingDir = this@SubclassOptInTest.workingDir
@@ -307,5 +462,23 @@ class SubclassOptInTest {
     @Test
     fun `a plugin implements a channel and its reply sink without the internal API`() {
         assertEquals(emptyList(), errors(channel))
+    }
+
+    @Test
+    fun `a plugin handles commands, starts turns and hooks into them without the internal API`() {
+        assertEquals(emptyList(), errors(turns))
+    }
+
+    @Test
+    fun `only the agent builds hook payloads`() {
+        val forged = """
+            fun forged(turn: org.foedusprogramme.alexandrite.sdk.chat.TurnInfo) =
+                org.foedusprogramme.alexandrite.sdk.turn.TurnStart(turn, null, emptyList())
+        """.trimIndent()
+
+        val errors = errors(forged)
+
+        assertEquals(1, errors.size, errors.joinToString("\n"))
+        assertTrue("Internal Alexandrite API" in errors.single(), errors.single())
     }
 }

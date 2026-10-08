@@ -33,8 +33,59 @@ public object ConfigFile {
             throw ConfigFileException.Invalid(file, "is not valid JSON: $detail", e)
         }
         if (root !is JsonObject) throw ConfigFileException.Invalid(file, "holds no JSON object.", null)
+        repeatedKey(text)?.let { throw ConfigFileException.DuplicateKey(file, it) }
         return JsonConfigSource(JsonObject(root.mapValues { (key, value) -> value.resolved(file, key, environment) }))
     }
+
+    /** The JSON path of the first key that the valid JSON [text] repeats within one object, null when none. */
+    private fun repeatedKey(text: String): String? {
+        class Level(val path: String, val isObject: Boolean) {
+            val keys = HashSet<String>()
+            var expectsKey = isObject
+            var key = ""
+            var item = 0
+
+            fun child(): String = if (isObject) join(path, key) else "$path[$item]"
+        }
+        val levels = ArrayDeque<Level>()
+        var index = 0
+        while (index < text.length) {
+            when (text[index]) {
+                '{', '[' -> levels.addLast(Level(levels.lastOrNull()?.child().orEmpty(), text[index] == '{'))
+
+                '}', ']' -> levels.removeLast()
+
+                ',' -> {
+                    val level = levels.last()
+                    if (level.isObject) level.expectsKey = true else level.item++
+                }
+
+                '"' -> {
+                    val end = stringEnd(text, index)
+                    val level = levels.lastOrNull()
+                    if (level != null && level.expectsKey) {
+                        val key = Json.decodeFromString<String>(text.substring(index, end))
+                        if (!level.keys.add(key)) return join(level.path, key)
+                        level.key = key
+                        level.expectsKey = false
+                    }
+                    index = end
+                    continue
+                }
+            }
+            index++
+        }
+        return null
+    }
+
+    /** The index after the string literal that starts at [start] of [text]. */
+    private fun stringEnd(text: String, start: Int): Int {
+        var index = start + 1
+        while (text[index] != '"') index += if (text[index] == '\\') 2 else 1
+        return index + 1
+    }
+
+    private fun join(path: String, key: String): String = if (path.isEmpty()) key else "$path.$key"
 
     private fun JsonElement.resolved(file: Path, path: String, environment: Map<String, String>): JsonElement =
         when (this) {
