@@ -1,12 +1,14 @@
 package org.foedusprogramme.alexandrite.runtime.chat
 
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import java.util.concurrent.ConcurrentHashMap
 
-/** A [ChatStateStore] that keeps the values for the life of the runtime. */
-internal class MemoryChatStateStore : ChatStateStore {
+/** A [ChatStateStore] that keeps the values in memory. */
+@InternalAlexandriteApi
+public class MemoryChatStateStore : ChatStateStore {
     private val values = ConcurrentHashMap<Row, String>()
 
     override suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String? =

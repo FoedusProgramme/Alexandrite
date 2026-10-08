@@ -7,23 +7,36 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.foedusprogramme.alexandrite.testkit.plugin.DoublesPlugin
+import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelConfig
+import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelPlugin
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZoneId
 import java.time.ZoneOffset
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
 import kotlin.time.Duration
 
-/** Runs the plugin under test and the plugins added to it in a runtime of their own. */
+/**
+ * Runs the plugin under test and the plugins added to it in a runtime of their own.
+ *
+ * A run fails when a [ScriptedModel] or a [RecordingChannel] it holds meets a problem or a violation, with what the
+ * block threw as the cause.
+ */
 public class PluginHarness private constructor(
     private val id: String,
     private val plugins: PluginSet,
@@ -33,6 +46,8 @@ public class PluginHarness private constructor(
     private val shutdownGrace: Duration?,
     private val inspectTermination: Boolean,
     private val temporaryRoot: () -> Path,
+    private val models: List<ScriptedModel>,
+    private val channels: List<RecordingChannelPlugin>,
 ) {
     /**
      * Starts the plugins, runs [block] once they are ready, stops them and returns how the runtime ended, or throws
@@ -41,19 +56,17 @@ public class PluginHarness private constructor(
     public suspend fun run(block: suspend Running.() -> Unit): Termination {
         val root = dataRoot ?: temporaryRoot()
         var failure: Throwable? = null
+        channels.forEach { it.created.clear() }
+        val known = models.associateWith { it.problems.size }
         try {
-            val settings = RuntimeConfig.builder(root).zone(zone).name("harness")
-            shutdownGrace?.let(settings::shutdownGrace)
-            val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(pluginConfig).build()
-            var running: Running? = null
-            var finished = false
-            val termination = AlexandriteRuntime.run(spec) {
-                val current = Running(this, id)
-                running = current
-                current.block()
-                finished = true
+            val termination = try {
+                runIn(root, block)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                throw doubleProblems(known, e) ?: e
             }
-            if (!inspectTermination) verify(termination, finished || termination.request == running?.requested)
+            doubleProblems(known, null)?.let { throw it }
             return termination
         } catch (e: Throwable) {
             failure = e
@@ -61,6 +74,30 @@ public class PluginHarness private constructor(
         } finally {
             if (dataRoot == null) deleteTemporary(root, failure)
         }
+    }
+
+    private suspend fun runIn(root: Path, block: suspend Running.() -> Unit): Termination {
+        val settings = RuntimeConfig.builder(root).zone(zone).name("harness")
+        shutdownGrace?.let(settings::shutdownGrace)
+        val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(pluginConfig).build()
+        var running: Running? = null
+        var finished = false
+        val termination = AlexandriteRuntime.run(spec) {
+            val current = Running(this, id)
+            running = current
+            current.block()
+            finished = true
+        }
+        if (!inspectTermination) verify(termination, finished || termination.request == running?.requested)
+        return termination
+    }
+
+    /** The problems the doubles met during the run, as an error caused by [cause], null when there are none. */
+    private fun doubleProblems(known: Map<ScriptedModel, Int>, cause: Throwable?): AssertionError? {
+        val problems = models.flatMap { it.problems.drop(known.getValue(it)) } +
+            channels.flatMap { it.created }.flatMap { it.violations }
+        if (problems.isEmpty()) return null
+        return AssertionError("The test doubles saw problems:" + problems.joinToString("") { "\n- $it" }, cause)
     }
 
     private fun verify(termination: Termination, blockEnded: Boolean) {
@@ -98,6 +135,20 @@ public class PluginHarness private constructor(
             requested = request
             runtime.stop(request)
         }
+
+        /** The recording channel of the instance [name] of [type], while the instance is open. */
+        public fun channel(name: String = "main", type: String = "test"): RecordingChannel =
+            channel(ChannelInstanceId(ChannelType(type), name))
+
+        public fun channel(instance: ChannelInstanceId): RecordingChannel =
+            get<ChannelDirectory>().channel(instance) as? RecordingChannel
+                ?: throw NoSuchElementException("No recording channel of instance $instance is open.")
+
+        /** The scripted model [id] that the runtime's model providers contribute. */
+        public fun model(id: String = "scripted"): ScriptedModel =
+            getAll<ModelProvider>().flatMap { it.endpoints }.filterIsInstance<ScriptedModel>()
+                .singleOrNull { it.id.value == id }
+                ?: throw NoSuchElementException("No scripted model '$id' is contributed.")
     }
 
     public class Builder internal constructor(private val plugin: PluginIndex) {
@@ -107,6 +158,12 @@ public class PluginHarness private constructor(
         private var zone: ZoneId = ZoneOffset.UTC
         private var grace: Duration? = null
         private var inspectTermination = false
+        private val models = mutableListOf<ScriptedModel>()
+        private val channels = LinkedHashMap<ChannelType, LinkedHashMap<String, RecordingChannelConfig>>()
+        private var submitter: RecordingTurnSubmitter? = null
+        private var initiator: RecordingTurnInitiator? = null
+        private var control: RecordingAgentControl? = null
+        private var states: TestChatStates? = null
 
         internal var temporaryRoot: () -> Path = { Files.createTempDirectory("alexandrite-harness-") }
 
@@ -140,19 +197,59 @@ public class PluginHarness private constructor(
         /** Lets [run] return a termination whose stop cut the block short or met problems. */
         public fun inspectTermination(): Builder = apply { inspectTermination = true }
 
+        /** Contributes [model] through a model provider of the plugin `testkit`. */
+        public fun model(model: ScriptedModel): Builder = apply {
+            require(models.none { it.id == model.id }) { "The harness holds a scripted model '${model.id}' already." }
+            models += model
+        }
+
+        /**
+         * Configures the instance [name] of the recording channel [type], whose plugin is `<type>-channel`, with the
+         * users [admins] as its admins and [partLength] characters per platform message.
+         */
+        public fun channel(
+            name: String = "main",
+            type: String = "test",
+            admins: Set<String> = emptySet(),
+            partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
+        ): Builder = apply {
+            val instance = ChannelInstanceId(ChannelType(type), name)
+            val instances = channels.getOrPut(instance.type) { LinkedHashMap() }
+            require(name !in instances) { "The harness holds a recording channel of instance $instance already." }
+            instances[name] = RecordingChannelConfig(admins.toSet(), partLength)
+        }
+
+        /** Binds [submitter] as the runtime's TurnSubmitter. */
+        public fun turnSubmitter(submitter: RecordingTurnSubmitter): Builder = apply { this.submitter = submitter }
+
+        /** Hands [initiator] every turn that a plugin's TurnInitiator starts, with the plugin's id. */
+        public fun turnInitiator(initiator: RecordingTurnInitiator): Builder = apply { this.initiator = initiator }
+
+        /** Binds [control] as the runtime's AgentControl. */
+        public fun agentControl(control: RecordingAgentControl): Builder = apply { this.control = control }
+
+        /** Keeps every plugin's chat states in [states]. */
+        public fun chatStates(states: TestChatStates): Builder = apply { this.states = states }
+
         public fun build(): PluginHarness {
-            val tree = configs.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->
+            val doubles = DoublesPlugin(models, submitter, initiator, control, states)
+            val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
+            val all = configs + recording.associate { it.configRoot to it.config() }
+            val tree = all.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->
                 merged(tree, root.split('.').foldRight(config) { name, child -> JsonObject(mapOf(name to child)) })
             }
+            val indexes = extras + recording + listOfNotNull(doubles.takeUnless { it.empty })
             return PluginHarness(
                 plugin.info.id,
-                extras.fold(PluginSet.of(plugin), PluginSet::plus),
+                indexes.fold(PluginSet.of(plugin), PluginSet::plus),
                 JsonConfigSource(tree),
                 dataRoot,
                 zone,
                 grace,
                 inspectTermination,
                 temporaryRoot,
+                models.toList(),
+                recording,
             )
         }
     }

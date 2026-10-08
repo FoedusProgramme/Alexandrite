@@ -4,12 +4,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
+import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatState
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
+import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /** Told about the first stored value of each state and key that cannot be read. */
@@ -99,6 +102,14 @@ internal class PluginChatStates(
         private fun lock(key: K): Mutex = locks[Math.floorMod((name to key).hashCode(), LOCK_STRIPES)]
     }
 }
+
+/** The [ChatStates] of [plugin] over [store] for code that runs no runtime, which logs values it cannot read. */
+@InternalAlexandriteApi
+public fun standaloneChatStates(plugin: String, store: ChatStateStore): ChatStates =
+    PluginChatStates(plugin, store) { owner, name, key, error ->
+        LoggerFactory.getLogger(AlexandriteRuntime::class.java)
+            .warn("chat state '{}' of plugin {} at {} cannot be read and counts as absent", name, owner, key, error)
+    }
 
 /** How the keys of one scope of states are stored and fall back. */
 private interface KeyScope<K : Any> {
