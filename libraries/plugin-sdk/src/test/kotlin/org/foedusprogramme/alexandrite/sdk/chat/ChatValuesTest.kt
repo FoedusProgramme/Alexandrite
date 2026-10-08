@@ -31,6 +31,12 @@ class ChatValuesTest {
     }
 
     @Test
+    fun `a turn's key is its agent at its chat`() {
+        assertEquals(AgentChatKey(AgentId.MAIN, chat), turn().build().key)
+        assertEquals(AgentChatKey(AgentId("coder"), chat), turn().agent(AgentId("coder")).build().key)
+    }
+
+    @Test
     fun `a rebuilt turn keeps what the block leaves alone`() {
         val lineage = TurnLineage(
             RunId("r1"),

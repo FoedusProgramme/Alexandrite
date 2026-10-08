@@ -47,7 +47,13 @@ class ValueTypesTest {
             { PluginInfo("weather", "Weather", "1.0", "Forecasts", 1, listOf("geo"), "sample.Weather") },
             PluginInfo("weather", "Weather", "1.1", "Forecasts", 1, listOf("geo"), "sample.Weather"),
             "PluginInfo(id=weather, name=Weather, version=1.0, description=Forecasts, sdkApi=1, requires=[geo], " +
-                "entryClass=sample.Weather)",
+                "entryClass=sample.Weather, channelType=null)",
+        ),
+        Case(
+            { PluginInfo("tg", "Telegram", "1.0", "", 1, emptyList(), "sample.Tg", "telegram") },
+            PluginInfo("tg", "Telegram", "1.0", "", 1, emptyList(), "sample.Tg", "discord"),
+            "PluginInfo(id=tg, name=Telegram, version=1.0, description=, sdkApi=1, requires=[], " +
+                "entryClass=sample.Tg, channelType=telegram)",
         ),
         Case(
             { ToolDefinition("fs.read", "Reads a file", JsonObject(emptyMap())) },
@@ -87,7 +93,14 @@ class ValueTypesTest {
         Case(
             { StepReport("weather", "Radar", StepReport.Step.DRAIN, StepReport.Outcome.TimedOut) },
             StepReport("weather", "Radar", StepReport.Step.CLOSE, StepReport.Outcome.TimedOut),
-            "StepReport(plugin=weather, origin=Radar, step=DRAIN, outcome=TimedOut)",
+            "StepReport(plugin=weather, origin=Radar, step=DRAIN, outcome=TimedOut, container=null)",
+        ),
+        Case(
+            {
+                StepReport("tg", "Bot", StepReport.Step.STOP, StepReport.Outcome.Completed, "channel instance 'tg'")
+            },
+            StepReport("tg", "Bot", StepReport.Step.STOP, StepReport.Outcome.Completed),
+            "StepReport(plugin=tg, origin=Bot, step=STOP, outcome=Completed, container=channel instance 'tg')",
         ),
         Case(
             { StepReport.Outcome.Failed(error) },

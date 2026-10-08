@@ -8,11 +8,15 @@ import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
-import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 
-internal class EnabledPlugin(val member: PluginSet.Member, val configBindings: List<Binding<*>>)
+internal class EnabledPlugin(val member: PluginSet.Member, val config: PluginConfig) {
+    val id: String get() = member.id
+
+    /** The plugin's channel type, null when it is no channel plugin. */
+    val channelType: String? get() = member.plugin.info.channelType
+}
 
 internal class ConfigResolution(
     val enabled: List<EnabledPlugin>,
@@ -42,6 +46,7 @@ internal fun resolveConfig(
         if (reason == null) enabled += member else disabled += DisabledPlugin(member.id, reason)
     }
     problems += overlappingRoots(enabled)
+    problems += duplicateChannelTypes(enabled)
     problems += missingRequirements(members, enabled, disabled)
     val unknown = unknownConfig(members, source, failedRoots)
     problems += unknown.problems
@@ -50,7 +55,7 @@ internal fun resolveConfig(
             configBindings(member.index, source, secrets)
         } catch (e: ConfigException) {
             problems += invalidConfig(e, member.id)
-            emptyList()
+            PluginConfig(emptyList(), emptyList())
         }
         EnabledPlugin(member, config)
     }
@@ -88,6 +93,19 @@ private fun overlappingRoots(enabled: List<PluginSet.Member>): List<Problem> {
             }
     }
 }
+
+private fun duplicateChannelTypes(enabled: List<PluginSet.Member>): List<Problem> = enabled
+    .filter { it.plugin.info.channelType != null }
+    .groupBy { it.plugin.info.channelType }
+    .filterValues { it.size > 1 }
+    .map { (type, same) ->
+        Problem(
+            RuntimeProblemKind.DUPLICATE_CHANNEL_TYPE,
+            "Duplicate channel type '$type': plugins ${same.joinToString(" and ") { "'${it.id}'" }} declare it. " +
+                "Switch all but one of them off.",
+            null,
+        )
+    }
 
 private fun missingRequirements(
     members: List<PluginSet.Member>,

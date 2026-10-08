@@ -21,12 +21,17 @@ internal fun readEntry(declaration: KSClassDeclaration, symbols: Symbols, plugin
             required == pluginId -> problems += Messages.selfRequire(label, pluginId)
         }
     }
+    val channelType = (arguments["channelType"] as? String)?.ifEmpty { null }
+    if (channelType != null && !PLUGIN_ID.matches(channelType)) {
+        problems += Messages.malformedChannelType(label, channelType)
+    }
     val entry = PluginEntry(
         label,
         declaration.location,
         name = arguments["name"] as? String ?: "",
         description = arguments["description"] as? String ?: "",
         requires,
+        channelType,
     )
     return Read(entry.takeIf { problems.isEmpty() }, problems.map { Problem(it, declaration.location) })
 }

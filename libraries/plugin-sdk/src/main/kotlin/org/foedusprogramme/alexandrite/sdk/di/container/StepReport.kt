@@ -14,6 +14,8 @@ public class StepReport(
     public val origin: String,
     public val step: Step,
     public val outcome: Outcome,
+    /** The label of the channel instance container that holds the instance, null for the root container. */
+    public val container: String? = null,
 ) {
     /** The [Lifecycle] callback a report is about. */
     public enum class Step {

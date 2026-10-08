@@ -64,6 +64,8 @@ internal class Section(
     val location: Location,
     val type: String,
     val path: String,
+    /** Whether each channel instance has the section, below its own config. */
+    val channelInstance: Boolean,
     val roots: Set<String>,
     val markers: Set<String>,
 )
@@ -75,6 +77,8 @@ internal class PluginEntry(
     val name: String,
     val description: String,
     val requires: List<String>,
+    /** Null for a plugin that contributes no channel. */
+    val channelType: String?,
 )
 
 /** A concrete class of the plugin that implements contributed SPIs. */

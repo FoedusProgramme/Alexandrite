@@ -8,10 +8,10 @@ public interface Lifecycle {
     /** Starts taking outside work. */
     public suspend fun onOpen() {}
 
-    /** Stops taking new work. */
+    /** Stops taking new work, in a channel instance before the root. */
     public suspend fun onClose() {}
 
-    /** Finishes the work in flight. */
+    /** Finishes the work in flight, in a channel instance after the root. */
     public suspend fun onDrain() {}
 
     /** Undoes [onStart]. */

@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.runtime.chat.PluginChatStates
 import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookDispatcher
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
@@ -24,7 +25,7 @@ import java.nio.file.Path
 import java.time.Clock
 import kotlin.coroutines.CoroutineContext
 
-private const val RUNTIME_PLUGIN = "alexandrite-runtime"
+internal const val RUNTIME_PLUGIN = "alexandrite-runtime"
 
 internal const val PLUGINS_DIRECTORY = "plugins"
 
@@ -36,6 +37,7 @@ internal fun runtimeBindings(
     unreadableStates: UnreadableStateListener,
     control: (plugin: String) -> RuntimeControl,
     scopes: PluginScopes,
+    directory: ChannelDirectory,
     context: CoroutineContext,
 ): PluginBindings {
     val hooks = key<Hook>()
@@ -52,6 +54,7 @@ internal fun runtimeBindings(
             if (dispatcher.hasAsyncObservers) dispatcher else object : Hooks by dispatcher {}
         },
         instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
+        instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),

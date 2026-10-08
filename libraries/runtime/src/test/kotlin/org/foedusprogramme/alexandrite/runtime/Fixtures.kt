@@ -190,9 +190,10 @@ open class TestIndex(
     private val bindings: List<Binding<*>> = emptyList(),
     private val sections: List<ConfigSectionSpec<*>> = emptyList(),
     requires: List<String> = emptyList(),
+    channelType: String? = null,
 ) : PluginIndex {
     override val info: PluginInfo =
-        PluginInfo(id, id, "1.0", "", AlexandriteSdk.API_VERSION, requires, javaClass.name)
+        PluginInfo(id, id, "1.0", "", AlexandriteSdk.API_VERSION, requires, javaClass.name, channelType)
 
     override fun bindings(): List<Binding<*>> = bindings
 

@@ -164,6 +164,9 @@ internal abstract class DeclarationReader(
                 annotationName == CONTRIBUTE && channelInstanceScoped && boundName == HOOK ->
                     Messages.channelInstanceHook(label)
 
+                annotationName == CONTRIBUTE && !channelInstanceScoped && boundName == CHANNEL ->
+                    Messages.singletonChannel(label, provider)
+
                 else -> boundProblem(annotationName, boundClass, supertype, qualifier)
             }
             if (problem != null || supertype == null) {

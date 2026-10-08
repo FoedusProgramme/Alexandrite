@@ -2,10 +2,12 @@ package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
@@ -101,6 +103,17 @@ class ExitCodeTest {
             ),
             StartStage.entries.associateWith { exitCode(failedAt(it)) },
         )
+    }
+
+    @Test
+    fun `a GRAPH stage that failed on the channel rules exits 78`() {
+        val channel = binding<Channel>(key(), "a", "Bot", multi = true) { error("never created") }
+
+        val error = failed(spec(dataDir, TestIndex("a", listOf(channel))))
+
+        assertEquals(StartStage.GRAPH, error.stage)
+        assertEquals(listOf(RuntimeProblemKind.CHANNEL_CONTRIBUTIONS), error.problems.map { it.kind })
+        assertEquals(78, exitCode(error))
     }
 
     @Test

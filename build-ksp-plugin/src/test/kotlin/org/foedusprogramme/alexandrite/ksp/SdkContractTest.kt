@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.ksp
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.channel.Channel
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Binds
@@ -71,8 +73,8 @@ class SdkContractTest {
     }
 
     @Test
-    fun `the hook SPI the processor checks is the SDK's`() {
-        assertNames(Hook::class to HOOK)
+    fun `the SPIs and types the processor checks are the SDK's`() {
+        assertNames(Hook::class to HOOK, Channel::class to CHANNEL, ChannelInstance::class to CHANNEL_INSTANCE)
     }
 
     @Test
@@ -81,6 +83,7 @@ class SdkContractTest {
         assertEquals(PluginIds.RESERVED_PREFIX, RESERVED_PREFIX)
         assertEquals(PluginIds.THIRD_PARTY_ROOT, THIRD_PARTY_ROOT)
         assertEquals(PluginIds.ENABLED_KEY, ENABLED)
+        assertEquals(PluginIds.INSTANCES_KEY, INSTANCES)
     }
 
     @Test

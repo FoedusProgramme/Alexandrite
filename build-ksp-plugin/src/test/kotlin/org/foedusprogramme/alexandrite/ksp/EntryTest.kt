@@ -59,4 +59,13 @@ class EntryTest : FailingSamples() {
             entry = false,
         )
     }
+
+    @Test
+    fun `a channel type follows the id grammar`() {
+        assertErrors(
+            "@Plugin(name = \"Chat\", channelType = \"Tele_gram\") class ChatPlugin",
+            "class ChatPlugin" to Messages.malformedChannelType("sample.ChatPlugin", "Tele_gram"),
+            entry = false,
+        )
+    }
 }

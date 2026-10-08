@@ -32,7 +32,7 @@ internal class IndexWriter(
 
     private fun source(sections: Collection<Section>, components: Collection<Component>): String {
         val bindings = components.sortedBy { it.origin }.flatMap(::componentBindings)
-        val specs = sections.sortedBy { it.path }.map(::sectionSpec)
+        val specs = sections.sortedWith(compareBy({ it.channelInstance }, { it.path })).map(::sectionSpec)
         val markers = (components.flatMap { it.markers } + sections.flatMap { it.markers }).toSortedSet() - INTERNAL_API
         val optIns = listOf(simpleName(INTERNAL_API)) + markers.map(::sourceName)
         return buildString {
@@ -52,6 +52,7 @@ internal class IndexWriter(
             appendLine("        sdkApi = AlexandriteSdk.API_VERSION,")
             appendLine("        requires = ${listCode(entry.requires.map(::literal))},")
             appendLine("        entryClass = ${literal(entry.className)},")
+            appendLine("        channelType = ${entry.channelType?.let(::literal) ?: "null"},")
             appendLine("    )")
             appendLine()
             appendLine("    override val configRoot: String = ${literal(options.configRoot)}")
@@ -78,6 +79,7 @@ internal class IndexWriter(
             "sdkApi" to SDK_API_VERSION.toString(),
             "requires" to entry.requires.joinToString(prefix = "[", postfix = "]") { jsonString(it) },
             "entryClass" to jsonString(entry.className),
+            "channelType" to (entry.channelType?.let(::jsonString) ?: "null"),
             "indexClass" to jsonString(indexClass),
             "configRoot" to jsonString(options.configRoot),
             "builtIn" to options.builtIn.toString(),
@@ -103,6 +105,7 @@ internal class IndexWriter(
         appendLine("    path = ${literal(section.path)},")
         appendLine("    deserializer = ${section.type}.serializer(),")
         appendLine("    origin = ${literal(section.origin)},")
+        if (section.channelInstance) appendLine("    scope = Scope.CHANNEL_INSTANCE,")
         append(")")
     }
 

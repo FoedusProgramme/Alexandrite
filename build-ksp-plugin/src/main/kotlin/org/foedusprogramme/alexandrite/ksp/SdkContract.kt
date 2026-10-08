@@ -26,6 +26,9 @@ internal const val PLUGIN_INFO = "org.foedusprogramme.alexandrite.sdk.plugin.Plu
 internal const val ALEXANDRITE_SDK = "org.foedusprogramme.alexandrite.sdk.AlexandriteSdk"
 internal const val INTERNAL_API = "org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi"
 
+internal const val CHANNEL = "org.foedusprogramme.alexandrite.sdk.channel.Channel"
+internal const val CHANNEL_INSTANCE = "org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance"
+
 internal const val CONFIG_SECTION = "org.foedusprogramme.alexandrite.sdk.config.ConfigSection"
 internal const val CONFIG_SECTION_SPEC = "org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec"
 internal const val SERIALIZABLE = "kotlinx.serialization.Serializable"
@@ -55,6 +58,9 @@ internal const val THIRD_PARTY_ROOT = "plugins"
 
 /** The config key that switches a plugin on and off. */
 internal const val ENABLED = "enabled"
+
+/** The config key that holds the config of a channel plugin's channel instances. */
+internal const val INSTANCES = "instances"
 
 /** A dot-separated config path below the config root. */
 internal val CONFIG_PATH = Regex("[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*)*")

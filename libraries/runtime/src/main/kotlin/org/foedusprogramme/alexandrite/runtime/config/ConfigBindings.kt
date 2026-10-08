@@ -7,35 +7,86 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.collectingSecrets
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
+import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import kotlin.coroutines.cancellation.CancellationException
 
-/** One unmanaged binding per config section of [index], decoded strictly from its subtree of [source]. */
+/** The bindings of the instance sections of the channel instance [id]. */
+internal class InstanceConfig(val id: ChannelInstanceId, val bindings: List<Binding<*>>)
+
+/** The bindings of a plugin's sections, and those of each of its channel instances. */
+internal class PluginConfig(val bindings: List<Binding<*>>, val instances: List<InstanceConfig>)
+
+/**
+ * One unmanaged binding per config section of [index], decoded strictly from its subtree of [source], and one per
+ * instance section for each channel instance below the root's `instances`.
+ */
 internal fun configBindings(
     index: PluginIndex,
     source: ConfigSource,
     secrets: MutableCollection<String>,
     json: Json = Json,
-): List<Binding<*>> {
+): PluginConfig {
     val root = index.configRoot
-    val sections = index.configSections()
+    val plugin = index.info.id
+    val type = index.info.channelType?.let(::ChannelType)
+    val (shared, perInstance) = index.configSections().partition { it.scope == Scope.SINGLETON }
+    val reserved = setOfNotNull(PluginIds.ENABLED_KEY, PluginIds.INSTANCES_KEY.takeIf { type != null })
+    val bindings = decodeSections(source, root, shared, reserved, Scope.SINGLETON, plugin, json, secrets)
+    if (type == null) return PluginConfig(bindings, emptyList())
+    val instances = instanceNames(source, "$root.${PluginIds.INSTANCES_KEY}").map { (name, base) ->
+        val decoded =
+            decodeSections(source, base, perInstance, emptySet(), Scope.CHANNEL_INSTANCE, plugin, json, secrets)
+        InstanceConfig(ChannelInstanceId(type, name), decoded)
+    }
+    return PluginConfig(bindings, instances)
+}
+
+/** [sections] decoded from their subtrees below [base], whose objects hold only the section keys and [reserved]. */
+private fun decodeSections(
+    source: ConfigSource,
+    base: String,
+    sections: List<ConfigSectionSpec<*>>,
+    reserved: Set<String>,
+    scope: Scope,
+    plugin: String,
+    json: Json,
+    secrets: MutableCollection<String>,
+): List<Binding<*>> {
     val paths = sections.mapTo(HashSet()) { it.path }
-    for (path in unsectioned(paths)) checkKeys(source, absolute(root, path), allowedKeys(path, paths))
+    for (path in unsectioned(paths)) checkKeys(source, absolute(base, path), allowedKeys(path, paths, reserved))
     return sections.map { section ->
-        val path = absolute(root, section.path)
+        val path = absolute(base, section.path)
         val stripped = paths.mapNotNullTo(mutableSetOf()) { nestedKey(section.path, it) }
-        if (section.path.isEmpty()) stripped += PluginIds.ENABLED_KEY
+        if (section.path.isEmpty()) stripped += reserved
         val tree = source.tree(path) ?: JsonObject(emptyMap())
-        section.bind(index.info.id, path, JsonObject(tree - stripped), json, secrets)
+        section.bind(plugin, path, JsonObject(tree - stripped), scope, json, secrets)
     }
 }
+
+/** The name and the path of each channel instance below [path], in the order of the file. */
+private fun instanceNames(source: ConfigSource, path: String): List<Pair<String, String>> =
+    source.tree(path).orEmpty().map { (name, value) ->
+        val base = "$path.$name"
+        if (!PluginIds.PATTERN.matches(name)) {
+            throw ConfigException(
+                base,
+                "'$name' is no channel instance name: a name is lowercase words of letters and digits, each " +
+                    "starting with a letter, joined by single hyphens, such as \"work\".",
+            )
+        }
+        if (value !is JsonObject) throw ConfigException(base, "must be an object")
+        name to base
+    }
 
 /** The root section at [path] of [source], decoded as [configBindings] decodes a plugin's. */
 internal fun <T> decodeRootSection(source: ConfigSource, path: String, deserializer: DeserializationStrategy<T>): T {
@@ -47,9 +98,10 @@ private fun <T : Any> ConfigSectionSpec<T>.bind(
     plugin: String,
     path: String,
     tree: JsonObject,
+    scope: Scope,
     json: Json,
     secrets: MutableCollection<String>,
-): Binding<T> = instanceBinding(key, json.decodeConfig(path, tree, deserializer, secrets), plugin, origin)
+): Binding<T> = instanceBinding(key, json.decodeConfig(path, tree, deserializer, secrets), plugin, origin, scope)
 
 private fun <T> Json.decodeConfig(
     path: String,
@@ -74,9 +126,9 @@ private fun unsectioned(paths: Set<String>): List<String> {
     return prefixes.filter { it !in paths }
 }
 
-private fun allowedKeys(path: String, paths: Set<String>): Set<String> {
+private fun allowedKeys(path: String, paths: Set<String>, reserved: Set<String>): Set<String> {
     val keys = paths.mapNotNullTo(sortedSetOf()) { nestedKey(path, it) }
-    if (path.isEmpty()) keys += PluginIds.ENABLED_KEY
+    if (path.isEmpty()) keys += reserved
     return keys
 }
 
@@ -86,7 +138,8 @@ private fun checkKeys(source: ConfigSource, path: String, allowed: Set<String>) 
     val noun = if (unknown.size == 1) "key" else "keys"
     throw ConfigException(
         path,
-        "unknown $noun ${unknown.sorted().joinToString { "'$it'" }}. Allowed keys: ${allowed.joinToString()}.",
+        "unknown $noun ${unknown.sorted().joinToString { "'$it'" }}. " +
+            "Allowed keys: ${allowed.joinToString().ifEmpty { "none" }}.",
     )
 }
 

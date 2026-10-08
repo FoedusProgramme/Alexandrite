@@ -148,6 +148,29 @@ class ChildContainerTest {
     }
 
     @Test
+    fun `a child's reports name its container and the root's reports name none`() {
+        val root = build(service("a", events = events), service("c", scope = CHANNEL_INSTANCE, events = events))
+        val child = root.child("tg", setOf("test"))
+        runBlocking {
+            root.start()
+            child.start()
+        }
+
+        val stopped = child.stopAll() + root.stopAll()
+        val destroyed = root.destroy()
+
+        val label = "channel instance container 'tg'"
+        assertEquals(
+            listOf(
+                StepReport("test", "c", StepReport.Step.STOP, StepReport.Outcome.Completed, label),
+                StepReport("test", "a", StepReport.Step.STOP, StepReport.Outcome.Completed),
+            ),
+            stopped,
+        )
+        assertEquals(listOf("c" to label, "a" to null), destroyed.map { it.origin to it.container })
+    }
+
+    @Test
     fun `the root container refuses channel-instance-scoped keys`() {
         val root = build(service("c", scope = CHANNEL_INSTANCE))
 

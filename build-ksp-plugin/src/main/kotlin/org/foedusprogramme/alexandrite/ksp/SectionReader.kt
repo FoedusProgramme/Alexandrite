@@ -17,9 +17,10 @@ internal class SectionReader(private val declaration: KSClassDeclaration, privat
         }
         if (!symbols.has(declaration, SERIALIZABLE)) problems += Messages.notSerializable(label)
         val path = symbols.annotation(declaration, CONFIG_SECTION)?.value as String? ?: ""
+        val head = path.substringBefore('.')
         when {
             path.isNotEmpty() && !CONFIG_PATH.matches(path) -> problems += Messages.malformedPath(label, path)
-            path.substringBefore('.') == ENABLED -> problems += Messages.reservedPath(label, path)
+            head == ENABLED || head == INSTANCES -> problems += Messages.reservedPath(label, path, head)
         }
         val section = if (problems.isEmpty()) {
             val markers = symbols.optInMarkers(declaration)
@@ -28,6 +29,7 @@ internal class SectionReader(private val declaration: KSClassDeclaration, privat
                 declaration.location,
                 sourceName(label),
                 path,
+                channelInstance = symbols.has(declaration, CHANNEL_INSTANCE_SCOPED),
                 setOf(root(label)) + markers.map(::root),
                 markers,
             )

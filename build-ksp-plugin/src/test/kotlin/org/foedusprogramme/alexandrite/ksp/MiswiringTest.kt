@@ -168,6 +168,92 @@ class MiswiringTest : FailingSamples() {
         )
     }
 
+    @Test
+    fun `a singleton that depends on the channel instance or an instance section is rejected`() {
+        assertErrors(
+            """
+            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
+            @ChannelInstanceScoped @ConfigSection @Serializable class Token(val token: String = "")
+            @ChannelInstanceScoped @Contribute(Channel::class) class Scoped(instance: ChannelInstance, token: Token) :
+                BaseChannel()
+            @Singleton class Registry(instance: ChannelInstance, token: Token?)
+            """.trimIndent() + "\n" + channelBase,
+            "class Registry" to Messages.scopeBreak("instance", "sample.Registry", listOf(CHANNEL_INSTANCE)),
+            "class Registry" to Messages.scopeBreak("token", "sample.Registry", listOf("sample.Token")),
+            entry = false,
+        )
+    }
+
+    // Channels.
+
+    private val channelBase = """
+        abstract class BaseChannel : Channel {
+            override suspend fun capabilities(chat: ChatAddress) = ChannelCapabilities.builder().build()
+
+            override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = 1
+
+            override suspend fun openReply(request: ReplyRequest): ReplySink = TODO()
+
+            override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
+                Delivery.Delivered(emptyList())
+        }
+    """.trimIndent()
+
+    @Test
+    fun `a channel contributed by a singleton is rejected`() {
+        assertErrors(
+            """
+            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
+            @Contribute(Channel::class) class Plain : BaseChannel()
+            @Singleton @Contribute(Channel::class) class Single : BaseChannel()
+            @ChannelInstanceScoped @Contribute(Channel::class) class Scoped : BaseChannel()
+            object Channels {
+                @Provides @Contribute(Channel::class) fun provided(): BaseChannel = Scoped()
+            }
+            """.trimIndent() + "\n" + channelBase,
+            "class Plain" to Messages.singletonChannel("sample.Plain", provider = false),
+            "class Single" to Messages.singletonChannel("sample.Single", provider = false),
+            "fun provided" to Messages.singletonChannel("sample.Channels.provided()", provider = true),
+            entry = false,
+        )
+    }
+
+    @Test
+    fun `a plugin that declares a channel type contributes a channel`() {
+        assertErrors(
+            "@Plugin(name = \"Chat\", channelType = \"chat\") class ChatPlugin",
+            "class ChatPlugin" to Messages.missingChannel("sample.ChatPlugin", "chat"),
+            entry = false,
+        )
+    }
+
+    @Test
+    fun `a plugin contributes one channel per channel instance`() {
+        assertErrors(
+            """
+            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
+            @ChannelInstanceScoped @Contribute(Channel::class) class First : BaseChannel()
+            object Channels {
+                @Provides @ChannelInstanceScoped @Contribute(Channel::class) fun second(): BaseChannel = First()
+            }
+            """.trimIndent() + "\n" + channelBase,
+            "class First" to Messages.severalChannels("chat", listOf("sample.Channels.second()", "sample.First")),
+            entry = false,
+        )
+    }
+
+    @Test
+    fun `a channel or an instance section in a plugin without a channel type is rejected`() {
+        assertErrors(
+            """
+            @ChannelInstanceScoped @Contribute(Channel::class) class Scoped : BaseChannel()
+            @ChannelInstanceScoped @ConfigSection @Serializable class Token(val token: String = "")
+            """.trimIndent() + "\n" + channelBase,
+            "class Scoped" to Messages.untypedChannel("sample.Scoped", "sample.SamplePlugin"),
+            "class Token" to Messages.untypedInstanceSection("sample.Token", "sample.SamplePlugin"),
+        )
+    }
+
     // Plugin-local services.
 
     @Test

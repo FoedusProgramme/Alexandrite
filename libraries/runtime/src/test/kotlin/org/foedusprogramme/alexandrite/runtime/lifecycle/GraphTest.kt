@@ -34,12 +34,15 @@ import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startVirtually
 import org.foedusprogramme.alexandrite.runtime.virtual
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
+import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
@@ -214,11 +217,23 @@ class GraphTest {
     fun `chat states are kept in the bound store`() {
         val rows = mutableMapOf<String, String>()
         val store = object : ChatStateStore {
-            override suspend fun read(plugin: String, name: String, chat: ChatAddress): String? =
-                rows["$plugin $name $chat"]
+            override suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String? =
+                rows["$plugin $name $agent $chat"]
 
-            override suspend fun write(plugin: String, name: String, chat: ChatAddress, json: String?) {
-                if (json == null) rows.remove("$plugin $name $chat") else rows["$plugin $name $chat"] = json
+            override suspend fun write(
+                plugin: String,
+                name: String,
+                agent: AgentId?,
+                chat: ChatAddress,
+                json: String?,
+            ) {
+                if (json ==
+                    null
+                ) {
+                    rows.remove("$plugin $name $agent $chat")
+                } else {
+                    rows["$plugin $name $agent $chat"] = json
+                }
             }
         }
         val plugins = explicit(
@@ -229,9 +244,13 @@ class GraphTest {
         spec(plugins, dataDir).execute {
             val states = services.get(key<Probe>()).values.getValue("states") as ChatStates
             states.state("language", LanguageTag("en")).set(CHAT, LanguageTag("zh-CN"))
+            states.agentState("language", LanguageTag("en")).set(AgentChatKey(AgentId.MAIN, CHAT), LanguageTag("fr"))
         }
 
-        assertEquals(mapOf("probe language $CHAT" to "\"zh-CN\""), rows)
+        assertEquals(
+            mapOf("probe language null $CHAT" to "\"zh-CN\"", "probe language main $CHAT" to "\"fr\""),
+            rows,
+        )
     }
 
     @Test

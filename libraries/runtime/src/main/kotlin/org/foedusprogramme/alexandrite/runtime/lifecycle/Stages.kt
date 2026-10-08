@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.channel.InstanceDirectory
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startStopped
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
@@ -23,6 +24,7 @@ import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 import kotlin.time.TimeMark
@@ -51,6 +53,12 @@ internal class Stages(
     var container: Container? = null
         private set
 
+    @Volatile
+    private var directory: InstanceDirectory? = null
+
+    /** The channel instance containers in config order. */
+    private val instances = CopyOnWriteArrayList<InstanceContainer>()
+
     suspend fun start() {
         val timeout = spec.config.startTimeout
         withTimeoutOrNull(timeout) { stages() }
@@ -65,7 +73,10 @@ internal class Stages(
     fun stopped(request: StopRequest, problems: List<Problem>): RuntimeStartException =
         startStopped(name, stage, request, problems)
 
-    /** Stops and destroys what the stages built, then releases the data directory. */
+    /**
+     * Stops and destroys what the stages built, then releases the data directory: the channel instances close before
+     * the root and drain after it, and each instance's scope is cancelled once it has stopped.
+     */
     suspend fun tearDown(deadline: TimeMark): List<Problem> {
         val grace = spec.config.shutdownGrace
         val problems = mutableListOf<Problem>()
@@ -76,23 +87,40 @@ internal class Stages(
             logger.error("{}: {}", name, message, redactor.error(error))
             problems += Problem(kind, message, null)
         }
-        val built = container
-        try {
+        suspend fun step(kind: RuntimeProblemKind, what: String, block: suspend () -> List<StepReport>) {
             try {
-                built?.stop(deadline)?.mapNotNullTo(problems) { problem(it, grace) }
+                block().mapNotNullTo(problems) { problem(it, grace) }
             } catch (e: Throwable) {
-                failed(RuntimeProblemKind.STOP_FAILED, "Stopping", e)
+                failed(kind, what, e)
             }
+        }
+        val root = container
+        val children = instances.toList().asReversed()
+        try {
+            for (child in children) {
+                step(RuntimeProblemKind.CLOSE_FAILED, "Closing ${child.label}") { child.container.closeAll(deadline) }
+            }
+            root?.let { step(RuntimeProblemKind.CLOSE_FAILED, "Closing") { it.closeAll(deadline) } }
+            root?.let { step(RuntimeProblemKind.DRAIN_FAILED, "Draining") { it.drainAll(deadline) } }
+            for (child in children) {
+                step(RuntimeProblemKind.DRAIN_FAILED, "Draining ${child.label}") { child.container.drainAll(deadline) }
+            }
+            for (child in children) {
+                directory?.leave(child.id)
+                step(RuntimeProblemKind.STOP_FAILED, "Stopping ${child.label}") { child.container.stopAll() }
+                try {
+                    scopes.cancel(child.scope, child.plugin, child.id, deadline, grace)?.let(problems::add)
+                } catch (e: Throwable) {
+                    failed(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the scope of ${child.label}", e)
+                }
+            }
+            root?.let { step(RuntimeProblemKind.STOP_FAILED, "Stopping") { it.stopAll() } }
             try {
                 problems += scopes.cancel(deadline, grace)
             } catch (e: Throwable) {
                 failed(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the plugin scopes", e)
             }
-            try {
-                built?.destroy()?.mapNotNullTo(problems) { problem(it, grace) }
-            } catch (e: Throwable) {
-                failed(RuntimeProblemKind.DESTROY_FAILED, "Destroying", e)
-            }
+            root?.let { step(RuntimeProblemKind.DESTROY_FAILED, "Destroying") { it.destroy() } }
         } finally {
             lock?.let(::release)
         }
@@ -105,9 +133,16 @@ internal class Stages(
         lock = assembly.lockDataDir()
         assembly.createCacheDir()
         val container = runInterruptible { assemble() }
-        runStage(StartStage.START) { container.start() }
+        runStage(StartStage.START, null) { container.start() }
+        for (instance in instances) runStage(StartStage.START, instance) { instance.container.start() }
         emit(RuntimeEvent.Started)
-        runStage(StartStage.OPEN) { container.open() }
+        runStage(StartStage.OPEN, null) { container.open() }
+        for (instance in instances) {
+            runStage(StartStage.OPEN, instance) {
+                instance.container.open()
+                directory?.join(instance.id, instance.channel)
+            }
+        }
     }
 
     private fun assemble(): Container {
@@ -120,26 +155,32 @@ internal class Stages(
         emit(RuntimeEvent.PluginsResolved(plugins, resolution.disabled, resolution.unknownPluginConfig))
         stage = StartStage.GRAPH
         val bindings = assembly.pluginBindings(resolution.enabled)
-        val built = assembly.container(resolution.enabled, bindings)
+        val ids = resolution.enabled.flatMap { plugin -> plugin.config.instances.map { it.id } }
+        val directory = InstanceDirectory(ids.toCollection(LinkedHashSet())).also { directory = it }
+        assembly.checkChannels(resolution.enabled, bindings)
+        val built = assembly.container(resolution.enabled, bindings, directory)
         container = built
-        assembly.checkChannelInstances(built, bindings)
+        assembly.checkChannelInstances(built, resolution.enabled, bindings)
+        assembly.createInstances(built, resolution.enabled, instances::add)
         return built
     }
 
-    private suspend fun runStage(next: StartStage, block: suspend () -> Unit) {
+    /** Runs [block] as part of stage [next], in the container of [instance] or in the root when it is null. */
+    private suspend fun runStage(next: StartStage, instance: InstanceContainer?, block: suspend () -> Unit) {
         stage = next
         try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw startFailure(name, next, cause = e)
+            throw startFailure(name, next, cause = e, detail = instance?.let { "${it.label}: $e" })
         }
         currentCoroutineContext().ensureActive()
     }
 
     private fun problem(report: StepReport, grace: Duration): Problem? {
-        val what = "${report.step.action} ${report.origin} (plugin ${report.plugin})"
+        val where = report.container?.let { " in $it" }.orEmpty()
+        val what = "${report.step.action} ${report.origin} (plugin ${report.plugin})$where"
         val outcome = report.outcome
         val message = when (outcome) {
             Outcome.Completed -> return null

@@ -92,27 +92,19 @@ public class Container private constructor(
         }
     }
 
-    /** Calls [Lifecycle.onClose] and [Lifecycle.onDrain] while [deadline] has not passed, then [Lifecycle.onStop]. */
-    public suspend fun stop(deadline: TimeMark): List<StepReport> {
-        enter(STOP) {}
-        try {
-            val reports = mutableListOf<StepReport>()
-            for (entry in taking({ it.opened }) { it.opened = false }) {
-                reports += entry.report(Step.CLOSE, callBefore(deadline) { entry.lifecycle.onClose() })
-            }
-            for (entry in taking({ it.started && !it.drained }) { it.drained = true }) {
-                reports += entry.report(Step.DRAIN, callBefore(deadline) { entry.lifecycle.onDrain() })
-            }
-            for (entry in taking({ it.started }) { it.started = false }) {
-                val failure = failureOf(entry.lifecycle::onStop)
-                if (failure is VirtualMachineError) throw failure
-                reports += entry.report(Step.STOP, failure)
-            }
-            return reports
-        } finally {
-            leave()
-        }
+    /** [closeAll], [drainAll], then [stopAll]. */
+    public suspend fun stop(deadline: TimeMark): List<StepReport> = step(STOP) {
+        closing(deadline) + draining(deadline) + stopping()
     }
+
+    /** Calls [Lifecycle.onClose] on the open instances in reverse creation order while [deadline] has not passed. */
+    public suspend fun closeAll(deadline: TimeMark): List<StepReport> = step(CLOSE) { closing(deadline) }
+
+    /** Calls [Lifecycle.onDrain] on the started instances in reverse creation order while [deadline] has not passed. */
+    public suspend fun drainAll(deadline: TimeMark): List<StepReport> = step(DRAIN) { draining(deadline) }
+
+    /** Calls [Lifecycle.onStop] on the started instances in reverse creation order. */
+    public fun stopAll(): List<StepReport> = step(STOP) { stopping() }
 
     /** A channel instance container that creates the channel-instance-scoped bindings of [plugins] plus [bindings]. */
     public fun child(name: String, plugins: Set<String>, bindings: List<Binding<*>> = emptyList()): Container {
@@ -144,7 +136,7 @@ public class Container private constructor(
     /** Destroys live children, then stops and destroys the managed instances in reverse creation order. */
     public fun destroy(): List<StepReport> {
         val (live, own) = synchronized(lock) {
-            running?.let { throw IllegalStateException(Problems.busy(site, CLOSE, it)) }
+            running?.let { throw IllegalStateException(Problems.busy(site, DESTROY, it)) }
             if (!closed.compareAndSet(false, true)) return emptyList()
             children.toList().also { children.clear() } to managed.asReversed().toList()
         }
@@ -154,7 +146,8 @@ public class Container private constructor(
                 reports += child.destroy()
             } catch (e: Throwable) {
                 val owner = child.plugins.sorted().joinToString()
-                reports += StepReport(owner, child.site.label, Step.DESTROY, Outcome.Failed(e))
+                val label = child.site.label
+                reports += StepReport(owner, label, Step.DESTROY, Outcome.Failed(e), label)
             }
         }
         for (entry in own.filter { it.opened }) {
@@ -223,6 +216,41 @@ public class Container private constructor(
         synchronized(lock) { running = null }
     }
 
+    private inline fun step(action: String, block: () -> List<StepReport>): List<StepReport> {
+        enter(action) {}
+        try {
+            return block()
+        } finally {
+            leave()
+        }
+    }
+
+    private suspend fun closing(deadline: TimeMark): List<StepReport> {
+        val reports = mutableListOf<StepReport>()
+        for (entry in taking({ it.opened }) { it.opened = false }) {
+            reports += entry.report(Step.CLOSE, callBefore(deadline) { entry.lifecycle.onClose() })
+        }
+        return reports
+    }
+
+    private suspend fun draining(deadline: TimeMark): List<StepReport> {
+        val reports = mutableListOf<StepReport>()
+        for (entry in taking({ it.started && !it.drained }) { it.drained = true }) {
+            reports += entry.report(Step.DRAIN, callBefore(deadline) { entry.lifecycle.onDrain() })
+        }
+        return reports
+    }
+
+    private fun stopping(): List<StepReport> {
+        val reports = mutableListOf<StepReport>()
+        for (entry in taking({ it.started }) { it.started = false }) {
+            val failure = failureOf(entry.lifecycle::onStop)
+            if (failure is VirtualMachineError) throw failure
+            reports += entry.report(Step.STOP, failure)
+        }
+        return reports
+    }
+
     private fun entries(select: (Managed) -> Boolean): List<Managed> = synchronized(lock) { managed.filter(select) }
 
     /** The entries [select] picks, last created first, each marked by [mark] just before it is used. */
@@ -247,7 +275,7 @@ public class Container private constructor(
             }
             instances[node] = instance
             if (node.binding.managed && managed.none { it.instance === instance }) {
-                managed += Managed(instance, node.binding)
+                managed += Managed(instance, node.binding, site.label.takeIf { parent != null })
             }
             return instance
         } finally {
@@ -336,19 +364,23 @@ public class Container private constructor(
 
 private const val START = "start"
 private const val OPEN = "open"
-private const val STOP = "stop"
 private const val CLOSE = "close"
+private const val DRAIN = "drain"
+private const val STOP = "stop"
+private const val DESTROY = "destroy"
 
 private const val LEFT_OPEN = "Never closed: the container was destroyed before it was stopped."
 
-private class Managed(val instance: Any, val binding: Binding<*>) {
+/** A managed instance of the container labelled [container], null for the root. */
+private class Managed(val instance: Any, val binding: Binding<*>, val container: String?) {
     var started = false
     var opened = false
     var drained = false
 
     val lifecycle: Lifecycle get() = instance as Lifecycle
 
-    fun report(step: Step, outcome: Outcome): StepReport = StepReport(binding.plugin, binding.origin, step, outcome)
+    fun report(step: Step, outcome: Outcome): StepReport =
+        StepReport(binding.plugin, binding.origin, step, outcome, container)
 
     fun report(step: Step, failure: Throwable?): StepReport =
         report(step, failure?.let(Outcome::Failed) ?: Outcome.Completed)

@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
+import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
@@ -20,6 +21,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+
+private val CHANNEL = Scope.CHANNEL_INSTANCE
 
 class ConfigBindingsTest {
     @Serializable
@@ -61,8 +64,8 @@ class ConfigBindingsTest {
 
     private fun source(json: String) = JsonConfigSource(Json.parseToJsonElement(json).jsonObject)
 
-    private fun bindings(json: String, vararg sections: ConfigSectionSpec<*>) =
-        configBindings(index(*sections), source(json), mutableListOf())
+    private fun bindings(json: String, vararg sections: ConfigSectionSpec<*>): List<Binding<*>> =
+        configBindings(index(*sections), source(json), mutableListOf()).bindings
 
     private fun decoded(json: String, vararg sections: ConfigSectionSpec<*>): Container =
         Container.build(emptyList(), overrides = bindings(json, *sections))
@@ -255,13 +258,122 @@ class ConfigBindingsTest {
         }
     }
 
+    // Channel instances.
+
+    @Serializable
+    data class TokenConfig(val token: Secret)
+
+    @Serializable
+    data class LimitConfig(val perSecond: Int = 1)
+
+    private val token = ConfigSectionSpec(key<TokenConfig>(), "", TokenConfig.serializer(), "chat.Token", CHANNEL)
+    private val limits =
+        ConfigSectionSpec(key<LimitConfig>(), "limits", LimitConfig.serializer(), "chat.Limits", CHANNEL)
+
+    private fun channel(json: String, vararg sections: ConfigSectionSpec<*>): PluginConfig = configBindings(
+        TestIndex("chat", sections = sections.toList(), channelType = "chat"),
+        source(json),
+        mutableListOf(),
+    )
+
+    private fun channelFailure(json: String, vararg sections: ConfigSectionSpec<*>) =
+        assertFailsWith<ConfigException> { channel(json, *sections) }
+
+    @Test
+    fun `each channel instance decodes its instance sections from its own object, in the order of the file`() {
+        val config = channel(
+            """{"plugins": {"chat": {"city": "Rome", "instances": {
+                "work": {"token": "w0rk-token", "limits": {"perSecond": 3}},
+                "home": {"token": "h0me-token"}
+            }}}}""",
+            weather,
+            token,
+            limits,
+        )
+
+        assertEquals(listOf(key<WeatherConfig>()), config.bindings.map { it.key })
+        assertEquals(listOf("chat:work", "chat:home"), config.instances.map { "${it.id}" })
+        val values = config.instances.map { instance ->
+            Container.build(emptyList()).child("${instance.id}", emptySet(), instance.bindings).use {
+                it.get(key<TokenConfig>()).token.reveal() to it.get(key<LimitConfig>()).perSecond
+            }
+        }
+        assertEquals(listOf("w0rk-token" to 3, "h0me-token" to 1), values)
+        assertTrue(config.instances.flatMap { it.bindings }.all { it.scope == CHANNEL && it.plugin == "chat" })
+    }
+
+    @Test
+    fun `a channel plugin without instances has none, and its root section never sees the instances`() {
+        assertEquals(emptyList(), channel("{}", weather, token).instances)
+        assertEquals(emptyList(), channel("""{"plugins": {"chat": {"instances": {}}}}""", weather, token).instances)
+
+        val config = channel("""{"plugins": {"chat": {"instances": {"work": {"token": "t"}}}}}""", weather, token)
+
+        Container.build(emptyList(), overrides = config.bindings).use {
+            assertEquals(WeatherConfig(), it.get(key<WeatherConfig>()))
+        }
+    }
+
+    @Test
+    fun `only a channel plugin's root may hold instances`() {
+        val error = failure("""{"plugins": {"weather": {"instances": {"work": {}}}}}""", weather)
+
+        assertEquals("plugins.weather", error.path)
+        assertContains(error.message!!, "unknown key 'instances'")
+        val nested = channelFailure("""{"plugins": {"chat": {"cache": {"instances": {}}}}}""", cache)
+        assertEquals("plugins.chat.cache", nested.path)
+    }
+
+    @Test
+    fun `an instance object is strict and its errors name the full path`() {
+        val unknown = channelFailure(
+            """{"plugins": {"chat": {"instances": {"work": {"token": "t", "tokn": "t"}}}}}""",
+            token,
+            limits,
+        )
+        val nested = channelFailure(
+            """{"plugins": {"chat": {"instances": {"work": {"token": "t", "limits": {"rate": 2}}}}}}""",
+            token,
+            limits,
+        )
+        val missing = channelFailure("""{"plugins": {"chat": {"instances": {"work": {}}}}}""", token)
+        val bare = channelFailure("""{"plugins": {"chat": {"instances": {"work": {"enabled": true}}}}}""")
+
+        assertEquals("plugins.chat.instances.work", unknown.path)
+        assertContains(unknown.message!!, "unknown key 'tokn'")
+        assertEquals("plugins.chat.instances.work.limits", nested.path)
+        assertEquals("plugins.chat.instances.work", missing.path)
+        assertContains(missing.message!!, "Field 'token' is required")
+        assertEquals(
+            "Invalid config at 'plugins.chat.instances.work': unknown key 'enabled'. Allowed keys: none.",
+            bare.message,
+        )
+    }
+
+    @Test
+    fun `instance names follow the id grammar and each instance is an object`() {
+        val name = channelFailure("""{"plugins": {"chat": {"instances": {"My_Bot": {"token": "t"}}}}}""", token)
+        val scalar = channelFailure("""{"plugins": {"chat": {"instances": {"work": "t"}}}}""", token)
+        val list = channelFailure("""{"plugins": {"chat": {"instances": ["work"]}}}""", token)
+
+        assertEquals("plugins.chat.instances.My_Bot", name.path)
+        assertContains(name.message!!, "'My_Bot' is no channel instance name")
+        assertEquals("Invalid config at 'plugins.chat.instances.work': must be an object", scalar.message)
+        assertEquals("plugins.chat.instances", list.path)
+    }
+
     @Test
     fun `the values of the decoded secrets are collected`() {
         val bot = spec("bot", BotConfig.serializer())
         val secrets = mutableListOf<String>()
 
         configBindings(index(bot), source("""{"plugins": {"weather": {"bot": {"token": "s3cr3t"}}}}"""), secrets)
+        configBindings(
+            TestIndex("chat", sections = listOf(token), channelType = "chat"),
+            source("""{"plugins": {"chat": {"instances": {"work": {"token": "w0rk"}}}}}"""),
+            secrets,
+        )
 
-        assertEquals(listOf("s3cr3t"), secrets)
+        assertEquals(listOf("s3cr3t", "w0rk"), secrets)
     }
 }

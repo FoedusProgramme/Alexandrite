@@ -132,6 +132,62 @@ class AddressTest {
         }
     }
 
+    // Agent chat keys.
+
+    @Test
+    fun `an agent chat key splits at the first at sign`() {
+        val chat = ChatAddress(ChannelInstanceId(ChannelType("matrix"), "home"), "!room:example.org", "\$e@x")
+        val key = AgentChatKey(AgentId("coder"), chat)
+
+        assertEquals("coder@matrix:home:!room:example.org#\$e@x", key.toString())
+        assertEquals(key, AgentChatKey.parse(key.toString()))
+        assertEquals(
+            AgentChatKey(AgentId.MAIN, ChatAddress(work, "-100123", "42")),
+            AgentChatKey.parse("main@telegram:work:-100123#42"),
+        )
+    }
+
+    @Test
+    fun `only canonical agent chat keys parse`() {
+        val malformed = listOf(
+            "",
+            "main",
+            "main@",
+            "@telegram:work:1",
+            "Main@telegram:work:1",
+            "main@telegram:work",
+            "main@telegram:work:1%",
+            "my_agent@telegram:work:1",
+            "telegram:work:1",
+        )
+        for (text in malformed) {
+            assertNull(AgentChatKey.parseOrNull(text), text)
+            assertFailsWith<IllegalArgumentException>(text) { AgentChatKey.parse(text) }
+        }
+    }
+
+    @Test
+    fun `the parent of an agent chat key keeps the agent and drops the thread`() {
+        val key = AgentChatKey(AgentId("coder"), ChatAddress(work, "-100"))
+
+        assertEquals(key, AgentChatKey(AgentId("coder"), ChatAddress(work, "-100", "7")).parent)
+        assertSame(key, key.parent)
+    }
+
+    @Test
+    fun `printing and parsing are inverse for random agent chat keys`() {
+        val random = Random(SEED)
+        repeat(RUNS) {
+            val chat = ChatAddress(random.instance(), random.id(), if (random.nextBoolean()) random.id() else null)
+            val key = AgentChatKey(AgentId(random.word()), chat)
+            val text = key.toString()
+
+            assertEquals(key, AgentChatKey.parse(text), text)
+            val other = "${key.agent}@${chat.instance}:${random.text()}"
+            AgentChatKey.parseOrNull(other)?.let { assertEquals(other, it.toString()) }
+        }
+    }
+
     // Instances and serialization.
 
     @Test
@@ -152,6 +208,10 @@ class AddressTest {
         assertEquals("\"telegram:work@1\"", Json.encodeToString(UserAddress(work, "1")))
         assertEquals(work, Json.decodeFromString<ChannelInstanceId>("\"telegram:work\""))
         assertFailsWith<SerializationException> { Json.decodeFromString<ChatAddress>("\"telegram:work\"") }
+        val key = AgentChatKey(AgentId.MAIN, ChatAddress(work, "-100", "7"))
+        assertEquals("\"main@telegram:work:-100#7\"", Json.encodeToString(key))
+        assertEquals(key, Json.decodeFromString<AgentChatKey>("\"main@telegram:work:-100#7\""))
+        assertFailsWith<SerializationException> { Json.decodeFromString<AgentChatKey>("\"telegram:work:-100\"") }
     }
 
     private fun Random.instance() = ChannelInstanceId(ChannelType(word()), word())

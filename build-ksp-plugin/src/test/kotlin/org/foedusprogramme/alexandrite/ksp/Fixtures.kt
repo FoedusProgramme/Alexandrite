@@ -93,6 +93,8 @@ abstract class FailingSamples {
             package sample
 
             import kotlinx.serialization.Serializable
+            import org.foedusprogramme.alexandrite.sdk.channel.*
+            import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
             import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
             import org.foedusprogramme.alexandrite.sdk.di.*
             import org.foedusprogramme.alexandrite.sdk.hook.*

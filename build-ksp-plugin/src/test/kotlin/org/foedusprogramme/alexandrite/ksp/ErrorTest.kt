@@ -575,16 +575,57 @@ class ErrorTest : FailingSamples() {
             @ConfigSection("enabled") @Serializable class Switch(val on: Boolean = true)
             @ConfigSection("enabled.extra") @Serializable class Extra(val on: Boolean = true)
             """,
-            "class Switch" to Messages.reservedPath("sample.Switch", "enabled"),
-            "class Extra" to Messages.reservedPath("sample.Extra", "enabled.extra"),
+            "class Switch" to Messages.reservedPath("sample.Switch", "enabled", ENABLED),
+            "class Extra" to Messages.reservedPath("sample.Extra", "enabled.extra", ENABLED),
+        )
+    }
+
+    @Test
+    fun `a config section under the instances key is rejected in either scope`() {
+        assertErrors(
+            """
+            @ConfigSection("instances") @Serializable class Instances(val count: Int = 0)
+            @ChannelInstanceScoped @ConfigSection("instances.work") @Serializable class Work(val token: String = "")
+            @ChannelInstanceScoped @ConfigSection("enabled") @Serializable class Switch(val on: Boolean = true)
+            """,
+            "class Instances" to Messages.reservedPath("sample.Instances", "instances", INSTANCES),
+            "class Work" to Messages.reservedPath("sample.Work", "instances.work", INSTANCES),
+            "class Switch" to Messages.reservedPath("sample.Switch", "enabled", ENABLED),
+        )
+    }
+
+    @Test
+    fun `two instance sections with one path are rejected, but a plugin-wide section may share it`() {
+        assertErrors(
+            """
+            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
+            @ConfigSection("bot") @Serializable class Shared(val api: String = "")
+            @ChannelInstanceScoped @ConfigSection("bot") @Serializable class Token(val token: String = "")
+            @ChannelInstanceScoped @ConfigSection("bot") @Serializable class Other(val token: String = "")
+            @ChannelInstanceScoped @Contribute(Channel::class) class Chat(token: Token, other: Other) : Channel {
+                override suspend fun capabilities(chat: ChatAddress) = TODO()
+                override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = TODO()
+                override suspend fun openReply(request: ReplyRequest) = TODO()
+                override suspend fun send(chat: ChatAddress, message: OutboundMessage) = TODO()
+            }
+            """,
+            "class Token" to Messages.duplicatePath("bot", "sample.Other", "sample.Token"),
+            entry = false,
         )
     }
 
     @Test
     fun `a config section cannot also be a component`() {
         assertErrors(
-            "@Singleton @ConfigSection(\"exec\") @Serializable class ExecConfig(val command: String = \"\")",
+            """
+            @Singleton @ConfigSection("exec") @Serializable class ExecConfig(val command: String = "")
+            @ChannelInstanceScoped @Binds(Runnable::class) @ConfigSection("job") @Serializable class Job : Runnable {
+                override fun run() {}
+            }
+            """,
             "class ExecConfig" to Messages.sectionComponent("sample.ExecConfig"),
+            "class Job" to Messages.sectionComponent("sample.Job"),
+            "class Job" to Messages.untypedInstanceSection("sample.Job", "sample.SamplePlugin"),
         )
     }
 

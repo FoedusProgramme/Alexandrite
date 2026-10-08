@@ -33,6 +33,8 @@ public class TurnInfo private constructor(
     /** Whether [actor] is an admin, false when there is none. */
     public val actorIsAdmin: Boolean get() = actor?.isAdmin == true
 
+    public val key: AgentChatKey get() = AgentChatKey(agent, chat)
+
     public fun toBuilder(): Builder = Builder(id, chat, conversation, kind)
         .actor(actor)
         .language(language)

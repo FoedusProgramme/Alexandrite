@@ -234,6 +234,58 @@ class ContainerPhaseTest {
     }
 
     @Test
+    fun `stop runs as its three phases, which a caller may run one by one between other containers`() = runTest {
+        val first = build(phased("a"), phased("b"))
+        val second = Container.build(listOf(plugin("test", phased("x"))))
+        for (container in listOf(first, second)) {
+            container.start()
+            container.open()
+        }
+
+        val closed = second.closeAll(later()) + first.closeAll(later())
+        val drained = first.drainAll(later()) + second.drainAll(later())
+        val stopped = second.stopAll() + first.stopAll()
+
+        assertEquals(reports(Step.CLOSE, "x", "b", "a"), closed)
+        assertEquals(reports(Step.DRAIN, "b", "a", "x"), drained)
+        assertEquals(reports(Step.STOP, "x", "b", "a"), stopped)
+        assertEquals(
+            listOf(
+                "close x", "close b", "close a",
+                "drain b", "drain a", "drain x",
+                "stop x", "stop b", "stop a",
+            ),
+            events.all().filterNot { it.startsWith("start") || it.startsWith("open") },
+        )
+        assertEquals(emptyList(), first.closeAll(later()) + first.drainAll(later()) + first.stopAll())
+        assertEquals(emptyList(), first.stop(later()))
+    }
+
+    @Test
+    fun `phases run apart share a deadline that the earlier ones use up`() = runTest {
+        val container = build(phased("a", onDrain = { delay(1.seconds) }), phased("b", onClose = { delay(5.seconds) }))
+        container.start()
+        container.open()
+        val deadline = testTimeSource.markNow() + 3.seconds
+
+        val closed = container.closeAll(deadline)
+        val drained = container.drainAll(deadline)
+        val stopped = container.stopAll()
+
+        assertEquals(
+            reports(
+                Step.CLOSE,
+                "b",
+                outcome = Outcome.TimedOut,
+            ) + reports(Step.CLOSE, "a", outcome = Outcome.NotCalled),
+            closed,
+        )
+        assertEquals(reports(Step.DRAIN, "b", "a", outcome = Outcome.NotCalled), drained)
+        assertEquals(reports(Step.STOP, "b", "a"), stopped)
+        assertEquals(3_000, currentTime)
+    }
+
+    @Test
     fun `a failing stop is reported and the next one still runs`() = runTest {
         val container = build(phased("a"), phased("b", onStop = { error("stop b failed") }))
         container.start()

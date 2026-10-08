@@ -4,6 +4,8 @@ import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.channel.RuntimeChannelInstance
+import org.foedusprogramme.alexandrite.runtime.channel.channelProblems
 import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.config.ConfigResolution
 import org.foedusprogramme.alexandrite.runtime.config.EnabledPlugin
@@ -11,11 +13,20 @@ import org.foedusprogramme.alexandrite.runtime.config.resolveConfig
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
 import org.foedusprogramme.alexandrite.runtime.plugin.pluginProblems
 import org.foedusprogramme.alexandrite.runtime.startFailure
+import org.foedusprogramme.alexandrite.sdk.channel.Channel
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
+import org.foedusprogramme.alexandrite.sdk.di.Key
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope
+import org.foedusprogramme.alexandrite.sdk.di.container.binding
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.HookFailure
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.slf4j.Logger
@@ -41,13 +52,13 @@ internal class Assembly(
         logger.warn("{}: hook {} failed at '{}': {}", name, hook.javaClass.name, point, text, error)
     }
 
-    private val unreadableStates = UnreadableStateListener { plugin, state, chat, error ->
+    private val unreadableStates = UnreadableStateListener { plugin, state, key, error ->
         logger.warn(
             "{}: chat state '{}' of plugin {} at {} cannot be read and counts as absent",
             name,
             state,
             plugin,
-            chat,
+            key,
             redactor.error(error),
         )
     }
@@ -114,35 +125,86 @@ internal class Assembly(
             resolution.enabled.joinToString { it.member.id },
             resolution.disabled.joinToString { "${it.id} (${it.reason})" },
         )
+        for (plugin in resolution.enabled.filter { it.channelType != null && it.config.instances.isEmpty() }) {
+            logger.warn(
+                "{}: channel plugin {} has no channel instances: add them below '{}.{}'",
+                name,
+                plugin.id,
+                plugin.member.index.configRoot,
+                PluginIds.INSTANCES_KEY,
+            )
+        }
         return resolution
     }
 
     fun pluginBindings(enabled: List<EnabledPlugin>): List<PluginBindings> = try {
-        enabled.map { PluginBindings(it.member.id, it.member.index.bindings() + it.configBindings) }
+        enabled.map { PluginBindings(it.member.id, it.member.index.bindings() + it.config.bindings) }
     } catch (e: Exception) {
         interruption(e)?.let { throw it }
         throw startFailure(name, StartStage.GRAPH, cause = e)
     }
 
     /** The container of [plugins] and of what the runtime binds for [enabled]. */
-    fun container(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>): Container = try {
-        val infos = enabled.map { it.member.plugin.info }
-        val runtime = runtimeBindings(spec.config, infos, hookFailures, unreadableStates, control, scopes, context)
-        Container.build(plugins + runtime)
-    } catch (e: Exception) {
-        interruption(e)?.let { throw it }
-        throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
+    fun container(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>, directory: ChannelDirectory): Container =
+        try {
+            val infos = enabled.map { it.member.plugin.info }
+            val runtime =
+                runtimeBindings(spec.config, infos, hookFailures, unreadableStates, control, scopes, directory, context)
+            Container.build(plugins + runtime)
+        } catch (e: Exception) {
+            interruption(e)?.let { throw it }
+            throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
+        }
+
+    /** Checks that each channel plugin contributes one channel-instance-scoped Channel and no other plugin any. */
+    fun checkChannels(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>) {
+        val problems = channelProblems(plugins, enabled.associate { it.id to it.channelType })
+        if (problems.isNotEmpty()) throw startFailure(name, StartStage.GRAPH, problems)
     }
 
-    fun checkChannelInstances(container: Container, plugins: List<PluginBindings>) {
+    /** Validates the channel instance graph of each plugin that has one without creating anything. */
+    fun checkChannelInstances(container: Container, enabled: List<EnabledPlugin>, plugins: List<PluginBindings>) {
+        val bindings = plugins.associate { it.id to it.bindings }
         val problems = try {
-            plugins.filter { plugin -> plugin.bindings.any { it.scope == Scope.CHANNEL_INSTANCE } }
-                .flatMap { container.validateChild(setOf(it.id)) }
+            enabled.filter { plugin ->
+                plugin.channelType != null || bindings[plugin.id].orEmpty().any { it.scope == Scope.CHANNEL_INSTANCE }
+            }.flatMap { container.validateChild(setOf(it.id), placeholders(it)) }
         } catch (e: Exception) {
             interruption(e)?.let { throw it }
             throw startFailure(name, StartStage.GRAPH, cause = e)
         }
         if (problems.isNotEmpty()) throw startFailure(name, StartStage.GRAPH, problems)
+    }
+
+    /** Creates the container of each channel instance of [enabled] in config order, handing each to [created]. */
+    fun createInstances(container: Container, enabled: List<EnabledPlugin>, created: (InstanceContainer) -> Unit) {
+        for (plugin in enabled) {
+            for (instance in plugin.config.instances) {
+                val scope = scopes.create(plugin.id, instance.id)
+                val bound = instanceBinding(
+                    key<ChannelInstance>(),
+                    RuntimeChannelInstance(instance.id, scope),
+                    RUNTIME_PLUGIN,
+                    "ChannelInstance",
+                    Scope.CHANNEL_INSTANCE,
+                )
+                val child = try {
+                    container.child("${instance.id}", setOf(plugin.id), listOf(bound) + instance.bindings)
+                } catch (e: Exception) {
+                    interruption(e)?.let { throw it }
+                    throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
+                }
+                created(InstanceContainer(instance.id, plugin.id, child, scope, child.getAll(key<Channel>()).single()))
+            }
+        }
+    }
+
+    /** Bindings that stand in for the ones the runtime adds to each channel instance container of [plugin]. */
+    private fun placeholders(plugin: EnabledPlugin): List<Binding<*>> {
+        if (plugin.channelType == null) return emptyList()
+        val sections = plugin.member.index.configSections().filter { it.scope == Scope.CHANNEL_INSTANCE }
+        return listOf(placeholder(key<ChannelInstance>(), RUNTIME_PLUGIN, "ChannelInstance")) +
+            sections.map { placeholder(it.key, plugin.id, it.origin) }
     }
 
     private fun warnIfShared(role: String, directory: Path) {
@@ -161,5 +223,9 @@ private fun interruption(error: Throwable): InterruptedException? =
             else -> null
         }
     }
+
+/** A channel-instance-scoped binding of [key] that validation sees and nothing creates. */
+private fun <T : Any> placeholder(key: Key<T>, plugin: String, origin: String): Binding<T> =
+    binding(key, plugin, origin, Scope.CHANNEL_INSTANCE, managed = false) { error("$origin is never created") }
 
 private val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)

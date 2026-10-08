@@ -1,14 +1,16 @@
 package org.foedusprogramme.alexandrite.ksp
 
-/** The checks across the components, sections and classes of the whole plugin. */
+/** The checks across the components, sections and classes of the whole plugin, with its [entry] when it has one. */
 internal class WiringCheck(
     private val registry: ComponentRegistry,
     private val sections: List<Section>,
     private val implementations: List<Implementation>,
+    private val entry: PluginEntry?,
 ) {
     private val singleBindings = registry.singleBindings()
 
-    fun problems(): List<Problem> = duplicateKeys() + duplicatePaths() + dependencyProblems() + contributionProblems()
+    fun problems(): List<Problem> =
+        duplicateKeys() + duplicatePaths() + dependencyProblems() + contributionProblems() + channelProblems()
 
     private fun duplicateKeys(): List<Problem> = singleBindings.flatMap { (key, components) ->
         components.drop(1).map {
@@ -16,16 +18,19 @@ internal class WiringCheck(
         }
     }
 
-    private fun duplicatePaths(): List<Problem> = sections.groupBy { it.path }.values.flatMap { same ->
-        same.drop(1).map { Problem(Messages.duplicatePath(it.path, same[0].origin, it.origin), it.location) }
-    }
+    private fun duplicatePaths(): List<Problem> =
+        sections.groupBy { it.channelInstance to it.path }.values.flatMap { same ->
+            same.drop(1).map { Problem(Messages.duplicatePath(it.path, same[0].origin, it.origin), it.location) }
+        }
 
     private fun dependencyProblems(): List<Problem> {
         val boundTypes = singleBindings.keys.mapTo(HashSet()) { it.type }
         val channelInstanceScoped = registry.all.filter { it.channelInstanceScoped }
-        val scopedSingles = channelInstanceScoped
-            .flatMap { component -> component.singleKeys.map { it to component.origin } }
-            .groupBy({ it.first }, { it.second })
+        val scopedSingles = (
+            channelInstanceScoped.flatMap { component -> component.singleKeys.map { it to component.origin } } +
+                sections.filter { it.channelInstance }.map { Key(it.type, null) to it.origin } +
+                (Key(CHANNEL_INSTANCE, null) to CHANNEL_INSTANCE)
+            ).groupBy({ it.first }, { it.second })
         val scopedContributions = channelInstanceScoped
             .flatMap { component -> component.contributes.map { it.key to component.origin } }
             .groupBy({ it.first }, { it.second })
@@ -69,5 +74,24 @@ internal class WiringCheck(
             }
         }
         return bindings + classes
+    }
+
+    /** Reports channel contributions and instance sections that do not fit the channel type of [entry]. */
+    private fun channelProblems(): List<Problem> {
+        val entry = entry ?: return emptyList()
+        val channels = registry.all.filter { component ->
+            component.channelInstanceScoped && component.contributes.any { it.className == CHANNEL }
+        }
+        val type = entry.channelType
+        if (type == null) {
+            return channels.map { Problem(Messages.untypedChannel(it.origin, entry.className), it.location) } +
+                sections.filter { it.channelInstance }.map {
+                    Problem(Messages.untypedInstanceSection(it.origin, entry.className), it.location)
+                }
+        }
+        if (channels.isEmpty()) return listOf(Problem(Messages.missingChannel(entry.className, type), entry.location))
+        return channels.drop(1).map {
+            Problem(Messages.severalChannels(type, channels.map(Component::origin)), it.location)
+        }
     }
 }

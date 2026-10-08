@@ -86,6 +86,33 @@ internal object Messages {
     fun selfRequire(name: String, id: String): String =
         "@Plugin class $name requires '$id', which is its own plugin. Remove it from requires."
 
+    fun malformedChannelType(name: String, type: String): String =
+        "@Plugin class $name declares channel type '$type'. A channel type is lowercase words of letters and " +
+            "digits, each starting with a letter, joined by single hyphens, such as \"telegram\"."
+
+    fun missingChannel(name: String, type: String): String =
+        "@Plugin class $name declares channel type '$type', but no @ChannelInstanceScoped class or function of " +
+            "the plugin contributes a Channel. Contribute one with @ChannelInstanceScoped @Contribute(Channel::class)."
+
+    fun severalChannels(type: String, channels: List<String>): String =
+        "The plugin of channel type '$type' contributes a Channel from ${channels.joinToString(" and ")}, but each " +
+            "channel instance has exactly one. Keep only one of them."
+
+    fun untypedChannel(name: String, entry: String): String =
+        "$name contributes a Channel, but @Plugin class $entry declares no channel type. Declare it with " +
+            "@Plugin(channelType = \"…\")."
+
+    fun untypedInstanceSection(name: String, entry: String): String =
+        "@ChannelInstanceScoped @ConfigSection class $name is decoded for each channel instance, but @Plugin class " +
+            "$entry declares no channel type, so the plugin has none. Declare it with @Plugin(channelType = \"…\"), " +
+            "or remove @ChannelInstanceScoped."
+
+    fun singletonChannel(name: String, provider: Boolean): String {
+        val subject = if (provider) "@Provides function $name" else name
+        return "$subject contributes a Channel but is a singleton, and each channel instance has a Channel of its " +
+            "own. Annotate it with @ChannelInstanceScoped."
+    }
+
     fun interfaceComponent(name: String, simpleName: String, spi: Boolean): String {
         val annotation = if (spi) "@Contribute" else "@Binds"
         return "$name is an interface, so the container cannot create it. " +
@@ -340,9 +367,10 @@ internal object Messages {
         "Use \"\" for the plugin's config root, or dot-separated names that start with a letter and hold only " +
         "letters, digits, '-' and '_', such as \"cache.disk\"."
 
-    fun reservedPath(name: String, path: String): String =
-        "The @ConfigSection path '$path' of $name lies under '$ENABLED', which switches the plugin on and off. " +
-            "Choose another path."
+    fun reservedPath(name: String, path: String, key: String): String {
+        val meaning = if (key == ENABLED) "switches the plugin on and off" else "holds the channel instances"
+        return "The @ConfigSection path '$path' of $name lies under '$key', which $meaning. Choose another path."
+    }
 
     fun duplicatePath(path: String, first: String, second: String): String =
         "Config section '$path' is declared by both $first and $second. Give each class its own path."

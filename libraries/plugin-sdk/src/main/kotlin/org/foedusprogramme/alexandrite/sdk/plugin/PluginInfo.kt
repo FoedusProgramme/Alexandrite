@@ -19,4 +19,6 @@ public class PluginInfo @InternalAlexandriteApi constructor(
     public val requires: List<String>,
     /** Fully qualified name of the plugin's [Plugin] class. */
     public val entryClass: String,
+    /** The [Plugin.channelType] of a channel plugin, null for any other. */
+    public val channelType: String? = null,
 )

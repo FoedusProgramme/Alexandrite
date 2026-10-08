@@ -50,11 +50,37 @@ class SubclassOptInTest {
                 name: String,
                 serializer: kotlinx.serialization.KSerializer<T>,
                 default: T,
-            ): org.foedusprogramme.alexandrite.sdk.chat.ChatState<T> = TODO()
+            ): org.foedusprogramme.alexandrite.sdk.chat.ChatState<org.foedusprogramme.alexandrite.sdk.chat.ChatAddress, T> =
+                TODO()
+
+            override fun <T : Any> agentState(
+                name: String,
+                serializer: kotlinx.serialization.KSerializer<T>,
+                default: T,
+            ): org.foedusprogramme.alexandrite.sdk.chat.ChatState<org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey, T> =
+                TODO()
+        }
+
+        class State : org.foedusprogramme.alexandrite.sdk.chat.ChatState<String, Int> {
+            override suspend fun get(key: String) = TODO()
+            override suspend fun getOwn(key: String) = TODO()
+            override suspend fun update(key: String, transform: (Int) -> Int) = TODO()
+            override suspend fun set(key: String, value: Int) = TODO()
+            override suspend fun reset(key: String) = TODO()
         }
 
         class Settings : org.foedusprogramme.alexandrite.sdk.chat.ChatSettings {
             override suspend fun language(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+        }
+
+        class Instance : org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance {
+            override val id get() = TODO()
+            override val scope get() = TODO()
+        }
+
+        class Directory : org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory {
+            override val instances get() = TODO()
+            override fun channel(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
         }
 
         class Ended : org.foedusprogramme.alexandrite.sdk.hook.Interception<Nothing>
@@ -151,6 +177,59 @@ class SubclassOptInTest {
             ModelErrorKind.PROTOCOL -> 13
             ELSE
         }
+
+        fun failure(kind: org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure): Int = when (kind) {
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.FORBIDDEN -> 0
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.CHAT_GONE -> 1
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.WINDOW_CLOSED -> 2
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.RATE_LIMITED -> 3
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.TOO_LONG -> 4
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.UNSUPPORTED -> 5
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.TRANSIENT -> 6
+            org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure.UNKNOWN -> 7
+            ELSE
+        }
+
+        fun markup(markup: org.foedusprogramme.alexandrite.sdk.channel.Markup): Int = when (markup) {
+            org.foedusprogramme.alexandrite.sdk.channel.Markup.PLAIN -> 0
+            org.foedusprogramme.alexandrite.sdk.channel.Markup.MARKDOWN -> 1
+            ELSE
+        }
+
+        fun end(end: org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd): Int = when (end) {
+            org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd.CANCELLED -> 0
+            org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd.FAILED -> 1
+            org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd.SHUTDOWN -> 2
+            ELSE
+        }
+    """.trimIndent()
+
+    /** A channel as a third-party plugin writes it. */
+    private val channel = """
+        import org.foedusprogramme.alexandrite.sdk.channel.*
+        import org.foedusprogramme.alexandrite.sdk.chat.*
+
+        class Console : Channel {
+            override suspend fun capabilities(chat: ChatAddress) =
+                ChannelCapabilities.builder().streaming(true).markups(setOf(Markup.PLAIN, Markup.MARKDOWN)).build()
+
+            override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = 1
+
+            override suspend fun openReply(request: ReplyRequest): ReplySink = object : ReplySink {
+                override suspend fun preview(segment: Int, text: String) = print(text)
+
+                override suspend fun complete(message: OutboundMessage): Delivery =
+                    Delivery.Delivered(listOfNotNull(request.trigger))
+
+                override suspend fun abandon(end: ReplyEnd) = println(end)
+            }
+
+            override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
+                if (message.kind == MessageKind.REPLY) Delivery.Delivered(emptyList())
+                else Delivery.NotDelivered(DeliveryFailure.UNSUPPORTED, "notices are not shown")
+        }
+
+        val content = MediaContent { maxBytes -> ByteArray(minOf(maxBytes, 4L).toInt()) }
     """.trimIndent()
 
     /** A model provider as a third-party plugin writes it. */
@@ -223,5 +302,10 @@ class SubclassOptInTest {
     @Test
     fun `a plugin implements a model provider without the internal API`() {
         assertEquals(emptyList(), errors(provider))
+    }
+
+    @Test
+    fun `a plugin implements a channel and its reply sink without the internal API`() {
+        assertEquals(emptyList(), errors(channel))
     }
 }

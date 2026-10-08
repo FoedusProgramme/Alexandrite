@@ -16,5 +16,8 @@ public object PluginIds {
     /** The key below a config root that switches its plugin on and off. */
     public const val ENABLED_KEY: String = "enabled"
 
+    /** The key below a channel plugin's config root that holds the config of its channel instances. */
+    public const val INSTANCES_KEY: String = "instances"
+
     public fun thirdPartyRoot(id: String): String = "$THIRD_PARTY_ROOT.$id"
 }

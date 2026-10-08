@@ -90,13 +90,18 @@ class ContainerLifecycleTest {
             { container.destroy() },
             { container.open() },
             { container.stop(TimeSource.Monotonic.markNow()) },
+            { container.closeAll(TimeSource.Monotonic.markNow()) },
+            { container.drainAll(TimeSource.Monotonic.markNow()) },
+            { container.stopAll() },
         ).map { assertFailsWith<IllegalStateException> { it() }.message }
         gate.complete(Unit)
         starting.await()
         container.close()
 
         assertEquals(
-            listOf("close", "close", "open", "stop").map { "Cannot $it container 'root' while its start step runs." },
+            listOf("destroy", "destroy", "open", "stop", "close", "drain", "stop").map {
+                "Cannot $it container 'root' while its start step runs."
+            },
             refused,
         )
         assertEquals(listOf("start a", "start b", "stop b", "stop a", "destroy b", "destroy a"), events.lifecycle())

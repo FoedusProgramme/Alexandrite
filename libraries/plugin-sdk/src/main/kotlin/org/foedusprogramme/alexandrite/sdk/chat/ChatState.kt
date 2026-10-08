@@ -5,45 +5,57 @@ import kotlinx.serialization.serializer
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.di.PluginLocal
 
-/** The plugin's own per-chat states. */
+/** The plugin's own states per chat and per agent and chat. */
 @PluginLocal
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ChatStates {
     /**
-     * The state [name] of this plugin, [default] where nothing is stored. A name is lowercase words of letters, digits
-     * and `_`, joined by dots.
+     * The per-chat state [name] of this plugin, [default] where nothing is stored. A name is lowercase words of letters,
+     * digits and `_`, joined by dots.
      */
-    public fun <T : Any> state(name: String, serializer: KSerializer<T>, default: T): ChatState<T>
+    public fun <T : Any> state(name: String, serializer: KSerializer<T>, default: T): ChatState<ChatAddress, T>
+
+    /** The state [name] of this plugin per agent and chat, named and defaulted like [state]. */
+    public fun <T : Any> agentState(name: String, serializer: KSerializer<T>, default: T): ChatState<AgentChatKey, T>
 }
 
-public inline fun <reified T : Any> ChatStates.state(name: String, default: T): ChatState<T> =
+public inline fun <reified T : Any> ChatStates.state(name: String, default: T): ChatState<ChatAddress, T> =
     state(name, serializer(), default)
 
-/** A value per chat that survives restarts, where a stored value that cannot be read counts as absent. */
+public inline fun <reified T : Any> ChatStates.agentState(name: String, default: T): ChatState<AgentChatKey, T> =
+    agentState(name, serializer(), default)
+
+/**
+ * A value per [ChatAddress] or per [AgentChatKey] that survives restarts, where a stored value that cannot be read
+ * counts as absent.
+ */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
-public interface ChatState<T : Any> {
-    /** The value of [chat], else of the chat a thread belongs to, else the default. */
-    public suspend fun get(chat: ChatAddress): T
+public interface ChatState<K : Any, T : Any> {
+    /** The value of [key], else of the key's parent when its chat is a thread, else the default. */
+    public suspend fun get(key: K): T
 
-    /** The value stored for [chat] itself, null when there is none. */
-    public suspend fun getOwn(chat: ChatAddress): T?
+    /** The value stored for [key] itself, null when there is none. */
+    public suspend fun getOwn(key: K): T?
 
-    /** Stores the [transform] of [get] for [chat] alone, atomically, and returns it. */
-    public suspend fun update(chat: ChatAddress, transform: (T) -> T): T
+    /** Stores the [transform] of [get] for [key] alone, atomically, and returns it. */
+    public suspend fun update(key: K, transform: (T) -> T): T
 
-    /** Stores [value] for [chat] alone. */
-    public suspend fun set(chat: ChatAddress, value: T)
+    /** Stores [value] for [key] alone. */
+    public suspend fun set(key: K, value: T)
 
-    /** Removes the value stored for [chat] itself. */
-    public suspend fun reset(chat: ChatAddress)
+    /** Removes the value stored for [key] itself. */
+    public suspend fun reset(key: K)
 }
 
 /** The stored values of every plugin's [ChatState]s. */
 @InternalAlexandriteApi
 public interface ChatStateStore {
-    /** The JSON stored for the state [name] of [plugin] at [chat], null when there is none. */
-    public suspend fun read(plugin: String, name: String, chat: ChatAddress): String?
+    /**
+     * The JSON stored for the state [name] of [plugin] at [chat], for [agent] or for the chat itself when it is null,
+     * null when there is none.
+     */
+    public suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String?
 
-    /** Stores [json] for the state [name] of [plugin] at [chat], or removes it when null. */
-    public suspend fun write(plugin: String, name: String, chat: ChatAddress, json: String?)
+    /** Stores [json] where [read] reads it, or removes it when null. */
+    public suspend fun write(plugin: String, name: String, agent: AgentId?, chat: ChatAddress, json: String?)
 }

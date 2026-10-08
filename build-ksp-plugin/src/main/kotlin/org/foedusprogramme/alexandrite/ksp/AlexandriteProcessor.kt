@@ -82,7 +82,8 @@ internal class AlexandriteProcessor(
         } else {
             hiddenNames(indexClass)
         }
-        val wiring = WiringCheck(registry, sections, implementations).problems()
+        val entry = entries.singleOrNull()?.takeIf { entryClasses.size == 1 }
+        val wiring = WiringCheck(registry, sections, implementations, entry).problems()
         val reported = problems + unresolved.values.flatten() + wiring + listOfNotNull(entryProblem()) + placement
         reported.forEach(::log)
         if (reported.isNotEmpty() || indexClass == null) return
@@ -154,8 +155,11 @@ internal class AlexandriteProcessor(
         }
 
         private fun readClass(declaration: KSClassDeclaration) {
-            val component = symbols.hasAny(declaration, COMPONENT_ANNOTATIONS)
             val section = symbols.has(declaration, CONFIG_SECTION)
+            val component = symbols.hasAny(
+                declaration,
+                if (section) SECTION_COMPONENT_ANNOTATIONS else COMPONENT_ANNOTATIONS,
+            )
             if (component) {
                 packages += declaration.packageName.asString()
                 add(ClassReader(declaration, symbols, options.id).read(), roundComponents)
@@ -222,6 +226,9 @@ private fun Symbols.resolves(declaration: KSDeclaration): Boolean = when (declar
 }
 
 private val READ_FUNCTION_ANNOTATIONS = FUNCTION_BINDING_ANNOTATIONS + PROVIDES
+
+/** The annotations that make a config section a component too. */
+private val SECTION_COMPONENT_ANNOTATIONS = COMPONENT_ANNOTATIONS - CHANNEL_INSTANCE_SCOPED
 
 /** A node that only carries a [location] for the logger. */
 private class At(override val location: Location) : KSNode {

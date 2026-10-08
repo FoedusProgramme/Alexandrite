@@ -8,4 +8,6 @@ public annotation class Plugin(
     val description: String = "",
     /** Ids of the plugins this one needs. */
     val requires: Array<String> = [],
+    /** The type of the channel the plugin contributes, empty when it contributes none. */
+    val channelType: String = "",
 )
