@@ -10,7 +10,7 @@ import kotlin.time.Duration.Companion.seconds
 public sealed interface Hook {
     public val point: HookPoint<*>
 
-    /** Lower runs first. */
+    /** Lower runs first; equal orders run by plugin id, then by the hook's class name. */
     public val order: Int get() = 0
 
     /** How long one call may run. */
@@ -27,13 +27,13 @@ public interface InterceptorHook<P : Any> : Hook {
 /** A hook that sees the payload of an [ObserverPoint]. */
 public interface ObserverHook<P : Any> : Hook {
     override val point: ObserverPoint<P>
-    public val delivery: Delivery get() = Delivery.INLINE
+    public val delivery: ObserverDelivery get() = ObserverDelivery.INLINE
 
     public suspend fun observe(payload: P)
 }
 
 /** How an [ObserverHook] gets its payloads. */
-public enum class Delivery {
+public enum class ObserverDelivery {
     /** Awaited by the caller, in order. */
     INLINE,
 
@@ -48,6 +48,7 @@ public sealed interface HookDecision<out P : Any> {
     @Poko
     public class Replace<P : Any>(public val payload: P) : HookDecision<P>
 
+    /** Stops the chain and sends [reply] to the user as a notice. */
     @Poko
     public class Abort(public val reply: String? = null) : HookDecision<Nothing>
 }

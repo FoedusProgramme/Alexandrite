@@ -39,9 +39,9 @@ class ValueTypesTest {
             "PluginBindings(id=weather, bindings=[])",
         ),
         Case(
-            { Problem(DiProblemKind.MISSING, "gone", "weather", key<String>()) },
-            Problem(DiProblemKind.MISSING, "gone", "rain", key<String>()),
-            "Problem(kind=MISSING, message=gone, plugin=weather, key=kotlin.String)",
+            { Problem(DiProblemKind.MISSING, "gone", "weather") },
+            Problem(DiProblemKind.MISSING, "gone", "rain"),
+            "Problem(kind=MISSING, message=gone, plugin=weather)",
         ),
         Case(
             { PluginInfo("weather", "Weather", "1.0", "Forecasts", 1, listOf("geo"), "sample.Weather") },
@@ -54,7 +54,11 @@ class ValueTypesTest {
             ToolDefinition("fs.read", "Reads files", JsonObject(emptyMap())),
             "ToolDefinition(name=fs.read, description=Reads a file, parameters={}, risk=EXEC)",
         ),
-        Case({ ToolResult("ok") }, ToolResult("ok", isError = true), "ToolResult(content=ok, isError=false)"),
+        Case(
+            { ToolResult("ok") },
+            ToolResult("ok", isError = true),
+            "ToolResult(content=[TextPart(text=ok)], isError=false)",
+        ),
         Case({ HookDecision.Replace("x") }, HookDecision.Replace("y"), "Replace(payload=x)"),
         Case({ HookDecision.Abort("no") }, HookDecision.Abort(), "Abort(reply=no)"),
         Case({ Interception.Proceed("x") }, Interception.Proceed("y"), "Proceed(payload=x)"),

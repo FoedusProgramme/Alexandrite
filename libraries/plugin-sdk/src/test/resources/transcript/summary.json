@@ -1,0 +1,13 @@
+[
+  {
+    "type": "summary",
+    "record": {
+      "id": 7,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "text": "Ada asked for notes; three were saved.",
+    "through": 6
+  }
+]

@@ -1,0 +1,77 @@
+[
+  {
+    "type": "approval_request",
+    "record": {
+      "id": 9,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "approval": "7",
+    "nested": {
+      "list": [
+        1,
+        null,
+        "x"
+      ]
+    }
+  },
+  {
+    "type": "poll",
+    "question": "Lunch?"
+  },
+  {
+    "type": "user",
+    "parts": [
+      {
+        "type": "sticker",
+        "pack": "cats",
+        "emoji": "😺"
+      }
+    ],
+    "origin": {
+      "type": "from_agent",
+      "agent": "helper",
+      "turn": "t9"
+    }
+  },
+  {
+    "type": "assistant",
+    "parts": [
+      {
+        "type": "citation",
+        "url": "https://example.org"
+      }
+    ],
+    "producedBy": "anthropic/claude-opus"
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_07",
+    "toolName": "files.read",
+    "content": [
+      {
+        "type": "media",
+        "kind": "model",
+        "mediaType": "model/gltf-binary",
+        "source": {
+          "type": "provider_file",
+          "fileId": "file_1"
+        }
+      },
+      {
+        "type": "table",
+        "rows": []
+      }
+    ],
+    "outcome": {
+      "type": "timed_out",
+      "after": "PT30S"
+    }
+  },
+  {
+    "type": "notice",
+    "text": "A delegated run was cut off.",
+    "kind": "run_interrupted"
+  }
+]

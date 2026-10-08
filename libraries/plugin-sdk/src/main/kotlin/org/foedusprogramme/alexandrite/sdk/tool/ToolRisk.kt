@@ -1,6 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.tool
 
-/** The kind of effect a tool call has. */
+/** The kind of effect a tool call has; a `when` over it needs an `else` branch. */
 public enum class ToolRisk {
     /** Reads without side effects. */
     READ_ONLY,

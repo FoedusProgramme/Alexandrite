@@ -3,7 +3,6 @@ package org.foedusprogramme.alexandrite.runtime.hook
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -13,6 +12,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.HookPoint
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import java.util.Collections
@@ -41,7 +41,7 @@ open class TestObserver<P : Any>(
     override val point: ObserverPoint<P>,
     override val order: Int = 0,
     override val timeout: Duration = 10.seconds,
-    override val delivery: Delivery = Delivery.INLINE,
+    override val delivery: ObserverDelivery = ObserverDelivery.INLINE,
     private val block: suspend (P) -> Unit,
 ) : ObserverHook<P> {
     override suspend fun observe(payload: P) = block(payload)

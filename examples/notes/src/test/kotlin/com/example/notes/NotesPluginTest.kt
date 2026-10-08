@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.testToolContext
 import org.junit.jupiter.api.condition.DisabledOnOs
@@ -46,21 +47,23 @@ class NotesPluginTest {
         return getAll<Tool>().single { it.definition.name == tool }.execute(json, testToolContext())
     }
 
+    private val ToolResult.text: String get() = content.joinToString("") { (it as TextPart).text }
+
     @Test
     fun `notes are added, listed and reset`() {
         harness {
-            assertEquals("No notes.", call("notes.list").content)
-            assertEquals("Saved note #1.", call("notes.add", "text" to "buy milk").content)
-            assertEquals("Saved note #2.", call("notes.add", "text" to " call home ").content)
+            assertEquals("No notes.", call("notes.list").text)
+            assertEquals("Saved note #1.", call("notes.add", "text" to "buy milk").text)
+            assertEquals("Saved note #2.", call("notes.add", "text" to " call home ").text)
 
-            val listed = call("notes.list").content.lines()
+            val listed = call("notes.list").text.lines()
 
             assertEquals(2, listed.size)
             assertTrue(NOTE.matches(listed[0]), listed[0])
             assertTrue(listed[1].startsWith("#2 (") && listed[1].endsWith(") call home"), listed[1])
-            assertEquals("Deleted every note.", call("notes.reset").content)
-            assertEquals("No notes.", call("notes.list").content)
-            assertEquals("Saved note #3.", call("notes.add", "text" to "again").content)
+            assertEquals("Deleted every note.", call("notes.reset").text)
+            assertEquals("No notes.", call("notes.list").text)
+            assertEquals("Saved note #3.", call("notes.add", "text" to "again").text)
         }
     }
 
@@ -70,7 +73,7 @@ class NotesPluginTest {
             val result = call("notes.add", "text" to "  ")
 
             assertTrue(result.isError)
-            assertEquals("No notes.", call("notes.list").content)
+            assertEquals("No notes.", call("notes.list").text)
         }
     }
 
@@ -100,7 +103,7 @@ class NotesPluginTest {
             assertEquals(directory.resolve("plugins/notes"), dataDir)
             assertTrue(Files.isRegularFile(dataDir.resolve("notes.db")))
         }
-        harness { listed = call("notes.list").content }
+        harness { listed = call("notes.list").text }
 
         assertContains(listed, "kept")
     }
@@ -149,7 +152,7 @@ class NotesPluginTest {
 
             assertTrue(Files.isRegularFile(dataDir.resolve("notes.db")))
         }
-        harness(dataRoot = root) { assertContains(call("notes.list").content, "kept") }
+        harness(dataRoot = root) { assertContains(call("notes.list").text, "kept") }
     }
 
     @Test

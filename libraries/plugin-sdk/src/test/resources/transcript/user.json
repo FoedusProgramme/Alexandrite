@@ -1,0 +1,114 @@
+[
+  {
+    "type": "user",
+    "record": {
+      "id": 1,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "parts": [
+      {
+        "type": "context",
+        "source": "message-context",
+        "text": "Sender: Ada (@ada, admin)\nTime: 2026-10-07 16:29"
+      },
+      {
+        "type": "text",
+        "text": "What is on this \"photo\"?"
+      },
+      {
+        "type": "media",
+        "kind": "image",
+        "mediaType": "image/png",
+        "source": {
+          "type": "stored",
+          "id": "m-1"
+        },
+        "name": "cat.png",
+        "width": 640,
+        "height": 480
+      }
+    ],
+    "origin": {
+      "type": "from_chat",
+      "sender": {
+        "address": "telegram:work@1",
+        "displayName": "Ada",
+        "username": "ada",
+        "isBot": false,
+        "isAdmin": true
+      },
+      "message": {
+        "chat": "telegram:work:-100",
+        "id": "42"
+      },
+      "receivedAt": "2026-10-07T08:29:59.500Z",
+      "forwarded": {
+        "kind": "user",
+        "name": "Bob",
+        "user": "telegram:work@2"
+      },
+      "quote": {
+        "text": "Earlier answer",
+        "senderName": "Athena",
+        "sender": "telegram:work@99",
+        "senderIsBot": true,
+        "target": {
+          "chat": "telegram:work:-100",
+          "id": "41"
+        },
+        "external": false,
+        "trust": {
+          "live": true,
+          "content": false
+        }
+      }
+    }
+  },
+  {
+    "type": "user",
+    "parts": [
+      {
+        "type": "text",
+        "text": "Hello"
+      }
+    ],
+    "origin": {
+      "type": "from_chat",
+      "sender": {
+        "address": "telegram:work@1",
+        "displayName": "Ada",
+        "username": "ada",
+        "isBot": false,
+        "isAdmin": true
+      },
+      "message": {
+        "chat": "telegram:work:-100",
+        "id": "42"
+      },
+      "receivedAt": "2026-10-07T08:29:59.500Z"
+    }
+  },
+  {
+    "type": "user",
+    "record": {
+      "id": 3,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "parts": [
+      {
+        "type": "context",
+        "source": "heartbeat",
+        "text": "Nobody has written for two hours."
+      }
+    ],
+    "origin": {
+      "type": "initiated",
+      "plugin": "alexandrite-heartbeat",
+      "kind": "heartbeat"
+    }
+  }
+]

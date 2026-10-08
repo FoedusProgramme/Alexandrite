@@ -9,9 +9,9 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.runtime.Events
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -31,7 +31,7 @@ class CloseTest {
     fun `onDrain delivers the queued events, then later events are dropped silently`() = runTest {
         val dispatcher = dispatcher(
             listener,
-            TestObserver(seen, delivery = Delivery.ASYNC) {
+            TestObserver(seen, delivery = ObserverDelivery.ASYNC) {
                 delay(1.seconds)
                 records.record(it)
             },
@@ -52,7 +52,7 @@ class CloseTest {
         val cancelled = CompletableDeferred<Unit>()
         val dispatcher = dispatcher(
             listener,
-            TestObserver(seen, timeout = Duration.INFINITE, delivery = Delivery.ASYNC) {
+            TestObserver(seen, timeout = Duration.INFINITE, delivery = ObserverDelivery.ASYNC) {
                 try {
                     awaitCancellation()
                 } finally {
@@ -75,7 +75,8 @@ class CloseTest {
 
     @Test
     fun `onDrain with nothing queued returns at once`() = runTest {
-        val dispatcher = dispatcher(listener, TestObserver(seen, delivery = Delivery.ASYNC) { delay(1.seconds) })
+        val dispatcher =
+            dispatcher(listener, TestObserver(seen, delivery = ObserverDelivery.ASYNC) { delay(1.seconds) })
 
         dispatcher.onDrain()
 
@@ -85,7 +86,7 @@ class CloseTest {
 
     @Test
     fun `onDrain and onDestroy are idempotent`() = runTest {
-        val dispatcher = dispatcher(listener, TestObserver(seen, delivery = Delivery.ASYNC) {})
+        val dispatcher = dispatcher(listener, TestObserver(seen, delivery = ObserverDelivery.ASYNC) {})
 
         repeat(2) { dispatcher.onDrain() }
         repeat(2) { dispatcher.onDestroy() }
@@ -100,7 +101,7 @@ class CloseTest {
             listener,
             TestInterceptor(rewrite) { HookDecision.Replace("$it!") },
             TestObserver(seen) { records.record("inline $it") },
-            TestObserver(seen, delivery = Delivery.ASYNC) { records.record("async $it") },
+            TestObserver(seen, delivery = ObserverDelivery.ASYNC) { records.record("async $it") },
         )
 
         dispatcher.onDestroy()

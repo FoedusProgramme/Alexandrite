@@ -5,7 +5,6 @@ import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.AMBIGUOUS
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.CLOSED
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.EXTRA_SCOPE
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.MISSING
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.NESTED_CHILD
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNKNOWN_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNLISTED_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope.CHANNEL_INSTANCE
@@ -164,9 +163,7 @@ class ChildContainerTest {
     fun `a channel instance container cannot create children`() {
         val child = build().child("tg", setOf("test"))
 
-        val error = assertFailsWith<DiException> { child.child("nested", setOf("test")) }
-
-        assertEquals(listOf(NESTED_CHILD), error.problems.map { it.kind })
+        assertFailsWith<IllegalStateException> { child.child("nested", setOf("test")) }
     }
 
     // Validation.
@@ -192,9 +189,7 @@ class ChildContainerTest {
     fun `validateChild is refused inside a channel instance container`() {
         val child = build().child("tg", setOf("test"))
 
-        val error = assertFailsWith<DiException> { child.validateChild(setOf("test")) }
-
-        assertEquals(listOf(NESTED_CHILD), error.problems.map { it.kind })
+        assertFailsWith<IllegalStateException> { child.validateChild(setOf("test")) }
     }
 
     // Plugins.
@@ -257,8 +252,8 @@ class ChildContainerTest {
             error.message,
         )
         assertEquals(
-            List(2) { Triple(UNLISTED_PLUGIN, "telegram", svc("guild")) },
-            error.problems.map { Triple(it.kind, it.plugin, it.key) },
+            List(2) { UNLISTED_PLUGIN to "telegram" },
+            error.problems.map { it.kind to it.plugin },
         )
         val both = root.child("both", setOf("telegram", "discord"))
         assertSame(both.get(svc("guild")), both.get(svc("bot")).dependency("guild"))

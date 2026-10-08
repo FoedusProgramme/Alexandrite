@@ -74,7 +74,7 @@ internal class Stages(
             if (error is VirtualMachineError) fatal += error
             val message = redactor.text("$what failed: $error")
             logger.error("{}: {}", name, message, redactor.error(error))
-            problems += Problem(kind, message, null, null)
+            problems += Problem(kind, message, null)
         }
         val built = container
         try {
@@ -148,7 +148,7 @@ internal class Stages(
             Outcome.NotCalled -> "Skipped $what: the shutdown grace of $grace had run out."
         }.let(redactor::text)
         logger.warn("{}: {}", name, message, (outcome as? Outcome.Failed)?.error?.let(redactor::error))
-        return Problem(kind(report), message, report.plugin, null)
+        return Problem(kind(report), message, report.plugin)
     }
 
     private fun release(lock: DataDirLock) {

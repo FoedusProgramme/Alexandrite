@@ -390,7 +390,7 @@ class ContainerPhaseTest {
         container.start()
         container.open()
 
-        val twice = assertFailsWith<DiException> { container.open() }
+        val twice = assertFailsWith<IllegalStateException> { container.open() }
         container.stop(later())
         container.close()
         val closed = listOf<suspend () -> Unit>(
@@ -399,7 +399,6 @@ class ContainerPhaseTest {
         ).map { assertFailsWith<DiException> { it() }.message }
 
         assertEquals("Cannot open container 'root' twice.", twice.message)
-        assertEquals(listOf(DiProblemKind.OPENED_TWICE), twice.problems.map { it.kind })
         assertEquals(
             listOf(
                 "Cannot open container 'root': it is closed.",

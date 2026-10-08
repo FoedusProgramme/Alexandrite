@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.sdk.plugin
 
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+
 /** The rules for plugin ids and the config roots they own. */
+@InternalAlexandriteApi
 public object PluginIds {
     public val PATTERN: Regex = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
 

@@ -12,7 +12,6 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -23,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import kotlin.coroutines.CoroutineContext
@@ -47,8 +47,8 @@ internal class HookDispatcher(
         val sorted = hooks.sortedBy { it.order }
         interceptors = sorted.filterIsInstance<InterceptorHook<*>>().groupBy { it.point.id }
         val observers = sorted.filterIsInstance<ObserverHook<*>>().groupBy { it.delivery }
-        inlineObservers = observers[Delivery.INLINE].orEmpty().groupBy { it.point.id }
-        queues = observers[Delivery.ASYNC].orEmpty().map { Queue(it) }.groupBy { it.hook.point.id }
+        inlineObservers = observers[ObserverDelivery.INLINE].orEmpty().groupBy { it.point.id }
+        queues = observers[ObserverDelivery.ASYNC].orEmpty().map { Queue(it) }.groupBy { it.hook.point.id }
     }
 
     val hasAsyncObservers: Boolean get() = queues.isNotEmpty()

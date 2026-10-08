@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.sdk.di.container
 
 import org.foedusprogramme.alexandrite.sdk.problem.ProblemKind
 
-/** What a problem of a [Container] is about. */
+/** What a problem of a [Container] is about, in a set that grows with the graph rules. */
 public enum class DiProblemKind : ProblemKind {
     /** A key nothing binds. */
     MISSING,
@@ -42,18 +42,6 @@ public enum class DiProblemKind : ProblemKind {
 
     /** A closed container. */
     CLOSED,
-
-    /** A container started twice. */
-    STARTED_TWICE,
-
-    /** A container opened twice. */
-    OPENED_TWICE,
-
-    /** A channel instance container created inside another. */
-    NESTED_CHILD,
-
-    /** A key a binding resolved without declaring it. */
-    UNDECLARED,
 
     /** A binding resolved during its own creation. */
     REENTRANT,

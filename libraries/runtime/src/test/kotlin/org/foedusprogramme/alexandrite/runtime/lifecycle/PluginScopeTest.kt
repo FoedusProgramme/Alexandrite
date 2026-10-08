@@ -204,7 +204,7 @@ class PluginScopeTest {
                 runtime.stop()
 
                 assertEquals(
-                    listOf(Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, "core", null)),
+                    listOf(Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, "core")),
                     runtime.join().problems,
                 )
                 assertEquals(listOf("open straggler", "stop straggler", "destroy straggler"), events.all())

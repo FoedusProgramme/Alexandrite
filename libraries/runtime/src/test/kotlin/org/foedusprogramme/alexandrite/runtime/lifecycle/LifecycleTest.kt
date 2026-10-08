@@ -585,13 +585,11 @@ class LifecycleTest {
                     RuntimeProblemKind.DRAIN_TIMED_OUT,
                     "Draining b (plugin core) was cancelled: the shutdown grace of 200ms ran out.",
                     "core",
-                    null,
                 ),
                 Problem(
                     RuntimeProblemKind.DRAIN_NOT_CALLED,
                     "Skipped draining a (plugin core): the shutdown grace of 200ms had run out.",
                     "core",
-                    null,
                 ),
             ),
             termination.problems,

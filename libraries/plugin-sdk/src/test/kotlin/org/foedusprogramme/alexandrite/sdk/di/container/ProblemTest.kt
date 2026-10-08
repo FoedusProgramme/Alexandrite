@@ -8,11 +8,8 @@ import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.CONFLICTIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.CREATION_FAILED
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.DUPLICATE_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.MISSING
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.NESTED_CHILD
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.REENTRANT
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.SCOPE
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.STARTED_TWICE
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNDECLARED
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.WRONG_KIND
 import org.foedusprogramme.alexandrite.sdk.di.key
 import kotlin.test.Test
@@ -25,7 +22,8 @@ class ProblemTest {
         val error = assertFailsWith<DiException> { block() }
         val problem = error.problems.single()
         assertContains(error.message!!, problem.message)
-        assertEquals(Triple(kind, plugin, key), Triple(problem.kind, problem.plugin, problem.key), problem.message)
+        assertEquals(kind to plugin, problem.kind to problem.plugin, problem.message)
+        key?.let { assertContains(problem.message, "$it") }
     }
 
     @Test
@@ -53,12 +51,27 @@ class ProblemTest {
     }
 
     @Test
-    fun `lifecycle problems name no plugin`() {
+    fun `misusing a container is a programming error`() {
         val container = build(service("a"))
         runBlocking { container.start() }
 
-        assertProblem(STARTED_TWICE, null, null) { runBlocking { container.start() } }
-        assertProblem(NESTED_CHILD, null, null) { container.child("tg", setOf("test")).child("dc", setOf("test")) }
+        val twice = assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
+        val nested = assertFailsWith<IllegalStateException> {
+            container.child("tg", setOf("test")).child("dc", setOf("test"))
+        }
+
+        assertEquals("Cannot start container 'root' twice.", twice.message)
+        assertEquals(
+            "Cannot create channel instance container 'dc' inside channel instance container 'tg': " +
+                "only a root container has channel instance containers.",
+            nested.message,
+        )
+        container.close()
+    }
+
+    @Test
+    fun `lifecycle problems name no plugin`() {
+        val container = build(service("a"))
         container.close()
         assertProblem(CLOSED, null, svc("a")) { container.get(svc("a")) }
         assertProblem(CLOSED, null, null) { container.child("tg", setOf("test")) }
@@ -72,8 +85,8 @@ class ProblemTest {
             it.provider(svc("a")).invoke()
         }
 
-        assertProblem(UNDECLARED, "test", svc("b")) { build(sneaky, service("b")) }
-        assertProblem(REENTRANT, "test", svc("a")) { build(selfish) }
+        assertProblem(CREATION_FAILED, "test", svc("b")) { build(sneaky, service("b")) }
+        assertProblem(REENTRANT, "test", null) { build(selfish) }
     }
 
     @Test

@@ -1,8 +1,10 @@
 package org.foedusprogramme.alexandrite.sdk.hook
 
 import dev.drewhamilton.poko.Poko
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 
 /** Fires hook points. */
+@SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface Hooks {
     /** Runs the interceptors of [point] on [payload] in order. */
     public suspend fun <P : Any> fire(point: InterceptorPoint<P>, payload: P): Interception<P>
@@ -12,10 +14,13 @@ public interface Hooks {
 }
 
 /** How an interceptor chain ended. */
-public sealed interface Interception<out P : Any> {
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface Interception<out P : Any> {
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Proceed<P : Any>(public val payload: P) : Interception<P>
 
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Aborted(
         /** The reply of the hook's [HookDecision.Abort], null when it gave none or failed. */

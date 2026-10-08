@@ -27,7 +27,7 @@ class SpecTest {
 
     private val error = RuntimeStartException("failed", StartStage.START, emptyList(), null, null)
 
-    private val problem = Problem(RuntimeProblemKind.DRAIN_FAILED, "drain failed", "weather", null)
+    private val problem = Problem(RuntimeProblemKind.DRAIN_FAILED, "drain failed", "weather")
 
     private val cases = listOf(
         Case(

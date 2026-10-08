@@ -49,7 +49,7 @@ internal class PluginScopes(
         return jobs.filterNot { (_, job) -> job.isCompleted }.map { (plugin, _) ->
             val message = "Coroutines of plugin $plugin were still running: the shutdown grace of $grace ran out."
             logger.warn("{}: {}", name, message)
-            Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, plugin, null)
+            Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, plugin)
         }
     }
 

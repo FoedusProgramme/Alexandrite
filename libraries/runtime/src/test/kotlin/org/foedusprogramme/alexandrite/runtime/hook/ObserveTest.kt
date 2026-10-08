@@ -9,7 +9,6 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.runtime.Events
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.HookEffect
@@ -18,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.HookPoint
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import kotlin.test.Test
@@ -32,7 +32,7 @@ class ObserveTest {
     private val records = Events()
     private val seen = seenPoint()
 
-    private fun recording(name: String, order: Int = 0, delivery: Delivery = Delivery.INLINE) =
+    private fun recording(name: String, order: Int = 0, delivery: ObserverDelivery = ObserverDelivery.INLINE) =
         TestObserver(seen, order, delivery = delivery) { records.record("$name $it") }
 
     // Inline.
@@ -75,7 +75,8 @@ class ObserveTest {
 
     @Test
     fun `firing another observer point object with a subscribed id is rejected`() = runTest {
-        val dispatcher = dispatcher(listener, recording("first"), recording("queued", delivery = Delivery.ASYNC))
+        val dispatcher =
+            dispatcher(listener, recording("first"), recording("queued", delivery = ObserverDelivery.ASYNC))
 
         assertFailsWith<IllegalArgumentException> { dispatcher.fire(seenPoint(), "x") }
         advanceUntilIdle()
@@ -90,7 +91,7 @@ class ObserveTest {
         val gate = CompletableDeferred<Unit>()
         val dispatcher = dispatcher(
             listener,
-            TestObserver(seen, delivery = Delivery.ASYNC) {
+            TestObserver(seen, delivery = ObserverDelivery.ASYNC) {
                 records.record("started $it")
                 gate.await()
                 records.record("finished $it")
@@ -112,11 +113,11 @@ class ObserveTest {
         val slow = mutableListOf<String>()
         val dispatcher = dispatcher(
             listener,
-            TestObserver(seen, delivery = Delivery.ASYNC) {
+            TestObserver(seen, delivery = ObserverDelivery.ASYNC) {
                 gate.await()
                 slow += it
             },
-            recording("fast", delivery = Delivery.ASYNC),
+            recording("fast", delivery = ObserverDelivery.ASYNC),
         )
 
         listOf("a", "b", "c").forEach { dispatcher.fire(seen, it) }
@@ -152,7 +153,7 @@ class ObserveTest {
     fun `a failing async observer is reported and still gets later events`() = runTest {
         val dispatcher = dispatcher(
             listener,
-            TestObserver(seen, timeout = 1.seconds, delivery = Delivery.ASYNC) {
+            TestObserver(seen, timeout = 1.seconds, delivery = ObserverDelivery.ASYNC) {
                 when (it) {
                     "a" -> error("a failed")
                     "b" -> delay(2.seconds)
@@ -174,7 +175,7 @@ class ObserveTest {
     fun `a listener that throws an error does not stop an async observer`() = runTest {
         val dispatcher = hookDispatcher(
             listOf(
-                TestObserver(seen, delivery = Delivery.ASYNC) {
+                TestObserver(seen, delivery = ObserverDelivery.ASYNC) {
                     if (it == "a") error("a failed") else records.record("got $it")
                 },
             ),
@@ -194,7 +195,7 @@ class ObserveTest {
     }
 
     private class Slow(point: ObserverPoint<String>, gate: CompletableDeferred<Unit>, records: Events) :
-        TestObserver<String>(point, delivery = Delivery.ASYNC, block = {
+        TestObserver<String>(point, delivery = ObserverDelivery.ASYNC, block = {
             gate.await()
             records.record("slow $it")
         })

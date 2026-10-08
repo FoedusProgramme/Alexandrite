@@ -125,7 +125,7 @@ class ContainerLifecycleTest {
         val container = build(service("a"))
         runBlocking { container.start() }
 
-        assertFailsWith<DiException> { runBlocking { container.start() } }
+        assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
     }
 
     @Test

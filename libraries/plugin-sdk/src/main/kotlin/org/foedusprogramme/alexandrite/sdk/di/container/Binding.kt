@@ -89,6 +89,7 @@ public fun <T : Any> instanceBinding(
     multi: Boolean = false,
 ): Binding<T> = binding(key, plugin, origin, scope, multi = multi, managed = false) { value }
 
+@OptIn(InternalAlexandriteApi::class)
 private class FunctionBinding<T : Any>(
     override val key: Key<T>,
     override val scope: Scope,

@@ -84,7 +84,6 @@ private fun overlappingRoots(enabled: List<PluginSet.Member>): List<Problem> {
                     "Overlapping config roots: plugin '$id' reads '$root' and plugin '$otherId' reads '$other'. " +
                         "Give each plugin a config root of its own.",
                     null,
-                    null,
                 )
             }
     }
@@ -113,7 +112,6 @@ private fun missingRequirements(
                 RuntimeProblemKind.MISSING_REQUIREMENT,
                 "Plugin '${member.id}' requires plugin '$required', $why.",
                 member.id,
-                null,
             )
         }
     }
@@ -138,7 +136,6 @@ private fun unknownConfig(
                     RuntimeProblemKind.INVALID_CONFIG,
                     "Invalid config key '$path': a key may not be empty or contain '.'. Nest the objects instead.",
                     null,
-                    null,
                 )
 
                 path in roots -> Unit
@@ -160,7 +157,6 @@ private fun unknownConfig(
                     "Unknown config at '$path': no plugin reads it. " +
                         "Config roots of the plugin set: ${roots.joinToString().ifEmpty { "none" }}.",
                     null,
-                    null,
                 )
             }
         }
@@ -171,6 +167,6 @@ private fun unknownConfig(
 }
 
 private fun invalidConfig(e: ConfigException, plugin: String?): Problem =
-    Problem(RuntimeProblemKind.INVALID_CONFIG, e.message ?: e.toString(), plugin, null)
+    Problem(RuntimeProblemKind.INVALID_CONFIG, e.message ?: e.toString(), plugin)
 
 private val OPT_IN_LAYERS = setOf(BuiltInLayer.CHANNEL, BuiltInLayer.PROVIDER)

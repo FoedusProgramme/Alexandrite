@@ -1,0 +1,23 @@
+[
+  {
+    "type": "notice",
+    "record": {
+      "id": 8,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "text": "The model answered with nothing.",
+    "kind": "blank_reply"
+  },
+  {
+    "type": "notice",
+    "text": "A hook stopped the turn.",
+    "kind": "hook_aborted"
+  },
+  {
+    "type": "notice",
+    "text": "The turn failed.",
+    "kind": "failed"
+  }
+]

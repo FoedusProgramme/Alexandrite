@@ -14,7 +14,6 @@ internal fun pluginProblems(plugins: PluginSet): List<Problem> {
             "Duplicate plugin '$id': the plugin set holds ${same.joinToString(" and ") { it.className }}. " +
                 "Keep only one of them.",
             id,
-            null,
         )
     }
     for (member in plugins.members) {
@@ -25,7 +24,6 @@ internal fun pluginProblems(plugins: PluginSet): List<Problem> {
                 "Duplicate index ${member.className} of plugin '${member.id}': several service files list it, so " +
                     "two jars on the class path ship it. Keep only one of them.",
                 member.id,
-                null,
             )
         }
     }
@@ -36,7 +34,7 @@ private fun identityProblem(member: PluginSet.Member): Problem? {
     val id = member.id
     val root = member.index.configRoot
     val row = member.row
-    fun problem(kind: RuntimeProblemKind, message: String) = Problem(kind, message, id, null)
+    fun problem(kind: RuntimeProblemKind, message: String) = Problem(kind, message, id)
     return when {
         member.plugin.info.sdkApi != AlexandriteSdk.API_VERSION -> problem(
             RuntimeProblemKind.INCOMPATIBLE_SDK,

@@ -7,7 +7,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.foedusprogramme.alexandrite.runtime.Events
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -17,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.HookPoint
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import java.util.concurrent.atomic.AtomicInteger
@@ -44,7 +44,7 @@ class ConcurrencyTest {
                     HookDecision.Replace(it + "a")
                 },
                 TestObserver(seen) { inline.incrementAndGet() },
-                TestObserver(seen, delivery = Delivery.ASYNC) { queued.record(it) },
+                TestObserver(seen, delivery = ObserverDelivery.ASYNC) { queued.record(it) },
             ),
             listener,
             asyncCapacity = calls,

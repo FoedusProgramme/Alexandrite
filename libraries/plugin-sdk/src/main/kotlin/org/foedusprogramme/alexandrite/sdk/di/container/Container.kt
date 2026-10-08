@@ -1,3 +1,5 @@
+@file:OptIn(InternalAlexandriteApi::class)
+
 package org.foedusprogramme.alexandrite.sdk.di.container
 
 import kotlinx.coroutines.currentCoroutineContext
@@ -59,7 +61,7 @@ public class Container private constructor(
     /** Calls [Lifecycle.onStart] on the managed instances in creation order. */
     public suspend fun start() {
         enter(START) {
-            if (started) throw DiException(Problems.startedTwice(site))
+            check(!started) { Problems.startedTwice(site) }
             started = true
         }
         try {
@@ -76,7 +78,7 @@ public class Container private constructor(
     /** Calls [Lifecycle.onOpen] on the started instances in creation order. */
     public suspend fun open() {
         enter(OPEN) {
-            if (opened) throw DiException(Problems.openedTwice(site))
+            check(!opened) { Problems.openedTwice(site) }
             opened = true
         }
         try {
@@ -114,7 +116,7 @@ public class Container private constructor(
 
     /** A channel instance container that creates the channel-instance-scoped bindings of [plugins] plus [bindings]. */
     public fun child(name: String, plugins: Set<String>, bindings: List<Binding<*>> = emptyList()): Container {
-        if (parent != null) throw DiException(Problems.nestedChild(site, name))
+        check(parent == null) { Problems.nestedChild(site, name) }
         if (closed.get()) throw DiException(Problems.closedParent(site, name))
         val childSite = Site("channel instance container '$name'", site.plugins, child = true)
         val problems = mutableListOf<Problem>()
@@ -132,7 +134,7 @@ public class Container private constructor(
 
     /** The problems [child] would report for [plugins] and [bindings]. */
     public fun validateChild(plugins: Set<String>, bindings: List<Binding<*>> = emptyList()): List<Problem> {
-        if (parent != null) throw DiException(Problems.nestedChild(site, null))
+        check(parent == null) { Problems.nestedChild(site, null) }
         val childSite = Site("channel instance container", site.plugins, child = true)
         val problems = mutableListOf<Problem>()
         val childGraph = childGraph(plugins, bindings, childSite, problems)
@@ -296,8 +298,8 @@ public class Container private constructor(
             this@Container.provider(declared(key, DependencyKind.PROVIDER))
 
         private fun <T : Any> declared(key: Key<T>, kind: DependencyKind): Key<T> {
-            if (binding.dependencies.none { it.key == key && it.kind == kind }) {
-                throw DiException(Problems.undeclared(binding, key, kind))
+            check(binding.dependencies.any { it.key == key && it.kind == kind }) {
+                Problems.undeclared(binding, key, kind)
             }
             return key
         }

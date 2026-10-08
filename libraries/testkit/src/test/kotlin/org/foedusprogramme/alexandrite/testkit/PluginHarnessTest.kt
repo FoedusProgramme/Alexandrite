@@ -8,6 +8,10 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.chat.rebuild
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -69,7 +73,8 @@ class PluginHarnessTest {
         override val definition =
             ToolDefinition("echo", "Echoes the conversation", JsonObject(emptyMap()), ToolRisk.READ_ONLY)
 
-        override suspend fun execute(arguments: JsonObject, context: ToolContext) = ToolResult(context.conversationId)
+        override suspend fun execute(arguments: JsonObject, context: ToolContext) =
+            ToolResult(context.turn.conversation.value)
     }
 
     private val probe = Index(
@@ -102,7 +107,8 @@ class PluginHarnessTest {
             assertEquals("hello", get<Greeter>().greeting)
             assertEquals("carpe diem", get<String>("motto"))
             assertEquals("echo", tool.definition.name)
-            assertEquals("chat-1", tool.execute(JsonObject(emptyMap()), testToolContext("chat-1")).content)
+            val turn = testToolContext().turn.rebuild { conversation(ConversationId("c1")) }
+            assertEquals(ToolResult("c1"), tool.execute(JsonObject(emptyMap()), testToolContext(turn)))
             assertEquals(ZoneOffset.UTC, get<Clock>().zone)
             assertEquals(probe.info, get<PluginInfo>("probe"))
         }
@@ -320,8 +326,16 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `the test tool context names a conversation`() {
-        assertEquals("test", testToolContext().conversationId)
-        assertEquals("other", testToolContext("other").conversationId)
+    fun `the test tool context is a message turn of a member who is no admin`() {
+        val context = testToolContext()
+        val turn = context.turn
+
+        assertEquals(ToolCallId("test-call"), context.call)
+        assertEquals(TurnKind.MESSAGE, turn.kind)
+        assertEquals("test:main:chat", turn.chat.toString())
+        assertEquals(ConversationId("test"), turn.conversation)
+        assertEquals("test:main@member", turn.actor?.address.toString())
+        assertFalse(turn.actorIsAdmin)
+        assertEquals(ToolCallId("other"), testToolContext(call = ToolCallId("other")).call)
     }
 }

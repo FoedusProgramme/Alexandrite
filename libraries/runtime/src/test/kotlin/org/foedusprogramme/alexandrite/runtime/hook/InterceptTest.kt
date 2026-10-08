@@ -2,7 +2,6 @@ package org.foedusprogramme.alexandrite.runtime.hook
 
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.runtime.Events
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
 import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -12,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.HookPoint
 import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import kotlin.test.Test

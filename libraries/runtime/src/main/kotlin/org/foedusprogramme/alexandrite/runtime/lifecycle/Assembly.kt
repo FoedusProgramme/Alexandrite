@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.config.ConfigResolution
 import org.foedusprogramme.alexandrite.runtime.config.EnabledPlugin
 import org.foedusprogramme.alexandrite.runtime.config.resolveConfig
@@ -40,13 +41,24 @@ internal class Assembly(
         logger.warn("{}: hook {} failed at '{}': {}", name, hook.javaClass.name, point, text, error)
     }
 
+    private val unreadableStates = UnreadableStateListener { plugin, state, chat, error ->
+        logger.warn(
+            "{}: chat state '{}' of plugin {} at {} cannot be read and counts as absent",
+            name,
+            state,
+            plugin,
+            chat,
+            redactor.error(error),
+        )
+    }
+
     fun lockDataDir(): DataDirLock {
         val dataDir = spec.config.dataDir
         val lock = try {
             DataDirLock.acquire(dataDir) { holder ->
                 val message = "Data directory '$dataDir' is in use: $holder holds its lock file " +
                     "${DataDirLock.FILE_NAME}. Stop that runtime or give this one another data directory."
-                val problem = Problem(RuntimeProblemKind.DATA_DIR_LOCKED, message, null, null)
+                val problem = Problem(RuntimeProblemKind.DATA_DIR_LOCKED, message, null)
                 throw startFailure(name, StartStage.DATA_DIR, listOf(problem))
             }
         } catch (e: IOException) {
@@ -115,7 +127,8 @@ internal class Assembly(
     /** The container of [plugins] and of what the runtime binds for [enabled]. */
     fun container(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>): Container = try {
         val infos = enabled.map { it.member.plugin.info }
-        Container.build(plugins + runtimeBindings(spec.config, infos, hookFailures, control, scopes, context))
+        val runtime = runtimeBindings(spec.config, infos, hookFailures, unreadableStates, control, scopes, context)
+        Container.build(plugins + runtime)
     } catch (e: Exception) {
         interruption(e)?.let { throw it }
         throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)

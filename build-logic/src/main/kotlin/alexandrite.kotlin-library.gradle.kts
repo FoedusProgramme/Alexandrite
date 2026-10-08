@@ -36,11 +36,12 @@ kotlin {
 }
 
 if (module.layer != Layer.EXAMPLE) {
-    val mainSeesSdk = module.layer == Layer.SDK ||
-        Layer.SDK in AlexandriteLayout.LAYER_DEPENDENCIES.getValue(module.layer)
-    val testSeesSdk = mainSeesSdk || Layer.SDK in AlexandriteLayout.TEST_LAYER_DEPENDENCIES[module.layer].orEmpty()
+    // The SDK's main code opts in per declaration.
+    val mainOptsIn = Layer.SDK in AlexandriteLayout.LAYER_DEPENDENCIES.getValue(module.layer)
+    val testOptsIn = module.layer == Layer.SDK || mainOptsIn ||
+        Layer.SDK in AlexandriteLayout.TEST_LAYER_DEPENDENCIES[module.layer].orEmpty()
     kotlin.target.compilations.configureEach {
-        if (if (name == "test") testSeesSdk else mainSeesSdk) {
+        if (if (name == "test") testOptsIn else mainOptsIn) {
             compileTaskProvider.configure {
                 compilerOptions.optIn.add("org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi")
             }

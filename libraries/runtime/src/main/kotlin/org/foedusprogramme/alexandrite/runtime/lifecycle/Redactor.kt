@@ -24,7 +24,7 @@ internal class Redactor {
 
     fun problem(problem: Problem): Problem {
         val message = text(problem.message)
-        return if (message == problem.message) problem else Problem(problem.kind, message, problem.plugin, problem.key)
+        return if (message == problem.message) problem else Problem(problem.kind, message, problem.plugin)
     }
 
     fun request(request: StopRequest): StopRequest {

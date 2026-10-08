@@ -6,5 +6,11 @@ package org.foedusprogramme.alexandrite.sdk
     message = "Internal Alexandrite API: only Alexandrite's own modules and generated plugin indexes may use it.",
 )
 @Retention(AnnotationRetention.BINARY)
-@Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
+@Target(
+    AnnotationTarget.CLASS,
+    AnnotationTarget.FUNCTION,
+    AnnotationTarget.CONSTRUCTOR,
+    AnnotationTarget.PROPERTY,
+    AnnotationTarget.TYPEALIAS,
+)
 public annotation class InternalAlexandriteApi

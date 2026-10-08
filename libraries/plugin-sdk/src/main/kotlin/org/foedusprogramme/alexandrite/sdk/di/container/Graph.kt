@@ -1,5 +1,8 @@
+@file:OptIn(InternalAlexandriteApi::class)
+
 package org.foedusprogramme.alexandrite.sdk.di.container
 
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 

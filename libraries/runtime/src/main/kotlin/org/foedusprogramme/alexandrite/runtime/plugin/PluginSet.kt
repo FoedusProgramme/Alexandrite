@@ -139,7 +139,6 @@ private fun brokenIndex(name: String, row: BuiltInPlugin, cause: Throwable): Pro
     RuntimeProblemKind.BROKEN_INDEX,
     "Cannot load the built-in index $name of plugin '${row.id}': $cause. Rebuild the plugin's jar.",
     row.id,
-    null,
 )
 
 private fun serviceFiles(classLoader: ClassLoader): List<List<String>> =

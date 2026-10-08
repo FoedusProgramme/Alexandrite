@@ -85,7 +85,6 @@ class RuntimeTest {
                     "Duplicate plugin 'alexandrite-agent': the plugin set holds $agent and $agent. " +
                         "Keep only one of them.",
                     "alexandrite-agent",
-                    null,
                 ),
             ),
             error.problems,
@@ -169,7 +168,6 @@ class RuntimeTest {
                     "Duplicate index ${AgentIndex::class.java.name} of plugin 'alexandrite-agent': several service " +
                         "files list it, so two jars on the class path ship it. Keep only one of them.",
                     "alexandrite-agent",
-                    null,
                 ),
             ),
             error.problems,
@@ -322,17 +320,21 @@ class RuntimeTest {
             override val info =
                 PluginInfo("newer", "newer", "1.0", "", AlexandriteSdk.API_VERSION + 1, emptyList(), "x")
         }
+        val older = object : TestIndex("older") {
+            override val info =
+                PluginInfo("older", "older", "1.0", "", AlexandriteSdk.API_VERSION - 1, emptyList(), "y")
+        }
 
-        val error = spec(explicit(newer), dataDir).startFailure()
+        val error = spec(explicit(newer, older), dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
         assertEquals(
-            listOf(RuntimeProblemKind.INCOMPATIBLE_SDK to "newer"),
+            listOf(RuntimeProblemKind.INCOMPATIBLE_SDK to "newer", RuntimeProblemKind.INCOMPATIBLE_SDK to "older"),
             error.problems.map {
                 it.kind to it.plugin
             },
         )
-        assertContains(error.problems.single().message, "compiled against version ${AlexandriteSdk.API_VERSION + 1}")
+        assertContains(error.problems.first().message, "compiled against version ${AlexandriteSdk.API_VERSION + 1}")
     }
 
     @Test

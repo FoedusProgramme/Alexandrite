@@ -1,5 +1,8 @@
+@file:OptIn(InternalAlexandriteApi::class)
+
 package org.foedusprogramme.alexandrite.sdk.di.container
 
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.AMBIGUOUS
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.CLOSED
@@ -9,13 +12,9 @@ import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.CYCLE
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.DUPLICATE_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.EXTRA_SCOPE
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.MISSING
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.NESTED_CHILD
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.OPENED_TWICE
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.PLUGIN_MISMATCH
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.REENTRANT
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.SCOPE
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.STARTED_TWICE
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNDECLARED
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNKNOWN_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNLISTED_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.WRONG_KIND
@@ -29,21 +28,19 @@ internal object Problems {
     }
 
     fun duplicatePlugin(id: String, count: Int): Problem =
-        Problem(DUPLICATE_PLUGIN, "Duplicate plugin '$id': its bindings are passed $count times.", id, null)
+        Problem(DUPLICATE_PLUGIN, "Duplicate plugin '$id': its bindings are passed $count times.", id)
 
     fun pluginMismatch(id: String, binding: Binding<*>): Problem = Problem(
         PLUGIN_MISMATCH,
         "Plugin mismatch: the bindings of plugin '$id' include ${label(binding)}, " +
             "which belongs to plugin '${binding.plugin}'.",
         id,
-        binding.key,
     )
 
     fun ambiguous(key: Key<*>, bound: List<Node>): Problem = Problem(
         AMBIGUOUS,
         "Ambiguous binding: $key is bound by ${labels(bound, " and ")}. Remove all but one of them.",
         solePlugin(bound),
-        key,
     )
 
     fun conflicting(key: Key<*>, singles: List<Node>, contributions: List<Node>): Problem = Problem(
@@ -52,7 +49,6 @@ internal object Problems {
             "and multibinding contributions from ${labels(contributions)}. " +
             "Bind it either once or only as contributions.",
         solePlugin(singles + contributions),
-        key,
     )
 
     fun missing(node: Node, dependency: Dependency, site: Site): Problem = Problem(
@@ -60,7 +56,6 @@ internal object Problems {
         "Missing binding: nothing binds ${dependency.key}, which ${node.label} needs for parameter " +
             "'${dependency.site}'. ${loaded(site)}",
         node.plugin,
-        dependency.key,
     )
 
     fun extraScope(binding: Binding<*>): Problem = Problem(
@@ -68,7 +63,6 @@ internal object Problems {
         "Wrong scope: ${label(binding)} is added to a channel instance container, " +
             "but is not channel-instance-scoped.",
         binding.plugin,
-        binding.key,
     )
 
     fun unlistedPlugin(node: Node, dependency: Dependency, target: Node): Problem = Problem(
@@ -77,13 +71,12 @@ internal object Problems {
             "${node.label} injects it as parameter '${dependency.site}' and only ${target.label} binds it, " +
             "but the channel instance container is not for plugin '${target.plugin}'.",
         node.plugin,
-        dependency.key,
     )
 
     fun unknownPlugins(site: Site, plugins: Collection<String>): Problem {
         val names = plugins.joinToString { "'$it'" }
         val message = if (plugins.size == 1) "Unknown plugin: $names is" else "Unknown plugins: $names are"
-        return Problem(UNKNOWN_PLUGIN, "$message not loaded. ${loaded(site)}", null, null)
+        return Problem(UNKNOWN_PLUGIN, "$message not loaded. ${loaded(site)}", null)
     }
 
     fun wrongKind(node: Node, dependency: Dependency, bound: List<Node>): Problem = wrongKind(
@@ -106,7 +99,6 @@ internal object Problems {
             "through parameter '${dependency.site}'. " +
             "Make ${node.origin} channel-instance-scoped or drop the dependency.",
         node.plugin,
-        dependency.key,
     )
 
     fun unreachable(node: Node, dependency: Dependency, contributions: List<Node>): Problem {
@@ -118,7 +110,6 @@ internal object Problems {
                 "which singleton ${node.label} collects through parameter '${dependency.site}'. " +
                 "Make $them or make ${node.origin} channel-instance-scoped.",
             solePlugin(contributions),
-            dependency.key,
         )
     }
 
@@ -129,76 +120,59 @@ internal object Problems {
             "Dependency cycle: ${path.joinToString(" -> ") { it.label }}, " +
                 "through $through ${sites.joinToString { "'$it'" }}. Inject one of them as Lazy or a provider.",
             solePlugin(path),
-            path.first().key,
         )
     }
 
     fun closed(site: Site, key: Key<*>): Problem =
-        Problem(CLOSED, "Cannot resolve $key: ${site.label} is closed.", null, key)
+        Problem(CLOSED, "Cannot resolve $key: ${site.label} is closed.", null)
 
     fun closed(site: Site, action: String): Problem =
-        Problem(CLOSED, "Cannot $action ${site.label}: it is closed.", null, null)
+        Problem(CLOSED, "Cannot $action ${site.label}: it is closed.", null)
 
-    fun startedTwice(site: Site): Problem = Problem(STARTED_TWICE, "Cannot start ${site.label} twice.", null, null)
+    fun startedTwice(site: Site): String = "Cannot start ${site.label} twice."
 
-    fun openedTwice(site: Site): Problem = Problem(OPENED_TWICE, "Cannot open ${site.label} twice.", null, null)
+    fun openedTwice(site: Site): String = "Cannot open ${site.label} twice."
 
     fun busy(site: Site, action: String, running: String): String =
         "Cannot $action ${site.label} while its $running step runs."
 
     fun unbound(key: Key<*>, site: Site): Problem =
-        Problem(MISSING, "Nothing binds $key in ${site.label}. ${loaded(site)}", null, key)
+        Problem(MISSING, "Nothing binds $key in ${site.label}. ${loaded(site)}", null)
 
     fun unlisted(key: Key<*>, target: Node, site: Site): Problem = Problem(
         UNLISTED_PLUGIN,
         "Unlisted plugin: $key is only bound in plugin '${target.plugin}', by ${target.label}, " +
             "which ${site.label} is not for.",
         null,
-        key,
     )
 
     fun channelInstanceScoped(node: Node, site: Site): Problem = Problem(
         SCOPE,
         "${node.key} is channel-instance-scoped, bound by ${node.label}, so ${site.label} does not create it.",
         null,
-        node.key,
     )
 
-    fun undeclared(binding: Binding<*>, key: Key<*>, kind: DependencyKind): Problem = Problem(
-        UNDECLARED,
+    fun undeclared(binding: Binding<*>, key: Key<*>, kind: DependencyKind): String =
         "${label(binding)} resolved $key as $kind without declaring it. " +
-            "Add it to the binding's dependencies with DependencyKind.$kind.",
-        binding.plugin,
-        key,
-    )
+            "Add it to the binding's dependencies with DependencyKind.$kind."
 
     fun reentrant(node: Node): Problem = Problem(
         REENTRANT,
         "${node.label} was resolved during its own creation, through a Lazy or provider used in a constructor. " +
             "Use it only after construction.",
         node.plugin,
-        node.key,
     )
 
     fun creationFailed(node: Node, cause: Throwable): Problem =
-        Problem(CREATION_FAILED, "Cannot create ${node.key} with ${node.label}: $cause", node.plugin, node.key)
+        Problem(CREATION_FAILED, "Cannot create ${node.key} with ${node.label}: $cause", node.plugin)
 
-    fun nestedChild(site: Site, name: String?): Problem {
+    fun nestedChild(site: Site, name: String?): String {
         val child = name?.let { "channel instance container '$it'" } ?: "a channel instance container"
-        return Problem(
-            NESTED_CHILD,
-            "Cannot create $child inside ${site.label}: only a root container has channel instance containers.",
-            null,
-            null,
-        )
+        return "Cannot create $child inside ${site.label}: only a root container has channel instance containers."
     }
 
-    fun closedParent(site: Site, name: String): Problem = Problem(
-        CLOSED,
-        "Cannot create channel instance container '$name': ${site.label} is closed.",
-        null,
-        null,
-    )
+    fun closedParent(site: Site, name: String): Problem =
+        Problem(CLOSED, "Cannot create channel instance container '$name': ${site.label} is closed.", null)
 
     fun label(binding: Binding<*>): String = "${binding.origin} (plugin ${binding.plugin})"
 
@@ -208,7 +182,7 @@ internal object Problems {
         } else {
             "has a single binding, from ${labels(bound)}"
         }
-        return Problem(WRONG_KIND, "Wrong dependency kind: $use, but $key $has.", plugin, key)
+        return Problem(WRONG_KIND, "Wrong dependency kind: $use, but $key $has.", plugin)
     }
 
     private fun wanted(dependency: Dependency): String = when (dependency.kind) {

@@ -1,0 +1,104 @@
+[
+  {
+    "type": "tool_result",
+    "record": {
+      "id": 6,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "callId": "toolu_01",
+    "toolName": "notes.add",
+    "content": [
+      {
+        "type": "text",
+        "text": "Saved note #3."
+      }
+    ],
+    "outcome": {
+      "type": "succeeded"
+    }
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_02",
+    "toolName": "notes.add",
+    "content": [
+      {
+        "type": "text",
+        "text": "Give the note."
+      }
+    ],
+    "outcome": {
+      "type": "failed"
+    }
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_03",
+    "toolName": "shell.run",
+    "content": [
+      {
+        "type": "text",
+        "text": "Cancelled."
+      }
+    ],
+    "outcome": {
+      "type": "cancelled"
+    }
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_04",
+    "toolName": "shell.run",
+    "content": [
+      {
+        "type": "text",
+        "text": "A hook refused the call."
+      }
+    ],
+    "outcome": {
+      "type": "not_run",
+      "reason": "hook_denied"
+    }
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_05",
+    "toolName": "files.write",
+    "content": [
+      {
+        "type": "text",
+        "text": "Waiting for approval #7."
+      }
+    ],
+    "outcome": {
+      "type": "not_run",
+      "reason": "approval_pending",
+      "approval": "7"
+    }
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_06",
+    "toolName": "browser.snapshot",
+    "content": [
+      {
+        "type": "text",
+        "text": "The page:"
+      },
+      {
+        "type": "media",
+        "kind": "image",
+        "mediaType": "image/jpeg",
+        "source": {
+          "type": "stored",
+          "id": "m-2"
+        }
+      }
+    ],
+    "outcome": {
+      "type": "succeeded"
+    }
+  }
+]

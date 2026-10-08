@@ -26,6 +26,7 @@ import org.foedusprogramme.alexandrite.runtime.ZONE
 import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
 import org.foedusprogramme.alexandrite.runtime.hang
+import org.foedusprogramme.alexandrite.runtime.hook.TestInterceptor
 import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.probe
 import org.foedusprogramme.alexandrite.runtime.service
@@ -33,15 +34,28 @@ import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startVirtually
 import org.foedusprogramme.alexandrite.runtime.virtual
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
+import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
-import org.foedusprogramme.alexandrite.sdk.hook.Delivery
+import org.foedusprogramme.alexandrite.sdk.hook.FailurePolicy
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
+import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
+import org.foedusprogramme.alexandrite.sdk.hook.HookEffect
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.hook.Interception
+import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverDelivery
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
@@ -79,7 +93,7 @@ class GraphTest {
         override val point: ObserverPoint<String>,
         private val block: suspend () -> Unit = {},
     ) : ObserverHook<String> {
-        override val delivery: Delivery = Delivery.ASYNC
+        override val delivery: ObserverDelivery = ObserverDelivery.ASYNC
         override val timeout: Duration = Duration.INFINITE
 
         override suspend fun observe(payload: String) {
@@ -159,6 +173,68 @@ class GraphTest {
     }
 
     @Test
+    fun `hooks of equal order run by plugin id, then in binding order`() {
+        val point = InterceptorPoint<String>("test.order", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
+        fun hook(plugin: String, name: String, order: Int = 0) =
+            binding(key<Hook>(), plugin, "sample.$name", multi = true) {
+                TestInterceptor(point, order) { HookDecision.Replace("$it $name") }
+            }
+        val plugins = explicit(
+            TestIndex("beta", bindings = listOf(hook("beta", "B1"), hook("beta", "B0", order = -1))),
+            TestIndex(
+                "alpha",
+                bindings = listOf(hook("alpha", "A1"), hook("alpha", "A2"), probe("alpha", "hooks" to key<Hooks>())),
+            ),
+        )
+
+        spec(plugins, dataDir).execute {
+            val hooks = services.get(key<Probe>()).values.getValue("hooks") as Hooks
+
+            assertEquals(Interception.Proceed("start B0 A1 A2 B1"), hooks.fire(point, "start"))
+        }
+    }
+
+    @Test
+    fun `each plugin gets chat states of its own, kept in memory when no store is bound`() {
+        val probe = probe("probe", "mine" to key<ChatStates>("probe"), "theirs" to key<ChatStates>("other"))
+
+        spec(explicit(TestIndex("probe", bindings = listOf(probe)), TestIndex("other")), dataDir).execute {
+            val values = services.get(key<Probe>()).values
+            val mine = (values.getValue("mine") as ChatStates).state("counter", 0)
+            val theirs = (values.getValue("theirs") as ChatStates).state("counter", 0)
+
+            mine.set(CHAT, 3)
+
+            assertEquals(3, mine.get(CHAT))
+            assertEquals(0, theirs.get(CHAT))
+        }
+    }
+
+    @Test
+    fun `chat states are kept in the bound store`() {
+        val rows = mutableMapOf<String, String>()
+        val store = object : ChatStateStore {
+            override suspend fun read(plugin: String, name: String, chat: ChatAddress): String? =
+                rows["$plugin $name $chat"]
+
+            override suspend fun write(plugin: String, name: String, chat: ChatAddress, json: String?) {
+                if (json == null) rows.remove("$plugin $name $chat") else rows["$plugin $name $chat"] = json
+            }
+        }
+        val plugins = explicit(
+            TestIndex("probe", bindings = listOf(probe("probe", "states" to key<ChatStates>("probe")))),
+            TestIndex("store", bindings = listOf(instanceBinding(key<ChatStateStore>(), store, "store", "Store"))),
+        )
+
+        spec(plugins, dataDir).execute {
+            val states = services.get(key<Probe>()).values.getValue("states") as ChatStates
+            states.state("language", LanguageTag("en")).set(CHAT, LanguageTag("zh-CN"))
+        }
+
+        assertEquals(mapOf("probe language $CHAT" to "\"zh-CN\""), rows)
+    }
+
+    @Test
     fun `a stop delivers the queued hook events before closing the container`() {
         hooked({ delay(50.milliseconds) }, shutdownGrace = 10.seconds).execute {
             listOf("a", "b").forEach { hooks.fire(observed, it) }
@@ -201,7 +277,6 @@ class GraphTest {
                     RuntimeProblemKind.DRAIN_TIMED_OUT,
                     "Draining Hooks (plugin alexandrite-runtime) was cancelled: the shutdown grace of 100ms ran out.",
                     "alexandrite-runtime",
-                    null,
                 ),
             ),
             termination.problems,
@@ -225,12 +300,10 @@ class GraphTest {
 
         assertEquals(StartStage.GRAPH, error.stage)
         assertEquals(
-            listOf(
-                Triple(DiProblemKind.MISSING, "alexandrite-channel-bot", key<Service>("token")),
-                Triple(DiProblemKind.MISSING, "relay", key<Service>("socket")),
-            ),
-            error.problems.map { Triple(it.kind, it.plugin, it.key) },
+            listOf(DiProblemKind.MISSING to "alexandrite-channel-bot", DiProblemKind.MISSING to "relay"),
+            error.problems.map { it.kind to it.plugin },
         )
+        assertContains(error.problems.last().message, "nothing binds ${key<Service>("socket")}")
         assertContains(error.problems.first().message, "which bot (plugin alexandrite-channel-bot) needs")
         assertEquals(listOf("create store", "destroy store"), events.all())
     }
@@ -251,3 +324,5 @@ class GraphTest {
     private fun channel(name: String, plugin: String, key: Key<Service>) =
         service(name, plugin, events, scope = Scope.CHANNEL_INSTANCE, key = key)
 }
+
+private val CHAT = ChatAddress(ChannelInstanceId(ChannelType("telegram"), "work"), "-100")

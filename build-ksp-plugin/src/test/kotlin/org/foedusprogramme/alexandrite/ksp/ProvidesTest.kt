@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.ksp
 
+import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
@@ -178,6 +179,7 @@ class ProvidesTest {
             """
             package sample
 
+            import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
             import org.foedusprogramme.alexandrite.sdk.di.Singleton
             import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
             import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
@@ -191,6 +193,7 @@ class ProvidesTest {
                 val info: PluginInfo,
                 val scope: PluginScope,
                 val control: RuntimeControl,
+                val states: ChatStates,
             )
             """,
         )
@@ -210,6 +213,7 @@ class ProvidesTest {
                 key<PluginInfo>("weather"),
                 key<PluginScope>("weather"),
                 key<RuntimeControl>("weather"),
+                key<ChatStates>("weather"),
             )
             assertEquals(expected, binding.dependencies.map { it.key })
         }

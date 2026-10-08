@@ -1,8 +1,13 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
+import org.foedusprogramme.alexandrite.runtime.chat.MemoryChatStateStore
+import org.foedusprogramme.alexandrite.runtime.chat.PluginChatStates
+import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookDispatcher
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
+import org.foedusprogramme.alexandrite.sdk.chat.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
@@ -28,11 +33,14 @@ internal fun runtimeBindings(
     config: RuntimeConfig,
     plugins: List<PluginInfo>,
     hookFailures: HookFailureListener,
+    unreadableStates: UnreadableStateListener,
     control: (plugin: String) -> RuntimeControl,
     scopes: PluginScopes,
     context: CoroutineContext,
 ): PluginBindings {
     val hooks = key<Hook>()
+    val stateStore = key<ChatStateStore>()
+    val memory by lazy { MemoryChatStateStore() }
     val bindings = listOf(
         binding(
             key<Hooks>(),
@@ -68,6 +76,13 @@ internal fun runtimeBindings(
                 RUNTIME_PLUGIN,
                 "RuntimeControl of ${plugin.id}",
             ),
+            binding(
+                key<ChatStates>(plugin.id),
+                RUNTIME_PLUGIN,
+                "ChatStates of ${plugin.id}",
+                dependencies = listOf(Dependency(stateStore, DependencyKind.OPTIONAL, "store")),
+                managed = false,
+            ) { r -> PluginChatStates(plugin.id, r.getOrNull(stateStore) ?: memory, unreadableStates) },
         )
     }
     return PluginBindings(RUNTIME_PLUGIN, bindings)

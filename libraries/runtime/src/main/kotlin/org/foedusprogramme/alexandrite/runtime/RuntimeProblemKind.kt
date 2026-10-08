@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.runtime
 
 import org.foedusprogramme.alexandrite.sdk.problem.ProblemKind
 
-/** What a problem of the runtime is about. */
+/** What a problem of the runtime is about, in a set that grows with the runtime's checks. */
 public enum class RuntimeProblemKind : ProblemKind {
     /** A plugin id outside the id grammar. */
     MALFORMED_ID,

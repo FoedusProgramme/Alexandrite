@@ -46,12 +46,12 @@ class ValidationTest {
         )
         assertEquals(
             listOf(
-                Triple(AMBIGUOUS, null, svc("registry")),
-                Triple(SCOPE, "core", svc("state")),
-                Triple(MISSING, "core", svc("clock")),
-                Triple(CYCLE, "core", svc("a")),
+                AMBIGUOUS to null,
+                SCOPE to "core",
+                MISSING to "core",
+                CYCLE to "core",
             ),
-            error.problems.map { Triple(it.kind, it.plugin, it.key) },
+            error.problems.map { it.kind to it.plugin },
         )
     }
 
@@ -68,8 +68,8 @@ class ValidationTest {
             error.message,
         )
         assertEquals(
-            listOf(Triple(PLUGIN_MISMATCH, "core", svc("b"))),
-            error.problems.map { Triple(it.kind, it.plugin, it.key) },
+            listOf(PLUGIN_MISMATCH to "core"),
+            error.problems.map { it.kind to it.plugin },
         )
     }
 
@@ -186,9 +186,9 @@ class ValidationTest {
         }
 
         assertEquals(
-            listOf(Triple(SCOPE, "relay", svc("tools"))),
+            listOf(SCOPE to "relay"),
             error.problems.map {
-                Triple(it.kind, it.plugin, it.key)
+                it.kind to it.plugin
             },
         )
     }

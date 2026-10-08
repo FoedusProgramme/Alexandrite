@@ -4,7 +4,6 @@ import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.AMBIGUOUS
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.CONFLICTING
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.DUPLICATE_PLUGIN
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.MISSING
-import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.UNDECLARED
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind.WRONG_KIND
 import org.foedusprogramme.alexandrite.sdk.di.key
 import kotlin.test.Test
@@ -210,7 +209,7 @@ class BindingTest {
 
         val error = assertFailsWith<DiException> { build(sneaky, service("b")) }
 
-        assertEquals(listOf(UNDECLARED), error.problems.map { it.kind })
+        assertEquals(listOf(DiProblemKind.CREATION_FAILED), error.problems.map { it.kind })
         assertContains(error.message!!, "a (plugin test) resolved ${svc("b")} as INSTANCE without declaring it")
     }
 }

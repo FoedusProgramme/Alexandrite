@@ -1,0 +1,92 @@
+[
+  {
+    "type": "assistant",
+    "record": {
+      "id": 4,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "parts": [
+      {
+        "type": "reasoning",
+        "text": "The user wants a note.",
+        "seal": {
+          "origin": "anthropic/claude-opus",
+          "dialect": "anthropic",
+          "kind": "signature",
+          "data": "EqQBCkYIBx=="
+        }
+      },
+      {
+        "type": "text",
+        "text": "Saving it."
+      },
+      {
+        "type": "tool_call",
+        "id": "toolu_01",
+        "name": "notes.add",
+        "arguments": "{\"text\":\"buy milk\"}"
+      },
+      {
+        "type": "opaque",
+        "dialect": "anthropic",
+        "kind": "server_tool_use",
+        "json": {
+          "id": "srvtoolu_01",
+          "name": "web_search"
+        }
+      }
+    ],
+    "producedBy": "anthropic/claude-opus",
+    "providerData": {
+      "anthropic": {
+        "id": "msg_01"
+      }
+    }
+  },
+  {
+    "type": "assistant",
+    "record": {
+      "id": 5,
+      "conversation": "c1",
+      "turn": "t1",
+      "createdAt": "2026-10-07T08:30:00Z"
+    },
+    "parts": [
+      {
+        "type": "reasoning",
+        "summary": "Thought it over.",
+        "seal": {
+          "origin": "openai/gpt-x",
+          "dialect": "openai-responses",
+          "kind": "encrypted",
+          "data": "gAAAAABo",
+          "providerData": {
+            "openai-responses": {
+              "itemId": "rs_1"
+            }
+          }
+        }
+      }
+    ],
+    "producedBy": "openai/gpt-x"
+  },
+  {
+    "type": "assistant",
+    "parts": [
+      {
+        "type": "tool_call",
+        "id": "call-t1-0-0",
+        "name": "notes.add",
+        "arguments": "{\"text\":",
+        "providerData": {
+          "deepseek": {
+            "index": 0
+          }
+        }
+      }
+    ],
+    "producedBy": "anthropic/claude-opus"
+  }
+]
