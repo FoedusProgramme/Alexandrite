@@ -26,7 +26,7 @@ internal class IndexWriter(
         }
         val descriptorPath = "$DESCRIPTOR_DIRECTORY/${options.id}"
         codeGenerator.createNewFileByPath(dependencies, descriptorPath, DESCRIPTOR_EXTENSION).writer().use {
-            it.write(descriptor())
+            it.write(descriptor(components))
         }
     }
 
@@ -52,7 +52,6 @@ internal class IndexWriter(
             appendLine("        sdkApi = AlexandriteSdk.API_VERSION,")
             appendLine("        requires = ${listCode(entry.requires.map(::literal))},")
             appendLine("        entryClass = ${literal(entry.className)},")
-            appendLine("        channelType = ${entry.channelType?.let(::literal) ?: "null"},")
             appendLine("    )")
             appendLine()
             appendLine("    override val configRoot: String = ${literal(options.configRoot)}")
@@ -70,7 +69,16 @@ internal class IndexWriter(
         }
     }
 
-    private fun descriptor(): String {
+    private fun descriptor(components: Collection<Component>): String {
+        val names = components.sortedBy { it.origin }
+            .flatMap { it.contributes }
+            .mapNotNull { bound -> bound.name?.let { bound.className to jsonString(it) } }
+            .groupBy({ it.first }, { it.second })
+            .toSortedMap()
+            .entries
+            .joinToString(prefix = "{", postfix = "}") { (spi, values) ->
+                "${jsonString(spi)}: ${values.joinToString(prefix = "[", postfix = "]")}"
+            }
         val fields = listOf(
             "id" to jsonString(options.id),
             "name" to jsonString(entry.name),
@@ -79,7 +87,7 @@ internal class IndexWriter(
             "sdkApi" to SDK_API_VERSION.toString(),
             "requires" to entry.requires.joinToString(prefix = "[", postfix = "]") { jsonString(it) },
             "entryClass" to jsonString(entry.className),
-            "channelType" to (entry.channelType?.let(::jsonString) ?: "null"),
+            "contributionNames" to names,
             "indexClass" to jsonString(indexClass),
             "configRoot" to jsonString(options.configRoot),
             "builtIn" to options.builtIn.toString(),
@@ -126,18 +134,22 @@ internal class IndexWriter(
         val own = binding(component.key, component, component.dependencies.map { it.code }, create)
         return listOf(own) +
             component.binds.map { alias(component, it.key, BINDS) } +
-            component.contributes.map { alias(component, it.key, CONTRIBUTE, "multi = true") }
+            component.contributes.map { bound ->
+                val flags = listOfNotNull("multi = true", bound.name?.let { "name = ${literal(it)}" })
+                alias(component, bound.key, CONTRIBUTE, flags)
+            }
     }
 
-    private fun alias(component: Component, key: Key, annotation: String, vararg flags: String): String = binding(
-        key,
-        component,
-        dependencies = listOf(
-            dependencyCode(component.key, DependencyKind.INSTANCE, Messages.annotationLabel(annotation)),
-        ),
-        create = "{ $RESOLVER -> $RESOLVER.get(${component.key.code}) }",
-        flags = flags.toList() + "managed = false",
-    )
+    private fun alias(component: Component, key: Key, annotation: String, flags: List<String> = emptyList()): String =
+        binding(
+            key,
+            component,
+            dependencies = listOf(
+                dependencyCode(component.key, DependencyKind.INSTANCE, Messages.annotationLabel(annotation)),
+            ),
+            create = "{ $RESOLVER -> $RESOLVER.get(${component.key.code}) }",
+            flags = flags + "managed = false",
+        )
 
     private fun binding(
         key: Key,

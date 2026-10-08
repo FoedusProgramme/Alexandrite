@@ -47,13 +47,7 @@ class ValueTypesTest {
             { PluginInfo("weather", "Weather", "1.0", "Forecasts", 1, listOf("geo"), "sample.Weather") },
             PluginInfo("weather", "Weather", "1.1", "Forecasts", 1, listOf("geo"), "sample.Weather"),
             "PluginInfo(id=weather, name=Weather, version=1.0, description=Forecasts, sdkApi=1, requires=[geo], " +
-                "entryClass=sample.Weather, channelType=null)",
-        ),
-        Case(
-            { PluginInfo("tg", "Telegram", "1.0", "", 1, emptyList(), "sample.Tg", "telegram") },
-            PluginInfo("tg", "Telegram", "1.0", "", 1, emptyList(), "sample.Tg", "discord"),
-            "PluginInfo(id=tg, name=Telegram, version=1.0, description=, sdkApi=1, requires=[], " +
-                "entryClass=sample.Tg, channelType=telegram)",
+                "entryClass=sample.Weather)",
         ),
         Case(
             { ToolDefinition("fs.read", "Reads a file", JsonObject(emptyMap())) },

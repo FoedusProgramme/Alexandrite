@@ -58,6 +58,9 @@ public interface Binding<T : Any> {
     /** Whether this contributes to [Resolver.getAll]. */
     public val multi: Boolean
 
+    /** The name of a contribution to a named SPI. */
+    public val name: String? get() = null
+
     /** Names the binding in error messages. */
     public val origin: String
 
@@ -76,8 +79,12 @@ public fun <T : Any> binding(
     dependencies: List<Dependency> = emptyList(),
     multi: Boolean = false,
     managed: Boolean = true,
+    name: String? = null,
     create: (Resolver) -> T,
-): Binding<T> = FunctionBinding(key, scope, plugin, dependencies, multi, origin, managed, create)
+): Binding<T> {
+    require(name == null || multi) { "Binding $origin has a name, but only a contribution can have one." }
+    return FunctionBinding(key, scope, plugin, dependencies, multi, name, origin, managed, create)
+}
 
 @InternalAlexandriteApi
 public fun <T : Any> instanceBinding(
@@ -96,6 +103,7 @@ private class FunctionBinding<T : Any>(
     override val plugin: String,
     override val dependencies: List<Dependency>,
     override val multi: Boolean,
+    override val name: String?,
     override val origin: String,
     override val managed: Boolean,
     private val factory: (Resolver) -> T,

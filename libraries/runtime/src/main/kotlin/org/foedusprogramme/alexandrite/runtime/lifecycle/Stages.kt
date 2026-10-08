@@ -175,10 +175,9 @@ internal class Stages(
         val bindings = assembly.pluginBindings(resolution.enabled)
         val ids = resolution.enabled.flatMap { plugin -> plugin.config.instances.map { it.id } }
         val directory = InstanceDirectory(ids.toCollection(LinkedHashSet())).also { directory = it }
-        assembly.checkChannels(resolution.enabled, bindings)
         val built = assembly.container(resolution.enabled, bindings, directory, channels)
         container = built
-        assembly.checkChannelInstances(built, resolution.enabled, bindings)
+        assembly.checkChannelInstances(built, resolution.enabled)
         assembly.createInstances(built, resolution.enabled, instances::add)
         return built
     }

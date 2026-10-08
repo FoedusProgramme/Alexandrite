@@ -53,6 +53,12 @@ class SdkContractTest {
     }
 
     @Test
+    fun `the annotation arguments the processor reads are the SDK's`() {
+        assertEquals(Contribute::name.name, CONTRIBUTION_NAME)
+        assertEquals(ContributedSpi::named.name, NAMED_SPI)
+    }
+
+    @Test
     fun `the types the generated index refers to are the SDK's`() {
         assertNames(
             AlexandriteSdk::class to ALEXANDRITE_SDK,

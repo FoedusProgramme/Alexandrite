@@ -82,8 +82,7 @@ internal class AlexandriteProcessor(
         } else {
             hiddenNames(indexClass)
         }
-        val entry = entries.singleOrNull()?.takeIf { entryClasses.size == 1 }
-        val wiring = WiringCheck(registry, sections, implementations, entry).problems()
+        val wiring = WiringCheck(registry, sections, implementations).problems()
         val reported = problems + unresolved.values.flatten() + wiring + listOfNotNull(entryProblem()) + placement
         reported.forEach(::log)
         if (reported.isNotEmpty() || indexClass == null) return

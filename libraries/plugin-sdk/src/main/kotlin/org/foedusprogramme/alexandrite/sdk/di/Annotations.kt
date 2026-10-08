@@ -30,7 +30,11 @@ public annotation class Binds(vararg val types: KClass<*>)
 /** Adds the instance as a multibinding contribution to each of [types]. */
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.BINARY)
-public annotation class Contribute(vararg val types: KClass<*>)
+public annotation class Contribute(
+    vararg val types: KClass<*>,
+    /** The name of the contribution to a named [ContributedSpi]. */
+    val name: String = "",
+)
 
 /** Binds what the function returns under its return type. */
 @Target(AnnotationTarget.FUNCTION)
@@ -40,7 +44,10 @@ public annotation class Provides
 /** Marks an SPI whose implementations are contributed. */
 @Target(AnnotationTarget.CLASS)
 @Retention(AnnotationRetention.BINARY)
-public annotation class ContributedSpi
+public annotation class ContributedSpi(
+    /** Whether every contribution to the SPI carries a name. */
+    val named: Boolean = false,
+)
 
 /** Marks a service type each plugin gets its own instance of, qualified by the plugin id. */
 @Target(AnnotationTarget.CLASS)

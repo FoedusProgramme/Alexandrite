@@ -146,6 +146,7 @@ internal abstract class DeclarationReader(
     ): List<Bound> {
         val annotation = symbols.annotation(declaration, annotationName) ?: return emptyList()
         val annotationLabel = Messages.annotationLabel(annotationName)
+        val name = if (annotationName == CONTRIBUTE) annotation.argument(CONTRIBUTION_NAME) as? String ?: "" else ""
         val supertypes = (type.declaration as? KSClassDeclaration)?.let(symbols::supertypes).orEmpty()
         val listed = mutableSetOf<String>()
         return annotation.types().mapNotNull { listedType ->
@@ -167,14 +168,14 @@ internal abstract class DeclarationReader(
                 annotationName == CONTRIBUTE && !channelInstanceScoped && boundName == CHANNEL ->
                     Messages.singletonChannel(label, provider)
 
-                else -> boundProblem(annotationName, boundClass, supertype, qualifier)
+                else -> boundProblem(annotationName, boundClass, supertype, qualifier, name)
             }
             if (problem != null || supertype == null) {
                 problem?.let(::report)
                 return@mapNotNull null
             }
             use(supertype)
-            Bound(Key(supertype.source(), qualifier), boundName)
+            Bound(Key(supertype.source(), qualifier), boundName, name.ifEmpty { null })
         }
     }
 
@@ -183,6 +184,7 @@ internal abstract class DeclarationReader(
         boundClass: KSDeclaration,
         supertype: ExpandedType,
         qualifier: String?,
+        name: String,
     ): String? {
         val boundName = boundClass.name
         val isSpi = symbols.has(boundClass, CONTRIBUTED_SPI)
@@ -193,8 +195,19 @@ internal abstract class DeclarationReader(
             }
         }
         val spis = (boundClass as? KSClassDeclaration)?.let(symbols::contributedSpis).orEmpty()
-        if (isSpi || spis.isEmpty()) return null
+        if (isSpi || spis.isEmpty()) return nameProblem(boundClass, name)
         return Messages.contributedSubtype(label, boundName, spis.map { it.name })
+    }
+
+    /** The problem of contributing to [bound] under [name], null when there is none. */
+    private fun nameProblem(bound: KSDeclaration, name: String): String? {
+        val named = symbols.isNamedSpi(bound)
+        return when {
+            !named && name.isNotEmpty() -> Messages.namedContribution(label, bound.name, name)
+            named && name.isBlank() -> Messages.unnamedContribution(label, bound.name)
+            bound.name == CHANNEL && !PLUGIN_ID.matches(name) -> Messages.malformedChannelType(label, name)
+            else -> null
+        }
     }
 
     private fun isUnannotatedClass(declaration: KSClassDeclaration): Boolean = declaration.isInSources &&

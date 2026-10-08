@@ -149,6 +149,19 @@ class BindingTest {
     }
 
     @Test
+    fun `only a contribution has a name`() {
+        val named = binding(tools, "test", "t1", multi = true, name = "one") { Service("t1", Events(), emptyMap()) }
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            binding(svc("a"), "test", "a", name = "a") { Service("a", Events(), emptyMap()) }
+        }
+
+        assertEquals("one", named.name)
+        assertNull(tool("t2", "test").name)
+        assertEquals("Binding a has a name, but only a contribution can have one.", error.message)
+    }
+
+    @Test
     fun `two binding lists of one plugin are rejected`() {
         val error = assertFailsWith<DiException> {
             Container.build(listOf(plugin("test", service("a")), plugin("test", service("b"))))

@@ -5,7 +5,6 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.channel.RuntimeChannelInstance
-import org.foedusprogramme.alexandrite.runtime.channel.channelProblems
 import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.config.ConfigResolution
 import org.foedusprogramme.alexandrite.runtime.config.EnabledPlugin
@@ -146,12 +145,8 @@ internal class Assembly(
         return resolution
     }
 
-    fun pluginBindings(enabled: List<EnabledPlugin>): List<PluginBindings> = try {
-        enabled.map { PluginBindings(it.member.id, it.member.index.bindings() + it.config.bindings) }
-    } catch (e: Exception) {
-        interruption(e)?.let { throw it }
-        throw startFailure(name, StartStage.GRAPH, cause = e)
-    }
+    fun pluginBindings(enabled: List<EnabledPlugin>): List<PluginBindings> =
+        enabled.map { PluginBindings(it.id, it.bindings + it.config.bindings) }
 
     /** The container of [plugins] and of what the runtime binds for [enabled]. */
     fun container(
@@ -182,18 +177,11 @@ internal class Assembly(
         throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
     }
 
-    /** Checks that each channel plugin contributes one channel-instance-scoped Channel and no other plugin any. */
-    fun checkChannels(enabled: List<EnabledPlugin>, plugins: List<PluginBindings>) {
-        val problems = channelProblems(plugins, enabled.associate { it.id to it.channelType })
-        if (problems.isNotEmpty()) throw startFailure(name, StartStage.GRAPH, problems)
-    }
-
     /** Validates the channel instance graph of each plugin that has one without creating anything. */
-    fun checkChannelInstances(container: Container, enabled: List<EnabledPlugin>, plugins: List<PluginBindings>) {
-        val bindings = plugins.associate { it.id to it.bindings }
+    fun checkChannelInstances(container: Container, enabled: List<EnabledPlugin>) {
         val problems = try {
             enabled.filter { plugin ->
-                plugin.channelType != null || bindings[plugin.id].orEmpty().any { it.scope == Scope.CHANNEL_INSTANCE }
+                plugin.channelType != null || plugin.bindings.any { it.scope == Scope.CHANNEL_INSTANCE }
             }.flatMap { container.validateChild(setOf(it.id), placeholders(it)) }
         } catch (e: Exception) {
             interruption(e)?.let { throw it }

@@ -49,13 +49,6 @@ private fun identityProblem(member: PluginSet.Member): Problem? {
                 "digits, each starting with a letter, joined by single hyphens, such as \"my-plugin\".",
         )
 
-        member.plugin.info.channelType?.let(PluginIds.PATTERN::matches) == false -> problem(
-            RuntimeProblemKind.MALFORMED_CHANNEL_TYPE,
-            "Malformed channel type '${member.plugin.info.channelType}' of plugin '$id' (${member.className}): a " +
-                "channel type is lowercase words of letters and digits, each starting with a letter, joined by " +
-                "single hyphens, such as \"telegram\". Rebuild the plugin with the Alexandrite KSP processor.",
-        )
-
         row != null && (row.id != id || row.configRoot != root) -> problem(
             RuntimeProblemKind.MISMATCHED_INDEX,
             "Mismatched built-in index ${member.className}: it declares plugin '$id' at config root '$root', but " +

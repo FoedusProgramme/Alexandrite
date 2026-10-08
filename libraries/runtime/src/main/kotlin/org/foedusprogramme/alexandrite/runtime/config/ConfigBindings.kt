@@ -28,17 +28,17 @@ internal class PluginConfig(val bindings: List<Binding<*>>, val instances: List<
 
 /**
  * One unmanaged binding per config section of [index], decoded strictly from its subtree of [source], and one per
- * instance section for each channel instance below the root's `instances`.
+ * instance section for each channel instance below the root's `instances` when the plugin has a channel [type].
  */
 internal fun configBindings(
     index: PluginIndex,
+    type: ChannelType?,
     source: ConfigSource,
     secrets: MutableCollection<String>,
     json: Json = Json,
 ): PluginConfig {
     val root = index.configRoot
     val plugin = index.info.id
-    val type = index.info.channelType?.let(::ChannelType)
     val (shared, perInstance) = index.configSections().partition { it.scope == Scope.SINGLETON }
     val reserved = setOfNotNull(PluginIds.ENABLED_KEY, PluginIds.INSTANCES_KEY.takeIf { type != null })
     val bindings = decodeSections(source, root, shared, reserved, Scope.SINGLETON, plugin, json, secrets)

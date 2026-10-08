@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.ksp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
@@ -39,7 +41,7 @@ class ChannelTest {
         import org.foedusprogramme.alexandrite.sdk.di.Contribute
         import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
 
-        @Plugin(name = "Chat", channelType = "chat")
+        @Plugin(name = "Chat")
         class ChatPlugin
 
         @ConfigSection @Serializable class ChatConfig(val api: String = "https://chat.example")
@@ -51,7 +53,7 @@ class ChannelTest {
         @ConfigSection("limits") @Serializable class SharedLimits(val total: Int = 30)
 
         @ChannelInstanceScoped
-        @Contribute(Channel::class)
+        @Contribute(Channel::class, name = "chat")
         class ChatChannel(
             private val instance: ChannelInstance,
             private val token: TokenConfig,
@@ -84,9 +86,14 @@ class ChannelTest {
     }
 
     @Test
-    fun `the index and the descriptor carry the declared channel type`() {
-        assertEquals("chat", index.info.channelType)
-        assertEquals(JsonPrimitive("chat"), compiled.descriptor("chat-plugin")["channelType"])
+    fun `the channel's binding and the descriptor carry its name, the channel type`() {
+        val channel = index.bindings().single { it.key == key<Channel>() }
+
+        assertEquals("chat", channel.name)
+        assertEquals(
+            JsonObject(mapOf(CHANNEL to JsonArray(listOf(JsonPrimitive("chat"))))),
+            compiled.descriptor("chat-plugin")["contributionNames"],
+        )
     }
 
     @Test

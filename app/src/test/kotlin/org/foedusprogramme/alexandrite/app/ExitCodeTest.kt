@@ -106,12 +106,12 @@ class ExitCodeTest {
     }
 
     @Test
-    fun `a GRAPH stage that failed on the channel rules exits 78`() {
-        val channel = binding<Channel>(key(), "a", "Bot", multi = true) { error("never created") }
+    fun `a start that failed on the channel rules exits 78`() {
+        val channel = binding<Channel>(key(), "a", "Bot", multi = true, name = "bot") { error("never created") }
 
         val error = failed(spec(dataDir, TestIndex("a", listOf(channel))))
 
-        assertEquals(StartStage.GRAPH, error.stage)
+        assertEquals(StartStage.CONFIG, error.stage)
         assertEquals(listOf(RuntimeProblemKind.CHANNEL_CONTRIBUTIONS), error.problems.map { it.kind })
         assertEquals(78, exitCode(error))
     }

@@ -9,6 +9,8 @@ internal const val BINDS = "$DI.Binds"
 internal const val CONTRIBUTE = "$DI.Contribute"
 internal const val PROVIDES = "$DI.Provides"
 internal const val CONTRIBUTED_SPI = "$DI.ContributedSpi"
+internal const val CONTRIBUTION_NAME = "name"
+internal const val NAMED_SPI = "named"
 internal const val PLUGIN_LOCAL = "$DI.PluginLocal"
 internal const val KEY_FUNCTION = "$DI.key"
 

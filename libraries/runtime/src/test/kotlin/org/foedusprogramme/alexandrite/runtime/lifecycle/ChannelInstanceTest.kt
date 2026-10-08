@@ -198,6 +198,7 @@ class ChannelInstanceTest {
             Dependency(key<ChannelDirectory>(), DependencyKind.INSTANCE, "directory"),
         ),
         multi = true,
+        name = "chan",
     ) { r ->
         val instance = r.get(key<ChannelInstance>())
         steps.construct(instance)
@@ -206,7 +207,7 @@ class ChannelInstanceTest {
     }
 
     private fun chan(steps: Steps = Steps()) =
-        TestIndex("chan", bindings = listOf(bot(steps)), sections = listOf(botSection), channelType = "chan")
+        TestIndex("chan", bindings = listOf(bot(steps)), sections = listOf(botSection))
 
     private fun agent(drain: suspend () -> Unit = {}) = TestIndex(
         "agent",
@@ -537,34 +538,51 @@ class ChannelInstanceTest {
     // Channel rules.
 
     @Test
-    fun `channel contributions other than one channel-instance-scoped channel per channel plugin fail GRAPH`() {
+    fun `channel contributions other than one named channel-instance-scoped channel per plugin fail CONFIG alone`() {
         val plugins = explicit(
-            TestIndex("none", channelType = "none"),
-            TestIndex("solo", bindings = listOf(plain("solo", "Solo", SINGLETON), plain("solo", "Loose", CHANNEL))),
+            TestIndex("loose", bindings = listOf(plain("loose", "Loose", CHANNEL))),
+            TestIndex("odd", bindings = listOf(plain("odd", "Odd", CHANNEL, "Odd_Type"))),
+            TestIndex("solo", bindings = listOf(plain("solo", "Solo", SINGLETON, "solo"))),
             TestIndex(
                 "twin",
-                bindings = listOf(plain("twin", "First", CHANNEL), plain("twin", "Second", CHANNEL)),
-                channelType = "twin",
+                bindings = listOf(plain("twin", "First", CHANNEL, "twin"), plain("twin", "Second", CHANNEL, "twin")),
             ),
         )
 
-        val error = spec(plugins, dataDir).startFailure()
+        val instances = """{"plugins": {"loose": {"instances": {"work": {}}}, "twin": {"instances": {"work": {}}}}}"""
 
-        assertEquals(StartStage.GRAPH, error.stage)
+        val error = spec(plugins, dataDir, instances).startFailure()
+
+        assertEquals(StartStage.CONFIG, error.stage)
         assertEquals(
             listOf(
-                "none" to "Missing channel: plugin 'none' of channel type 'none' contributes no " +
-                    "channel-instance-scoped Channel.",
-                "solo" to "Singleton channel: Solo (plugin solo) contributes a Channel, which is " +
-                    "channel-instance-scoped.",
-                "solo" to "Untyped channel: Loose (plugin solo) contributes a Channel, but plugin 'solo' declares no " +
-                    "channel type.",
-                "twin" to "Several channels: plugin 'twin' of channel type 'twin' contributes a Channel from First " +
-                    "(plugin twin) and Second (plugin twin), but each channel instance has exactly one.",
+                Problem(
+                    RuntimeProblemKind.CHANNEL_CONTRIBUTIONS,
+                    "Unnamed channel: Loose (plugin loose) contributes a Channel without a name, which is its " +
+                        "channel type.",
+                    "loose",
+                ),
+                Problem(
+                    RuntimeProblemKind.MALFORMED_CHANNEL_TYPE,
+                    "Malformed channel type 'Odd_Type' of plugin 'odd', the name of its Channel Odd: a channel type " +
+                        "is lowercase words of letters and digits, each starting with a letter, joined by single " +
+                        "hyphens, such as \"telegram\". Rebuild the plugin with the Alexandrite KSP processor.",
+                    "odd",
+                ),
+                Problem(
+                    RuntimeProblemKind.CHANNEL_CONTRIBUTIONS,
+                    "Singleton channel: Solo (plugin solo) contributes a Channel, which is channel-instance-scoped.",
+                    "solo",
+                ),
+                Problem(
+                    RuntimeProblemKind.CHANNEL_CONTRIBUTIONS,
+                    "Several channels: plugin 'twin' contributes a Channel from First (plugin twin) and Second " +
+                        "(plugin twin), but a channel plugin contributes exactly one.",
+                    "twin",
+                ),
             ),
-            error.problems.map { it.plugin to it.message },
+            error.problems,
         )
-        assertTrue(error.problems.all { it.kind == RuntimeProblemKind.CHANNEL_CONTRIBUTIONS })
     }
 
     @Test
@@ -574,9 +592,10 @@ class ChannelInstanceTest {
             Dependency(key<BotConfig>(), DependencyKind.INSTANCE, "config"),
             Dependency(key<String>("token"), DependencyKind.INSTANCE, "token"),
         )
-        val needy = binding(key<Channel>(), "chan", "Needy", CHANNEL, dependencies, multi = true) { TestChannel() }
-        val plugins =
-            explicit(TestIndex("chan", bindings = listOf(needy), sections = listOf(botSection), channelType = "chan"))
+        val needy = binding(key<Channel>(), "chan", "Needy", CHANNEL, dependencies, multi = true, name = "chan") {
+            TestChannel()
+        }
+        val plugins = explicit(TestIndex("chan", bindings = listOf(needy), sections = listOf(botSection)))
 
         val error = spec(plugins, dataDir, """{"plugins": {"chan": {}}}""").startFailure()
 
@@ -586,25 +605,24 @@ class ChannelInstanceTest {
     }
 
     @Test
-    fun `a channel contributed by a singleton fails GRAPH before the singleton is created`() {
-        val singleton = binding(key<Channel>(), "solo", "Solo", SINGLETON, multi = true) {
+    fun `a channel contributed by a singleton fails CONFIG before the singleton is created`() {
+        val singleton = binding(key<Channel>(), "solo", "Solo", SINGLETON, multi = true, name = "solo") {
             events.record("create solo")
             TestChannel()
         }
 
         val error = spec(explicit(TestIndex("solo", bindings = listOf(singleton))), dataDir).startFailure()
 
+        assertEquals(StartStage.CONFIG, error.stage)
         assertEquals(listOf(RuntimeProblemKind.CHANNEL_CONTRIBUTIONS), error.problems.map { it.kind })
         assertEquals(emptyList(), events.all())
     }
 
     @Test
-    fun `two enabled plugins of one channel type fail CONFIG, and a malformed channel type fails PLUGINS`() {
-        val twins = explicit(chan(), TestIndex("other", channelType = "chan"))
-        val malformed = explicit(TestIndex("odd", channelType = "Odd_Type"))
+    fun `two enabled plugins of one channel type fail CONFIG`() {
+        val twins = explicit(chan(), TestIndex("other", bindings = listOf(plain("other", "Other", CHANNEL, "chan"))))
 
         val duplicate = spec(twins, dataDir, twoInstances).startFailure()
-        val odd = spec(malformed, dataDir).startFailure()
 
         assertEquals(StartStage.CONFIG, duplicate.stage)
         assertEquals(
@@ -618,12 +636,10 @@ class ChannelInstanceTest {
             ),
             duplicate.problems,
         )
-        assertEquals(StartStage.PLUGINS, odd.stage)
-        assertEquals(listOf(RuntimeProblemKind.MALFORMED_CHANNEL_TYPE), odd.problems.map { it.kind })
     }
 
-    private fun plain(plugin: String, origin: String, scope: Scope): Binding<Channel> =
-        binding(key<Channel>(), plugin, origin, scope, multi = true) { TestChannel() }
+    private fun plain(plugin: String, origin: String, scope: Scope, name: String? = null): Binding<Channel> =
+        binding(key<Channel>(), plugin, origin, scope, multi = true, name = name) { TestChannel() }
 
     private open class TestChannel : Channel {
         override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities =

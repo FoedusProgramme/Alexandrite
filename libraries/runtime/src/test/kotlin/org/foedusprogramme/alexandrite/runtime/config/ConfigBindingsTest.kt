@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.runtime.TestIndex
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
@@ -65,7 +66,7 @@ class ConfigBindingsTest {
     private fun source(json: String) = JsonConfigSource(Json.parseToJsonElement(json).jsonObject)
 
     private fun bindings(json: String, vararg sections: ConfigSectionSpec<*>): List<Binding<*>> =
-        configBindings(index(*sections), source(json), mutableListOf()).bindings
+        configBindings(index(*sections), null, source(json), mutableListOf()).bindings
 
     private fun decoded(json: String, vararg sections: ConfigSectionSpec<*>): Container =
         Container.build(emptyList(), overrides = bindings(json, *sections))
@@ -271,7 +272,8 @@ class ConfigBindingsTest {
         ConfigSectionSpec(key<LimitConfig>(), "limits", LimitConfig.serializer(), "chat.Limits", CHANNEL)
 
     private fun channel(json: String, vararg sections: ConfigSectionSpec<*>): PluginConfig = configBindings(
-        TestIndex("chat", sections = sections.toList(), channelType = "chat"),
+        TestIndex("chat", sections = sections.toList()),
+        ChannelType("chat"),
         source(json),
         mutableListOf(),
     )
@@ -367,9 +369,10 @@ class ConfigBindingsTest {
         val bot = spec("bot", BotConfig.serializer())
         val secrets = mutableListOf<String>()
 
-        configBindings(index(bot), source("""{"plugins": {"weather": {"bot": {"token": "s3cr3t"}}}}"""), secrets)
+        configBindings(index(bot), null, source("""{"plugins": {"weather": {"bot": {"token": "s3cr3t"}}}}"""), secrets)
         configBindings(
-            TestIndex("chat", sections = listOf(token), channelType = "chat"),
+            TestIndex("chat", sections = listOf(token)),
+            ChannelType("chat"),
             source("""{"plugins": {"chat": {"instances": {"work": {"token": "w0rk"}}}}}"""),
             secrets,
         )

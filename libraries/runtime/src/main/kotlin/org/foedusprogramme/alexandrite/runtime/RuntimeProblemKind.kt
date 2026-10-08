@@ -28,9 +28,6 @@ public enum class RuntimeProblemKind : ProblemKind {
     /** A plugin compiled against another API version of the SDK. */
     INCOMPATIBLE_SDK,
 
-    /** A channel type outside the id grammar. */
-    MALFORMED_CHANNEL_TYPE,
-
     /** Config that cannot be read or decoded. */
     INVALID_CONFIG,
 
@@ -43,10 +40,13 @@ public enum class RuntimeProblemKind : ProblemKind {
     /** An enabled plugin that requires a plugin that is missing or disabled. */
     MISSING_REQUIREMENT,
 
+    /** A channel type outside the id grammar. */
+    MALFORMED_CHANNEL_TYPE,
+
     /** Enabled plugins that declare one channel type. */
     DUPLICATE_CHANNEL_TYPE,
 
-    /** A Channel contributed other than once by each channel plugin's channel-instance-scoped bindings. */
+    /** Channel contributions of a plugin other than one named, channel-instance-scoped Channel. */
     CHANNEL_CONTRIBUTIONS,
 
     /** A data directory another runtime holds. */

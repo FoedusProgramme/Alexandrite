@@ -172,15 +172,13 @@ class MiswiringTest : FailingSamples() {
     fun `a singleton that depends on the channel instance or an instance section is rejected`() {
         assertErrors(
             """
-            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
             @ChannelInstanceScoped @ConfigSection @Serializable class Token(val token: String = "")
-            @ChannelInstanceScoped @Contribute(Channel::class) class Scoped(instance: ChannelInstance, token: Token) :
-                BaseChannel()
+            @ChannelInstanceScoped @Contribute(Channel::class, name = "chat")
+            class Scoped(instance: ChannelInstance, token: Token) : BaseChannel()
             @Singleton class Registry(instance: ChannelInstance, token: Token?)
             """.trimIndent() + "\n" + channelBase,
             "class Registry" to Messages.scopeBreak("instance", "sample.Registry", listOf(CHANNEL_INSTANCE)),
             "class Registry" to Messages.scopeBreak("token", "sample.Registry", listOf("sample.Token")),
-            entry = false,
         )
     }
 
@@ -203,54 +201,70 @@ class MiswiringTest : FailingSamples() {
     fun `a channel contributed by a singleton is rejected`() {
         assertErrors(
             """
-            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
-            @Contribute(Channel::class) class Plain : BaseChannel()
-            @Singleton @Contribute(Channel::class) class Single : BaseChannel()
-            @ChannelInstanceScoped @Contribute(Channel::class) class Scoped : BaseChannel()
+            @Contribute(Channel::class, name = "chat") class Plain : BaseChannel()
+            @Singleton @Contribute(Channel::class, name = "chat") class Single : BaseChannel()
+            @ChannelInstanceScoped @Contribute(Channel::class, name = "chat") class Scoped : BaseChannel()
             object Channels {
-                @Provides @Contribute(Channel::class) fun provided(): BaseChannel = Scoped()
+                @Provides @Contribute(Channel::class, name = "chat") fun provided(): BaseChannel = Scoped()
             }
             """.trimIndent() + "\n" + channelBase,
             "class Plain" to Messages.singletonChannel("sample.Plain", provider = false),
             "class Single" to Messages.singletonChannel("sample.Single", provider = false),
             "fun provided" to Messages.singletonChannel("sample.Channels.provided()", provider = true),
-            entry = false,
         )
     }
 
     @Test
-    fun `a plugin that declares a channel type contributes a channel`() {
+    fun `a contribution to a named SPI carries a name, and a contribution to any other type carries none`() {
         assertErrors(
-            "@Plugin(name = \"Chat\", channelType = \"chat\") class ChatPlugin",
-            "class ChatPlugin" to Messages.missingChannel("sample.ChatPlugin", "chat"),
-            entry = false,
+            bases + "\n" +
+                """
+                interface Listener
+                @ChannelInstanceScoped @Contribute(Channel::class) class Unnamed : BaseChannel()
+                @ChannelInstanceScoped @Contribute(Channel::class, name = " ") class Blank : BaseChannel()
+                @Contribute(Tool::class, name = "echo") class Echo : BaseTool()
+                @Contribute(Listener::class, name = "ear") class Ear : Listener
+                object Channels {
+                    @Provides @ChannelInstanceScoped @Contribute(Channel::class) fun provided(): BaseChannel = Blank()
+                }
+                """.trimIndent() + "\n" + channelBase,
+            "class Unnamed" to Messages.unnamedContribution("sample.Unnamed", CHANNEL),
+            "class Blank" to Messages.unnamedContribution("sample.Blank", CHANNEL),
+            "class Echo" to Messages.namedContribution("sample.Echo", tool, "echo"),
+            "class Ear" to Messages.namedContribution("sample.Ear", "sample.Listener", "ear"),
+            "fun provided" to Messages.unnamedContribution("sample.Channels.provided()", CHANNEL),
         )
     }
 
     @Test
-    fun `a plugin contributes one channel per channel instance`() {
+    fun `a channel is named after a channel type`() {
         assertErrors(
             """
-            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
-            @ChannelInstanceScoped @Contribute(Channel::class) class First : BaseChannel()
+            @ChannelInstanceScoped @Contribute(Channel::class, name = "Tele_gram") class Chat : BaseChannel()
+            """.trimIndent() + "\n" + channelBase,
+            "class Chat" to Messages.malformedChannelType("sample.Chat", "Tele_gram"),
+        )
+    }
+
+    @Test
+    fun `a plugin contributes one channel, whatever the names`() {
+        assertErrors(
+            """
+            @ChannelInstanceScoped @Contribute(Channel::class, name = "chat") class First : BaseChannel()
             object Channels {
-                @Provides @ChannelInstanceScoped @Contribute(Channel::class) fun second(): BaseChannel = First()
+                @Provides @ChannelInstanceScoped @Contribute(Channel::class, name = "talk")
+                fun second(): BaseChannel = First()
             }
             """.trimIndent() + "\n" + channelBase,
-            "class First" to Messages.severalChannels("chat", listOf("sample.Channels.second()", "sample.First")),
-            entry = false,
+            "class First" to Messages.severalChannels(listOf("sample.Channels.second()", "sample.First")),
         )
     }
 
     @Test
-    fun `a channel or an instance section in a plugin without a channel type is rejected`() {
+    fun `an instance section in a plugin that contributes no channel is rejected`() {
         assertErrors(
-            """
-            @ChannelInstanceScoped @Contribute(Channel::class) class Scoped : BaseChannel()
-            @ChannelInstanceScoped @ConfigSection @Serializable class Token(val token: String = "")
-            """.trimIndent() + "\n" + channelBase,
-            "class Scoped" to Messages.untypedChannel("sample.Scoped", "sample.SamplePlugin"),
-            "class Token" to Messages.untypedInstanceSection("sample.Token", "sample.SamplePlugin"),
+            "@ChannelInstanceScoped @ConfigSection @Serializable class Token(val token: String = \"\")",
+            "class Token" to Messages.instanceSectionWithoutChannel("sample.Token"),
         )
     }
 

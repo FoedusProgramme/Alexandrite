@@ -1,6 +1,5 @@
 package org.foedusprogramme.alexandrite.app
 
-import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
@@ -37,8 +36,6 @@ internal fun exitCode(error: RuntimeStartException): Int {
 
 /** Whether [error] failed on the shape of the graph. */
 private fun invalidGraph(error: RuntimeStartException): Boolean {
-    val kinds = error.problems.map { it.kind }.filter {
-        it is DiProblemKind || it == RuntimeProblemKind.CHANNEL_CONTRIBUTIONS
-    }
+    val kinds = error.problems.mapNotNull { it.kind as? DiProblemKind }
     return kinds.isNotEmpty() && DiProblemKind.CREATION_FAILED !in kinds
 }

@@ -598,11 +598,11 @@ class ErrorTest : FailingSamples() {
     fun `two instance sections with one path are rejected, but a plugin-wide section may share it`() {
         assertErrors(
             """
-            @Plugin(name = "Chat", channelType = "chat") class ChatPlugin
             @ConfigSection("bot") @Serializable class Shared(val api: String = "")
             @ChannelInstanceScoped @ConfigSection("bot") @Serializable class Token(val token: String = "")
             @ChannelInstanceScoped @ConfigSection("bot") @Serializable class Other(val token: String = "")
-            @ChannelInstanceScoped @Contribute(Channel::class) class Chat(token: Token, other: Other) : Channel {
+            @ChannelInstanceScoped @Contribute(Channel::class, name = "chat")
+            class Chat(token: Token, other: Other) : Channel {
                 override suspend fun capabilities(chat: ChatAddress) = TODO()
                 override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = TODO()
                 override suspend fun openReply(request: ReplyRequest) = TODO()
@@ -610,7 +610,6 @@ class ErrorTest : FailingSamples() {
             }
             """,
             "class Token" to Messages.duplicatePath("bot", "sample.Other", "sample.Token"),
-            entry = false,
         )
     }
 
@@ -625,7 +624,7 @@ class ErrorTest : FailingSamples() {
             """,
             "class ExecConfig" to Messages.sectionComponent("sample.ExecConfig"),
             "class Job" to Messages.sectionComponent("sample.Job"),
-            "class Job" to Messages.untypedInstanceSection("sample.Job", "sample.SamplePlugin"),
+            "class Job" to Messages.instanceSectionWithoutChannel("sample.Job"),
         )
     }
 

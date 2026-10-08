@@ -87,25 +87,17 @@ internal object Messages {
         "@Plugin class $name requires '$id', which is its own plugin. Remove it from requires."
 
     fun malformedChannelType(name: String, type: String): String =
-        "@Plugin class $name declares channel type '$type'. A channel type is lowercase words of letters and " +
-            "digits, each starting with a letter, joined by single hyphens, such as \"telegram\"."
+        "$name names its Channel '$type', which is not a channel type. A channel type is lowercase words of " +
+            "letters and digits, each starting with a letter, joined by single hyphens, such as \"telegram\"."
 
-    fun missingChannel(name: String, type: String): String =
-        "@Plugin class $name declares channel type '$type', but no @ChannelInstanceScoped class or function of " +
-            "the plugin contributes a Channel. Contribute one with @ChannelInstanceScoped @Contribute(Channel::class)."
+    fun severalChannels(channels: List<String>): String =
+        "The plugin contributes a Channel from ${channels.joinToString(" and ")}, but a plugin has one channel " +
+            "type and contributes one Channel, which each of its channel instances creates. Keep only one of them."
 
-    fun severalChannels(type: String, channels: List<String>): String =
-        "The plugin of channel type '$type' contributes a Channel from ${channels.joinToString(" and ")}, but each " +
-            "channel instance has exactly one. Keep only one of them."
-
-    fun untypedChannel(name: String, entry: String): String =
-        "$name contributes a Channel, but @Plugin class $entry declares no channel type. Declare it with " +
-            "@Plugin(channelType = \"…\")."
-
-    fun untypedInstanceSection(name: String, entry: String): String =
-        "@ChannelInstanceScoped @ConfigSection class $name is decoded for each channel instance, but @Plugin class " +
-            "$entry declares no channel type, so the plugin has none. Declare it with @Plugin(channelType = \"…\"), " +
-            "or remove @ChannelInstanceScoped."
+    fun instanceSectionWithoutChannel(name: String): String =
+        "@ChannelInstanceScoped @ConfigSection class $name is decoded for each channel instance, but the plugin " +
+            "contributes no Channel, so it has no channel instances. Contribute one with @ChannelInstanceScoped " +
+            "@Contribute(Channel::class, name = \"…\"), or remove @ChannelInstanceScoped."
 
     fun singletonChannel(name: String, provider: Boolean): String {
         val subject = if (provider) "@Provides function $name" else name
@@ -237,6 +229,19 @@ internal object Messages {
     fun boundSpi(name: String, spi: String): String =
         "$name lists $spi in @Binds, but $spi is an SPI whose implementations are contributed, not bound. " +
             "Use @Contribute(${simple(spi)}::class) instead."
+
+    fun namedContribution(name: String, bound: String, contribution: String): String =
+        "$name gives its contribution to $bound the name '$contribution', but $bound is not a named SPI, so its " +
+            "contributions carry no name. Remove the name from @Contribute."
+
+    fun unnamedContribution(name: String, spi: String): String {
+        val remedy = if (spi == CHANNEL) {
+            "Name it with its channel type, such as @Contribute(Channel::class, name = \"telegram\")"
+        } else {
+            "Name it with @Contribute(${simple(spi)}::class, name = \"…\")"
+        }
+        return "$name contributes to $spi without a name, but every contribution to $spi is named. $remedy."
+    }
 
     fun contributedSubtype(name: String, bound: String, spis: List<String>): String =
         "$name lists $bound in @Contribute, but $bound is a subtype of ${spis.joinToString(" and ")}, and only " +

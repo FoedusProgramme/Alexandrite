@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 /**
  * The identity of one turn, carried by every turn-scoped payload.
  *
- * - The chat is the worker key of top-level turns; delegated runs never queue on their chat's worker, and per-turn
+ * - [key] is the worker and lock key of top-level turns; delegated runs never queue on their key's worker, and per-turn
  *   locks are per conversation.
  * - Only CHAT-target turns open a reply (`Channel.openReply`) and fire `response.preview`, and `response.before` fires
  *   for every reply sent to a chat.

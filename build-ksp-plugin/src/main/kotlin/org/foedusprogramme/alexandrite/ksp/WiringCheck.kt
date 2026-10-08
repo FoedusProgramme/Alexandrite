@@ -1,11 +1,10 @@
 package org.foedusprogramme.alexandrite.ksp
 
-/** The checks across the components, sections and classes of the whole plugin, with its [entry] when it has one. */
+/** The checks across the components, sections and classes of the whole plugin. */
 internal class WiringCheck(
     private val registry: ComponentRegistry,
     private val sections: List<Section>,
     private val implementations: List<Implementation>,
-    private val entry: PluginEntry?,
 ) {
     private val singleBindings = registry.singleBindings()
 
@@ -76,22 +75,14 @@ internal class WiringCheck(
         return bindings + classes
     }
 
-    /** Reports channel contributions and instance sections that do not fit the channel type of [entry]. */
+    /** Reports every Channel contribution after the first, and the instance sections of a plugin without one. */
     private fun channelProblems(): List<Problem> {
-        val entry = entry ?: return emptyList()
-        val channels = registry.all.filter { component ->
-            component.channelInstanceScoped && component.contributes.any { it.className == CHANNEL }
+        val channels = registry.all.filter { component -> component.contributes.any { it.className == CHANNEL } }
+        if (channels.isEmpty()) {
+            return sections.filter { it.channelInstance }.map {
+                Problem(Messages.instanceSectionWithoutChannel(it.origin), it.location)
+            }
         }
-        val type = entry.channelType
-        if (type == null) {
-            return channels.map { Problem(Messages.untypedChannel(it.origin, entry.className), it.location) } +
-                sections.filter { it.channelInstance }.map {
-                    Problem(Messages.untypedInstanceSection(it.origin, entry.className), it.location)
-                }
-        }
-        if (channels.isEmpty()) return listOf(Problem(Messages.missingChannel(entry.className, type), entry.location))
-        return channels.drop(1).map {
-            Problem(Messages.severalChannels(type, channels.map(Component::origin)), it.location)
-        }
+        return channels.drop(1).map { Problem(Messages.severalChannels(channels.map(Component::origin)), it.location) }
     }
 }

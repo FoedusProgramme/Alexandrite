@@ -30,7 +30,12 @@ internal class Dependency(
 )
 
 /** A type listed in `@Binds` or `@Contribute`, and the key it adds. */
-internal class Bound(val key: Key, val className: String)
+internal class Bound(
+    val key: Key,
+    val className: String,
+    /** The name of a contribution to a named SPI. */
+    val name: String?,
+)
 
 /** A class the container creates, or a function whose result it binds. */
 internal class Component(
@@ -77,8 +82,6 @@ internal class PluginEntry(
     val name: String,
     val description: String,
     val requires: List<String>,
-    /** Null for a plugin that contributes no channel. */
-    val channelType: String?,
 )
 
 /** A concrete class of the plugin that implements contributed SPIs. */

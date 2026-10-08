@@ -3,19 +3,26 @@ package org.foedusprogramme.alexandrite.runtime.config
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
+import org.foedusprogramme.alexandrite.runtime.channel.PluginChannel
+import org.foedusprogramme.alexandrite.runtime.channel.pluginChannel
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
+import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 
-internal class EnabledPlugin(val member: PluginSet.Member, val config: PluginConfig) {
-    val id: String get() = member.id
-
+internal class EnabledPlugin(
+    val member: PluginSet.Member,
+    val bindings: List<Binding<*>>,
     /** The plugin's channel type, null when it is no channel plugin. */
-    val channelType: String? get() = member.plugin.info.channelType
+    val channelType: ChannelType?,
+    val config: PluginConfig,
+) {
+    val id: String get() = member.id
 }
 
 internal class ConfigResolution(
@@ -46,18 +53,26 @@ internal fun resolveConfig(
         if (reason == null) enabled += member else disabled += DisabledPlugin(member.id, reason)
     }
     problems += overlappingRoots(enabled)
-    problems += duplicateChannelTypes(enabled)
+    val bindings = enabled.associate { it.id to it.index.bindings() }
+    val channels = enabled.associate { it.id to pluginChannel(it.id, bindings.getValue(it.id)) }
+    channels.values.flatMapTo(problems) { it.problems }
+    problems += duplicateChannelTypes(channels)
     problems += missingRequirements(members, enabled, disabled)
     val unknown = unknownConfig(members, source, failedRoots)
     problems += unknown.problems
     val configured = enabled.map { member ->
-        val config = try {
-            configBindings(member.index, source, secrets)
-        } catch (e: ConfigException) {
-            problems += invalidConfig(e, member.id)
-            PluginConfig(emptyList(), emptyList())
+        val channel = channels.getValue(member.id)
+        val config = if (channel.problems.isNotEmpty()) {
+            NO_CONFIG
+        } else {
+            try {
+                configBindings(member.index, channel.type, source, secrets)
+            } catch (e: ConfigException) {
+                problems += invalidConfig(e, member.id)
+                NO_CONFIG
+            }
         }
-        EnabledPlugin(member, config)
+        EnabledPlugin(member, bindings.getValue(member.id), channel.type, config)
     }
     return ConfigResolution(configured, disabled, unknown.pluginPaths, problems)
 }
@@ -94,14 +109,14 @@ private fun overlappingRoots(enabled: List<PluginSet.Member>): List<Problem> {
     }
 }
 
-private fun duplicateChannelTypes(enabled: List<PluginSet.Member>): List<Problem> = enabled
-    .filter { it.plugin.info.channelType != null }
-    .groupBy { it.plugin.info.channelType }
+private fun duplicateChannelTypes(channels: Map<String, PluginChannel>): List<Problem> = channels.entries
+    .filter { it.value.type != null }
+    .groupBy({ it.value.type }, { it.key })
     .filterValues { it.size > 1 }
-    .map { (type, same) ->
+    .map { (type, ids) ->
         Problem(
             RuntimeProblemKind.DUPLICATE_CHANNEL_TYPE,
-            "Duplicate channel type '$type': plugins ${same.joinToString(" and ") { "'${it.id}'" }} declare it. " +
+            "Duplicate channel type '$type': plugins ${ids.joinToString(" and ") { "'$it'" }} declare it. " +
                 "Switch all but one of them off.",
             null,
         )
@@ -188,3 +203,5 @@ private fun invalidConfig(e: ConfigException, plugin: String?): Problem =
     Problem(RuntimeProblemKind.INVALID_CONFIG, e.message ?: e.toString(), plugin)
 
 private val OPT_IN_LAYERS = setOf(BuiltInLayer.CHANNEL, BuiltInLayer.PROVIDER)
+
+private val NO_CONFIG = PluginConfig(emptyList(), emptyList())

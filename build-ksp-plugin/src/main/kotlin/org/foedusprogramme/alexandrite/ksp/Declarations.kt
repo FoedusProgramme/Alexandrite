@@ -14,6 +14,8 @@ import com.google.devtools.ksp.symbol.Origin
 
 internal val KSAnnotation.value: Any? get() = arguments.firstOrNull()?.value
 
+internal fun KSAnnotation.argument(name: String): Any? = arguments.firstOrNull { it.name?.asString() == name }?.value
+
 /** The classes listed in a `vararg types: KClass<*>` annotation. */
 internal fun KSAnnotation.types(): List<KSType> = (value as? List<*>).orEmpty().filterIsInstance<KSType>()
 

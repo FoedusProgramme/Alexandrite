@@ -7,8 +7,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 
-/** A channel instance's front end, contributed by exactly one channel-instance-scoped class of a channel plugin. */
-@ContributedSpi
+/** A channel instance's front end, contributed once by a channel plugin under the plugin's channel type. */
+@ContributedSpi(named = true)
 public interface Channel {
     /** What the channel can do in [chat]. */
     public suspend fun capabilities(chat: ChatAddress): ChannelCapabilities

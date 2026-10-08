@@ -26,6 +26,9 @@ internal class Symbols {
         .filter { has(it, CONTRIBUTED_SPI) }
         .distinctBy { it.name }
 
+    fun isNamedSpi(declaration: KSDeclaration): Boolean =
+        annotation(declaration, CONTRIBUTED_SPI)?.argument(NAMED_SPI) == true
+
     /** The opt-in markers on [declaration] and the declarations around it. */
     fun optInMarkers(declaration: KSDeclaration): Set<String> = generateSequence(declaration) { it.parentDeclaration }
         .flatMap { annotationsOf(it).values }

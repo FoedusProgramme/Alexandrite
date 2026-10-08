@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.ksp
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
@@ -210,7 +210,7 @@ class IndexTest {
 
         assertEquals(
             listOf(
-                "id", "name", "version", "description", "sdkApi", "requires", "entryClass", "channelType",
+                "id", "name", "version", "description", "sdkApi", "requires", "entryClass", "contributionNames",
                 "indexClass", "configRoot", "builtIn",
             ),
             descriptor.keys.toList(),
@@ -225,7 +225,7 @@ class IndexTest {
             descriptor["requires"],
         )
         assertEquals(JsonPrimitive("sample.plugin.SamplePlugin"), descriptor["entryClass"])
-        assertEquals(JsonNull, descriptor["channelType"])
+        assertEquals(JsonObject(emptyMap()), descriptor["contributionNames"])
         assertEquals(JsonPrimitive("sample.plugin.SamplePluginIndex"), descriptor["indexClass"])
         assertEquals(JsonPrimitive("plugins.sample-plugin"), descriptor["configRoot"])
         assertEquals(JsonPrimitive(false), descriptor["builtIn"])
