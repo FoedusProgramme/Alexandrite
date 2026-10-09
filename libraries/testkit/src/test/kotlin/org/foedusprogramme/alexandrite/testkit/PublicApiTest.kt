@@ -209,6 +209,39 @@ class PublicApiTest {
             for (check in checks) check.run { PluginHarness.builder(backend) }
             return checks.map { it.name } + TestChatStates().store.toString()
         }
+
+        suspend fun providers(endpoint: ModelEndpoint): List<Any?> {
+            val server = FakeModelServer()
+            val stream: FakeResponse = fakeResponse { event("{}", type = "message"); comment("ping"); pause(1.seconds) }
+            val error = FakeResponse.builder(429).header("retry-after", "1").body("{}").build()
+            server.enqueue(stream.dropped(), "/chat").enqueue(stream.hanging()).enqueue(error, path = null)
+            val request: RecordedRequest = server.awaitRequests(1).first()
+            val seen = listOf(
+                server.baseUrl, server.requests, server.problems, error.status, request.method, request.path,
+                request.headers, request.header("accept"), request.body, request.json(), request.awaitClosed(1.seconds),
+            )
+            server.assertFinished()
+            server.close()
+            val fixture = object : ProviderFixture {
+                override val model: String = "m"
+                override val plainModel: String? = null
+                override fun endpoint(server: FakeModelServer): ModelEndpoint = endpoint
+                override fun models(server: FakeModelServer) {}
+                override fun text(chunks: List<String>): FakeResponse = stream
+                override fun textStart(chunk: String): FakeResponse = stream
+                override fun reasoning(reasoning: List<String>, text: List<String>): FakeResponse = stream
+                override fun toolCalls(calls: List<ScriptedToolCall>): FakeResponse =
+                    stream.also { calls.map { listOf(it.id, it.wireName, it.arguments) } }
+                override fun finish(text: String, raw: String): FakeResponse = stream
+                override fun usage(text: String, usage: Usage): FakeResponse = stream
+                override fun rateLimited(retryAfterSeconds: Int, requestId: String): FakeResponse = error
+                override fun serverError(): FakeResponse = error
+                override fun toolResults(request: RecordedRequest): List<Pair<String, String>> = emptyList()
+            }
+            val checks: List<ProviderCheck> = PROVIDER_CONTRACT
+            for (check in checks) check.run(fixture)
+            return seen + checks.map { it.name } + ScriptedToolCall("c", "notes-add", listOf("{}"))
+        }
     """.trimIndent()
 
     private fun errors(vararg sources: Pair<String, String>): List<String> = KotlinCompilation().apply {
