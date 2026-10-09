@@ -6,7 +6,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
-import org.foedusprogramme.alexandrite.internal.http.HttpTransport
+import org.foedusprogramme.alexandrite.provider.common.EndpointSettings
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatEndpoint
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatFlavor
+import org.foedusprogramme.alexandrite.provider.common.chat.events
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
@@ -35,13 +38,12 @@ class OpenAiCompatibleLiveTest {
     private val baseUrl: String? = System.getenv("ALEXANDRITE_LIVE_OPENAI_COMPAT_BASE_URL")
     private val apiKey: String? = System.getenv("ALEXANDRITE_LIVE_OPENAI_COMPAT_API_KEY")
     private val model: String? = System.getenv("ALEXANDRITE_LIVE_OPENAI_COMPAT_MODEL")
-    private val profile: String = System.getenv("ALEXANDRITE_LIVE_OPENAI_COMPAT_PROFILE") ?: Profile.GENERIC.id
     private val turn = testTurn()
 
     private fun live(): ChatEndpoint {
         assumeTrue(baseUrl != null && model != null, "No live endpoint is configured.")
-        val config = EndpointConfig(baseUrl = baseUrl!!, apiKey = apiKey?.let(::Secret), profile = profile)
-        return ChatEndpoint(EndpointId("live"), config, HttpTransport(config.timeouts.timeouts()))
+        val settings = EndpointSettings(baseUrl!!, apiKey?.let(::Secret))
+        return ChatEndpoint(EndpointId("live"), settings, ChatFlavor.STANDARD)
     }
 
     private fun request(history: List<TranscriptEntry>, round: Int, block: ModelRequest.Builder.() -> Unit) =

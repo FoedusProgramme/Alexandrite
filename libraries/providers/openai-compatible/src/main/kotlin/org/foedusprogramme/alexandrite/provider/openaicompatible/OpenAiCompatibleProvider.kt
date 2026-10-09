@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.provider.openaicompatible
 
-import org.foedusprogramme.alexandrite.internal.http.HttpTransport
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatEndpoint
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatFlavor
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -14,7 +15,7 @@ internal class OpenAiCompatibleProvider(config: OpenAiCompatibleConfig) :
     ModelProvider,
     Lifecycle {
     private val chats = config.endpoints.map { (id, endpoint) ->
-        ChatEndpoint(EndpointId(id), endpoint, HttpTransport(endpoint.timeouts.timeouts()))
+        ChatEndpoint(EndpointId(id), endpoint.settings(), ChatFlavor.STANDARD)
     }
 
     override val endpoints: List<ModelEndpoint> = chats

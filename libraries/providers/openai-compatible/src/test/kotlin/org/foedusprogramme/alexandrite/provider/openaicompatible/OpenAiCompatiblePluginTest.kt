@@ -23,23 +23,20 @@ class OpenAiCompatiblePluginTest {
         """{"endpoints": {"x": {"baseUrl": "https://api.example.com"$fields}}}"""
 
     @Test
-    fun `each configured endpoint is contributed under its id with its profile's turn context mode`() = runBlocking {
+    fun `each configured endpoint is contributed under its id with its turn context mode`() = runBlocking {
         val config = """
             {"endpoints": {
-                "deepseek": {"baseUrl": "https://api.example.com", "apiKey": "sk-plugin-test-key",
-                    "profile": "deepseek"},
-                "local": {"baseUrl": "http://127.0.0.1:1234/v1", "profile": "lmstudio"},
-                "router": {"baseUrl": "https://router.example.com/api/v1", "profile": "openrouter",
-                    "turnContext": "bake"}
+                "vllm": {"baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "sk-plugin-test-key"},
+                "proxy": {"baseUrl": "https://proxy.example.com/v1", "turnContext": "bake",
+                    "headers": {"X-Team": "core"}, "promptCacheKey": true}
             }}
         """.trimIndent()
 
         harness(config).build().run {
             val endpoints = getAll<ModelProvider>().flatMap { it.endpoints }
-            assertEquals(listOf("deepseek", "local", "router"), endpoints.map { it.id.value })
+            assertEquals(listOf("vllm", "proxy"), endpoints.map { it.id.value })
             val modes = endpoints.map { it.turnContextMode("m", ModelOptions.DEFAULT, Trust.UNTRUSTED) }
-            val bake = TurnContextMode.NOT_SUPPORTED
-            assertEquals(listOf(bake, TurnContextMode.TRANSIENT, bake), modes)
+            assertEquals(listOf(TurnContextMode.TRANSIENT, TurnContextMode.NOT_SUPPORTED), modes)
             assertFalse("sk-plugin-test-key" in endpoints.toString())
         }
         Unit
@@ -50,9 +47,11 @@ class OpenAiCompatiblePluginTest {
         val cases = listOf(
             endpoint().replace("\"x\"", "\"Bad_Id\"") to "no endpoint id",
             endpoint().replace("https://", "https://user:hunter2@") to "baseUrl must be",
-            endpoint(""", "profile": "acme"""") to "profile must be",
+            endpoint(""", "profile": "deepseek"""") to "profile",
+            endpoint(""", "turnContext": "sometimes"""") to "turnContext",
             endpoint(""", "headers": {"Host": "h"}""") to "may not set host",
             endpoint(""", "models": {"m": {"inputMedia": ["smell"]}}""") to "inputMedia holds",
+            """{"endpoints": {"x": {"apiKey": "k"}}}""" to "baseUrl",
         )
 
         for ((config, expected) in cases) {

@@ -35,7 +35,7 @@ kotlin {
     }
 }
 
-if (module.layer != Layer.EXAMPLE) {
+if (module.layer !in AlexandriteLayout.THIRD_PARTY_LAYERS) {
     // The SDK's main code opts in per declaration.
     val mainOptsIn = Layer.SDK in AlexandriteLayout.LAYER_DEPENDENCIES.getValue(module.layer)
     val testOptsIn = module.layer == Layer.SDK || mainOptsIn ||

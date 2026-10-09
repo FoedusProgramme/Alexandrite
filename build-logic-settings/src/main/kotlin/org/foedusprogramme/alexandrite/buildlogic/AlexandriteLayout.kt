@@ -22,6 +22,9 @@ enum class Layer {
     /** Model back ends. */
     PROVIDER,
 
+    /** The mapping that model back ends share. */
+    PROVIDER_COMMON,
+
     /** Storage back ends. */
     STORE,
 
@@ -135,6 +138,7 @@ object AlexandriteLayout {
             jarPrefix = "alexandrite-provider-",
             packagePrefix = "$PACKAGE.provider.",
         ),
+        Location.Slot("libraries/provider-common", Layer.PROVIDER_COMMON),
         Location.Family(
             "libraries/stores",
             Layer.STORE,
@@ -169,10 +173,11 @@ object AlexandriteLayout {
         Layer.AGENT to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.TOOLS to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.CHANNEL to setOf(Layer.SDK, Layer.INTERNAL),
-        Layer.PROVIDER to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.PROVIDER to setOf(Layer.SDK, Layer.INTERNAL, Layer.PROVIDER_COMMON),
+        Layer.PROVIDER_COMMON to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.STORE to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.TESTKIT to setOf(Layer.SDK, Layer.INTERNAL, Layer.RUNTIME),
-        Layer.EXAMPLE to setOf(Layer.SDK),
+        Layer.EXAMPLE to setOf(Layer.SDK, Layer.PROVIDER_COMMON),
         Layer.APP to setOf(
             Layer.SDK,
             Layer.INTERNAL,
@@ -181,6 +186,7 @@ object AlexandriteLayout {
             Layer.TOOLS,
             Layer.CHANNEL,
             Layer.PROVIDER,
+            Layer.PROVIDER_COMMON,
             Layer.STORE,
         ),
     )
@@ -190,11 +196,15 @@ object AlexandriteLayout {
         Layer.TOOLS to setOf(Layer.TESTKIT),
         Layer.CHANNEL to setOf(Layer.TESTKIT),
         Layer.PROVIDER to setOf(Layer.TESTKIT),
+        Layer.PROVIDER_COMMON to setOf(Layer.TESTKIT),
         Layer.STORE to setOf(Layer.TESTKIT),
         Layer.KSP to setOf(Layer.SDK),
         Layer.EXAMPLE to setOf(Layer.TESTKIT),
         Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
     )
+
+    /** Layers compiled without the SDK's internal API, as third-party plugins are */
+    val THIRD_PARTY_LAYERS: Set<Layer> = setOf(Layer.PROVIDER_COMMON, Layer.EXAMPLE)
 
     /** Layers whose modules get a generated `PluginIndex` */
     val INDEXED_LAYERS: Set<Layer> =

@@ -58,7 +58,10 @@ class DependencyRuleTest {
                 "libraries/internal" to "",
                 "libraries/runtime" to "implementation(project(\":libraries:plugin-sdk\"))",
                 "libraries/testkit" to "api(project(\":libraries:runtime\"))",
+                "libraries/provider-common" to "api(project(\":libraries:plugin-sdk\"))\n" +
+                    "    implementation(project(\":libraries:internal\"))",
                 "examples/echo" to "compileOnly(project(\":libraries:plugin-sdk\"))\n" +
+                    "    compileOnly(project(\":libraries:provider-common\"))\n" +
                     "    testImplementation(project(\":libraries:testkit\"))",
             ),
         ).build()
