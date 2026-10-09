@@ -13,18 +13,25 @@ import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.slf4j.LoggerFactory
 import java.net.URI
 
-/** The HTTP side of one endpoint, which signs every request with the headers [auth]. */
-internal class EndpointConnection(settings: EndpointSettings, private val auth: Map<String, String>) : AutoCloseable {
+/** The HTTP side of one endpoint, which sends the headers [own] with every request. */
+internal class EndpointConnection(settings: EndpointSettings, private val own: Map<String, String>) : AutoCloseable {
     val base: String = settings.baseUrl.trimEnd('/')
     val transport: HttpTransport = HttpTransport(settings.timeouts.timeouts())
     private val headers = settings.headers.mapValues { it.value.reveal() }
     private val secrets = listOfNotNull(settings.apiKey?.reveal()) + headers.values
 
-    fun call(method: String, url: String, accept: String, body: String? = null): HttpCall {
+    fun call(
+        method: String,
+        url: String,
+        accept: String,
+        body: String? = null,
+        extra: Map<String, String> = emptyMap(),
+    ): HttpCall {
         val all = buildMap {
             put("accept", accept)
             put("content-type", "application/json")
-            putAll(auth)
+            putAll(own)
+            putAll(extra)
             putAll(headers)
         }
         return HttpCall(method, URI(url), all, body, secrets)

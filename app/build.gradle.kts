@@ -13,7 +13,7 @@ dependencies {
     implementation(project(":libraries:providers:deepseek"))
     implementation(project(":libraries:providers:openrouter"))
     implementation(project(":libraries:providers:lmstudio"))
-    implementation(project(":libraries:providers:anthropic"))
+    implementation(project(":libraries:providers:anthropic-compatible"))
     implementation(project(":libraries:stores:sqlite"))
     runtimeOnly(libs.logback.classic)
 

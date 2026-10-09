@@ -42,4 +42,10 @@ public enum class TurnContextMode {
 
     /** Not at all, which leaves each item to its [TurnContextItem.fallback]. */
     NOT_SUPPORTED,
+
+    /**
+     * Into the requests of one turn, shown to the model during that turn alone and kept in the provider data of the
+     * turn's responses, so an item whose fallback is [TurnContextFallback.DROP] is left out.
+     */
+    KEPT_UNRENDERED,
 }

@@ -14,10 +14,16 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelException
 internal fun modelException(kind: ModelErrorKind, message: String, outputStarted: Boolean): ModelException =
     ModelException(ModelError.builder(kind, message).outputStarted(outputStarted).build())
 
-/** This failure as the model error it means for a call that had [outputStarted]. */
-internal fun HttpException.toModelException(outputStarted: Boolean): ModelException {
+/**
+ * This failure as the model error it means for a call that had [outputStarted], its kind the one [classify] gives the
+ * error body where it gives one.
+ */
+internal fun HttpException.toModelException(
+    outputStarted: Boolean,
+    classify: (ErrorDetail) -> ModelErrorKind? = { null },
+): ModelException {
     val detail = body?.let(::errorDetail)
-    val kind = refine(kindOf(kind), status, detail)
+    val kind = refine(detail?.let(classify) ?: kindOf(kind), status, detail)
     val error = ModelError.builder(kind, message ?: kind.toString())
         .retryAfter(retryAfter)
         .status(status)
@@ -28,11 +34,16 @@ internal fun HttpException.toModelException(outputStarted: Boolean): ModelExcept
     return ModelException(error, this)
 }
 
-/** The failure that an `error` object in a stream reports. */
-internal fun streamError(error: JsonElement, outputStarted: Boolean): ModelException {
+/** The failure that an `error` object in a stream reports, its kind the one [classify] gives where it gives one. */
+internal fun streamError(
+    error: JsonElement,
+    outputStarted: Boolean,
+    classify: (ErrorDetail) -> ModelErrorKind? = { null },
+): ModelException {
     val detail = errorDetail(error)
     val status = detail.code?.toIntOrNull()?.takeIf { it in 400..599 }
-    val kind = refine(status?.let { kindOf(HttpFailureKind.of(it)) } ?: ModelErrorKind.SERVER_ERROR, status, detail)
+    val reported = classify(detail) ?: status?.let { kindOf(HttpFailureKind.of(it)) }
+    val kind = refine(reported ?: ModelErrorKind.SERVER_ERROR, status, detail)
     val message = "The response broke off: ${detail.message ?: detail.type ?: "the backend gave no reason"}"
     val error = ModelError.builder(kind, message)
         .rawType(detail.type ?: detail.code)

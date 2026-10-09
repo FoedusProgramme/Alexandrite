@@ -1,0 +1,150 @@
+package org.foedusprogramme.alexandrite.provider.anthropiccompatible
+
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import org.foedusprogramme.alexandrite.provider.common.ModelConfig
+import org.foedusprogramme.alexandrite.provider.common.messages.MessagesEndpoint
+import org.foedusprogramme.alexandrite.provider.common.messages.MessagesFlavor
+import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.sdk.model.FinishKind
+import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
+import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
+import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
+import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.model.RequestIds
+import org.foedusprogramme.alexandrite.sdk.model.Trust
+import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
+import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
+import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
+import org.foedusprogramme.alexandrite.sdk.transcript.EntryRecord
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningPart
+import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptRules
+import org.foedusprogramme.alexandrite.testkit.testTurn
+import org.foedusprogramme.alexandrite.testkit.testUserEntry
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import java.time.Instant
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/** Talks to the endpoint the `ALEXANDRITE_LIVE_ANTHROPIC_COMPAT_*` variables name, and skips without them. */
+class AnthropicCompatibleLiveTest {
+    private val baseUrl: String? = System.getenv("ALEXANDRITE_LIVE_ANTHROPIC_COMPAT_BASE_URL")
+    private val apiKey: String? = System.getenv("ALEXANDRITE_LIVE_ANTHROPIC_COMPAT_API_KEY")
+    private val model: String? = System.getenv("ALEXANDRITE_LIVE_ANTHROPIC_COMPAT_MODEL")
+    private val turn = testTurn()
+    private val clock = ToolDefinition("clock.now", "Gives the current time.", schema(), ToolRisk.READ_ONLY)
+    private val thinking = ModelOptions.builder().maxOutputTokens(2000).reasoning(ReasoningEffort.LOW).build()
+
+    /** The live endpoint, its model taken to think at the efforts the standard API names where it lists none. */
+    private fun live(): MessagesEndpoint {
+        assumeTrue(baseUrl != null && apiKey != null && model != null, "No live endpoint is configured.")
+        val efforts = setOf("none", "low", "medium", "high")
+        val config = EndpointConfig(
+            apiKey = Secret(apiKey!!),
+            baseUrl = baseUrl!!,
+            models = mapOf(model!! to ModelConfig(nativeTools = true, reasoningEfforts = efforts)),
+        )
+        return MessagesEndpoint(EndpointId("live"), config.settings(), MessagesFlavor.STANDARD, config.messages())
+    }
+
+    private fun request(
+        history: List<TranscriptEntry>,
+        round: Int,
+        id: TurnId = turn.id,
+        block: ModelRequest.Builder.() -> Unit,
+    ) = ModelRequest.builder(
+        ModelRef(EndpointId("live"), model!!),
+        history,
+        history.indexOfFirst { it.record?.turn == id }.coerceAtLeast(0),
+        RequestIds(turn.conversation, id, round),
+    )
+        .options(thinking)
+        .apply(block)
+        .build()
+
+    private var entryId = 1L
+
+    private fun TranscriptEntry.stored(id: TurnId): TranscriptEntry =
+        withRecord(EntryRecord(EntryId(entryId++), turn.conversation, id, Instant.now()))
+
+    private fun List<ModelEvent>.completed(): ModelEvent.Completed = last() as ModelEvent.Completed
+
+    @Test
+    fun `the endpoint lists its models`() = runBlocking {
+        live().use { endpoint ->
+            val models = endpoint.models()
+            println("Models: ${models.map { "${it.id} ${it.contextWindow} ${it.maxOutputTokens} ${it.inputMedia}" }}")
+            assertTrue(models.any { it.id == model })
+        }
+    }
+
+    @Test
+    fun `the endpoint streams a reply with its thinking`() = runBlocking {
+        live().use { endpoint ->
+            val events = endpoint.stream(request(listOf(testUserEntry(turn, "Say the word 'ready'.")), 0) {}).toList()
+
+            val completed = events.completed()
+            println("Warnings: ${(events.first() as ModelEvent.ResponseStarted).warnings}")
+            println("Reply: ${completed.message.parts}, ${completed.finish}, ${completed.usage}")
+            assertTrue(completed.message.parts.any { it is TextPart })
+            assertEquals(FinishKind.END_TURN, completed.finish.kind)
+        }
+    }
+
+    @Test
+    fun `a tool round trip keeps its thinking and pinned context, and the next turn drops them`() = runBlocking {
+        live().use { endpoint ->
+            val context = listOf(TurnContextItem("recall", "The user's name is Ada.", Trust.TRUSTED))
+            val history = listOf(testUserEntry(turn, "What time is it? Use the tool.").stored(turn.id))
+            val first = endpoint.stream(request(history, 0) { tools(listOf(clock)).turnContext(context) }).toList()
+            val assistant = first.completed().message
+            println("Round 0: ${assistant.parts}, ${first.completed().finish}")
+            val calls = assistant.parts.filterIsInstance<ToolCallPart>()
+            assertEquals("clock.now", calls.first().name)
+            println("Sealed thinking blocks: ${assistant.parts.count { it is ReasoningPart && it.seal != null }}")
+            val results = calls.map {
+                val result = ToolResultEntry(null, it.id, it.name, listOf(TextPart("12:00")), ToolOutcome.Succeeded)
+                result.stored(turn.id)
+            }
+            val loop = history + assistant.stored(turn.id) + results
+            assertEquals(emptyList(), TranscriptRules.check(loop))
+
+            val second = endpoint.stream(request(loop, 1) { tools(listOf(clock)).turnContext(context) }).toList()
+
+            val reply = second.completed()
+            println("Round 1: ${reply.message.parts}, ${reply.finish}, ${reply.usage}")
+            assertTrue(reply.message.parts.any { it is TextPart })
+            val nextTurn = TurnId("live-turn-2")
+            val asked = loop + reply.message.stored(turn.id) + testUserEntry(turn, "What is my name?").stored(nextTurn)
+            val later = listOf(TurnContextItem("recall", "The user likes tea.", Trust.TRUSTED))
+
+            val third =
+                endpoint.stream(request(asked, 0, nextTurn) { tools(listOf(clock)).turnContext(later) }).toList()
+
+            val answer = third.completed()
+            println("Next turn: ${answer.message.parts}, ${answer.finish}, ${answer.usage}")
+            assertTrue(answer.message.parts.any { it is TextPart })
+        }
+    }
+
+    private fun schema(): JsonObject = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {}
+        putJsonArray("required") {}
+    }
+}

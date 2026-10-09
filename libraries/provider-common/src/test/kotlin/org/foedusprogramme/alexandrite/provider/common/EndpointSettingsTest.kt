@@ -32,6 +32,22 @@ class EndpointSettingsTest {
     }
 
     @Test
+    fun `a wire API's own headers and auth header are the provider's`() {
+        fun messages(headers: Map<String, Secret>, apiKey: Secret? = Secret("k")) = EndpointSettings(
+            "https://a.example",
+            apiKey,
+            headers,
+            authHeader = "x-api-key",
+            providerHeaders = setOf("anthropic-version"),
+        )
+
+        refused("may not set anthropic-version") { messages(mapOf("Anthropic-Version" to Secret("x"))) }
+        refused("may not set x-api-key when apiKey") { messages(mapOf("X-Api-Key" to Secret("x"))) }
+        messages(mapOf("X-Api-Key" to Secret("x")), apiKey = null)
+        messages(mapOf("Authorization" to Secret("x")))
+    }
+
+    @Test
     fun `configured models and their facts are well-formed`() {
         refused("models holds") { EndpointSettings("https://a.example", models = mapOf("" to ModelConfig())) }
         refused("inputMedia holds 'smell'") { ModelConfig(inputMedia = setOf("smell")) }

@@ -31,17 +31,22 @@ public class EndpointSettings(
     public val promptCacheKey: Boolean = false,
     public val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
     public val timeouts: TimeoutConfig = TimeoutConfig(),
+    /** The header that carries [apiKey]. */
+    public val authHeader: String = "authorization",
+    /** Headers of the wire API that the provider sets on every request itself. */
+    public val providerHeaders: Set<String> = emptySet(),
 ) {
     init {
         require(isHttpUrl(baseUrl)) { "baseUrl must be an http or https URL without user info, query or fragment" }
+        val reserved = RESERVED_HEADERS + providerHeaders.map { it.lowercase() }
         for (name in headers.keys) {
             require(name.isNotEmpty() && name.all { it in TOKEN }) { "headers holds a malformed header name" }
-            require(name.lowercase() !in RESERVED_HEADERS) {
+            require(name.lowercase() !in reserved) {
                 "headers may not set ${name.lowercase()}, which the provider sets itself"
             }
         }
-        require(apiKey == null || headers.keys.none { it.equals("authorization", ignoreCase = true) }) {
-            "headers may not set authorization when apiKey is set"
+        require(apiKey == null || headers.keys.none { it.equals(authHeader, ignoreCase = true) }) {
+            "headers may not set ${authHeader.lowercase()} when apiKey is set"
         }
         for (model in models.keys) {
             require(model.isNotEmpty() && model.none(Char::isISOControl)) { "models holds an empty or malformed id" }

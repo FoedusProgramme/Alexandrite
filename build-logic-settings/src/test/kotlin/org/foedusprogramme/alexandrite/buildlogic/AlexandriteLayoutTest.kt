@@ -20,7 +20,7 @@ class AlexandriteLayoutTest {
     private val tools = ":libraries:tools"
     private val telegram = ":libraries:channels:telegram"
     private val openAi = ":libraries:providers:openai-compatible"
-    private val anthropic = ":libraries:providers:anthropic"
+    private val anthropic = ":libraries:providers:anthropic-compatible"
     private val deepSeek = ":libraries:providers:deepseek"
     private val lmStudio = ":libraries:providers:lmstudio"
     private val openRouter = ":libraries:providers:openrouter"
@@ -120,7 +120,7 @@ class AlexandriteLayoutTest {
             tools to "alexandrite-tools",
             telegram to "alexandrite-channel-telegram",
             openAi to "alexandrite-provider-openai-compatible",
-            anthropic to "alexandrite-provider-anthropic",
+            anthropic to "alexandrite-provider-anthropic-compatible",
             deepSeek to "alexandrite-provider-deepseek",
             lmStudio to "alexandrite-provider-lmstudio",
             openRouter to "alexandrite-provider-openrouter",
@@ -152,7 +152,7 @@ class AlexandriteLayoutTest {
             tools to "tools",
             telegram to "channels.telegram",
             openAi to "providers.openai-compatible",
-            anthropic to "providers.anthropic",
+            anthropic to "providers.anthropic-compatible",
             deepSeek to "providers.deepseek",
             lmStudio to "providers.lmstudio",
             openRouter to "providers.openrouter",
@@ -195,7 +195,7 @@ class AlexandriteLayoutTest {
             tools to "alexandrite-tools",
             telegram to "alexandrite-channel-telegram",
             openAi to "alexandrite-provider-openai-compatible",
-            anthropic to "alexandrite-provider-anthropic",
+            anthropic to "alexandrite-provider-anthropic-compatible",
             deepSeek to "alexandrite-provider-deepseek",
             sqlite to "alexandrite-store-sqlite",
             app to "alexandrite-app",
@@ -212,7 +212,7 @@ class AlexandriteLayoutTest {
             tools to "org.foedusprogramme.alexandrite.tools",
             telegram to "org.foedusprogramme.alexandrite.channel.telegram",
             openAi to "org.foedusprogramme.alexandrite.provider.openaicompatible",
-            anthropic to "org.foedusprogramme.alexandrite.provider.anthropic",
+            anthropic to "org.foedusprogramme.alexandrite.provider.anthropiccompatible",
             deepSeek to "org.foedusprogramme.alexandrite.provider.deepseek",
             lmStudio to "org.foedusprogramme.alexandrite.provider.lmstudio",
             openRouter to "org.foedusprogramme.alexandrite.provider.openrouter",
@@ -245,7 +245,7 @@ class AlexandriteLayoutTest {
             tools to "$base.tools.AlexandriteToolsIndex",
             telegram to "$base.channel.telegram.AlexandriteChannelTelegramIndex",
             openAi to "$base.provider.openaicompatible.AlexandriteProviderOpenaiCompatibleIndex",
-            anthropic to "$base.provider.anthropic.AlexandriteProviderAnthropicIndex",
+            anthropic to "$base.provider.anthropiccompatible.AlexandriteProviderAnthropicCompatibleIndex",
             deepSeek to "$base.provider.deepseek.AlexandriteProviderDeepseekIndex",
             lmStudio to "$base.provider.lmstudio.AlexandriteProviderLmstudioIndex",
             openRouter to "$base.provider.openrouter.AlexandriteProviderOpenrouterIndex",
@@ -394,7 +394,7 @@ class AlexandriteLayoutTest {
     fun `the scan never searches inside a module, so a fixture build file there is no misplaced module`() {
         val fixtures = setOf(
             "libraries/tools/src/test/resources/fixture",
-            "libraries/providers/anthropic/src/test/resources/nested/project",
+            "libraries/providers/anthropic-compatible/src/test/resources/nested/project",
             "examples/notes/src/test/resources/fixture",
         )
         assertEquals(today.sorted(), AlexandriteLayout.scan(FakeTree(today.toSet() + fixtures)))
@@ -406,7 +406,7 @@ class AlexandriteLayoutTest {
             "libraries/tools/build/tmp/fixture",
             "libraries/.gradle/cache",
             "libraries/providers/.idea",
-            "libraries/providers/anthropic/.kotlin/sessions",
+            "libraries/providers/anthropic-compatible/.kotlin/sessions",
             "examples/build/tmp/fixture",
             "examples/.idea",
             "build-logic",
