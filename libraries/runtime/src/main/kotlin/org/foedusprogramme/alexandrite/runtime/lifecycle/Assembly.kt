@@ -10,7 +10,9 @@ import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.channel.RuntimeChannelInstance
 import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.config.ConfigResolution
+import org.foedusprogramme.alexandrite.runtime.config.ConfigWriter
 import org.foedusprogramme.alexandrite.runtime.config.EnabledPlugin
+import org.foedusprogramme.alexandrite.runtime.config.PluginConfigEditor
 import org.foedusprogramme.alexandrite.runtime.config.resolveConfig
 import org.foedusprogramme.alexandrite.runtime.configFailure
 import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
@@ -166,6 +168,8 @@ internal class Assembly(
         val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
         texts.install(spec.config.texts.value)
         CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.config.texts.collect(texts::install) }
+        val writer = ConfigWriter(spec.config.configFile, spec.config.environment, name)
+        val editors = enabled.associate { it.id to PluginConfigEditor(it, writer) }
         val runtime = runtimeBindings(
             spec.config,
             infos,
@@ -174,6 +178,7 @@ internal class Assembly(
             unreadableStates,
             texts,
             control,
+            editors::getValue,
             scopes,
             directory,
             channels,

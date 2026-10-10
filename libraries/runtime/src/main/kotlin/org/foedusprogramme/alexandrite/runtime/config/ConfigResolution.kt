@@ -80,7 +80,7 @@ internal fun resolveConfig(
 }
 
 /** Why [member] is off, null when it is on. */
-private fun disabledReason(member: PluginSet.Member, source: ConfigSource): DisabledPlugin.Reason? {
+internal fun disabledReason(member: PluginSet.Member, source: ConfigSource): DisabledPlugin.Reason? {
     val root = member.index.configRoot
     val tree = source.tree(root)
     val enabled = tree?.get(PluginIds.ENABLED_KEY)?.let { value ->

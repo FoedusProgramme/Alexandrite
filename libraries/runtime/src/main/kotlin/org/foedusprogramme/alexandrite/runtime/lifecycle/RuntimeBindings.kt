@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.runtime.turn.PluginTurnInitiator
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
@@ -49,6 +50,7 @@ internal fun runtimeBindings(
     unreadableStates: UnreadableStateListener,
     texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
+    editors: (plugin: String) -> ConfigEditor,
     scopes: PluginScopes,
     directory: ChannelDirectory,
     channels: ChannelControl,
@@ -119,6 +121,12 @@ internal fun runtimeBindings(
                 texts.of(plugin.id),
                 RUNTIME_PLUGIN,
                 "Texts of ${plugin.id}",
+            ),
+            instanceBinding(
+                key<ConfigEditor>(plugin.id),
+                editors(plugin.id),
+                RUNTIME_PLUGIN,
+                "ConfigEditor of ${plugin.id}",
             ),
         )
     }

@@ -44,6 +44,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
@@ -77,6 +78,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -138,7 +140,7 @@ class GraphTest {
     }
 
     @Test
-    fun `the runtime binds hooks, the clock, its control and each plugin's info, files and scope`() {
+    fun `the runtime binds hooks, the clock, its control and each plugin's info, files, scope and config editor`() {
         val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed) }
         val probe = probe(
             "probe",
@@ -149,6 +151,8 @@ class GraphTest {
             "other" to key<PluginFiles>("other"),
             "control" to key<RuntimeControl>("probe"),
             "scope" to key<PluginScope>("probe"),
+            "editor" to key<ConfigEditor>("probe"),
+            "otherEditor" to key<ConfigEditor>("other"),
         )
         val index = TestIndex("probe", bindings = listOf(probe, hook))
 
@@ -170,6 +174,8 @@ class GraphTest {
             assertTrue(Files.isDirectory(dataDir.resolve("cache/plugins/probe")))
             assertEquals(dataDir.resolve("plugins/other"), (values.getValue("other") as PluginFiles).dataDir)
             assertTrue(values.getValue("control") is RuntimeControl)
+            assertTrue(values.getValue("editor") is ConfigEditor)
+            assertNotSame(values.getValue("editor"), values.getValue("otherEditor"))
             assertEquals("probe", (values.getValue("scope") as PluginScope).coroutineContext[CoroutineName]?.name)
         }
 

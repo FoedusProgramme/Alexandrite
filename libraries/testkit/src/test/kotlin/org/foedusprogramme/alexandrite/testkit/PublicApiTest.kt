@@ -26,9 +26,11 @@ class PublicApiTest {
     private val sample = """
         import kotlinx.coroutines.flow.toList
         import kotlinx.serialization.json.JsonObject
+        import kotlinx.serialization.json.JsonPrimitive
         import org.foedusprogramme.alexandrite.runtime.TextCatalog
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
+        import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
         import org.foedusprogramme.alexandrite.sdk.di.key
         import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
         import org.foedusprogramme.alexandrite.sdk.model.*
@@ -218,6 +220,7 @@ class PublicApiTest {
                 .config(other, JsonObject(emptyMap()))
                 .dataRoot(root)
                 .configFile(root.resolve("alexandrite.json"))
+                .writeConfigFile(root.resolve("alexandrite.json"))
                 .protect(root.resolve("logs"))
                 .zone(ZoneOffset.UTC)
                 .language(LanguageTag("zh-CN"))
@@ -238,6 +241,8 @@ class PublicApiTest {
             val block: suspend PluginHarness.Running.() -> Unit = {
                 seen.addAll(listOf(dataDir, cacheDir, get<ChannelDirectory>(), getAll<ModelProvider>()))
                 seen.add(model("scripted"))
+                seen.add(readConfig())
+                get<ConfigEditor>("notes").edit { set("home", JsonPrimitive("1")) }
                 seen.addAll(listOf(channel("main", "test"), channel(TEST_INSTANCE), get(key<ChannelDirectory>())))
                 seen.addAll(getAll(key<ModelProvider>()))
                 stop()

@@ -17,25 +17,37 @@ import java.nio.file.Path
 public object ConfigFile {
     private val NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
+    private const val BYTE_ORDER_MARK = "\uFEFF"
+
     /** The config in [file], with each `${env:NAME}` replaced from [environment] and each `$${` by `${`. */
     public fun read(file: Path, environment: Map<String, String> = System.getenv()): ConfigSource {
         val text = try {
-            Files.readString(file).removePrefix("﻿")
+            Files.readString(file)
         } catch (e: NoSuchFileException) {
             throw ConfigFileException.Missing(file)
         } catch (e: IOException) {
             throw ConfigFileException.Invalid(file, "cannot be read: $e", e)
         }
+        return JsonConfigSource(resolved(file, parsed(file, text), environment))
+    }
+
+    /** The object that [text], the content of [file], holds, with its `${env:NAME}` references as written. */
+    internal fun parsed(file: Path, text: String): JsonObject {
+        val json = text.removePrefix(BYTE_ORDER_MARK)
         val root = try {
-            Json.parseToJsonElement(text)
+            Json.parseToJsonElement(json)
         } catch (e: SerializationException) {
             val detail = e.message?.lineSequence()?.first() ?: e.toString()
             throw ConfigFileException.Invalid(file, "is not valid JSON: $detail", e)
         }
         if (root !is JsonObject) throw ConfigFileException.Invalid(file, "holds no JSON object.", null)
-        repeatedKey(text)?.let { throw ConfigFileException.DuplicateKey(file, it) }
-        return JsonConfigSource(JsonObject(root.mapValues { (key, value) -> value.resolved(file, key, environment) }))
+        repeatedKey(json)?.let { throw ConfigFileException.DuplicateKey(file, it) }
+        return root
     }
+
+    /** [root] with each `${env:NAME}` replaced from [environment] and each `$${` by `${`. */
+    internal fun resolved(file: Path, root: JsonObject, environment: Map<String, String>): JsonObject =
+        JsonObject(root.mapValues { (key, value) -> value.resolved(file, key, environment) })
 
     /** The JSON path of the first key that the valid JSON [text] repeats within one object, null when none. */
     private fun repeatedKey(text: String): String? {

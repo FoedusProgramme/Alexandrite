@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
+import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
@@ -52,6 +53,7 @@ public class PluginHarness private constructor(
     private val pluginConfig: ConfigSource,
     private val dataRoot: Path?,
     private val configFile: Path?,
+    private val keepsConfig: Boolean,
     private val offLimits: List<Path>,
     private val zone: ZoneId,
     private val language: LanguageTag?,
@@ -95,17 +97,28 @@ public class PluginHarness private constructor(
         language?.let(settings::language)
         texts?.let(settings::texts)
         shutdownGrace?.let(settings::shutdownGrace)
-        val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(pluginConfig).build()
+        val config = configFile?.takeIf { keepsConfig }?.let(::configIn) ?: pluginConfig
+        val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(config).build()
         var running: Running? = null
         var finished = false
         val termination = AlexandriteRuntime.run(spec) {
-            val current = Running(this, id)
+            val current = Running(this, id, configFile)
             running = current
             current.block()
             finished = true
         }
         if (!inspectTermination) verify(termination, finished || termination.request == running?.requested)
         return termination
+    }
+
+    /** The config kept in [file], which gets the harness's config first when it does not exist. */
+    private fun configIn(file: Path): ConfigSource {
+        if (Files.notExists(file)) {
+            file.toAbsolutePath().parent?.let(Files::createDirectories)
+            val text = PRETTY.encodeToString(JsonObject.serializer(), checkNotNull(pluginConfig.tree("")))
+            Files.writeString(file, "$text\n")
+        }
+        return ConfigFile.read(file)
     }
 
     /** The problems the doubles met during the run, as an error caused by [cause], null when there are none. */
@@ -125,7 +138,11 @@ public class PluginHarness private constructor(
     }
 
     /** What a [run] block sees of its runtime. */
-    public class Running internal constructor(private val runtime: AlexandriteRuntime, id: String) {
+    public class Running internal constructor(
+        private val runtime: AlexandriteRuntime,
+        id: String,
+        private val configFile: Path?,
+    ) {
         private val files = runtime.services.resolver().get(key<PluginFiles>(id))
 
         @Volatile
@@ -160,6 +177,10 @@ public class PluginHarness private constructor(
             get<ChannelDirectory>().channel(instance) as? RecordingChannel
                 ?: throw NoSuchElementException("No recording channel of instance $instance is open.")
 
+        /** The config file as the host would read it now. */
+        public fun readConfig(): ConfigSource =
+            ConfigFile.read(configFile ?: throw IllegalStateException("The harness names no config file."))
+
         /** The scripted model [id] that the runtime's model providers contribute. */
         public fun model(id: String = "scripted"): ScriptedModel =
             getAll<ModelProvider>().flatMap { it.endpoints }.filterIsInstance<ScriptedModel>()
@@ -172,6 +193,7 @@ public class PluginHarness private constructor(
         private val configs = LinkedHashMap<String, JsonObject>()
         private var dataRoot: Path? = null
         private var configFile: Path? = null
+        private var keepsConfig = false
         private val offLimits = mutableListOf<Path>()
         private var zone: ZoneId = ZoneOffset.UTC
         private var language: LanguageTag? = null
@@ -215,7 +237,19 @@ public class PluginHarness private constructor(
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
 
         /** The config file that the runtime's host paths name, none unless set. */
-        public fun configFile(file: Path): Builder = apply { configFile = file }
+        public fun configFile(file: Path): Builder = apply {
+            configFile = file
+            keepsConfig = false
+        }
+
+        /**
+         * Names [file] as the config file and keeps the config in it: a run writes the harness's config there when the
+         * file does not exist and reads the file, so what the plugins write into it reaches later runs.
+         */
+        public fun writeConfigFile(file: Path): Builder = apply {
+            configFile = file
+            keepsConfig = true
+        }
 
         /** Declares [path] off-limits, as a host does. */
         public fun protect(path: Path): Builder = apply { offLimits.add(path) }
@@ -307,6 +341,7 @@ public class PluginHarness private constructor(
                 JsonConfigSource(tree),
                 dataRoot,
                 configFile,
+                keepsConfig,
                 offLimits.toList(),
                 zone,
                 language,
@@ -324,6 +359,8 @@ public class PluginHarness private constructor(
         public fun builder(plugin: PluginIndex): Builder = Builder(plugin)
     }
 }
+
+private val PRETTY = Json { prettyPrint = true }
 
 private fun merged(tree: JsonObject, other: JsonObject): JsonObject = JsonObject(
     (tree.keys + other.keys).associateWith { name ->

@@ -21,6 +21,7 @@ public class RuntimeConfig private constructor(
     public val cacheDir: Path,
     /** The config file the host read, null when it read none. */
     public val configFile: Path?,
+    environment: Map<String, String>,
     /** The places the host declares off-limits. */
     public val protected: List<Path>,
     public val zone: ZoneId,
@@ -38,9 +39,12 @@ public class RuntimeConfig private constructor(
     /** Texts that take the place of the plugins' own, followed while the runtime runs. */
     public val texts: StateFlow<TextCatalog> = texts
 
+    internal val environment: Map<String, String> = environment
+
     public class Builder internal constructor(private val dataDir: Path) {
         private var cacheDir: Path = dataDir.resolve("cache")
         private var configFile: Path? = null
+        private var environment: Map<String, String> = System.getenv()
         private val protected = mutableListOf<Path>()
         private var zone: ZoneId = ZoneId.systemDefault()
         private var language: LanguageTag = LanguageTag("en")
@@ -53,6 +57,10 @@ public class RuntimeConfig private constructor(
         public fun cacheDir(cacheDir: Path): Builder = apply { this.cacheDir = cacheDir }
 
         public fun configFile(configFile: Path?): Builder = apply { this.configFile = configFile }
+
+        /** The variables that `${env:NAME}` references in the config file name, the process's unless set. */
+        public fun environment(environment: Map<String, String>): Builder =
+            apply { this.environment = environment.toMap() }
 
         /** Declares [path] off-limits. */
         public fun protect(path: Path): Builder = apply { protected.add(path) }
@@ -97,6 +105,7 @@ public class RuntimeConfig private constructor(
                 dataDir,
                 cacheDir,
                 configFile,
+                environment,
                 protected.toList(),
                 zone,
                 language,

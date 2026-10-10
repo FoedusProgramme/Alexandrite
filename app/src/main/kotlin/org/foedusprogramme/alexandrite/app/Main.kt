@@ -141,6 +141,7 @@ private fun host(
         RuntimeConfig.builder(locations.dataDir)
             .cacheDir(locations.cacheDir)
             .configFile(locations.configFile)
+            .environment(environment)
             .apply { install?.let { protect(it) } }
             .zone(settings.zoneId)
             .language(settings.languageTag)

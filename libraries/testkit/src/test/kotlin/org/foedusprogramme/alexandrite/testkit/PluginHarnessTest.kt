@@ -2,17 +2,25 @@ package org.foedusprogramme.alexandrite.testkit
 
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.runtime.ConfigFileException
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.runtime.decodeSection
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.rebuild
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
+import org.foedusprogramme.alexandrite.sdk.config.set
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
@@ -182,6 +190,69 @@ class PluginHarnessTest {
             assertNull(get<HostPaths>().configFile)
             assertEquals(emptyList(), get<HostPaths>().protected)
         }
+    }
+
+    @Serializable
+    data class Folders(val home: String? = null, val trusted: List<String> = emptyList())
+
+    private val folders =
+        Index("folders", sections = listOf(ConfigSectionSpec(key<Folders>(), "", Folders.serializer(), "Folders")))
+
+    @Test
+    fun `a plugin edits its own config in the harness's config file, which later runs start from`() {
+        val file = directory.resolve("config/alexandrite.json")
+        val harness =
+            PluginHarness.builder(folders).dataRoot(directory).writeConfigFile(file).config("""{"home": "1"}""").build()
+        val edited = Folders(trusted = listOf("/srv/repo"))
+
+        harness.execute {
+            val editor = get<ConfigEditor>("folders")
+
+            editor.edit {
+                set("trusted", JsonArray(listOf(JsonPrimitive("/srv/repo"))))
+                remove("home")
+            }
+            val refused = assertFailsWith<ConfigEditException> { editor.set("bogus", JsonPrimitive(1)) }
+
+            assertEquals(Folders("1"), get<Folders>())
+            assertEquals(edited, readConfig().decodeSection("plugins.folders", Folders.serializer()))
+            assertEquals(ConfigEditRefusal.INVALID_RESULT, refused.refusal)
+        }
+        harness.execute { assertEquals(edited, get<Folders>()) }
+
+        assertTrue(Files.exists(file.resolveSibling("alexandrite.json.bak")))
+    }
+
+    @Test
+    fun `a config file the test wrote is read as it is and keeps its env references`() {
+        val home = System.getenv("HOME")
+        assumeTrue(home != null)
+        val file = directory.resolve("alexandrite.json")
+        val text = "{\"plugins\": {\"folders\": {\"home\": \"\${env:HOME}\"}}}\n"
+        Files.writeString(file, text)
+        val harness =
+            PluginHarness.builder(folders).dataRoot(directory).writeConfigFile(file).config("""{"home": "1"}""").build()
+
+        harness.execute {
+            assertEquals(Folders(home), get<Folders>())
+
+            get<ConfigEditor>("folders").set("trusted", JsonArray(listOf(JsonPrimitive("/srv"))))
+        }
+
+        assertEquals(text.replace("}}}", ", \"trusted\": [\"/srv\"]}}}"), Files.readString(file))
+    }
+
+    @Test
+    fun `a config file the harness only names is not written, so edits are refused`() {
+        harness { configFile(directory.resolve("alexandrite.json")) }.execute {
+            val refused =
+                assertFailsWith<ConfigEditException> { get<ConfigEditor>("probe").set("greeting", JsonPrimitive("hi")) }
+
+            assertEquals(ConfigEditRefusal.NO_FILE, refused.refusal)
+            assertFailsWith<ConfigFileException.Missing> { readConfig() }
+        }
+        harness().execute { assertFailsWith<IllegalStateException> { readConfig() } }
+        assertFalse(Files.exists(directory.resolve("alexandrite.json")))
     }
 
     @Test

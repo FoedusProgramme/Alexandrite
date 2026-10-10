@@ -88,6 +88,15 @@ class SubclassOptInTest {
             ) = TODO()
         }
 
+        class Editor : org.foedusprogramme.alexandrite.sdk.config.ConfigEditor {
+            override suspend fun edit(block: org.foedusprogramme.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
+        }
+
+        class Edit : org.foedusprogramme.alexandrite.sdk.config.ConfigEdit {
+            override fun set(path: String, value: kotlinx.serialization.json.JsonElement) = TODO()
+            override fun remove(path: String) = TODO()
+        }
+
         class Settings : org.foedusprogramme.alexandrite.sdk.chat.ChatSettings {
             override suspend fun language(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
         }
@@ -330,6 +339,17 @@ class SubclassOptInTest {
             ELSE
         }
 
+        fun refusal(refusal: org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal): Int = when (refusal) {
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.NO_FILE -> 0
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.READ_ONLY -> 1
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.INVALID_FILE -> 2
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.INVALID_PATH -> 3
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.INVALID_RESULT -> 4
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.SECRET -> 5
+            org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.IO_ERROR -> 6
+            ELSE
+        }
+
         fun state(state: org.foedusprogramme.alexandrite.sdk.store.ConversationState): Int = when (state) {
             org.foedusprogramme.alexandrite.sdk.store.ConversationState.ACTIVE -> 0
             org.foedusprogramme.alexandrite.sdk.store.ConversationState.SEALED -> 1
@@ -540,6 +560,27 @@ class SubclassOptInTest {
         }
     """.trimIndent()
 
+    /** A plugin that writes its own settings back into the config file. */
+    private val configEdits = """
+        import kotlinx.serialization.json.JsonArray
+        import kotlinx.serialization.json.JsonPrimitive
+        import org.foedusprogramme.alexandrite.sdk.config.*
+
+        class Folders(private val editor: ConfigEditor) {
+            suspend fun trust(folders: List<String>): String? = try {
+                editor.edit {
+                    set("trustedFolders", JsonArray(folders.map(::JsonPrimitive)))
+                    remove("legacyFolders")
+                }
+                editor.set("home", JsonPrimitive("123"))
+                editor.remove("home")
+                null
+            } catch (e: ConfigEditException) {
+                if (e.refusal in ConfigEditRefusal.entries) e.message else ConfigEditRefusal.of(e.refusal.id).id
+            }
+        }
+    """.trimIndent()
+
     /** The errors of compiling [source]. */
     private fun errors(source: String): List<String> = KotlinCompilation().apply {
         workingDir = this@SubclassOptInTest.workingDir
@@ -593,6 +634,26 @@ class SubclassOptInTest {
     @Test
     fun `a plugin's tool checks its paths against the hard floor without the internal API`() {
         assertEquals(emptyList(), errors(fileTool))
+    }
+
+    @Test
+    fun `a plugin edits its config without the internal API`() {
+        assertEquals(emptyList(), errors(configEdits))
+    }
+
+    @Test
+    fun `only Alexandrite refuses config edits`() {
+        val forged = """
+            fun forged() = org.foedusprogramme.alexandrite.sdk.config.ConfigEditException(
+                org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.SECRET,
+                "No.",
+            )
+        """.trimIndent()
+
+        val errors = errors(forged)
+
+        assertEquals(1, errors.size, errors.joinToString("\n"))
+        assertTrue("Internal Alexandrite API" in errors.single(), errors.single())
     }
 
     @Test

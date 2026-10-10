@@ -15,6 +15,7 @@ import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -105,6 +106,7 @@ class SpecTest {
         assertEquals(30.seconds, config.startTimeout)
         assertEquals("alexandrite", config.name)
         assertSame(Dispatchers.Default, config.dispatcher)
+        assertEquals(System.getenv(), config.environment)
     }
 
     @Test
@@ -126,6 +128,9 @@ class SpecTest {
         val catalog = TextCatalog.builder().text("notes", LanguageTag("zh-CN"), "saved", "已保存。").build()
 
         assertSame(texts, config.texts)
+        val environment = RuntimeConfig.builder(dataDir).environment(mapOf("TOKEN" to "s3cret-value")).build()
+        assertEquals(mapOf("TOKEN" to "s3cret-value"), environment.environment)
+        assertFalse("s3cret-value" in environment.toString())
         assertEquals(catalog, RuntimeConfig.builder(dataDir).texts(catalog).build().texts.value)
         assertEquals(
             listOf(
