@@ -13,6 +13,9 @@ internal object ExitCode {
     /** `EX_USAGE` */
     const val USAGE = 64
 
+    /** `EX_UNAVAILABLE` */
+    const val UNAVAILABLE = 69
+
     /** `EX_TEMPFAIL` */
     const val RESTART = 75
 

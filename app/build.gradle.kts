@@ -10,6 +10,7 @@ dependencies {
     implementation(project(":libraries:tools"))
     implementation(project(":libraries:commands"))
     implementation(project(":libraries:channels:telegram"))
+    implementation(project(":libraries:channel-common"))
     implementation(project(":libraries:providers:openai-compatible"))
     implementation(project(":libraries:providers:deepseek"))
     implementation(project(":libraries:providers:openrouter"))
@@ -20,6 +21,7 @@ dependencies {
 
     testImplementation(project(":libraries:testkit"))
     testImplementation(project(":examples:notes"))
+    testImplementation(testFixtures(project(":libraries:channels:telegram")))
     testImplementation(libs.logback.classic)
 }
 

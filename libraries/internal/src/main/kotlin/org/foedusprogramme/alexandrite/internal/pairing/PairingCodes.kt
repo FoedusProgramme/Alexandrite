@@ -73,6 +73,15 @@ public class PairingCodes<K : Any, P : Any>(
         }
     }
 
+    /** Whether [input] is a live code for [purpose], which is neither spent nor counted. */
+    public fun holds(purpose: String, input: String): Boolean {
+        synchronized(lock) {
+            purge(clock.instant())
+            val code = normalize(input) ?: return false
+            return codes[code]?.purpose == purpose
+        }
+    }
+
     /** Revokes the code [owner] holds for [purpose], false when it holds none. */
     public fun revoke(purpose: String, owner: K): Boolean {
         synchronized(lock) {

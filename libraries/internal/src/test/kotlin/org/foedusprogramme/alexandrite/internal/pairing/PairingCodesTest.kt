@@ -168,6 +168,32 @@ class PairingCodesTest {
     }
 
     @Test
+    fun `a live code of the purpose is held however it is written, and asking is never counted`() {
+        val issued = codes.issue(LINK, "a", "offer")
+        val other = codes.issue(PAIR, "c", "other")
+
+        assertTrue(codes.holds(LINK, issued.text.lowercase().replace("-", " ")))
+        assertEquals(false, codes.holds(PAIR, issued.text))
+        assertEquals(false, codes.holds(LINK, other.text))
+        assertEquals(false, codes.holds(LINK, "hello"))
+        repeat(MAX_FAILURES + 1) { assertEquals(false, codes.holds(LINK, "AAAA-AAAA")) }
+
+        codes.assertRedeemed(issued.text)
+        assertEquals(false, codes.holds(LINK, issued.text))
+    }
+
+    @Test
+    fun `an expired code is no longer held`() {
+        val issued = codes.issue(LINK, "a", "offer")
+
+        advance(10.minutes - 1.milliseconds)
+        assertTrue(codes.holds(LINK, issued.text))
+        advance(1.milliseconds)
+
+        assertEquals(false, codes.holds(LINK, issued.text))
+    }
+
+    @Test
     fun `beyond the capacity the oldest code is dropped`() {
         val small = PairingCodes<String, String>(clock, capacity = 3)
         val issued = (1..4).map { small.issue(LINK, "owner $it", "offer $it") }

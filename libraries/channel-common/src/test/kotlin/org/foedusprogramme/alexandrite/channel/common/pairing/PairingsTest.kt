@@ -129,6 +129,44 @@ class PairingsTest {
     }
 
     @Test
+    fun `a desk holds the live codes of its requests however they are written`() = runTest {
+        val code = assertNotNull(offer())
+        val other = Pairings(clock)
+        val elsewhere = assertNotNull(
+            other.open(home, emptyList(), MemoryStore()).request(ChatAddress(home, "42"), ChatKind.DIRECT, null, ada),
+        )
+
+        assertTrue(desk.holds(code.text.lowercase().replace("-", " ")))
+        assertFalse(desk.holds(elsewhere.text))
+        assertTrue(other.holds(elsewhere.text))
+        assertFalse(desk.holds("hello"))
+
+        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+        assertFalse(desk.holds(code.text))
+    }
+
+    @Test
+    fun `an expired code is no longer held`() {
+        val code = assertNotNull(offer())
+
+        clock.advance(599)
+        assertTrue(desk.holds(code.text))
+        clock.advance(1)
+
+        assertFalse(desk.holds(code.text))
+    }
+
+    @Test
+    fun `asking whether a desk holds a code never counts as a wrong code`() = runTest {
+        val code = assertNotNull(offer())
+
+        repeat(10) { assertFalse(desk.holds("AAAA-AAAA")) }
+
+        assertEquals(PairingDecision.Unknown(4), desk.approve("AAAA-AAAA"))
+        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+    }
+
+    @Test
     fun `a store that fails keeps the chat unpaired and its request waiting under a new code`() = runTest {
         val code = assertNotNull(offer())
         store.failure = IOException("The disk is full.")

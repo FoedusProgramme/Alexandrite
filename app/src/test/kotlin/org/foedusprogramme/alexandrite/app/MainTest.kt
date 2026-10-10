@@ -2,11 +2,13 @@ package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
@@ -23,6 +25,7 @@ import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -91,6 +94,7 @@ class MainTest {
         assertContains(stdout(), "Usage: alexandrite [--config <file>] [--data-dir <dir>] [--cache-dir <dir>]")
         assertContains(stdout(), "by default ${home.resolve(".config/alexandrite/alexandrite.json")}")
         assertContains(stdout(), "by default /srv/alexandrite")
+        assertContains(stdout(), "\n  pair <code>         pair the chat that was offered <code>\n")
         assertEquals("", stderr())
     }
 
@@ -107,6 +111,59 @@ class MainTest {
 
         assertTrue(stderr().startsWith("alexandrite: --config needs a value.\n\nUsage: alexandrite"), stderr())
         assertEquals("", stdout())
+    }
+
+    @Test
+    fun `a command without a running app says so and exits 69`() {
+        val code = host("pairings", environment = mapOf("ALEXANDRITE_DATA_DIR" to "$dataDir"))
+
+        assertEquals(69, code)
+        assertEquals(
+            "alexandrite: No Alexandrite runs with the data directory $dataDir: it holds no control.sock (a running " +
+                "one logs why it serves none).\n",
+            stderr(),
+        )
+        assertEquals("", stdout())
+    }
+
+    @Test
+    fun `a command with bad arguments prints the reason and the usage and exits 64`() {
+        assertEquals(64, host("unpair", "work"))
+
+        assertTrue(stderr().startsWith("alexandrite: 'work' is no chat address"), stderr())
+        assertContains(stderr(), "Usage: alexandrite")
+    }
+
+    @Test
+    fun `the running host serves its control socket in the data directory until it stops`() {
+        val socket = dataDir.resolve("control.sock")
+        val answer = ByteArrayOutputStream()
+        var permissions: String? = null
+        var code: Int? = null
+        val execute: Execute = { spec, block ->
+            AlexandriteRuntime.run(spec) {
+                coroutineScope {
+                    launch { block() }
+                    withContext(Dispatchers.IO) {
+                        awaitControlSocket(socket)
+                        permissions = PosixFilePermissions.toString(Files.getPosixFilePermissions(socket))
+                        val printed = PrintStream(answer, true)
+                        val args = listOf("pairings", "--data-dir", "$dataDir")
+                        code = run(args, emptyMap(), "Linux", home, printed, printed)
+                    }
+                    stop(StopRequest.shutdown("requested by the test"))
+                }
+            }
+        }
+
+        val lines = logged { assertEquals(0, hostWith("{}", execute)) }
+
+        assertEquals("rw-------", permissions)
+        assertEquals(1, code)
+        assertEquals("alexandrite: No channel takes pairing codes.\n", answer.toString(Charsets.UTF_8))
+        assertContains(lines, "INFO Serving the control socket $socket")
+        assertFalse(Files.exists(socket))
+        assertEquals("", stderr())
     }
 
     @Test

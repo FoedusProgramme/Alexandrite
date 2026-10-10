@@ -13,6 +13,9 @@ public interface PairingDesk {
     /** The requests of unpaired chats whose codes are still valid, oldest first. */
     public fun pending(): List<PairingRequest>
 
+    /** Whether a request of this desk holds [code], which is never counted as a wrong code. */
+    public fun holds(code: String): Boolean
+
     /** Pairs the chat that got [code] at once. */
     public suspend fun approve(code: String): PairingDecision
 

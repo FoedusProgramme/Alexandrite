@@ -55,6 +55,8 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
         requests.values.sortedBy { it.issuedAt }
     }
 
+    override fun holds(code: String): Boolean = synchronized(lock) { codes.holds(PURPOSE, code) }
+
     override suspend fun approve(code: String): PairingDecision = decide(code) { request, pairing ->
         try {
             pairing.store.add(request.chat)

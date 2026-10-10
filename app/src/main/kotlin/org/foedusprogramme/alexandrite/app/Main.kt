@@ -4,6 +4,9 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.app.control.ControlAnswers
+import org.foedusprogramme.alexandrite.app.control.PairingDesks
+import org.foedusprogramme.alexandrite.app.control.serveControl
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.ConfigFileException
@@ -12,6 +15,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.decodeSection
+import org.foedusprogramme.alexandrite.runtime.get
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.slf4j.Logger
@@ -72,6 +76,17 @@ internal fun run(
     }
     val options = when (val command = parseArguments(args)) {
         is Command.Run -> command.options
+
+        is Command.Control -> {
+            val locations = located(command.options) ?: return ExitCode.CONFIG
+            return try {
+                control(locations.dataDir, command.request, out, err)
+            } catch (e: Exception) {
+                logger.error("Unexpected error", e)
+                err.println("alexandrite: unexpected error: $e")
+                ExitCode.FAILURE
+            }
+        }
 
         Command.Help -> {
             out.println(usage(located(Options()) ?: return ExitCode.CONFIG))
@@ -167,6 +182,8 @@ private fun host(
                 logger.info("Alexandrite {} is ready", alexandriteVersion)
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
+                    val answers = ControlAnswers(alexandriteVersion) { services.get<PairingDesks>().all }
+                    launch { serveControl(locations.dataDir, answers::answer) }
                     awaitCancellation()
                 }
             }

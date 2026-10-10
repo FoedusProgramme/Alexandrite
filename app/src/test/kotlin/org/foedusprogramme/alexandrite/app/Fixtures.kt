@@ -3,8 +3,12 @@ package org.foedusprogramme.alexandrite.app
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import org.foedusprogramme.alexandrite.app.control.ControlRequest
+import org.foedusprogramme.alexandrite.app.control.askDaemon
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeListener
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
@@ -27,6 +31,8 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 class TestIndex(id: String, private val bindings: List<Binding<*>> = emptyList()) : PluginIndex {
     override val info = PluginInfo(id, id, "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Plugin")
@@ -107,4 +113,11 @@ fun logged(block: () -> Unit): List<String> {
 fun replace(file: Path, text: String) {
     val written = Files.writeString(Files.createTempFile(file.parent, "texts", ".tmp"), text)
     Files.move(written, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+}
+
+/** Waits until the app serves its control socket [socket]. */
+suspend fun awaitControlSocket(socket: Path) {
+    withTimeout(10.seconds) {
+        while (runCatching { askDaemon(socket, ControlRequest.Ping) }.isFailure) delay(10.milliseconds)
+    }
 }

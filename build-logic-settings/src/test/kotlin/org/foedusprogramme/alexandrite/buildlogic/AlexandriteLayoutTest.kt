@@ -715,16 +715,17 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `channel-common sits on the SDK and internal, below the channels and the app, and tests with the testkit`() {
+    fun `channel-common sits on SDK and internal, below channels, app and examples, and tests with the testkit`() {
         for (to in plugins + runtime + app + notes + providerCommon) {
             assertForbidden(channelCommon, to)
             assertForbidden(channelCommon, to, "testImplementation")
         }
-        for (from in listOf(agent, tools, commands, openAi, anthropic, sqlite, providerCommon, sdk, internals, notes)) {
+        for (from in listOf(agent, tools, commands, openAi, anthropic, sqlite, providerCommon, sdk, internals)) {
             assertForbidden(from, channelCommon)
             assertForbidden(from, channelCommon, "testImplementation")
         }
         assertAllowed(app, channelCommon)
+        assertAllowed(notes, channelCommon)
         assertAllowed(channelCommon, testkit, "testImplementation")
         assertAllowed(channelCommon, testkit, "testFixturesApi")
         assertForbidden(channelCommon, testkit, "api")
@@ -739,7 +740,7 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `an example depends on the SDK and tests with the testkit`() {
+    fun `an example depends on the SDK and the support libraries and tests with the testkit`() {
         for (configuration in listOf("testImplementation", "testCompileOnly", "testRuntimeOnly")) {
             assertAllowed(notes, testkit, configuration)
         }
@@ -747,7 +748,8 @@ class AlexandriteLayoutTest {
             assertForbidden(notes, testkit, configuration)
         }
         assertAllowed(notes, providerCommon)
-        for (to in libraries - sdk - testkit - providerCommon + echo) {
+        assertAllowed(notes, channelCommon)
+        for (to in libraries - sdk - testkit - providerCommon - channelCommon + echo) {
             assertForbidden(notes, to)
             assertForbidden(notes, to, "testImplementation")
         }
@@ -834,7 +836,7 @@ class AlexandriteLayoutTest {
         )
         assertContains(
             assertNotNull(violation(notes, internals)),
-            "'$notes': $sdk, $providerCommon; $testkit only from configurations named test*;",
+            "'$notes': $sdk, $channelCommon, $providerCommon; $testkit only from configurations named test*;",
         )
         assertContains(
             assertNotNull(violation(ksp, internals)),

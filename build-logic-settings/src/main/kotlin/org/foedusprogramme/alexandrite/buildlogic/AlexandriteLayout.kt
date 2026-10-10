@@ -187,7 +187,7 @@ object AlexandriteLayout {
         Layer.PROVIDER_COMMON to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.STORE to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.TESTKIT to setOf(Layer.SDK, Layer.INTERNAL, Layer.RUNTIME),
-        Layer.EXAMPLE to setOf(Layer.SDK, Layer.PROVIDER_COMMON),
+        Layer.EXAMPLE to setOf(Layer.SDK, Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON),
         Layer.APP to setOf(
             Layer.SDK,
             Layer.INTERNAL,
