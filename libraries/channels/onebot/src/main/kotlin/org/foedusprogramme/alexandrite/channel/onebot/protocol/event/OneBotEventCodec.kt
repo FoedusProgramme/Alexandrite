@@ -21,9 +21,12 @@ import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotSeg
  * so does an event whose kind it models but whose own type it does not.
  */
 public object OneBotEventCodec {
-    /** The event of [element]. */
+    /** The event of [element], which throws when it is no object, an event of the standard being one. */
     public fun decode(element: JsonElement): OneBotEvent {
-        val raw = element as? JsonObject ?: return OneBotEvent.Unknown(0L, SelfId("0"), "", JsonObject(emptyMap()))
+        // A scalar or an array is no event: making one of it would tell a caller that a report naming nothing is a
+        // report worth reading, and would lose what actually arrived.
+        val raw = element as? JsonObject
+            ?: throw IllegalArgumentException("An event is a JSON object, was ${element::class.simpleName}.")
         val time = raw.number("time") ?: 0L
         val selfId = SelfId(raw.numberText("self_id") ?: "0")
         return when (val postType = raw.string("post_type")) {

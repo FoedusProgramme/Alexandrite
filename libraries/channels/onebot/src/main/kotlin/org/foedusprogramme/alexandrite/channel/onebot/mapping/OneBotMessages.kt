@@ -225,7 +225,10 @@ public object OneBotMessages {
 
     private fun chatInfo(event: OneBotEvent.Message): ChatInfo = when (event) {
         is OneBotEvent.Message.Private -> ChatInfo(ChatKind.DIRECT, null, null)
-        is OneBotEvent.Message.Group -> ChatInfo(ChatKind.GROUP, event.sender.card, null)
+
+        // A group message carries no name of the group, and the card of whoever spoke is the name of that member, so
+        // putting it here would label the chat with the last person who said something.
+        is OneBotEvent.Message.Group -> ChatInfo(ChatKind.GROUP, null, null)
     }
 
     private fun media(segments: List<OneBotSegment>): List<MediaAttachment> = segments.mapNotNull { segment ->
