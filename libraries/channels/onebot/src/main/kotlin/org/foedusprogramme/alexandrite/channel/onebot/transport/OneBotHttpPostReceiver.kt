@@ -25,6 +25,9 @@ public enum class OneBotReportRejection(public val status: Int, public val reaso
     /** The report is larger than a report may be. */
     TOO_LARGE(413, "the report is too large"),
 
+    /** Every thread of this instance is reading a report and the queue behind them is full. */
+    BUSY(503, "the reports of this instance are being read as fast as they arrive"),
+
     /** The report carries no signature, or one that does not match its body. */
     BAD_SIGNATURE(403, "the signature of the report does not match its body"),
 
@@ -64,6 +67,27 @@ internal class OneBotHttpPostReceiver(
     private var server: ServerSocket? = null
     private var acceptor: Thread? = null
 
+    /**
+     * The threads that read reports, bounded so that a client cannot hold one thread per connection it opens.
+     *
+     * The pool is small and its queue shorter: a listener of one chat is not the busiest thing in the process, and a
+     * report arrives in a burst of one. Past that a connection is refused at once as busy rather than kept, which is
+     * what stops a slow sender from occupying the process.
+     */
+    private val readers: java.util.concurrent.ThreadPoolExecutor = java.util.concurrent.ThreadPoolExecutor(
+        MAX_CONCURRENT_REPORTS,
+        MAX_CONCURRENT_REPORTS,
+        0L,
+        java.util.concurrent.TimeUnit.MILLISECONDS,
+        java.util.concurrent.ArrayBlockingQueue(MAX_QUEUED_REPORTS),
+        java.util.concurrent.ThreadFactory { runnable ->
+            Thread(runnable, "onebot-http-post-report-$reportPort").apply { isDaemon = true }
+        },
+    )
+
+    /** The port this receiver bound, which names its threads and which a refusal is about. */
+    private val reportPort: Int get() = server?.localPort ?: settings.listenPort
+
     /** How many reports this receiver took, which tells a refused one from an accepted one. */
     internal val reportedCount: Int get() = acceptedReports.get()
 
@@ -97,6 +121,9 @@ internal class OneBotHttpPostReceiver(
         accepting.set(false)
         runCatching { server?.close() }
         acceptor?.let { runCatching { it.join(CLOSE_TIMEOUT_MILLIS) } }
+        // A reader that is mid-report is left to its deadline rather than interrupted; one that has not started is
+        // dropped, so that a stopping receiver reads no more than it already took.
+        readers.shutdownNow()
         server = null
         acceptor = null
     }
@@ -109,20 +136,27 @@ internal class OneBotHttpPostReceiver(
                 if (accepting.get()) lost(e)
                 return
             }
-            thread(name = "onebot-http-post-report", isDaemon = true) {
-                client.use { exchange(it) }
+            try {
+                readers.execute { client.use { exchange(it) } }
+            } catch (e: java.util.concurrent.RejectedExecutionException) {
+                // Every reader is busy and the queue is full, so this connection is answered as busy at once instead
+                // of being held. A report that is refused this way can be sent again.
+                client.use { respond(it, OneBotReportRejection.BUSY) }
             }
         }
     }
 
     private fun exchange(client: Socket) {
         try {
+            // An idle timeout only measures the gap between two reads, so one deadline covers the whole request: a
+            // client that sends a byte at a time is cut off at the deadline rather than kept for as long as it likes.
+            val deadline = System.nanoTime() + settings.firstByteTimeoutMillis * 1_000_000
             client.soTimeout = settings.firstByteTimeoutMillis.toInt()
             val input = BufferedInputStream(client.getInputStream())
             // A report larger than this instance reads is refused as such, which is what the implementation is told.
             // Its declared body is read into nothing first, so that the answer is read by a peer that is still
             // sending rather than lost to a connection that closed under it.
-            val request = when (val outcome = read(input)) {
+            val request = when (val outcome = read(input, deadline)) {
                 is ReadOutcome.TooLarge -> {
                     drain(input, outcome.declaredBytes)
                     return respond(client, OneBotReportRejection.TOO_LARGE)
@@ -241,8 +275,8 @@ internal class OneBotHttpPostReceiver(
     }
 
     /** The request of [input], or why it is not one this receiver reads. */
-    private fun read(input: BufferedInputStream): ReadOutcome {
-        val head = readHead(input) ?: return ReadOutcome.NotAReport
+    private fun read(input: BufferedInputStream, deadline: Long): ReadOutcome {
+        val head = readHead(input, deadline) ?: return ReadOutcome.NotAReport
         val lines = head.split("\r\n")
         val start = lines.firstOrNull()?.split(' ') ?: return ReadOutcome.NotAReport
         if (start.size < 2) return ReadOutcome.NotAReport
@@ -257,6 +291,7 @@ internal class OneBotHttpPostReceiver(
         val bytes = ByteArray(length)
         var read = 0
         while (read < length) {
+            if (System.nanoTime() > deadline) return ReadOutcome.NotAReport
             val count = input.read(bytes, read, length - read)
             if (count < 0) return ReadOutcome.NotAReport
             read += count
@@ -265,10 +300,11 @@ internal class OneBotHttpPostReceiver(
     }
 
     /** The request head of [input], which ends at the first empty line, null when it ends first. */
-    private fun readHead(input: BufferedInputStream): String? {
+    private fun readHead(input: BufferedInputStream, deadline: Long): String? {
         val text = StringBuilder()
         var previous = -1
         while (text.length <= MAX_HEAD_BYTES) {
+            if (System.nanoTime() > deadline) return null
             val byte = input.read()
             if (byte < 0) return null
             text.append(byte.toChar())
@@ -285,6 +321,12 @@ internal class OneBotHttpPostReceiver(
 
         /** How much of a refused body is read at a time, so that nothing large is ever held. */
         const val DRAIN_PIECE_BYTES = 8 * 1024
+
+        /** How many reports are read at once; past this a connection waits in the queue or is refused as busy. */
+        const val MAX_CONCURRENT_REPORTS = 4
+
+        /** How many connections wait for a reader before one is refused as busy. */
+        const val MAX_QUEUED_REPORTS = 16
 
         const val MAX_HEAD_BYTES = 32 * 1024
 

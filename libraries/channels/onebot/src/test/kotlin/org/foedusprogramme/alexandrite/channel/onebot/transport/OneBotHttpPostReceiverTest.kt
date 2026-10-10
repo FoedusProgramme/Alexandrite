@@ -7,6 +7,8 @@ import org.foedusprogramme.alexandrite.channel.onebot.auth.OneBotAuth
 import org.foedusprogramme.alexandrite.channel.onebot.auth.Value
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.foedusprogramme.alexandrite.sdk.config.Secret
+import java.net.InetAddress
+import java.net.Socket
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -82,10 +84,10 @@ class OneBotHttpPostReceiverTest {
 
     @Test
     fun `a report that names its account only in the header is taken`() {
-        // The header names of a request are folded to lower case when its head is read, so a lookup by the spelling
-        // of the standard finds nothing. This case would pass for the wrong reason if the header were ignored: the
-        // body below names the account the instance serves, so it is taken whichever of the two is read.
-        val body = privateMessage()
+        // The header names of a request are folded to lower case when its head is read, so a lookup by the spelling of
+        // the standard finds nothing. The body therefore names no account: were the header ignored, this report would
+        // be refused, so being taken is the header path working and nothing else.
+        val body = privateMessage().replace("\"self_id\": 10001000,", "\"self_id\": 0,")
         val response = post(body, OneBotAuth.signature(secret, body), "/")
 
         assertEquals(204, response.statusCode())
@@ -157,6 +159,29 @@ class OneBotHttpPostReceiverTest {
 
         assertEquals(20, receiver.reported(), "every report was taken")
         assertEquals(4L, receiver.droppedEvents, "the reports past the room of the queue were dropped")
+    }
+
+    @Test
+    fun `a report that is sent a byte at a time is cut off at the deadline`() {
+        // The bytes arrive faster than the idle timeout, so an idle timeout alone would read this for as long as the
+        // client keeps sending. The whole request carries a deadline, and past it its connection is closed.
+        val started = System.nanoTime()
+        Socket(InetAddress.getLoopbackAddress(), receiver.port).use { socket ->
+            val writer = socket.getOutputStream()
+            writer.write("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100000\r\n\r\n".toByteArray())
+            writer.flush()
+            runCatching {
+                repeat(20) {
+                    Thread.sleep(100)
+                    writer.write('x'.code)
+                    writer.flush()
+                }
+            }
+        }
+
+        val elapsed = (System.nanoTime() - started) / 1_000_000
+        assertTrue(elapsed < 10_000, "the listener read a slow report for ${elapsed}ms")
+        assertEquals(0, receiver.reported())
     }
 
     private fun post(body: String, signature: String?, path: String): HttpResponse<String> =

@@ -77,6 +77,10 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
             return refusedClientRole(headers[OneBotAuth.CLIENT_ROLE.lowercase()])
         }
         override fun onMessage(connection: WebSocket, message: String) {
+            // A connection this instance refused is closed as it is opened, and one that an implementation replaced
+            // is no longer the peer being served. Frames are read from the active peer alone, so that neither can
+            // report an event or answer a call of the connection that is.
+            if (socket !== connection) return
             val element = try {
                 OneBotWire.parseToJsonElement(message)
             } catch (e: Exception) {
@@ -98,10 +102,12 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
         }
 
         override fun onClose(connection: WebSocket, code: Int, reason: String, remote: Boolean) {
-            if (socket === connection) {
-                socket = null
-                if (state.value.isOpen) lost(IllegalStateException("The connection closed: $code $reason"))
-            }
+            // A refused connection and one that a newer peer replaced close too, and neither of them owes an answer
+            // to a call of the connection being served. Their close says nothing about that connection, so nothing
+            // waiting on it is ended here.
+            if (socket !== connection) return
+            socket = null
+            if (state.value.isOpen) lost(IllegalStateException("The connection closed: $code $reason"))
             // A call that was waiting for this connection is not answered by a connection that is gone, so it is told
             // so now rather than when its own timeout runs out, which would report a slow implementation instead of a
             // lost one.

@@ -61,23 +61,21 @@ public interface OneBotConnection : AutoCloseable {
  * keep up is visible rather than silent.
  */
 internal abstract class AbstractOneBotConnection(private val eventCapacity: Int) : OneBotConnection {
-    private val queue = Channel<OneBotEvent>(eventCapacity, BufferOverflow.DROP_OLDEST)
+    private val dropped = AtomicLong()
+    private val queue = Channel<OneBotEvent>(eventCapacity, BufferOverflow.DROP_OLDEST) { dropped.incrementAndGet() }
     private val mutableState = MutableStateFlow(OneBotLinkState.CLOSED)
-    private val reported = AtomicLong()
-    private val read = AtomicLong()
 
     /**
      * How many events this connection dropped because nothing read them fast enough.
      *
-     * The queue answers that it took an event even when it displaced one, so what was lost is what it took, less what
-     * a reader has seen and what its room still holds.
+     * The queue answers that it took an event even when it displaced one, so the count cannot be read from its answer.
+     * It is the events it never delivered, which it names as they are dropped, and it only grows.
      */
-    internal val droppedEvents: Long
-        get() = (reported.get() - read.get() - eventCapacity).coerceAtLeast(0L)
+    internal val droppedEvents: Long get() = dropped.get()
 
     override val state: StateFlow<OneBotLinkState> = mutableState.asStateFlow()
 
-    override val events: Flow<OneBotEvent> = queue.receiveAsFlow().onEach { read.incrementAndGet() }
+    override val events: Flow<OneBotEvent> = queue.receiveAsFlow()
 
     /** The last failure of the connection, null while it is healthy. */
     @Volatile
@@ -87,10 +85,7 @@ internal abstract class AbstractOneBotConnection(private val eventCapacity: Int)
     private var closed = false
 
     /** Reports [event], dropping the oldest when nothing reads them fast enough. */
-    protected fun report(event: OneBotEvent): Boolean {
-        reported.incrementAndGet()
-        return queue.trySend(event).isSuccess
-    }
+    protected fun report(event: OneBotEvent): Boolean = queue.trySend(event).isSuccess
 
     /** Moves the connection to [state]. */
     protected fun moveTo(state: OneBotLinkState) {
