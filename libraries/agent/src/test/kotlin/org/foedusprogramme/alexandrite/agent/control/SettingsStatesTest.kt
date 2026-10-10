@@ -26,8 +26,8 @@ class SettingsStatesTest {
             assertNull(settings.model(key))
             assertNull(settings.reasoning(key))
             assertNull(settings.language(key))
+            assertNull(settings.loadAgent(key.chat).value)
         }
-        assertNull(settings.selectedAgent(key.chat))
     }
 
     @Test
@@ -45,19 +45,22 @@ class SettingsStatesTest {
             assertEquals(ReasoningEffort.HIGH, settings.reasoning(thread))
             assertEquals(LanguageTag("fr"), settings.language(thread))
             assertNull(settings.language(key))
+            assertEquals(AgentId("helper"), settings.loadAgent(thread.chat).value)
+            assertEquals(AgentId("helper"), settings.loadAgent(ChatAddress.parse("test:main:5")).value)
         }
-        assertEquals(AgentId("helper"), settings.selectedAgent(thread.chat))
-        assertEquals(AgentId("helper"), settings.selectedAgent(ChatAddress.parse("test:main:5")))
     }
 
     @Test
-    fun `the agent a chat switched to is kept after its first read`() {
+    fun `the agent a chat switched to is cached once it is read`() {
         val chat = key.chat
         val selected = stored.state(SettingsStates.AGENT, Choice<AgentId>())
         blocking { selected.set(chat, Choice(AgentId("helper"))) }
 
-        assertEquals(AgentId("helper"), settings.selectedAgent(chat))
+        assertNull(settings.cachedAgent(chat))
+        assertEquals(Choice(AgentId("helper")), blocking { settings.loadAgent(chat) })
         blocking { selected.set(chat, Choice(AgentId("reviewer"))) }
-        assertEquals(AgentId("helper"), settings.selectedAgent(chat))
+        assertEquals(Choice(AgentId("helper")), settings.cachedAgent(chat))
+        assertEquals(Choice(AgentId("helper")), blocking { settings.loadAgent(chat) })
+        assertNull(settings.cachedAgent(thread.chat))
     }
 }

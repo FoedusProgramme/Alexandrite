@@ -8,5 +8,6 @@ dependencies {
     implementation(project(":libraries:internal"))
 
     testImplementation(project(":libraries:testkit"))
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.logback.classic)
 }

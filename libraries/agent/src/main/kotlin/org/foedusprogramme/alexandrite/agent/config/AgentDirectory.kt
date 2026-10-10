@@ -20,6 +20,8 @@ internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: 
     val reasoning: ReasoningEffort? = config.reasoning?.let(ReasoningEffort::of)
 
     val language: LanguageTag? = config.language?.let(LanguageTag::of)
+
+    val linkedChats: List<List<ChatAddress>> = config.linkedChats.map { group -> group.map(ChatAddress::parse) }
 }
 
 /** An agent's attachment to a configured channel instance. */
@@ -35,7 +37,6 @@ internal class AgentDirectory(settings: AgentSettings, channels: ChannelDirector
     private val byId = agents.associateBy { it.id }
     private val attached = agents.flatMap { agent -> agent.attachments.map { it.instance to agent } }
         .groupBy({ it.first }, { it.second })
-    private val homes = agents.flatMap { agent -> agent.attachments.mapNotNull { it.home?.to(agent) } }.toMap()
 
     fun agent(id: AgentId): Agent? = byId[id]
 
@@ -43,11 +44,11 @@ internal class AgentDirectory(settings: AgentSettings, channels: ChannelDirector
     fun attached(instance: ChannelInstanceId): List<Agent> = attached[instance].orEmpty()
 
     /** The agent that serves the chats of [instance] that choose no other, null when no agent serves it. */
-    fun default(instance: ChannelInstanceId): Agent? =
-        attached(instance).firstOrNull { agent -> agent.attachments.any { it.instance == instance && it.default } }
-
-    /** The agent whose home [chat] is, else the one whose home its parent is, null when it is no home chat. */
-    fun home(chat: ChatAddress): Agent? = homes[chat] ?: homes[chat.parent]
+    fun default(instance: ChannelInstanceId): Agent? {
+        val agents = attached(instance)
+        return agents.singleOrNull()
+            ?: agents.firstOrNull { agent -> agent.attachments.any { it.instance == instance && it.default } }
+    }
 }
 
 private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirectory, endpoints: Endpoints): Agent {
@@ -84,6 +85,15 @@ private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirector
                 null
             }
         }
+    }
+    val instances = attachments.map { it.instance }.toSet()
+    for (chat in config.linkedChats.flatten().map(ChatAddress::parse).filter { it.instance !in instances }) {
+        logger.warn(
+            "Agent '{}' links chat {}, but no instance of channel type {} is configured: the chat gets no messages",
+            id,
+            chat,
+            chat.instance.type,
+        )
     }
     return Agent(id, config, attachments)
 }

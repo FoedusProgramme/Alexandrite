@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
+import org.foedusprogramme.alexandrite.testkit.TEST_INSTANCE
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.writeText
@@ -199,7 +200,18 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `each attached instance has exactly one default agent`() {
+    fun `a lone agent attached to an instance needs no default flag`() {
+        lateinit var directory: AgentDirectory
+
+        agentHarness(agents(""""coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}""")) {
+            channel().model(ScriptedModel())
+        }.execute { directory = get() }
+
+        assertEquals("coder", directory.default(TEST_INSTANCE)?.id?.value)
+    }
+
+    @Test
+    fun `each instance with several attached agents has exactly one default agent`() {
         assertConfigFails(
             agents(
                 """
@@ -220,10 +232,53 @@ class AgentSettingsTest {
             "agents coder, helper are each the default agent of test:main: keep \"default\": true in " +
                 "channels.test:main of one of them",
         )
+    }
+
+    @Test
+    fun `linked chats decode as groups of chat addresses`() {
+        val config = agents(
+            """
+            "coder": {
+              "model": "scripted/test-model",
+              "channels": {"test:main": {}, "test:work": {}},
+              "linkedChats": [["test:main:1", "test:work:2#7"], ["test:main:3", "test:main:3#1", "test:work:4"]]
+            }
+            """,
+        )
+        lateinit var agent: Agent
+
+        agentHarness(config) { channel().channel("work").model(ScriptedModel()) }
+            .execute { agent = get<AgentDirectory>().agents.single() }
+
+        assertEquals(
+            listOf(listOf("test:main:1", "test:work:2#7"), listOf("test:main:3", "test:main:3#1", "test:work:4")),
+            agent.linkedChats.map { group -> group.map { it.toString() } },
+        )
+    }
+
+    @Test
+    fun `a linked group holds at least two distinct chats of attached instances`() {
+        fun links(groups: String) =
+            agents(""""coder": {"model": "scripted/m", "channels": {"test:main": {}}, "linkedChats": $groups}""")
+
+        assertConfigFails(links("""[["test:main:1"]]"""), "agents.coder.linkedChats[0] holds fewer than two chats")
         assertConfigFails(
-            agents(""""coder": {"model": "scripted/m", "channels": {"test:main": {}}}"""),
-            "agents attached to test:main name no default agent: set \"default\": true in channels.test:main of " +
-                "exactly one of coder",
+            links("""[["test:main:1", "test:main:2"], ["test:main:3", "test:main"]]"""),
+            "agents.coder.linkedChats[1][1] is no chat address: write <type>:<name>:<chat>, such as " +
+                "\"telegram:work:123456\"",
+        )
+        assertConfigFails(
+            links("""[["test:main:1", "test:work:2"]]"""),
+            "agents.coder.linkedChats[0][1] is a chat of test:work, which the agent is not attached to: add it to " +
+                "agents.coder.channels",
+        )
+        assertConfigFails(
+            links("""[["test:main:1", "test:main:2"], ["test:main:3", "test:main:1"]]"""),
+            "agents.coder.linkedChats[1][1] is the chat of linkedChats[0][0] again: a chat is in one group of an agent",
+        )
+        assertConfigFails(
+            links("""[["test:main:1", "test:main:1#2", "test:main:1"]]"""),
+            "agents.coder.linkedChats[0][2] is the chat of linkedChats[0][0] again: a chat is in one group of an agent",
         )
     }
 

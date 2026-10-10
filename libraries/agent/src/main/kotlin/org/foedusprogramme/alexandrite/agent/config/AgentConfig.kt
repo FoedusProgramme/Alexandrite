@@ -35,6 +35,8 @@ internal class AgentConfig(
     val workspace: String? = null,
     /** The channel instances the agent serves, by `<type>:<name>`. */
     val channels: Map<String, AttachmentConfig> = emptyMap(),
+    /** Groups of chat addresses that share one conversation, kept at the first chat of each. */
+    val linkedChats: List<List<String>> = emptyList(),
 )
 
 @Serializable

@@ -3,7 +3,9 @@ package org.foedusprogramme.alexandrite.agent
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
@@ -14,6 +16,7 @@ import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -24,7 +27,14 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
+import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
+import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
@@ -32,16 +42,24 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.time.Duration.Companion.seconds
 
 fun <T> blocking(block: suspend () -> T): T = runBlocking { withTimeout(10.seconds) { block() } }
 
-/** A harness of the agent plugin with [config] below its root. */
-fun agentHarness(config: String = "{}", configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness =
-    PluginHarness.builder(AlexandriteAgentIndex()).config(config).apply(configure).build()
+/** A harness of the agent plugin with [config] below its root and [store] as the runtime's store, unless it is null. */
+fun agentHarness(
+    config: String = "{}",
+    store: MemoryStore? = MemoryStore(),
+    configure: PluginHarness.Builder.() -> Unit = {},
+): PluginHarness = PluginHarness.builder(AlexandriteAgentIndex()).config(config)
+    .apply { store?.let(::store) }
+    .apply(configure)
+    .build()
 
 fun PluginHarness.execute(block: suspend PluginHarness.Running.() -> Unit) {
     blocking { run(block) }
@@ -98,6 +116,60 @@ class ProvidersIndex(id: String, private val providers: List<ModelProvider>) : P
 
 fun provider(vararg endpoints: ModelEndpoint): ModelProvider = object : ModelProvider {
     override val endpoints: List<ModelEndpoint> = endpoints.toList()
+}
+
+/** The conversations of [store], where each key's current conversation is read once the test opens that key. */
+class GatedConversations(private val store: MemoryStore = MemoryStore()) : ConversationStore by store.conversations {
+    private val gates = ConcurrentHashMap<AgentChatKey, CompletableDeferred<Unit>>()
+
+    @Volatile
+    private var allOpen = false
+
+    /** The keys whose current conversation was asked for, in order. */
+    val asked: MutableList<AgentChatKey> = CopyOnWriteArrayList()
+
+    fun open(key: AgentChatKey) {
+        gate(key).complete(Unit)
+    }
+
+    /** Opens every key, now and later. */
+    fun openAll() {
+        allOpen = true
+        gates.values.forEach { it.complete(Unit) }
+    }
+
+    override suspend fun current(key: AgentChatKey): ConversationInfo {
+        asked += key
+        gate(key).await()
+        return store.conversations.current(key)
+    }
+
+    private fun gate(key: AgentChatKey) =
+        gates.computeIfAbsent(key) { CompletableDeferred<Unit>().also { if (allOpen) it.complete(Unit) } }
+}
+
+/** A plugin that binds the store ports of [store], with [conversations] in place of its own. */
+class StoreIndex(private val store: MemoryStore, private val conversations: ConversationStore) : PluginIndex {
+    override val info = PluginInfo(ID, ID, "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Plugin")
+    override val configRoot = PluginIds.thirdPartyRoot(ID)
+
+    override fun bindings(): List<Binding<*>> = listOf(
+        instanceBinding(key<ConversationStore>(), conversations, ID, "conversations"),
+        instanceBinding(key<TranscriptStore>(), store.transcripts, ID, "transcripts"),
+        instanceBinding(key<MediaStore>(), store.media, ID, "media"),
+        instanceBinding(key<ChatStateStore>(), store.chatStates, ID, "chat states"),
+    )
+
+    override fun configSections(): List<ConfigSectionSpec<*>> = emptyList()
+
+    private companion object {
+        const val ID = "test-store"
+    }
+}
+
+/** The background scope of [test] as a plugin's scope. */
+fun pluginScope(test: TestScope): PluginScope = object : PluginScope {
+    override val coroutineContext: CoroutineContext = test.backgroundScope.coroutineContext
 }
 
 internal fun settings(json: String): AgentSettings = Json.decodeFromString(AgentSettings.serializer(), json)

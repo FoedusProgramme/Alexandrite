@@ -25,7 +25,8 @@ class AgentDirectoryTest {
               "channels": {"test:main": {"default": true, "home": "1"}, "test:work": {"home": "2#7"}}
             },
             "helper": {"model": "scripted/test-model", "channels": {"test:main": {}, "test:work": {"default": true}}},
-            "reviewer": {"model": "scripted/test-model"}
+            "reviewer": {"model": "scripted/test-model"},
+            "loner": {"model": "scripted/test-model", "channels": {"test:lone": {}}}
           }
         }
     """.trimIndent()
@@ -34,11 +35,11 @@ class AgentDirectoryTest {
     private val work = ChannelInstanceId.parse("test:work")
 
     @Test
-    fun `the directory knows the agents of each instance, its default and the home chats`() {
-        agentHarness(config) { channel().channel("work").model(ScriptedModel()) }.execute {
+    fun `the directory knows the agents of each instance and its default`() {
+        agentHarness(config) { channel().channel("work").channel("lone").model(ScriptedModel()) }.execute {
             val directory = get<AgentDirectory>()
 
-            assertEquals(listOf("coder", "helper", "reviewer"), directory.agents.map { it.id.value })
+            assertEquals(listOf("coder", "helper", "reviewer", "loner"), directory.agents.map { it.id.value })
             assertEquals("reviewer", directory.agent(AgentId("reviewer"))?.name)
             assertNull(directory.agent(AgentId("other")))
             assertEquals(listOf("coder", "helper"), directory.attached(main).map { it.id.value })
@@ -46,11 +47,11 @@ class AgentDirectoryTest {
             assertEquals(emptyList(), directory.attached(ChannelInstanceId.parse("test:other")))
             assertEquals("coder", directory.default(main)?.id?.value)
             assertEquals("helper", directory.default(work)?.id?.value)
+            assertEquals("loner", directory.default(ChannelInstanceId.parse("test:lone"))?.id?.value)
             assertNull(directory.default(ChannelInstanceId.parse("test:other")))
-            val homes = listOf("test:main:1", "test:main:1#5", "test:work:2#7", "test:work:2", "test:work:2#8")
             assertEquals(
-                listOf("coder", "coder", "coder", null, null),
-                homes.map { directory.home(ChatAddress.parse(it))?.id?.value },
+                listOf("test:main:1", "test:work:2#7"),
+                directory.agent(AgentId("coder"))?.attachments?.map { it.home.toString() },
             )
         }
     }
@@ -82,6 +83,42 @@ class AgentDirectoryTest {
             listOf(
                 "WARN Agent 'coder' is attached to discord:main, but no instance of channel type discord is " +
                     "configured: the attachment is ignored",
+            ),
+            lines.filter { "discord" in it },
+        )
+    }
+
+    @Test
+    fun `a linked chat on a channel type that has no instance gets a warning`() {
+        val config = """
+            {
+              "agents": {
+                "coder": {
+                  "model": "scripted/test-model",
+                  "channels": {"test:main": {}, "discord:main": {}},
+                  "linkedChats": [["test:main:1", "discord:main:2", "test:main:3"]]
+                }
+              }
+            }
+        """.trimIndent()
+        lateinit var agent: Agent
+
+        val lines = logged {
+            agentHarness(config) { channel().model(ScriptedModel()) }.execute {
+                agent = get<AgentDirectory>().agents.single()
+            }
+        }
+
+        assertEquals(
+            listOf(listOf("test:main:1", "discord:main:2", "test:main:3")),
+            agent.linkedChats.map { group -> group.map(ChatAddress::toString) },
+        )
+        assertEquals(
+            listOf(
+                "WARN Agent 'coder' is attached to discord:main, but no instance of channel type discord is " +
+                    "configured: the attachment is ignored",
+                "WARN Agent 'coder' links chat discord:main:2, but no instance of channel type discord is " +
+                    "configured: the chat gets no messages",
             ),
             lines.filter { "discord" in it },
         )

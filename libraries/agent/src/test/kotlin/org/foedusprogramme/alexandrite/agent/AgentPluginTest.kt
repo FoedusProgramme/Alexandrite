@@ -9,23 +9,26 @@ import org.foedusprogramme.alexandrite.agent.prompt.PromptAssembler
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
+import org.foedusprogramme.alexandrite.agent.worker.AgentTurnSubmitter
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
-import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
+import org.foedusprogramme.alexandrite.sdk.turn.Admission
+import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
+import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AgentPluginTest {
     @Test
@@ -33,7 +36,10 @@ class AgentPluginTest {
         val lines = logged {
             agentHarness { channel() }.execute {
                 assertEquals(Resolution.NoAgent, get<ChatRouter>().resolve(ChatAddress.parse("test:main:1")))
-                assertFailsWith<DiException> { get<TurnSubmitter>() }
+                assertEquals(
+                    Admission.Refused(RefusalReason.NO_AGENT),
+                    get<TurnSubmitter>().submit(Submission.Message(channel().message("Hello"))),
+                )
             }
         }
 
@@ -51,7 +57,10 @@ class AgentPluginTest {
                 val chat = ChatAddress.parse("test:main:1")
 
                 assertEquals(listOf(AgentId("coder")), get<AgentDirectory>().agents.map { it.id })
-                assertEquals(Resolution.Served(AgentChatKey(AgentId("coder"), chat)), get<ChatRouter>().resolve(chat))
+                assertEquals(
+                    Resolution.Served(AgentChatKey(AgentId("coder"), chat), chat),
+                    get<ChatRouter>().resolve(chat),
+                )
                 assertEquals(
                     listOf("fs.read"),
                     get<ToolRegistry>().offered(AgentId("coder")).map {
@@ -60,7 +69,8 @@ class AgentPluginTest {
                 )
                 assertEquals(emptyList(), get<CommandRegistry>().commands)
                 assertEquals(listOf(EndpointId("scripted")), get<Endpoints>().ids.toList())
-                assertNull(get<SettingsStates>().selectedAgent(chat))
+                assertNull(get<SettingsStates>().loadAgent(chat).value)
+                assertTrue(get<TurnSubmitter>() is AgentTurnSubmitter)
                 get<PromptAssembler>()
             }
         }

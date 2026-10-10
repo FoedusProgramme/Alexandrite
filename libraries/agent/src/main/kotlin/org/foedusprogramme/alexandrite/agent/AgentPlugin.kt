@@ -2,17 +2,24 @@ package org.foedusprogramme.alexandrite.agent
 
 import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
+import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
+import org.foedusprogramme.alexandrite.agent.worker.TurnWorkers
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.plugin.Plugin
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.slf4j.LoggerFactory
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
 
 @Plugin(name = "Agent", description = "Turn pipeline, permissions and automation")
 public class AgentPlugin internal constructor(
+    private val settings: AgentSettings,
     private val directory: AgentDirectory,
     private val endpoints: Endpoints,
+    private val intakes: ChatIntakes,
+    private val workers: TurnWorkers,
     private val scope: PluginScope,
 ) : Lifecycle {
     override suspend fun onStart() {
@@ -20,7 +27,18 @@ public class AgentPlugin internal constructor(
     }
 
     override suspend fun onOpen() {
+        workers.open()
         scope.launch { checkModels() }
+    }
+
+    override suspend fun onClose() {
+        workers.close()
+    }
+
+    override suspend fun onDrain() {
+        intakes.shutDown()
+        val shutdown = settings.shutdown
+        workers.drain(shutdown.turnGraceSeconds.seconds, shutdown.cancelJoinSeconds.seconds)
     }
 
     /** Warns of each agent whose model its endpoint does not list. */

@@ -80,6 +80,26 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.channels.isEmpty() || agent.model != null) {
         "$path.model is missing: an agent that serves channels needs a model"
     }
+    checkLinks(path, agent)
+}
+
+private fun checkLinks(path: String, agent: AgentConfig) {
+    val attached = agent.channels.keys.mapNotNull(ChannelInstanceId::parseOrNull).toSet()
+    val linked = mutableMapOf<ChatAddress, String>()
+    for ((index, group) in agent.linkedChats.withIndex()) {
+        require(group.size >= 2) { "$path.linkedChats[$index] holds fewer than two chats" }
+        for ((position, text) in group.withIndex()) {
+            val at = "linkedChats[$index][$position]"
+            val chat = requireNotNull(ChatAddress.parseOrNull(text)) {
+                "$path.$at is no chat address: write <type>:<name>:<chat>, such as \"telegram:work:123456\""
+            }
+            require(chat.instance in attached) {
+                "$path.$at is a chat of ${chat.instance}, which the agent is not attached to: add it to $path.channels"
+            }
+            val first = linked.putIfAbsent(chat, at)
+            require(first == null) { "$path.$at is the chat of $first again: a chat is in one group of an agent" }
+        }
+    }
 }
 
 private fun checkGlobs(path: String, globs: List<String>) {
@@ -100,6 +120,7 @@ private fun checkDefaults(agents: Map<String, AgentConfig>) {
         agent.channels.map { (key, attachment) -> key to (id to attachment) }
     }
     for ((key, attachments) in attached.groupBy({ it.first }, { it.second })) {
+        if (attachments.size == 1) continue
         val defaults = attachments.filter { it.second.default }.map { it.first }
         require(defaults.size == 1) {
             val agentsOf = attachments.joinToString { it.first }

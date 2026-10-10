@@ -1,6 +1,5 @@
 package org.foedusprogramme.alexandrite.agent.control
 
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -24,9 +23,15 @@ internal class SettingsStates(states: ChatStates) {
     private val language: ChatState<AgentChatKey, Choice<LanguageTag>> = states.agentState(LANGUAGE, Choice())
     private val selections = ConcurrentHashMap<ChatAddress, Choice<AgentId>>()
 
-    /** The agent that [chat] or its parent switched to, read with a blocking call the first time. */
-    fun selectedAgent(chat: ChatAddress): AgentId? =
-        (selections[chat] ?: runBlocking { agent.get(chat) }.also { selections[chat] = it }).value
+    /** The agent that [chat] or its parent switched to, null until [loadAgent] has read it. */
+    fun cachedAgent(chat: ChatAddress): Choice<AgentId>? = selections[chat]
+
+    /** Reads the agent that [chat] or its parent switched to, once per chat. */
+    suspend fun loadAgent(chat: ChatAddress): Choice<AgentId> {
+        selections[chat]?.let { return it }
+        val read = agent.get(chat)
+        return selections.putIfAbsent(chat, read) ?: read
+    }
 
     suspend fun model(key: AgentChatKey): ModelRef? = model.get(key).value
 
