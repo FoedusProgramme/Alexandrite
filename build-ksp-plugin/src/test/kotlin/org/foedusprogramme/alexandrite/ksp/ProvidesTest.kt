@@ -159,7 +159,7 @@ class ProvidesTest {
         build(index).use { root ->
             assertEquals(Instant.parse("2026-10-01T12:00:00Z"), root.get(key<Clock>()).instant())
             assertEquals("Hello from sample-plugin", root.get(key<String>("greeting")))
-            assertEquals("store in /data/sample-plugin at 2026-10-01T12:00:00Z", root.get(key<Probe>("store")).report())
+            assertEquals("store in ${files.dataDir} at 2026-10-01T12:00:00Z", root.get(key<Probe>("store")).report())
             assertEquals(listOf("echo Hello from sample-plugin"), root.getAll(key<Probe>()).map { it.report() })
             val error = assertFailsWith<DiException> { root.get(key<Probe>("connection")) }
             assertEquals(DiProblemKind.SCOPE, error.problems.single().kind)
