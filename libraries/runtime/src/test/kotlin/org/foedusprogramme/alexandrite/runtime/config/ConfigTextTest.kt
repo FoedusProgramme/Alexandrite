@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class ConfigTextTest {
@@ -86,6 +87,47 @@ class ConfigTextTest {
     }
 
     @Test
+    fun `a list over a list keeps the elements it keeps as they are written`() {
+        val text = "{\n  \"folders\": [\n    \"\${env:HOME}/src\",\n    \"rel/dir\",  \"\\u00e9t\\u00e9\"\n  ]\n}\n"
+        val env = JsonPrimitive("\${env:HOME}/src")
+
+        assertEquals(
+            changed(text, "\"\\u00e9t\\u00e9\"\n", "\"\\u00e9t\\u00e9\",\n    \"/new\"\n"),
+            set(text, "folders", strings("\${env:HOME}/src", "rel/dir", "été", "/new")),
+        )
+        assertEquals(
+            "{\n  \"folders\": [\n    \"\${env:HOME}/src\",\n    \"\\u00e9t\\u00e9\"\n  ]\n}\n",
+            set(text, "folders", JsonArray(listOf(env, JsonPrimitive("été")))),
+        )
+        assertEquals(
+            "{\n  \"folders\": [\n    \"rel/dir\",  \"\\u00e9t\\u00e9\"\n  ]\n}\n",
+            set(text, "folders", strings("rel/dir", "été")),
+        )
+        assertEquals("{\"a\": [ \"x\", \"y\" ]}", set("{\"a\": [ \"x\" ]}", "a", strings("x", "y")))
+        val numbers = JsonArray(listOf(JsonPrimitive(1), JsonPrimitive(2)))
+        assertEquals("{\"a\": [\n  1,\n  2\n]}", set("{\"a\": [\n  1\n]}", "a", numbers))
+    }
+
+    @Test
+    fun `a list of lists keeps its other lists as they are written and grows the one that changes`() {
+        val text = "{\"links\": [\n  [\"t:a:1\",  \"t:b:2\"],\n  [\"t:a:3\" , \"t:b:4\"]\n]}"
+        val first = strings("t:a:1", "t:b:2")
+
+        assertEquals(
+            changed(text, "\"t:b:4\"]", "\"t:b:4\" , \"t:b:5\"]"),
+            set(text, "links", JsonArray(listOf(first, strings("t:a:3", "t:b:4", "t:b:5")))),
+        )
+        assertEquals(
+            changed(text, "\"t:b:4\"]\n", "\"t:b:4\"],\n  [\"t:a:6\", \"t:b:7\"]\n"),
+            set(text, "links", JsonArray(listOf(first, strings("t:a:3", "t:b:4"), strings("t:a:6", "t:b:7")))),
+        )
+        assertEquals(
+            "{\"links\": [\n  [\"t:a:3\" , \"t:b:4\"]\n]}",
+            set(text, "links", JsonArray(listOf(strings("t:a:3", "t:b:4")))),
+        )
+    }
+
+    @Test
     fun `a list of lists puts each inner list on a line of its own`() {
         val groups = JsonArray(listOf(strings("telegram:work:1", "telegram:home:2"), strings("t:a:1", "t:b:2")))
         val expected = changed(
@@ -107,6 +149,24 @@ class ConfigTextTest {
     @Test
     fun `a value is set to null`() {
         assertEquals("{\"a\": null}", set("{\"a\": 1}", "a", JsonNull))
+    }
+
+    // Reading.
+
+    @Test
+    fun `a value is read as the text writes it`() {
+        val text = "{\"a\": {\"b\": [\"\${env:X}\", 2], \"c\": null}, \"d\": \"\\u00e9\"}"
+
+        assertEquals(
+            JsonArray(listOf(JsonPrimitive("\${env:X}"), JsonPrimitive(2))),
+            ConfigText(text).get(listOf("a", "b")),
+        )
+        assertEquals(JsonNull, ConfigText(text).get(listOf("a", "c")))
+        assertEquals(JsonPrimitive("é"), ConfigText(text).get(listOf("d")))
+        assertNull(ConfigText(text).get(listOf("a", "missing")))
+        assertNull(ConfigText(text).get(listOf("a", "c", "deeper")))
+        val list = assertFailsWith<ConfigPathException> { ConfigText(text).get(listOf("a", "b", "x")) }
+        assertEquals("'a.b' holds no object.", list.message)
     }
 
     // Inserting.

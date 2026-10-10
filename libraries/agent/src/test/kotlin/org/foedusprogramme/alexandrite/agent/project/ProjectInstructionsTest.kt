@@ -28,6 +28,7 @@ import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -72,7 +73,7 @@ class ProjectInstructionsTest {
         write(main, "fun main() = Unit\n")
     }
 
-    private fun harness(trusted: List<Path> = emptyList(), configure: PluginHarness.Builder.() -> Unit = {}) =
+    private fun harness(trusted: List<Any> = emptyList(), configure: PluginHarness.Builder.() -> Unit = {}) =
         agentHarness(
             """
             {
@@ -110,6 +111,12 @@ class ProjectInstructionsTest {
     private fun ToolResultEntry.text(): String = content.joinToString("") { (it as TextPart).text }
 
     private fun PluginHarness.Running.trustedFolders(): JsonElement? = readConfig().tree("agent")?.get("trustedFolders")
+
+    /** Writes [list] as the trusted folders of the config file, laid out as it is. */
+    private fun layOut(list: String) {
+        val text = Files.readString(file)
+        Files.writeString(file, TRUSTED.replace(text, Regex.escapeReplacement("\"trustedFolders\": $list")))
+    }
 
     // Trusted folders.
 
@@ -281,6 +288,67 @@ class ProjectInstructionsTest {
     }
 
     @Test
+    fun `a grant keeps the entries as the config file writes them, an env reference, a relative one and a hand edit`() {
+        assumeTrue(System.getenv("HOME") != null)
+        val shared = root.resolve("shared").createDirectories()
+        val hand = root.resolve("hand").createDirectories()
+        val other = root.resolve("other").createDirectories()
+        val written = "[\n    \"\${env:HOME}/$ABSENT\",\n    \"../shared\"\n  ]"
+        val handEdited = written.replace("\"../shared\"", "\"../shared\",  \"$hand\"")
+        harness { writeConfigFile(file) }.execute {}
+        layOut(written)
+
+        harness { writeConfigFile(file) }.execute {
+            val control = get<AgentControl>()
+            val started = control.trustedFolders()
+            layOut(handEdited)
+            val before = Files.readString(file)
+
+            val trusted = listOf(
+                control.trustFolder(other, null),
+                control.trustFolder(hand.resolve("sub").createDirectories(), null),
+            )
+
+            assertEquals(listOf(shared), started.drop(1))
+            assertEquals(listOf(other, hand), trusted)
+            assertEquals(started + listOf(other, hand), control.trustedFolders())
+            val grown = handEdited.replace("\"$hand\"", "\"$hand\",\n    \"$other\"")
+            assertEquals(before.replace(handEdited, grown), Files.readString(file))
+        }
+        harness { writeConfigFile(file) }.execute {
+            assertEquals(listOf(shared, hand, other), get<AgentControl>().trustedFolders().drop(1))
+        }
+    }
+
+    @Test
+    fun `an untrust takes out the entries that name the folder and is refused when only an env reference can`() {
+        assumeTrue(System.getenv("HOME") != null)
+        repository()
+        val library = root.resolve("lib").createDirectories()
+        val written = "[\"$repository\", \"../lib\",\n    \"\${env:HOME}/$ABSENT\"]"
+        harness { writeConfigFile(file) }.execute {}
+        layOut(written)
+
+        harness { writeConfigFile(file) }.execute {
+            val control = get<AgentControl>()
+            val absent = control.trustedFolders().last()
+            val before = Files.readString(file)
+
+            val untrusted = listOf(control.untrustFolder(repository, null), control.untrustFolder(library, null))
+            val refused = assertFailsWith<IllegalArgumentException> { control.untrustFolder(absent, null) }.message
+
+            assertEquals(listOf(true, true), untrusted)
+            assertEquals(
+                "$absent is trusted by an entry of the config file that names an environment variable: edit the " +
+                    "config file to stop trusting it.",
+                refused,
+            )
+            assertEquals(listOf(absent), control.trustedFolders())
+            assertEquals(before.replace(written, "[\"\${env:HOME}/$ABSENT\"]"), Files.readString(file))
+        }
+    }
+
+    @Test
     fun `relative, missing and protected folders are refused, and so is a change the config file refuses`() {
         repository()
         val secret = root.resolve("secret").createDirectories()
@@ -360,5 +428,12 @@ class ProjectInstructionsTest {
             )
             assertEquals(escaped, entries.filterIsInstance<ToolResultEntry>().last().text())
         }
+    }
+
+    private companion object {
+        /** A folder in the home directory that the tests never create. */
+        const val ABSENT = "alexandrite-test-absent-folder"
+
+        val TRUSTED = Regex("\"trustedFolders\":\\s*\\[[^\\]]*]")
     }
 }

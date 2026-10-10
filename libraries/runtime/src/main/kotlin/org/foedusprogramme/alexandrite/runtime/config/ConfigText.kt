@@ -33,6 +33,20 @@ internal class ConfigText(val text: String) {
         }
     }
 
+    /** The value at [path] as this text writes it, null when there is none. */
+    fun get(path: List<String>): JsonElement? {
+        require(path.isNotEmpty()) { "A path names at least one key." }
+        var target = root
+        var index = 0
+        while (true) {
+            val member = target.members.lastOrNull { it.key == path[index] } ?: return null
+            if (index == path.lastIndex) return Json.parseToJsonElement(member.value.text())
+            if (member.value.isNull()) return null
+            target = member.value as? ObjectSpan ?: throw noObject(path, index)
+            index++
+        }
+    }
+
     /** This text without the member at [path], unchanged when there is none. */
     fun remove(path: List<String>): ConfigText {
         require(path.isNotEmpty()) { "A path names at least one key." }
@@ -70,8 +84,51 @@ internal class ConfigText(val text: String) {
     }
 
     private fun replace(target: ObjectSpan, member: MemberSpan, value: JsonElement): ConfigText {
-        val rendered = render(value, lineIndent(member.keyStart), '\n' in target.text(), colon(member))
-        return splice(member.value.start, member.value.end, rendered)
+        val old = member.value
+        val rendered = if (old is ArraySpan && old.elements.isNotEmpty() && value is JsonArray && value.isNotEmpty()) {
+            merged(old, value, colon(member))
+        } else {
+            render(value, lineIndent(member.keyStart), '\n' in target.text(), colon(member))
+        }
+        return splice(old.start, old.end, rendered)
+    }
+
+    /** The non-empty list [value] written over the non-empty list [old], the elements it keeps as [old] writes them. */
+    private fun merged(old: ArraySpan, value: JsonArray, colon: String): String {
+        val elements = old.elements
+        val values = elements.map { Json.parseToJsonElement(it.text()) }
+        val sources = sources(values, value)
+        val separator = if (elements.size > 1) {
+            text.substring(elements[0].end, elements[1].start)
+        } else {
+            text.substring(old.start + 1, elements[0].start).let { if ('\n' in it) ",$it" else ", " }
+        }
+        val multiline = '\n' in separator
+        val indent = lineIndent(elements[0].start)
+        val written = StringBuilder(text.substring(old.start, elements[0].start))
+        value.forEachIndexed { index, element ->
+            val source = sources[index]
+            if (index > 0) {
+                val previous = sources[index - 1]
+                val adjacent = source > 0 && previous == source - 1
+                val gap = if (adjacent) text.substring(elements[previous].end, elements[source].start) else separator
+                written.append(gap)
+            }
+            val span = elements.getOrNull(source)
+            written.append(
+                when {
+                    span == null -> render(element, indent, multiline, colon)
+
+                    values[source] == element -> span.text()
+
+                    span is ArraySpan && span.elements.isNotEmpty() && element is JsonArray && element.isNotEmpty() ->
+                        merged(span, element, colon)
+
+                    else -> render(element, indent, multiline, colon)
+                },
+            )
+        }
+        return written.append(text.substring(elements.last().end, old.end)).toString()
     }
 
     private fun removed(target: ObjectSpan, position: Int): ConfigText {
@@ -156,6 +213,50 @@ internal class ConfigText(val text: String) {
     private companion object {
         const val DEFAULT_INDENT = "  "
 
+        /** For each element of [new], the index in [old] of what it keeps or the list it merges with, -1 for none. */
+        fun sources(old: List<JsonElement>, new: List<JsonElement>): IntArray {
+            val longest = Array(old.size + 1) { IntArray(new.size + 1) }
+            for (i in old.indices.reversed()) {
+                for (j in new.indices.reversed()) {
+                    longest[i][j] = if (old[i] == new[j]) {
+                        longest[i + 1][j + 1] + 1
+                    } else {
+                        maxOf(longest[i + 1][j], longest[i][j + 1])
+                    }
+                }
+            }
+            val sources = IntArray(new.size) { -1 }
+            var i = 0
+            var j = 0
+            var oldRun = 0
+            var newRun = 0
+            fun pairRuns() {
+                for (offset in 0 until minOf(i - oldRun, j - newRun)) {
+                    if (old[oldRun + offset] is JsonArray && new[newRun + offset] is JsonArray) {
+                        sources[newRun + offset] = oldRun + offset
+                    }
+                }
+            }
+            while (i < old.size && j < new.size) {
+                when {
+                    old[i] == new[j] -> {
+                        pairRuns()
+                        sources[j++] = i++
+                        oldRun = i
+                        newRun = j
+                    }
+
+                    longest[i + 1][j] >= longest[i][j + 1] -> i++
+
+                    else -> j++
+                }
+            }
+            i = old.size
+            j = new.size
+            pairRuns()
+            return sources
+        }
+
         fun quoted(key: String): String = JsonPrimitive(key).toString()
     }
 }
@@ -164,7 +265,7 @@ private sealed class Span(val start: Int, val end: Int)
 
 private class ObjectSpan(start: Int, end: Int, val members: List<MemberSpan>) : Span(start, end)
 
-private class ArraySpan(start: Int, end: Int) : Span(start, end)
+private class ArraySpan(start: Int, end: Int, val elements: List<Span>) : Span(start, end)
 
 private class ScalarSpan(start: Int, end: Int) : Span(start, end)
 
@@ -182,10 +283,7 @@ private class Parser(private val text: String) {
         return when (text[index]) {
             '{' -> objectSpan(start)
 
-            '[' -> {
-                arrayEnd()
-                ArraySpan(start, index)
-            }
+            '[' -> arraySpan(start)
 
             '"' -> {
                 index = stringEnd(index)
@@ -218,17 +316,15 @@ private class Parser(private val text: String) {
         }
     }
 
-    private fun arrayEnd() {
+    private fun arraySpan(start: Int): ArraySpan {
+        val elements = mutableListOf<Span>()
         index++
         skipWhitespace()
-        if (text[index] == ']') {
-            index++
-            return
-        }
+        if (text[index] == ']') return ArraySpan(start, ++index, elements)
         while (true) {
-            value()
+            elements += value()
             skipWhitespace()
-            if (text[index++] == ']') return
+            if (text[index++] == ']') return ArraySpan(start, index, elements)
         }
     }
 

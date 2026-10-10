@@ -245,6 +245,67 @@ class ConfigWriterTest {
         assertFalse(lines.any { "value" in it })
     }
 
+    // Reading.
+
+    @Test
+    fun `an edit reads the file as it is now with its own changes so far and env references as written`() {
+        write(original)
+        editor().change { set("agents.coder.name", JsonPrimitive("Coder")) }
+        write(read().replace("\"/srv/a\"", "\"/srv/hand\""))
+        val seen = mutableListOf<JsonElement?>()
+
+        editor().change {
+            seen += get("home")
+            seen += get("folders")
+            set("home", JsonPrimitive("7"))
+            seen += get("home")
+            remove("folders")
+            seen += get("folders")
+            seen += get("agents.coder")
+            seen += get("agents.reviewer.name")
+            seen += get("enabled")
+        }
+
+        val coder = obj("name" to JsonPrimitive("Coder"))
+        assertEquals(
+            listOf(JsonPrimitive(CHAT), strings("/srv/hand"), JsonPrimitive("7"), null, coder, null, null),
+            seen,
+        )
+        assertEquals(Notes("7", emptyList(), Secret("s3cret-token"), mapOf("coder" to Agent("Coder"))), decoded())
+    }
+
+    @Test
+    fun `concurrent edits each read what the edit before them wrote`() {
+        write(original)
+        val editors = List(4) { editor() }
+
+        runBlocking(Dispatchers.Default) {
+            (1..24).map { number ->
+                launch {
+                    editors[number % editors.size].edit {
+                        val folders = get("folders") as JsonArray
+                        set("folders", JsonArray(folders + JsonPrimitive("/srv/$number")))
+                    }
+                }
+            }.joinAll()
+        }
+
+        assertEquals((listOf("/srv/a") + (1..24).map { "/srv/$it" }).sorted(), decoded().folders.sorted())
+    }
+
+    @Test
+    fun `an edit that only reads writes nothing and one that makes no call reads nothing`() {
+        write(original)
+
+        var home: JsonElement? = null
+        editor().change { home = get("home") }
+        editor(file = null).change {}
+
+        assertEquals(JsonPrimitive(CHAT), home)
+        assertEquals(original, read())
+        assertFalse(Files.exists(backup))
+    }
+
     // Refusals.
 
     @Test
@@ -344,11 +405,20 @@ class ConfigWriterTest {
             assertEquals(ConfigEditRefusal.INVALID_PATH, remove.refusal, path)
             assertContains(set.message!!, "'plugins.notes.$path'")
         }
+        for (path in paths.take(4)) {
+            assertEquals(ConfigEditRefusal.INVALID_PATH, editor().refusal { get(path) }.refusal, path)
+        }
         val list = editor().refusal { set("folders.x", JsonPrimitive(1)) }
+        val read = editor().refusal { get("folders.x") }
         assertEquals(ConfigEditRefusal.INVALID_PATH, list.refusal)
         assertEquals(
             "Cannot change the config at 'plugins.notes.folders.x': 'plugins.notes.folders' holds no object.",
             list.message,
+        )
+        assertEquals(ConfigEditRefusal.INVALID_PATH, read.refusal)
+        assertEquals(
+            "Cannot read the config at 'plugins.notes.folders.x': 'plugins.notes.folders' holds no object.",
+            read.message,
         )
         assertEquals(original, read())
     }

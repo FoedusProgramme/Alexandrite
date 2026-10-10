@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.ConfigFileException
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
@@ -38,6 +39,9 @@ import java.nio.file.attribute.PosixFilePermission
 /** [value] set at [path] below a plugin's config root, or that member removed when [value] is null. */
 internal class ConfigChange(val path: List<String>, val value: JsonElement?)
 
+/** The config file as an edit found it. */
+internal class OpenFile(val target: Path, val bytes: ByteArray, val text: String)
+
 /** Writes the plugins' changes into [file], whose `${env:NAME}` references name variables of [environment]. */
 internal class ConfigWriter(
     private val file: Path?,
@@ -45,47 +49,50 @@ internal class ConfigWriter(
     /** The runtime's name in log lines. */
     private val name: String,
 ) {
-    /** Writes [changes] of [plugin] into the file as it is now, or throws [ConfigEditException]. */
-    suspend fun write(plugin: EnabledPlugin, changes: List<ConfigChange>) {
-        LOCK.withLock { withContext(NonCancellable) { withContext(Dispatchers.IO) { writeNow(plugin, changes) } } }
+    /** Runs [block] of [plugin] on the file as it is now and writes its changes, or throws [ConfigEditException]. */
+    suspend fun edit(plugin: EnabledPlugin, block: ConfigEdit.() -> Unit) {
+        LOCK.withLock {
+            withContext(NonCancellable) {
+                withContext(Dispatchers.IO) {
+                    val edit = PluginEdit(plugin.member.index.configRoot) { open(plugin) }
+                    edit.block()
+                    edit.file?.let { write(plugin, it, edit.text, edit.changes) }
+                }
+            }
+        }
     }
 
-    private fun writeNow(plugin: EnabledPlugin, changes: List<ConfigChange>) {
-        val root = plugin.member.index.configRoot
+    private fun open(plugin: EnabledPlugin): OpenFile {
         val target = target()
-        val previous = try {
+        val bytes = try {
             Files.readAllBytes(target)
         } catch (e: IOException) {
             throw refused(ConfigEditRefusal.IO_ERROR, "Cannot read the config file $target: $e", e)
         }
         val text = try {
-            Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(previous)).toString()
+            Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString()
         } catch (e: CharacterCodingException) {
             throw refused(ConfigEditRefusal.INVALID_FILE, "The config file $target is not UTF-8 text.", e)
         }
         readable(ConfigEditRefusal.INVALID_FILE, "The config file does not read as it is", target) {
             decoded(plugin, target, text)
         }
-        var edited = ConfigText(text)
-        for (change in changes) {
-            val path = root.split('.') + change.path
-            edited = try {
-                change.value?.let { edited.set(path, it) } ?: edited.remove(path)
-            } catch (e: ConfigPathException) {
-                val message = "Cannot change the config at '${path.joinToString(".")}': ${e.message}"
-                throw refused(ConfigEditRefusal.INVALID_PATH, message, e)
-            }
-        }
-        if (edited.text == text) return
+        return OpenFile(target, bytes, text)
+    }
+
+    private fun write(plugin: EnabledPlugin, file: OpenFile, edited: ConfigText, changes: List<ConfigChange>) {
+        val target = file.target
+        if (edited.text == file.text) return
         val written = readable(ConfigEditRefusal.INVALID_RESULT, "The change would break the config file", target) {
             decoded(plugin, target, edited.text)
         }
         checkSecrets(plugin, written, changes)
         try {
-            replace(target, previous, edited.text.toByteArray(Charsets.UTF_8))
+            replace(target, file.bytes, edited.text.toByteArray(Charsets.UTF_8))
         } catch (e: IOException) {
             throw refused(ConfigEditRefusal.IO_ERROR, "Cannot write the config file $target: $e", e)
         }
+        val root = plugin.member.index.configRoot
         val paths = changes.map { (listOf(root) + it.path).joinToString(".") }.distinct()
         logger.info("{}: plugin {} changed {} in the config file {}", name, plugin.id, paths.joinToString(), target)
     }

@@ -76,6 +76,9 @@ internal object TextKeys {
     /** Takes `{folder}` and `{reason}`. */
     const val FOLDER_PROTECTED: String = "control.folder_protected"
 
+    /** Takes `{folder}`. */
+    const val FOLDER_BY_REFERENCE: String = "control.folder_by_reference"
+
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {
         ModelErrorKind.AUTHENTICATION -> MODEL_AUTHENTICATION

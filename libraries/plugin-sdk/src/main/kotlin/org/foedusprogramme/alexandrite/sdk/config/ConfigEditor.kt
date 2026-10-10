@@ -8,7 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.di.PluginLocal
 @PluginLocal
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ConfigEditor {
-    /** Writes all the changes [block] makes, or none of them and throws [ConfigEditException]. */
+    /** Writes all the changes [block] makes to the file as it is now, or none and throws [ConfigEditException]. */
     public suspend fun edit(block: ConfigEdit.() -> Unit)
 }
 
@@ -22,6 +22,9 @@ public suspend fun ConfigEditor.remove(path: String): Unit = edit { remove(path)
  */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ConfigEdit {
+    /** The value at [path] as the file writes it after this edit's changes so far, null when there is none. */
+    public fun get(path: String): JsonElement?
+
     /** Writes [value] at [path] as an operator writes it, creating the objects on the way that are missing. */
     public fun set(path: String, value: JsonElement)
 

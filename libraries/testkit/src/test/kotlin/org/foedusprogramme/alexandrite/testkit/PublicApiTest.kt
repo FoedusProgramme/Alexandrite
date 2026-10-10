@@ -259,7 +259,7 @@ class PublicApiTest {
                 seen.addAll(listOf(dataDir, cacheDir, get<ChannelDirectory>(), getAll<ModelProvider>()))
                 seen.add(model("scripted"))
                 seen.add(readConfig())
-                get<ConfigEditor>("notes").edit { set("home", JsonPrimitive("1")) }
+                get<ConfigEditor>("notes").edit { set("home", get("home") ?: JsonPrimitive("1")) }
                 seen.addAll(listOf(channel("main", "test"), channel(TEST_INSTANCE), get(key<ChannelDirectory>())))
                 seen.addAll(getAll(key<ModelProvider>()))
                 stop()

@@ -8,9 +8,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
+import org.foedusprogramme.alexandrite.agent.config.configLiteral
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
@@ -158,7 +160,16 @@ internal class AgentControlImpl(
         val group = refusing(topology.key(agent, member)) {
             writing.withLock {
                 val change = topology.linkChange(agent, anchor, member)
-                writeGroups(agent, change.after.groups(agent))
+                writeGroup(agent, anchor, change.before.group(agent, anchor)) { groups, group ->
+                    groups.firstOrNull { member in it.chats && it !== group }?.let { other ->
+                        throw Refused(TextKeys.LINKED_ALREADY, "member" to member, "anchor" to other.anchor)
+                    }
+                    when {
+                        group == null -> FileGroup(listOf(JsonPrimitive("$anchor"), JsonPrimitive("$member")))
+                        member in group.chats -> group
+                        else -> FileGroup(group.elements + JsonPrimitive("$member"))
+                    }
+                }
                 topology.apply(change)
                 checkNotNull(change.after.group(agent, member))
             }
@@ -172,7 +183,12 @@ internal class AgentControlImpl(
         val unlinked = refusing(topology.key(agent, member)) {
             writing.withLock {
                 val change = topology.unlinkChange(agent, member) ?: return@withLock false
-                writeGroups(agent, change.after.groups(agent))
+                writeGroup(agent, member, change.before.group(agent, member)) { _, group ->
+                    if (group != null && group.chats.first() == member) {
+                        throw Refused(TextKeys.ANCHOR_WITH_MEMBERS, "chat" to member)
+                    }
+                    group?.let { FileGroup(it.elements.filterIndexed { index, _ -> it.chats[index] != member }) }
+                }
                 topology.apply(change)
                 true
             }
@@ -299,10 +315,38 @@ internal class AgentControlImpl(
             ChannelInstanceId.parseOrNull(it) == instance
         }
 
-    private suspend fun writeGroups(agent: AgentId, groups: List<LinkGroup>) {
+    /** Writes the group of [agent] that holds [chat] in the config file as [change] makes it of the file's groups. */
+    private suspend fun writeGroup(
+        agent: AgentId,
+        chat: ChatAddress,
+        live: LinkGroup?,
+        change: (groups: List<FileGroup>, group: FileGroup?) -> FileGroup?,
+    ) {
         val path = "agents.$agent.linkedChats"
-        val linked = JsonArray(groups.map { group -> JsonArray(group.chats.map { JsonPrimitive(it.toString()) }) })
-        write { if (groups.isEmpty()) remove(path) else set(path, linked) }
+        var before: FileGroup? = null
+        write {
+            val groups = (get(path) as? JsonArray).orEmpty().map { FileGroup((it as? JsonArray).orEmpty()) }
+            val index = groups.indexOfFirst { chat in it.chats }
+            before = groups.getOrNull(index)
+            val after = change(groups, before)?.takeIf { it.elements.size > 1 }
+            val next = when {
+                index < 0 -> groups + listOfNotNull(after)
+                after == null -> groups.filterIndexed { position, _ -> position != index }
+                else -> groups.mapIndexed { position, group -> if (position == index) after else group }
+            }
+            if (next.map { it.elements } != groups.map { it.elements }) {
+                if (next.isEmpty()) remove(path) else set(path, JsonArray(next.map { JsonArray(it.elements) }))
+            }
+        }
+        if (before?.chats.orEmpty() != live?.chats.orEmpty()) {
+            logger.warn(
+                "The linked chats of agent '{}' in the config file were edited by hand since the start: the change " +
+                    "is made to the file's group of {} as the file holds it, and the running groups follow the file " +
+                    "at the next start",
+                agent,
+                chat,
+            )
+        }
     }
 
     private suspend fun write(block: ConfigEdit.() -> Unit) {
@@ -378,6 +422,15 @@ internal class AgentControlImpl(
     private companion object {
         val LISTING_TIMEOUT = 5.seconds
     }
+}
+
+/** A linked group as the config file writes it. */
+private class FileGroup(val elements: List<JsonElement>) {
+    /** The chat of each element, null for one that names an environment variable. */
+    val chats: List<ChatAddress?> = elements.map { element -> configLiteral(element)?.let(ChatAddress::parseOrNull) }
+
+    /** The first chat, or the first element as the file writes it when that names an environment variable. */
+    val anchor: String get() = chats.first()?.toString() ?: elements.first().toString()
 }
 
 /** The changes of [update] to the settings kept per agent and chat, as a log shows them. */

@@ -97,6 +97,7 @@ class SubclassOptInTest {
         }
 
         class Edit : org.foedusprogramme.alexandrite.sdk.config.ConfigEdit {
+            override fun get(path: String) = TODO()
             override fun set(path: String, value: kotlinx.serialization.json.JsonElement) = TODO()
             override fun remove(path: String) = TODO()
         }
@@ -628,7 +629,8 @@ class SubclassOptInTest {
         class Folders(private val editor: ConfigEditor) {
             suspend fun trust(folders: List<String>): String? = try {
                 editor.edit {
-                    set("trustedFolders", JsonArray(folders.map(::JsonPrimitive)))
+                    val trusted = get("trustedFolders") as? JsonArray ?: JsonArray(emptyList())
+                    set("trustedFolders", JsonArray(trusted + folders.map(::JsonPrimitive)))
                     remove("legacyFolders")
                 }
                 editor.set("home", JsonPrimitive("123"))

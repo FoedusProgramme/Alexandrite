@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.execute
+import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.turn.Observer
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -152,6 +153,75 @@ class WriteBackTest {
     }
 
     @Test
+    fun `a hand edit of another group since the start survives a link, and that group links at the next start`() {
+        val hand = "[[\"test:main:3\",   \"test:side:4\"]]"
+        val lines = logged {
+            harness().execute {
+                val control = get<AgentControl>()
+                Files.writeString(file, Files.readString(file).replaceFirst(CODER, "$0\"linkedChats\": $hand, "))
+                val handEdited = Files.readString(file)
+
+                val refused = assertFailsWith<IllegalArgumentException> {
+                    control.link(coder, anchor, ChatAddress.parse("test:side:4"), null)
+                }.message
+                val group = control.link(coder, anchor, member, null)
+
+                assertEquals("test:side:4 is linked to test:main:3 already: unlink it first.", refused)
+                assertEquals(listOf(group), control.links(coder))
+                val grown = "[[\"test:main:3\",   \"test:side:4\"], [\"$anchor\", \"$member\"]]"
+                assertEquals(handEdited.replace(hand, grown), Files.readString(file))
+            }
+        }
+
+        assertEquals(emptyList(), lines.filter { it.startsWith("WARN") })
+        harness().execute {
+            val groups = listOf(
+                ChatLinkGroup(coder, ChatAddress.parse("test:main:3"), listOf(ChatAddress.parse("test:side:4"))),
+                ChatLinkGroup(coder, anchor, listOf(member)),
+            )
+            assertEquals(groups, get<AgentControl>().links(coder))
+        }
+    }
+
+    @Test
+    fun `a link onto a group the operator extended by hand is made to the file's group, with a warning`() {
+        val extra = ChatAddress.parse("test:main:3")
+        val late = ChatAddress.parse("test:side:5")
+        harness().execute { get<AgentControl>().link(coder, anchor, member, null) }
+
+        val lines = logged {
+            harness().execute {
+                val control = get<AgentControl>()
+                val text = Files.readString(file)
+                val separator = text.substringAfter("\"$anchor\"").substringBefore("\"$member\"")
+                Files.writeString(file, text.replace("\"$member\"", "\"$member\",  \"$extra\""))
+                val handEdited = Files.readString(file)
+
+                val group = control.link(coder, anchor, late, null)
+                val grown = Files.readString(file)
+                val unlinked = control.unlink(coder, member, null)
+
+                assertEquals(ChatLinkGroup(coder, anchor, listOf(member, late)), group)
+                assertEquals(handEdited.replace("\"$extra\"", "\"$extra\"$separator\"$late\""), grown)
+                assertTrue(unlinked)
+                assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(late))), control.links(coder))
+                assertEquals(groups(listOf(anchor, extra, late)), configured(coder, "linkedChats"))
+            }
+        }
+
+        val warning = "WARN The linked chats of agent 'coder' in the config file were edited by hand since the " +
+            "start: the change is made to the file's group of %s as the file holds it, and the running groups " +
+            "follow the file at the next start"
+        assertEquals(
+            listOf(warning.format(anchor), warning.format(member)),
+            lines.filter { it.startsWith("WARN") },
+        )
+        harness().execute {
+            assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(extra, late))), get<AgentControl>().links(coder))
+        }
+    }
+
+    @Test
     fun `a home chat is written into the config file and routes at once`() {
         harness().execute {
             val control = get<AgentControl>()
@@ -268,5 +338,7 @@ class WriteBackTest {
     private companion object {
         /** The attachment of `helper` to `test:main` as the harness writes it. */
         val EMPTY_MAIN = Regex("\"test:main\":\\s*\\{\\s*}")
+
+        val CODER = Regex("\"coder\":\\s*\\{")
     }
 }
