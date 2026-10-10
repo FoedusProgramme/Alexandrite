@@ -1,10 +1,18 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
+import org.foedusprogramme.alexandrite.agent.cancel.turnCause
+import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.hook.Hooked
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
@@ -19,6 +27,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /** The result the model reads of a call cancelled while it ran. */
 internal const val CANCELLED_RESULT: String = "Cancelled (outcome unknown)"
@@ -36,7 +45,10 @@ internal class ToolCallEnd(
 
 /** Runs the tool calls of a turn's responses. */
 @Singleton
-internal class ToolExecutor(private val hooks: TurnHooks, private val gate: ToolGate) {
+internal class ToolExecutor(private val hooks: TurnHooks, private val gate: ToolGate, settings: AgentSettings) {
+    /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
+    private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
+
     /** How [call] in [turn] ends, where the turn offers [tools] and a tool may run for [timeout]. */
     suspend fun execute(turn: TurnInfo, call: ToolCallPart, tools: Map<String, Tool>, timeout: Duration): ToolCallEnd {
         val tool = tools[call.name]
@@ -64,24 +76,48 @@ internal class ToolExecutor(private val hooks: TurnHooks, private val gate: Tool
         timeout: Duration,
     ): ToolResultEntry {
         val context = AgentToolContext(turn, call.id)
-        val returned = try {
-            withTimeoutOrNull(timeout) { tool.execute(arguments, context) }
-        } catch (e: CancellationException) {
-            currentCoroutineContext().ensureActive()
-            return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
-        } catch (e: Exception) {
-            logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
-            val why = e.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
-            return textResult(call, "The tool failed: $why", ToolOutcome.Failed)
+        try {
+            val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async {
+                tool.execute(arguments, context)
+            }
+            val returned = try {
+                withTimeoutOrNull(timeout) { running.await() }
+            } catch (e: CancellationException) {
+                if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
+                stop(running, turn, call, if (turnCause(e) is TurnShutdown) shutdownWait else ABANDON_AFTER)
+                throw e
+            } catch (e: Exception) {
+                logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
+                val why = e.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+                return textResult(call, "The tool failed: $why", ToolOutcome.Failed)
+            }
+            if (returned == null) {
+                logger.warn("Tool {} timed out in turn {} after {}", call.name, turn.id, timeout)
+                stop(running, turn, call, ABANDON_AFTER)
+                return textResult(call, "The call timed out after ${timeout.inWholeSeconds} s.", ToolOutcome.Failed)
+            }
+            val outcome = if (returned.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
+            return ToolResultEntry(null, call.id, call.name, shaped(returned.content), outcome)
         } finally {
             context.close()
         }
-        if (returned == null) {
-            logger.warn("Tool {} timed out in turn {} after {}", call.name, turn.id, timeout)
-            return textResult(call, "The call timed out after ${timeout.inWholeSeconds} s.", ToolOutcome.Failed)
+    }
+
+    /** Cancels [running] and waits at most [wait] for it to end. */
+    private suspend fun stop(running: Job, turn: TurnInfo, call: ToolCallPart, wait: Duration) {
+        withContext(NonCancellable) {
+            running.cancel()
+            if (withTimeoutOrNull(wait) { running.join() } == null) {
+                logger.warn(
+                    "Tool {} still runs {} after its call {} in turn {} was cancelled: it is abandoned and its " +
+                        "result discarded",
+                    call.name,
+                    wait,
+                    call.id,
+                    turn.id,
+                )
+            }
         }
-        val outcome = if (returned.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
-        return ToolResultEntry(null, call.id, call.name, shaped(returned.content), outcome)
     }
 
     private fun ended(call: ToolCallPart, text: String, reason: NotRunReason): ToolCallEnd =
@@ -111,5 +147,8 @@ internal fun shaped(content: List<ToolOutputPart>): List<ToolOutputPart> {
 /** [limit], or one less where that would split a surrogate pair of [text]. */
 private fun cutAt(text: String, limit: Int): Int =
     if (limit > 0 && text[limit - 1].isHighSurrogate()) limit - 1 else limit
+
+/** How long a cancelled tool may take to end before it is abandoned. */
+private val ABANDON_AFTER = 5.seconds
 
 private val logger = LoggerFactory.getLogger(ToolExecutor::class.java)

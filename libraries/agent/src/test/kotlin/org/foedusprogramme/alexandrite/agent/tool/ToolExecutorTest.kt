@@ -1,11 +1,22 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
+import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
+import org.foedusprogramme.alexandrite.agent.logged
+import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
@@ -21,13 +32,16 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.turn.ToolCallCheck
+import org.foedusprogramme.alexandrite.testkit.RecordingTool
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -35,8 +49,41 @@ class ToolExecutorTest {
     private val turn = testTurn()
     private val call = ToolCallPart(ToolCallId("call-1"), "fs.read", "{}")
 
+    private val release = CompletableDeferred<Unit>()
+
+    /** A tool that runs on through its cancellation until [release]. */
+    private val stuck: RecordingTool = recordingTool("fs.read") { _, _ ->
+        withContext(NonCancellable) { release.await() }
+        ToolResult("Late.")
+    }
+
     private fun executor(hooks: Hooks = PassingHooks(), gate: ToolGate = OpenToolGate()) =
-        ToolExecutor(TurnHooks(hooks), gate)
+        ToolExecutor(TurnHooks(hooks), gate, settings("""{"shutdown": {"cancelJoinSeconds": 3}}"""))
+
+    private fun abandoned(after: String) =
+        "WARN Tool fs.read still runs $after after its call call-1 in turn test-turn was cancelled: it is abandoned " +
+            "and its result discarded"
+
+    /** How long the call of [stuck] that [cause] cancels takes to end, with the lines the agent logs meanwhile. */
+    private fun TestScope.cancelledStuck(cause: CancellationException): Pair<Duration, List<String>> {
+        var ended: Duration? = null
+        val lines = logged {
+            val started = currentTime
+            val call = launch {
+                try {
+                    executor().executed(stuck)
+                } finally {
+                    ended = (currentTime - started).milliseconds
+                }
+            }
+            runCurrent()
+            call.cancel(cause)
+            advanceTimeBy(10.seconds)
+            assertTrue(call.isCancelled)
+        }
+        release.complete(Unit)
+        return checkNotNull(ended) to lines
+    }
 
     private suspend fun ToolExecutor.executed(tool: Tool, timeout: Duration = 120.seconds): ToolCallEnd =
         execute(turn, call, mapOf(tool.definition.name to tool), timeout)
@@ -51,6 +98,56 @@ class ToolExecutorTest {
 
         assertEquals(ToolOutcome.Failed to "The call timed out after 5 s.", result.outcome to result.text())
         assertEquals(5_000, currentTime)
+        assertEquals(1, tool.cancelled.size)
+    }
+
+    @Test
+    fun `a call that runs past its timeout while its tool ignores the cancellation is abandoned five seconds later`() =
+        runTest {
+            var result: ToolResultEntry? = null
+            val lines = logged {
+                launch { result = executor().executed(stuck, timeout = 5.seconds).result }
+                advanceTimeBy(10.seconds)
+                assertEquals(null, result)
+                advanceTimeBy(1.milliseconds)
+            }
+            release.complete(Unit)
+
+            val ended = checkNotNull(result)
+            assertEquals(ToolOutcome.Failed to "The call timed out after 5 s.", ended.outcome to ended.text())
+            assertEquals(listOf("WARN Tool fs.read timed out in turn test-turn after 5s", abandoned("5s")), lines)
+        }
+
+    @Test
+    fun `a cancelled call whose tool ignores the cancellation is abandoned after five seconds`() = runTest {
+        val (ended, lines) = cancelledStuck(TurnCancelled(null))
+
+        assertEquals(5.seconds, ended)
+        assertEquals(listOf(abandoned("5s")), lines)
+        assertEquals(1, stuck.calls.size)
+    }
+
+    @Test
+    fun `at a shutdown a tool that ignores the cancellation is abandoned after half the cancel join`() = runTest {
+        val (ended, lines) = cancelledStuck(TurnShutdown())
+
+        assertEquals(1.5.seconds, ended)
+        assertEquals(listOf(abandoned("1.5s")), lines)
+    }
+
+    @Test
+    fun `a cancelled call whose tool ends at once is not waited for`() = runTest {
+        val tool = recordingTool("fs.read") { _, _ -> awaitCancellation() }
+
+        val lines = logged {
+            val call = launch { executor().executed(tool) }
+            runCurrent()
+            call.cancel(TurnCancelled(null))
+            runCurrent()
+            assertTrue(call.isCancelled)
+        }
+
+        assertEquals(emptyList(), lines)
         assertEquals(1, tool.cancelled.size)
     }
 

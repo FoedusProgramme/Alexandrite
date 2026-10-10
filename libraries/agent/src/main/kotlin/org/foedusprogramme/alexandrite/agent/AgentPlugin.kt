@@ -4,6 +4,7 @@ import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.turn.Recovery
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
 import org.foedusprogramme.alexandrite.agent.worker.TurnWorkers
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
@@ -20,9 +21,11 @@ public class AgentPlugin internal constructor(
     private val endpoints: Endpoints,
     private val intakes: ChatIntakes,
     private val workers: TurnWorkers,
+    private val recovery: Recovery,
     private val scope: PluginScope,
 ) : Lifecycle {
     override suspend fun onStart() {
+        recovery.run()
         if (directory.agents.isEmpty()) logger.warn("No agent is configured at agent.agents: no chat is answered")
     }
 

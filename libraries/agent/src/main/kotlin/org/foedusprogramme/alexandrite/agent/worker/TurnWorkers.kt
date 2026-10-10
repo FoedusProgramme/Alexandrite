@@ -9,13 +9,13 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
+import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.turn.FollowUp
 import org.foedusprogramme.alexandrite.agent.turn.FollowUps
-import org.foedusprogramme.alexandrite.agent.turn.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
-import org.foedusprogramme.alexandrite.agent.turn.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -222,7 +222,11 @@ internal class TurnWorkers(
 
     /** The next job of [worker], null when it has none and is removed. */
     private fun take(worker: Worker): Current? {
-        val job = worker.queue.removeFirstOrNull()
+        var job = worker.queue.removeFirstOrNull()
+        while (job is WorkerJob.Turn && !open) {
+            job.ticket.complete(TurnOutcome.ShutDown(replayable = true))
+            job = worker.queue.removeFirstOrNull()
+        }
         if (job == null) {
             workers.remove(worker.key)
             return null

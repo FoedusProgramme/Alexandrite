@@ -34,7 +34,10 @@ internal class RuntimeTexts(
 
     fun of(plugin: String): Texts = plugins.getValue(plugin)
 
-    /** Puts [catalog] in place of the one before, without the texts whose placeholders differ from the plugin's. */
+    /**
+     * Puts [catalog] in place of the one before, without the blank texts and those whose placeholders differ from the
+     * plugin's.
+     */
     fun install(catalog: TextCatalog) {
         synchronized(this) {
             if (catalog == given) return
@@ -51,6 +54,10 @@ internal class RuntimeTexts(
             if (defaults == null) listener.onProblem(plugin, UNKNOWN_PLUGIN)
             for (language in catalog.languages(plugin)) {
                 for ((key, text) in catalog.texts(plugin, language)) {
+                    if (text.isBlank()) {
+                        listener.onProblem(plugin, "ignores the host's text '$key' ($language): it is blank")
+                        continue
+                    }
                     val default = defaults?.get(key)
                     if (defaults != null && default == null) undefined += key
                     if (default == null || placeholderNames(text) == placeholderNames(default)) {

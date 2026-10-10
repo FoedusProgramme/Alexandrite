@@ -144,6 +144,25 @@ class PluginTextsTest {
     }
 
     @Test
+    fun `a blank text of a plugin's file counts as absent and is warned about once`() {
+        write("en", "saved=Saved\nempty=\n")
+        write("de", "saved=  \n")
+        val texts = texts()
+
+        repeat(2) { assertEquals("Saved", texts.text("saved", LanguageTag("de"))) }
+        assertEquals("empty", texts.text("empty", null))
+
+        assertEquals(
+            listOf(
+                "notes has a blank text 'saved' in alexandrite/i18n/notes/de.properties, which counts as absent",
+                "notes has a blank text 'empty' in alexandrite/i18n/notes/en.properties, which counts as absent",
+                "notes has no text 'empty' in en; the key is shown instead",
+            ),
+            problems,
+        )
+    }
+
+    @Test
     fun `each plugin reads only its own texts`() {
         write("en", "greeting=Hello from alpha\nown=Alpha's own\n", plugin = "alpha")
         write("en", "greeting=Hello from beta\n", plugin = "beta")

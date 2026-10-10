@@ -9,6 +9,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
+import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.Agent
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
@@ -152,8 +154,10 @@ internal class AgentTurnRunner(
             val message = plan.input.message
             val turn = dequeue()
             if (!openReply(turn)) return TurnOutcome.Failed("Channel instance ${turn.chat.instance} is not open.")
-            conversations.startTurn(turn)
-            recorded = true
+            withContext(NonCancellable) {
+                conversations.startTurn(turn)
+                recorded = true
+            }
             val selected = try {
                 endpoints.select(model)
             } catch (e: ModelException) {
@@ -198,7 +202,19 @@ internal class AgentTurnRunner(
             answerOpenCalls()
             val text = notices.text(turn, TextKeys.FAILED)
             if (recorded) attempt("store its failure notice") { append(NoticeEntry(null, text, NoticeKind.FAILED)) }
-            sink?.takeUnless { replied }?.let { show(it, notice(text, plan.trigger, turn.conversation)) }
+            sink?.takeUnless { replied }?.let { sink ->
+                val message = try {
+                    notice(text, plan.trigger, turn.conversation)
+                } catch (e: IllegalArgumentException) {
+                    logger.warn("Turn {} of {} has no failure notice to show: {}", plan.id, plan.key, e.toString())
+                    null
+                }
+                if (message == null) {
+                    attempt("abandon its reply") { sink.abandon(ReplyEnd.FAILED) }
+                } else {
+                    show(sink, message)
+                }
+            }
             return end(failed, TurnEndKind.FAILED)
         }
 
@@ -411,11 +427,7 @@ internal class AgentTurnRunner(
 
         /** Answers each call that the turn stored without a result as cancelled. */
         private suspend fun answerOpenCalls() {
-            val entries = appending.withLock { stored.toList() }
-            val answered = entries.filterIsInstance<ToolResultEntry>().map { it.callId }.toSet()
-            val open = entries.filterIsInstance<AssistantEntry>()
-                .flatMap { it.parts.filterIsInstance<ToolCallPart>() }
-                .filter { it.id !in answered }
+            val open = openCalls(appending.withLock { stored.toList() })
             if (open.isEmpty()) return
             attempt("store the results of its open calls") {
                 append(*open.map { textResult(it, CANCELLED_RESULT, ToolOutcome.Cancelled) }.toTypedArray())
@@ -593,6 +605,14 @@ private val TurnSource.message: IncomingMessage
     get() = when (this) {
         is TurnSource.FromMessage -> message
     }
+
+/** The tool calls of [entries] that none of them answers. */
+internal fun openCalls(entries: List<TranscriptEntry>): List<ToolCallPart> {
+    val answered = entries.filterIsInstance<ToolResultEntry>().map { it.callId }.toSet()
+    return entries.filterIsInstance<AssistantEntry>()
+        .flatMap { it.parts.filterIsInstance<ToolCallPart>() }
+        .filter { it.id !in answered }
+}
 
 /** Whether models read [entry]. */
 private fun isSent(entry: TranscriptEntry): Boolean = entry !is NoticeEntry && entry !is UnknownEntry

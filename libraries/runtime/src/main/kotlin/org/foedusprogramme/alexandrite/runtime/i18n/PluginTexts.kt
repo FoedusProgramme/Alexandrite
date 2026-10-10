@@ -45,16 +45,19 @@ internal class PluginTexts(
         return key
     }
 
-    /** The plugin's own texts in [tag], empty when it has no file of it or the file cannot be read. */
+    /** The plugin's own non-blank texts in [tag], empty when it has no file of it or the file cannot be read. */
     fun own(tag: String): Map<String, String> = files.computeIfAbsent(tag) {
         val path = textsPath(plugin, tag)
         val url = classLoader.getResource(path) ?: return@computeIfAbsent emptyMap()
-        try {
+        val texts = try {
             readTexts(url)
         } catch (e: IOException) {
             report(listOf(path), "cannot read $path, whose texts count as absent: $e")
-            emptyMap()
+            return@computeIfAbsent emptyMap()
         }
+        val blank = texts.filterValues { it.isBlank() }.keys
+        blank.sorted().forEach { report(listOf(path, it), "has a blank text '$it' in $path, which counts as absent") }
+        texts - blank
     }
 
     private fun report(subject: List<String>, problem: String) {

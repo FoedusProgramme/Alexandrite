@@ -8,8 +8,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.agent.GatedConversations
 import org.foedusprogramme.alexandrite.agent.TestClock
+import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.logged
-import org.foedusprogramme.alexandrite.agent.turn.TurnCancelled
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
@@ -346,6 +346,26 @@ class TurnWorkersTest {
 
         assertTrue(control.done.isCompleted)
         assertEquals("The agent is shutting down.", control.done.getCompletionExceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `once the workers closed, a turn that a running one leaves queued ends as never started`() = runTest {
+        val bench = bench(perKey = 5)
+        val key = AgentChatKey.parse("coder@test:main:1")
+        val running = bench.receive("test:main:1")
+        val queued = bench.receive("test:main:1")
+        val control = WorkerJob.Control {}
+        runCurrent()
+        bench.workers.enqueue(key, control)
+
+        bench.workers.close()
+        bench.runner.finish(running.turn)
+        runCurrent()
+
+        assertEquals(TurnOutcome.ShutDown(replayable = true), queued.ticket.outcome())
+        assertEquals(listOf(running.turn), bench.runner.started)
+        assertTrue(control.done.isCompleted)
+        assertEquals(emptySet(), bench.workers.keys)
     }
 
     @Test

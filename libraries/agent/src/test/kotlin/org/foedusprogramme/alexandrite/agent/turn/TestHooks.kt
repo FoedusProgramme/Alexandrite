@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import java.util.concurrent.CopyOnWriteArrayList
@@ -47,5 +48,6 @@ internal fun TranscriptEntry.withoutRecord(): TranscriptEntry = when (this) {
     is UserEntry -> UserEntry(null, parts, origin)
     is AssistantEntry -> AssistantEntry(null, parts, producedBy, providerData)
     is NoticeEntry -> NoticeEntry(null, text, kind)
+    is ToolResultEntry -> ToolResultEntry(null, callId, toolName, content, outcome)
     else -> this
 }

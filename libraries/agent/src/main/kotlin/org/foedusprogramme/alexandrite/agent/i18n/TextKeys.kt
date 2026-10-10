@@ -13,6 +13,7 @@ internal object TextKeys {
     const val REPLY_TOO_LONG: String = "notice.reply_too_long"
     const val ROUND_LIMIT: String = "notice.round_limit"
     const val FAILED: String = "notice.failed"
+    const val INTERRUPTED: String = "notice.interrupted"
 
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"

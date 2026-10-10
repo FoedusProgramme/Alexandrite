@@ -65,6 +65,25 @@ class RuntimeTextsTest {
     }
 
     @Test
+    fun `a blank text of the host's catalog is ignored with a warning, so the plugin's own text stands`() {
+        texts.install(
+            TextCatalog.builder()
+                .text("alpha", LanguageTag("zh-CN"), "greeting", " ")
+                .text("alpha", LanguageTag("en"), "greeting", "")
+                .text("alpha", LanguageTag("de"), "greeting", "\t")
+                .build(),
+        )
+        val alpha = texts.of("alpha")
+
+        assertEquals("你好，Ada！", alpha.text("greeting", LanguageTag("zh-CN"), "name" to "Ada"))
+        assertEquals("Hello, Ada!", alpha.text("greeting", LanguageTag("de"), "name" to "Ada"))
+        assertEquals(
+            listOf("de", "en", "zh-CN").map { "alpha ignores the host's text 'greeting' ($it): it is blank" },
+            problems,
+        )
+    }
+
+    @Test
     fun `each distinct problem is told once, however often catalogs are installed`() {
         val bad = TextCatalog.builder().text("alpha", LanguageTag("de"), "greeting", "Hallo!").build()
 
