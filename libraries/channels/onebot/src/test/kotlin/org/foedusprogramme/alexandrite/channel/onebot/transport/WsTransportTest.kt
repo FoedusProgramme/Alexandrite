@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.onebot.transport
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -89,6 +90,29 @@ class WsTransportTest {
                     "answer was " + answer,
                 )
                 peer.close()
+            }
+        } finally {
+            connection.close()
+        }
+    }
+
+    @Test
+    fun `a reverse connection ends a waiting call when the implementation leaves`() {
+        val connection = OneBotReverseWebSocket(settings(null, port = 0))
+        try {
+            runBlocking {
+                connection.start()
+                val peer = SilentImplementation(URI("ws://127.0.0.1:" + connection.port))
+                assertTrue(peer.connectBlocking(5, TimeUnit.SECONDS), "the implementation did not connect")
+                assertTrue(connection.awaitPeer(), "not taken; state=" + connection.state.value)
+
+                // The call goes out and is never answered, and then the implementation leaves. Its caller has to hear
+                // about that rather than wait for a timeout that would blame a slow implementation for a lost one.
+                val call = async { runCatching { connection.send("get_version_info", JsonObject(emptyMap())) } }
+                peer.awaitCall()
+                peer.close()
+                val ended = withTimeout(2_000) { call.await() }
+                assertTrue(ended.isFailure, "the call was answered by a connection that had left")
             }
         } finally {
             connection.close()
@@ -192,6 +216,32 @@ class WsTransportTest {
         override fun onClose(code: Int, reason: String, remote: Boolean) = Unit
 
         override fun onError(ex: Exception) = Unit
+    }
+
+    /** An implementation that dials in, takes a call and never answers it, so that a caller is left waiting. */
+    private class SilentImplementation(uri: URI) :
+        WebSocketClient(
+            uri,
+            mapOf(
+                OneBotAuth.AUTHORIZATION to OneBotAuth.bearer(Value.secretOf("s3cr3t-token")),
+                OneBotAuth.SELF_ID to "10001000",
+                OneBotAuth.CLIENT_ROLE to "Universal",
+            ),
+        ) {
+        private val called = CountDownLatch(1)
+
+        override fun onOpen(handshake: ServerHandshake) = Unit
+
+        override fun onMessage(message: String) {
+            if (message.contains("\"echo\"")) called.countDown()
+        }
+
+        override fun onClose(code: Int, reason: String, remote: Boolean) = Unit
+
+        override fun onError(ex: Exception) = Unit
+
+        /** Waits until a call has arrived, and returns whether one did. */
+        fun awaitCall(): Boolean = called.await(5, TimeUnit.SECONDS)
     }
 
     private companion object {
