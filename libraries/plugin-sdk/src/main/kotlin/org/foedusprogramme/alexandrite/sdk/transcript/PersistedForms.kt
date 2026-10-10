@@ -105,6 +105,10 @@ internal val transcriptJson: Json = Json {
                 UserOrigin.Initiated::class,
                 form(InitiatedForm.serializer(), ::InitiatedForm, InitiatedForm::toOrigin),
             )
+            subclass(
+                UserOrigin.SystemWritten::class,
+                form(SystemWrittenForm.serializer(), ::SystemWrittenForm, SystemWrittenForm::toOrigin),
+            )
         }
         hierarchy(ToolOutcome::class, ToolOutcome::Unknown, ToolOutcome.Unknown::type, ToolOutcome.Unknown::json) {
             subclass(
@@ -308,6 +312,14 @@ private class InitiatedForm(val plugin: String, val kind: TurnKind) {
     constructor(origin: UserOrigin.Initiated) : this(origin.plugin, origin.kind)
 
     fun toOrigin(): UserOrigin.Initiated = UserOrigin.Initiated(plugin, kind)
+}
+
+@Serializable
+@SerialName("system_written")
+private class SystemWrittenForm(val source: String) {
+    constructor(origin: UserOrigin.SystemWritten) : this(origin.source)
+
+    fun toOrigin(): UserOrigin.SystemWritten = UserOrigin.SystemWritten(source)
 }
 
 @Serializable

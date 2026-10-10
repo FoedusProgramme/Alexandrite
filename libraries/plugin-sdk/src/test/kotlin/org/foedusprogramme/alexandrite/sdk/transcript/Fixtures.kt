@@ -74,6 +74,14 @@ internal val goldens: Map<String, List<TranscriptEntry>> = mapOf(
             listOf(ContextPart("heartbeat", "Nobody has written for two hours.")),
             UserOrigin.Initiated("alexandrite-heartbeat", TurnKind.HEARTBEAT),
         ),
+        UserEntry(
+            null,
+            listOf(
+                ContextPart("alexandrite.project", "Project instructions from /repo/AGENTS.md"),
+                TextPart("Run the tests before you answer."),
+            ),
+            UserOrigin.SystemWritten("alexandrite.project"),
+        ),
     ),
     "assistant" to listOf(
         AssistantEntry(

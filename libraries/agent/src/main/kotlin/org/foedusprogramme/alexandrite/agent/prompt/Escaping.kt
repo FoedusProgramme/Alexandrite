@@ -11,9 +11,12 @@ internal class Escaper(reserved: List<String>) {
 
     companion object {
         /** The headers that only Alexandrite writes. */
-        val HEADERS: Escaper = Escaper(listOf("[alexandrite:", "[/alexandrite:"))
+        val HEADERS: Escaper = Escaper(listOf("[alexandrite:", "[/alexandrite:", PROJECT_HEADER))
     }
 }
+
+/** How the header of a trusted folder's project instructions starts. */
+internal const val PROJECT_HEADER: String = "Project instructions from"
 
 /** [text] on one line, each run of line breaks a space. */
 internal fun oneLine(text: String): String = text.replace(LINE_BREAKS, " ")

@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import java.nio.file.Path
 import java.time.Instant
 
 /**
@@ -61,6 +62,18 @@ public interface AgentControl {
 
     /** The linked groups of [agent], or of every agent when null. */
     public fun links(agent: AgentId? = null): List<ChatLinkGroup>
+
+    /**
+     * Trusts the folder [folder] (absolute), so that the project instructions in it and below it load, and returns the
+     * trusted folder that covers it, an ancestor when one is trusted already.
+     */
+    public suspend fun trustFolder(folder: Path, by: ChatUser?): Path
+
+    /** Stops trusting [folder], false when it is not a trusted folder itself. */
+    public suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean
+
+    /** The trusted folders, each covering the folders below it. */
+    public fun trustedFolders(): List<Path>
 }
 
 /** Chats whose messages to [agent] continue one conversation, kept at [anchor]. */

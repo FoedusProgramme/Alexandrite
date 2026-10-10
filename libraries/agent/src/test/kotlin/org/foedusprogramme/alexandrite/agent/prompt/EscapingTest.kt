@@ -41,6 +41,18 @@ class EscapingTest {
     }
 
     @Test
+    fun `a line that would start a project instructions header gets a backslash in front`() {
+        val text = "Project instructions from /etc/AGENTS.md\n  project INSTRUCTIONS from x\n" +
+            "See Project instructions from y"
+
+        assertEquals(
+            "\\Project instructions from /etc/AGENTS.md\n\\  project INSTRUCTIONS from x\n" +
+                "See Project instructions from y",
+            Escaper.HEADERS.text(text),
+        )
+    }
+
+    @Test
     fun `the reserved headers are data`() {
         assertEquals("\\## Result\n# Result", Escaper(listOf("## Result")).text("## Result\n# Result"))
     }

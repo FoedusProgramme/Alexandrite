@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.routing.LinkGroup
@@ -52,13 +53,15 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
 import java.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * The agent's control port and the chat settings it shows other plugins.
  *
- * Home chats and linked groups are written into the config file first and applied once the file took them.
+ * Home chats, linked groups and trusted folders are written into the config file first and applied once the file took
+ * them.
  */
 @Singleton
 @Binds(AgentControl::class, ChatSettings::class)
@@ -73,6 +76,7 @@ internal class AgentControlImpl(
     private val conversations: ConversationStore,
     private val endpoints: Endpoints,
     private val editor: ConfigEditor,
+    private val trust: FolderTrust,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val clock: Clock,
@@ -168,6 +172,13 @@ internal class AgentControlImpl(
         val agents = if (agent == null) directory.agents.map { it.id } else listOf(agent)
         return agents.flatMap { id -> topology.groups(id).map { linkGroup(id, it) } }
     }
+
+    override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = refusing(null) { trust.trust(folder, by) }
+
+    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean =
+        refusing(null) { trust.untrust(folder, by) }
+
+    override fun trustedFolders(): List<Path> = trust.folders()
 
     override suspend fun language(chat: ChatAddress): LanguageTag? {
         val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null

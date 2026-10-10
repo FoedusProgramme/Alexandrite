@@ -15,11 +15,12 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
+import java.nio.file.Path
 
 /**
  * An [AgentControl] that records its calls, lists the [statuses] the test sets, mints conversations `conversation-<n>`
- * and keeps chat settings per agent and chat, home chats per agent and instance and linked groups, where
- * [defaultAgent] serves every chat until an update switches it.
+ * and keeps chat settings per agent and chat, home chats per agent and instance, linked groups and trusted folders,
+ * where [defaultAgent] serves every chat until an update switches it.
  */
 public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.MAIN) : AgentControl {
     private val lock = Any()
@@ -28,6 +29,7 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
     private val homes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
     private val groups = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
+    private val trusted = mutableListOf<Path>()
     private var conversations = 0
 
     /** The running and queued turns that [turns] lists and the cancels find. */
@@ -120,6 +122,21 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         groups.filterKeys { agent == null || it == agent }.values.flatten()
     }
 
+    /** Trusts [folder], normalized, unless a trusted folder covers it, and refuses a relative path. */
+    override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = synchronized(lock) {
+        recorded += Call.TrustFolder(folder, by)
+        require(folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
+        val normalized = folder.normalize()
+        trusted.firstOrNull { normalized.startsWith(it) } ?: normalized.also(trusted::add)
+    }
+
+    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean = synchronized(lock) {
+        recorded += Call.UntrustFolder(folder, by)
+        trusted.remove(folder.normalize())
+    }
+
+    override fun trustedFolders(): List<Path> = synchronized(lock) { trusted.toList() }
+
     private fun snapshot(chat: ChatAddress): ChatSettingsSnapshot {
         val agent = agents[chat] ?: defaultAgent
         val stored = settings[AgentChatKey(agent, chat)] ?: ChatSettingsSnapshot.builder(agent).build()
@@ -160,6 +177,10 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
 
         public data class Unlink(public val agent: AgentId, public val member: ChatAddress, public val by: ChatUser?) :
             Call
+
+        public data class TrustFolder(public val folder: Path, public val by: ChatUser?) : Call
+
+        public data class UntrustFolder(public val folder: Path, public val by: ChatUser?) : Call
     }
 }
 

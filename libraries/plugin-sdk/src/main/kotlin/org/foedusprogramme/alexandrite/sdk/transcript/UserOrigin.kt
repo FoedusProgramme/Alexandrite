@@ -40,6 +40,18 @@ public interface UserOrigin {
         }
     }
 
+    /** An entry that Alexandrite wrote itself, which carries no user's words or authority. */
+    @OptIn(InternalAlexandriteApi::class)
+    @Poko
+    public class SystemWritten(
+        /** What wrote the entry. */
+        public val source: String,
+    ) : UserOrigin {
+        init {
+            require(source.isNotBlank()) { "The source of a system-written entry is not blank." }
+        }
+    }
+
     /** An origin of a type this version does not know, as stored. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko

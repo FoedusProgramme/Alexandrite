@@ -110,5 +110,23 @@
       "plugin": "alexandrite-heartbeat",
       "kind": "heartbeat"
     }
+  },
+  {
+    "type": "user",
+    "parts": [
+      {
+        "type": "context",
+        "source": "alexandrite.project",
+        "text": "Project instructions from /repo/AGENTS.md"
+      },
+      {
+        "type": "text",
+        "text": "Run the tests before you answer."
+      }
+    ],
+    "origin": {
+      "type": "system_written",
+      "source": "alexandrite.project"
+    }
   }
 ]

@@ -31,6 +31,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -311,6 +312,27 @@ class FakesTest {
         assertEquals(emptyList(), control.links())
         assertEquals(RecordingAgentControl.Call.Link(coder, anchor, first, admin), control.calls.first())
         assertEquals(RecordingAgentControl.Call.Unlink(coder, first, null), control.calls.last())
+    }
+
+    @Test
+    fun `a recording agent control trusts folders that no trusted folder covers`() {
+        val control = RecordingAgentControl()
+        val admin = testUser("ada", isAdmin = true)
+        val repository = Path.of("/srv/repo")
+
+        val trusted = blocking {
+            listOf(control.trustFolder(repository, admin), control.trustFolder(Path.of("/srv/repo/sub/../lib"), null))
+        }
+
+        assertEquals(listOf(repository, repository), trusted)
+        assertEquals(listOf(repository), control.trustedFolders())
+        assertFailsWith<IllegalArgumentException> { blocking { control.trustFolder(Path.of("repo"), null) } }
+        assertEquals(
+            listOf(false, true, false),
+            blocking { listOf(Path.of("/srv"), repository, repository).map { control.untrustFolder(it, null) } },
+        )
+        assertEquals(emptyList(), control.trustedFolders())
+        assertEquals(RecordingAgentControl.Call.TrustFolder(repository, admin), control.calls.first())
     }
 
     // Chat states.

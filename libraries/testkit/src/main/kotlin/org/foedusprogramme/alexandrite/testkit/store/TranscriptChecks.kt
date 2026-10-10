@@ -132,8 +132,8 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
     },
     StoreCheck("the entries of a message are found by its reference") {
         open {
-            val heartbeat = samples(media.put(png, MediaKind.IMAGE, "image/png"))[1]
-            val stored = append(message("a"), message("b"), heartbeat)
+            val (heartbeat, written) = samples(media.put(png, MediaKind.IMAGE, "image/png")).subList(1, 3)
+            val stored = append(message("a"), message("b"), heartbeat, written)
 
             expectEqual(listOf(stored[1]), transcripts.entries(ChannelMessageRef(chat, "m-b")), "the entries of m-b")
             expectEqual(emptyList(), transcripts.entries(ChannelMessageRef(chat, "m-x")), "the entries of m-x")

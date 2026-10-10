@@ -34,6 +34,10 @@ import org.foedusprogramme.alexandrite.agent.model.collectResponse
 import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
+import org.foedusprogramme.alexandrite.agent.project.LoadedFile
+import org.foedusprogramme.alexandrite.agent.project.ProjectInstructions
+import org.foedusprogramme.alexandrite.agent.project.UntrustedFolder
+import org.foedusprogramme.alexandrite.agent.project.entries
 import org.foedusprogramme.alexandrite.agent.prompt.PromptAssembler
 import org.foedusprogramme.alexandrite.agent.prompt.TurnContextPlan
 import org.foedusprogramme.alexandrite.agent.prompt.initiatedEntry
@@ -95,6 +99,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.util.Collections
 import kotlin.time.Duration.Companion.seconds
 
 /** Runs each turn that a worker takes through the turn pipeline. */
@@ -115,6 +120,7 @@ internal class AgentTurnRunner(
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
     private val executor: ToolExecutor,
+    private val projects: ProjectInstructions,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val routes: Routes,
@@ -397,25 +403,53 @@ internal class AgentTurnRunner(
         private suspend fun call(model: SelectedModel, request: ModelRequest): ModelEvent.Completed =
             retries.retrying(plan.id) { collectResponse(model.endpoint, request) { previews?.event(it) } }
 
-        /** Runs [calls] of the [offered] tools, storing each result as its call ends. */
+        /**
+         * Runs [calls] of the [offered] tools, storing each result as its call ends, and then the project instructions
+         * that the calls reached.
+         */
         private suspend fun runCalls(turn: TurnInfo, calls: List<ToolCallPart>, offered: Map<String, Tool>) {
             val timeout = agent.config.toolTimeoutSeconds.seconds
             val risks = calls.mapNotNull { offered[it.name]?.definition?.risk }
             val slots = Semaphore(if (risks.all { it == ToolRisk.READ_ONLY }) MAX_PARALLEL_CALLS else 1)
-            coroutineScope {
-                for (call in calls) {
-                    launch {
-                        slots.withPermit {
-                            val end = executor.execute(turn, call, offered, timeout)
-                            val result = withContext(NonCancellable) {
-                                appending.withLock { appendLocked(listOf(media.stored(end.result))).single() }
+            val loading = Collections.synchronizedList(mutableListOf<LoadedFile>())
+            var loaded = false
+            try {
+                coroutineScope {
+                    for (call in calls) {
+                        launch {
+                            slots.withPermit {
+                                val end = executor.execute(turn, call, offered, timeout)
+                                val found = projects.inspect(turn, end.touched)
+                                loading += found.loaded
+                                val result = withContext(NonCancellable) {
+                                    val stored = media.stored(found.noted(end.result))
+                                    appending.withLock { appendLocked(listOf(stored)).single() }
+                                }
+                                end.notice?.let { notify(NoticeKind.HOOK_ABORTED, it) }
+                                found.untrusted.forEach { warn(turn, it) }
+                                hooks.toolAfter(turn, call, result as ToolResultEntry)
                             }
-                            end.notice?.let { notify(NoticeKind.HOOK_ABORTED, it) }
-                            hooks.toolAfter(turn, call, result as ToolResultEntry)
                         }
                     }
                 }
+                val entries = entries(loading)
+                if (entries.isNotEmpty()) append(*entries.toTypedArray())
+                loaded = true
+            } finally {
+                if (!loaded) projects.release(turn.conversation, loading.map { it.file })
             }
+        }
+
+        /** Tells the chat that the turn did not load the project instructions of [folder]. */
+        private suspend fun warn(turn: TurnInfo, folder: UntrustedFolder) {
+            val text = notices.text(
+                turn,
+                TextKeys.UNTRUSTED_FOLDER,
+                "agent" to agent.name,
+                "folder" to folder.folder,
+                "files" to folder.files.joinToString(),
+            )
+            notify(NoticeKind.UNTRUSTED_FOLDER, text)
         }
 
         /** Absorbs the messages that the turn's principal queued since the turn started. */

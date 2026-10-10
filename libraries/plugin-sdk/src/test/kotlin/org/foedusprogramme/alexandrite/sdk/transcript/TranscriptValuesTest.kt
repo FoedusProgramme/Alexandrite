@@ -44,6 +44,7 @@ class TranscriptValuesTest {
             assertFailsWith<IllegalArgumentException> { make() }
         }
         assertFailsWith<IllegalArgumentException> { UserOrigin.Initiated("Clock", TurnKind.REMINDER) }
+        assertFailsWith<IllegalArgumentException> { UserOrigin.SystemWritten(" ") }
         assertFailsWith<IllegalArgumentException> { UserEntry(null, emptyList(), user("x").origin) }
     }
 
@@ -123,6 +124,11 @@ class TranscriptValuesTest {
                 { UserOrigin.Initiated("clock", TurnKind.REMINDER) },
                 UserOrigin.Initiated("clock", TurnKind.HEARTBEAT),
                 "Initiated(plugin=clock, kind=reminder)",
+            ),
+            Triple(
+                { UserOrigin.SystemWritten("alexandrite.project") },
+                UserOrigin.SystemWritten("alexandrite.other"),
+                "SystemWritten(source=alexandrite.project)",
             ),
             Triple(
                 { record(1) },

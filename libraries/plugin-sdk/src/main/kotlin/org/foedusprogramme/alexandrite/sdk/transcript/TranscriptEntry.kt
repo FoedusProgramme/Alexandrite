@@ -138,9 +138,21 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** The turn used up its tool rounds. */
         public val ROUND_LIMIT: NoticeKind = NoticeKind("round_limit")
 
+        /** A folder's project instructions were not loaded, as the folder is not trusted. */
+        public val UNTRUSTED_FOLDER: NoticeKind = NoticeKind("untrusted_folder")
+
         /** The values this version knows. */
-        public val entries: List<NoticeKind> =
-            listOf(BLANK_REPLY, HOOK_ABORTED, FAILED, REFUSED, INTERRUPTED, OUTPUT_LIMIT, TOO_LONG, ROUND_LIMIT)
+        public val entries: List<NoticeKind> = listOf(
+            BLANK_REPLY,
+            HOOK_ABORTED,
+            FAILED,
+            REFUSED,
+            INTERRUPTED,
+            OUTPUT_LIMIT,
+            TOO_LONG,
+            ROUND_LIMIT,
+            UNTRUSTED_FOLDER,
+        )
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): NoticeKind = NoticeKind(id)

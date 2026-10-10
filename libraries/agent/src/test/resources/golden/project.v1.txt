@@ -1,0 +1,4 @@
+[alexandrite:project]
+Project instructions from /srv/repo/AGENTS.md (folder trusted by Ada)
+Cut: only the first 65536 of its 70000 bytes follow.
+[/alexandrite:project]

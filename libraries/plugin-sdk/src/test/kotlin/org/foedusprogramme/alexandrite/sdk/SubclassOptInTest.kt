@@ -221,6 +221,15 @@ class SubclassOptInTest {
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
             override fun links(agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) = TODO()
+            override suspend fun trustFolder(
+                folder: java.nio.file.Path,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun untrustFolder(
+                folder: java.nio.file.Path,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override fun trustedFolders() = TODO()
         }
     """.trimIndent()
 

@@ -15,6 +15,9 @@ internal object TextKeys {
     const val FAILED: String = "notice.failed"
     const val INTERRUPTED: String = "notice.interrupted"
 
+    /** Takes `{agent}`, `{folder}` and `{files}`. */
+    const val UNTRUSTED_FOLDER: String = "notice.untrusted_folder"
+
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"
 
@@ -63,6 +66,15 @@ internal object TextKeys {
 
     /** Takes `{chat}`. */
     const val ANCHOR_WITH_MEMBERS: String = "control.anchor_with_members"
+
+    /** Takes `{folder}`. */
+    const val FOLDER_NOT_ABSOLUTE: String = "control.folder_not_absolute"
+
+    /** Takes `{folder}`. */
+    const val FOLDER_MISSING: String = "control.folder_missing"
+
+    /** Takes `{folder}` and `{reason}`. */
+    const val FOLDER_PROTECTED: String = "control.folder_protected"
 
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {
