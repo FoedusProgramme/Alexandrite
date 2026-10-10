@@ -1,0 +1,32 @@
+{
+  "update_id": 700004,
+  "message": {
+    "message_id": 23,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "text": "Alexandrite Test Bot summarize this",
+    "entities": [
+      {
+        "offset": 0,
+        "length": 20,
+        "type": "text_mention",
+        "user": {
+          "id": 1234567890,
+          "is_bot": true,
+          "first_name": "Alexandrite Test Bot",
+          "username": "alexandrite_test_bot"
+        }
+      }
+    ]
+  }
+}

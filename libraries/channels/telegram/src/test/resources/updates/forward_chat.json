@@ -1,0 +1,32 @@
+{
+  "update_id": 700011,
+  "message": {
+    "message_id": 14,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "type": "private"
+    },
+    "date": 1760169600,
+    "forward_origin": {
+      "type": "chat",
+      "date": 1760169100,
+      "sender_chat": {
+        "id": -1001234500000,
+        "title": "Backend",
+        "type": "supergroup"
+      }
+    },
+    "text": "From the group"
+  }
+}

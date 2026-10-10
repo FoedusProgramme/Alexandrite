@@ -1,0 +1,35 @@
+{
+  "update_id": 700005,
+  "message": {
+    "message_id": 24,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "text": "And the tests?",
+    "reply_to_message": {
+      "message_id": 20,
+      "from": {
+        "id": 1234567890,
+        "is_bot": true,
+        "first_name": "Alexandrite Test Bot",
+        "username": "alexandrite_test_bot"
+      },
+      "chat": {
+        "id": -1001234500000,
+        "title": "Backend",
+        "type": "supergroup"
+      },
+      "date": 1760169540,
+      "text": "The build is green."
+    }
+  }
+}

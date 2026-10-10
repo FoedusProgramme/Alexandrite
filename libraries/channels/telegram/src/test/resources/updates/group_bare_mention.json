@@ -1,0 +1,26 @@
+{
+  "update_id": 700030,
+  "message": {
+    "message_id": 36,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "text": "@alexandrite_test_bot",
+    "entities": [
+      {
+        "offset": 0,
+        "length": 21,
+        "type": "mention"
+      }
+    ]
+  }
+}

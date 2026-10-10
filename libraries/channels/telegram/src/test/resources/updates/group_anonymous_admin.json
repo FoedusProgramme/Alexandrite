@@ -1,0 +1,32 @@
+{
+  "update_id": 700032,
+  "message": {
+    "message_id": 38,
+    "from": {
+      "id": 1087968824,
+      "is_bot": true,
+      "first_name": "Group",
+      "username": "GroupAnonymousBot"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "sender_chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "author_signature": "Owner",
+    "text": "@alexandrite_test_bot status",
+    "entities": [
+      {
+        "offset": 0,
+        "length": 21,
+        "type": "mention"
+      }
+    ]
+  }
+}

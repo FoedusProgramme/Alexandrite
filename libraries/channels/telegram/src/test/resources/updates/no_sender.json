@@ -1,0 +1,20 @@
+{
+  "update_id": 700036,
+  "message": {
+    "message_id": 48,
+    "sender_chat": {
+      "id": -1009876500000,
+      "title": "News",
+      "username": "news_channel",
+      "type": "channel"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "text": "Automatic post",
+    "is_automatic_forward": true
+  }
+}

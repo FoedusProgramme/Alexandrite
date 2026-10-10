@@ -1,0 +1,47 @@
+{
+  "update_id": 700016,
+  "message": {
+    "message_id": 19,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "type": "private"
+    },
+    "date": 1760169600,
+    "external_reply": {
+      "origin": {
+        "type": "channel",
+        "date": 1760168800,
+        "chat": {
+          "id": -1009876500000,
+          "title": "News",
+          "username": "news_channel",
+          "type": "channel"
+        },
+        "message_id": 78
+      },
+      "chat": {
+        "id": -1009876500000,
+        "title": "News",
+        "username": "news_channel",
+        "type": "channel"
+      },
+      "message_id": 78
+    },
+    "quote": {
+      "text": "Rates rise again",
+      "position": 0
+    },
+    "text": "Thoughts?"
+  }
+}

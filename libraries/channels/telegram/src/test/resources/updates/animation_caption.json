@@ -1,0 +1,36 @@
+{
+  "update_id": 700020,
+  "message": {
+    "message_id": 43,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "type": "private"
+    },
+    "date": 1760169600,
+    "animation": {
+      "file_id": "CgAC",
+      "file_unique_id": "AgAD-g",
+      "width": 320,
+      "height": 240,
+      "duration": 2,
+      "mime_type": "video/mp4"
+    },
+    "document": {
+      "file_id": "CgAC",
+      "file_unique_id": "AgAD-g",
+      "mime_type": "video/mp4"
+    },
+    "caption": "Ha"
+  }
+}

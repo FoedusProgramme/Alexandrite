@@ -1,0 +1,38 @@
+{
+  "update_id": 700018,
+  "message": {
+    "message_id": 41,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "type": "private"
+    },
+    "date": 1760169600,
+    "photo": [
+      {
+        "file_id": "AgAC-small",
+        "file_unique_id": "AQAD-s",
+        "file_size": 1200,
+        "width": 90,
+        "height": 60
+      },
+      {
+        "file_id": "AgAC-big",
+        "file_unique_id": "AQAD-b",
+        "file_size": 52000,
+        "width": 1280,
+        "height": 853
+      }
+    ]
+  }
+}

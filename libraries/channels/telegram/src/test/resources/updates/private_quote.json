@@ -1,0 +1,46 @@
+{
+  "update_id": 700014,
+  "message": {
+    "message_id": 17,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "type": "private"
+    },
+    "date": 1760169600,
+    "reply_to_message": {
+      "message_id": 9,
+      "from": {
+        "id": 1234567890,
+        "is_bot": true,
+        "first_name": "Alexandrite Test Bot",
+        "username": "alexandrite_test_bot"
+      },
+      "chat": {
+        "id": 1001,
+        "first_name": "Ada",
+        "last_name": "Lovelace",
+        "username": "ada_test",
+        "type": "private"
+      },
+      "date": 1760169480,
+      "text": "Main.kt starts the app and reads the config."
+    },
+    "quote": {
+      "text": "reads the config",
+      "position": 27,
+      "is_manual": true
+    },
+    "text": "Which config?"
+  }
+}

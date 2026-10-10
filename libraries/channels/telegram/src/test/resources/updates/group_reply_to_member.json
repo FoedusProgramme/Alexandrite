@@ -1,0 +1,37 @@
+{
+  "update_id": 700006,
+  "message": {
+    "message_id": 25,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "text": "Agreed.",
+    "reply_to_message": {
+      "message_id": 19,
+      "from": {
+        "id": 1001,
+        "is_bot": false,
+        "first_name": "Ada",
+        "last_name": "Lovelace",
+        "username": "ada_test",
+        "language_code": "en"
+      },
+      "chat": {
+        "id": -1001234500000,
+        "title": "Backend",
+        "type": "supergroup"
+      },
+      "date": 1760169510,
+      "text": "Deploy at five."
+    }
+  }
+}

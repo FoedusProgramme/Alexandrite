@@ -20,6 +20,7 @@ class AlexandriteLayoutTest {
     private val tools = ":libraries:tools"
     private val commands = ":libraries:commands"
     private val telegram = ":libraries:channels:telegram"
+    private val channelCommon = ":libraries:channel-common"
     private val openAi = ":libraries:providers:openai-compatible"
     private val anthropic = ":libraries:providers:anthropic-compatible"
     private val deepSeek = ":libraries:providers:deepseek"
@@ -34,7 +35,7 @@ class AlexandriteLayoutTest {
     private val echo = ":examples:echo"
     private val vendors = listOf(deepSeek, lmStudio, openRouter)
     private val libraries =
-        listOf(sdk, internals, runtime, agent, tools, commands, telegram, openAi, anthropic) + vendors +
+        listOf(sdk, internals, runtime, agent, tools, commands, telegram, channelCommon, openAi, anthropic) + vendors +
             listOf(providerCommon, sqlite, testkit)
     private val builtIn = libraries + ksp + app
     private val all = builtIn + notes
@@ -81,6 +82,7 @@ class AlexandriteLayoutTest {
             tools to Layer.TOOLS,
             commands to Layer.COMMANDS,
             telegram to Layer.CHANNEL,
+            channelCommon to Layer.CHANNEL_COMMON,
             openAi to Layer.PROVIDER,
             anthropic to Layer.PROVIDER,
             deepSeek to Layer.PROVIDER,
@@ -105,7 +107,7 @@ class AlexandriteLayoutTest {
         for (path in listOf(
             "", ":", ":libraries", ":libraries:channels", ":libraries:providers", ":libraries:stores", ":libraries:foo",
             ":libraries:providers:x:y", ":libraries:agent:sub", ":libraries:runtime:sub", ":build-logic", ":other",
-            ":libraries:provider-common:sub", ":libraries:commands:sub",
+            ":libraries:provider-common:sub", ":libraries:commands:sub", ":libraries:channel-common:sub",
             "libraries:agent", ":examples", ":examples:hello:sub", ":libraries:examples:hello",
         )) {
             assertNull(AlexandriteLayout.moduleAt(path), path)
@@ -122,6 +124,7 @@ class AlexandriteLayoutTest {
             tools to "alexandrite-tools",
             commands to "alexandrite-commands",
             telegram to "alexandrite-channel-telegram",
+            channelCommon to "alexandrite-channel-common",
             openAi to "alexandrite-provider-openai-compatible",
             anthropic to "alexandrite-provider-anthropic-compatible",
             deepSeek to "alexandrite-provider-deepseek",
@@ -155,6 +158,7 @@ class AlexandriteLayoutTest {
             tools to "tools",
             commands to "commands",
             telegram to "channels.telegram",
+            channelCommon to null,
             openAi to "providers.openai-compatible",
             anthropic to "providers.anthropic-compatible",
             deepSeek to "providers.deepseek",
@@ -232,6 +236,7 @@ class AlexandriteLayoutTest {
             lmStudio to "org.foedusprogramme.alexandrite.provider.lmstudio",
             openRouter to "org.foedusprogramme.alexandrite.provider.openrouter",
             providerCommon to null,
+            channelCommon to null,
             sqlite to "org.foedusprogramme.alexandrite.store.sqlite",
             app to "org.foedusprogramme.alexandrite.app",
             ":libraries:channels:discord-bot" to "org.foedusprogramme.alexandrite.channel.discordbot",
@@ -266,6 +271,7 @@ class AlexandriteLayoutTest {
             lmStudio to "$base.provider.lmstudio.AlexandriteProviderLmstudioIndex",
             openRouter to "$base.provider.openrouter.AlexandriteProviderOpenrouterIndex",
             providerCommon to null,
+            channelCommon to null,
             sqlite to "$base.store.sqlite.AlexandriteStoreSqliteIndex",
             app to "$base.app.AlexandriteAppIndex",
             notes to null,
@@ -317,6 +323,7 @@ class AlexandriteLayoutTest {
             ksp to base,
             app to base,
             providerCommon to base,
+            channelCommon to base,
             telegram to "$base.channels",
             openAi to "$base.providers",
             sqlite to "$base.stores",
@@ -348,7 +355,7 @@ class AlexandriteLayoutTest {
     // Discovery.
 
     @Test
-    fun `today's tree yields today's eighteen modules in path order`() {
+    fun `today's tree yields today's nineteen modules in path order`() {
         val discovery = AlexandriteLayout.discover(today)
         assertNull(discovery.failure)
         assertEquals(all.sorted(), discovery.modules.map { it.path })
@@ -361,7 +368,7 @@ class AlexandriteLayoutTest {
         val shuffled = (today + added).shuffled(Random(7))
         val paths = AlexandriteLayout.discover(shuffled).modules.map { it.path }
         assertEquals(paths.sorted(), paths)
-        assertEquals(21, paths.size)
+        assertEquals(22, paths.size)
     }
 
     @Test
@@ -460,6 +467,7 @@ class AlexandriteLayoutTest {
     fun `a slot without a build file fails`() {
         for (slot in listOf(
             "libraries/agent",
+            "libraries/channel-common",
             "libraries/commands",
             "libraries/runtime",
             "libraries/testkit",
@@ -478,6 +486,7 @@ class AlexandriteLayoutTest {
         assertContains(failure, "libraries/plugin-sdk/ (SDK)")
         assertContains(failure, "libraries/commands/ (COMMANDS)")
         assertContains(failure, "libraries/channels/<name>/ (CHANNEL)")
+        assertContains(failure, "libraries/channel-common/ (CHANNEL_COMMON)")
         assertContains(failure, "libraries/providers/<name>/ (PROVIDER)")
         assertContains(failure, "libraries/stores/<name>/ (STORE)")
         assertContains(failure, "libraries/runtime/ (RUNTIME)")
@@ -619,8 +628,8 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `allowed pairs`() {
-        val dependents =
-            listOf(runtime, agent, tools, commands, telegram, openAi, anthropic, providerCommon, sqlite, testkit)
+        val dependents = listOf(runtime, agent, tools, commands, telegram, channelCommon, openAi, anthropic) +
+            listOf(providerCommon, sqlite, testkit)
         for (base in listOf(sdk, internals)) {
             for (from in dependents) assertAllowed(from, base)
             assertAllowed(app, base)
@@ -631,6 +640,7 @@ class AlexandriteLayoutTest {
         assertAllowed(app, ":libraries:providers:example")
         assertAllowed(":libraries:providers:example", internals)
         for (from in vendors + openAi + anthropic + ":libraries:providers:example") assertAllowed(from, providerCommon)
+        for (from in listOf(telegram, ":libraries:channels:discord")) assertAllowed(from, channelCommon)
     }
 
     @Test
@@ -660,8 +670,8 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `the runtime knows only the SDK and internal, and only the testkit and app know the runtime`() {
-        for (to in plugins + providerCommon + testkit + notes) assertForbidden(runtime, to)
-        for (from in listOf(sdk, internals, ksp, notes, providerCommon) + plugins) {
+        for (to in plugins + providerCommon + channelCommon + testkit + notes) assertForbidden(runtime, to)
+        for (from in listOf(sdk, internals, ksp, notes, providerCommon, channelCommon) + plugins) {
             assertForbidden(from, runtime)
         }
         assertAllowed(testkit, runtime)
@@ -670,7 +680,7 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `the testkit sits on the SDK, internal and runtime`() {
-        for (to in plugins + providerCommon + notes) assertForbidden(testkit, to)
+        for (to in plugins + providerCommon + channelCommon + notes) assertForbidden(testkit, to)
         for (from in listOf(sdk, internals, runtime)) {
             assertForbidden(from, testkit)
             assertForbidden(from, testkit, "testImplementation")
@@ -705,8 +715,27 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `examples and provider-common compile without the SDK's internal API`() {
-        assertEquals(setOf(Layer.PROVIDER_COMMON, Layer.EXAMPLE), AlexandriteLayout.THIRD_PARTY_LAYERS)
+    fun `channel-common sits on the SDK and internal, below the channels and the app, and tests with the testkit`() {
+        for (to in plugins + runtime + app + notes + providerCommon) {
+            assertForbidden(channelCommon, to)
+            assertForbidden(channelCommon, to, "testImplementation")
+        }
+        for (from in listOf(agent, tools, commands, openAi, anthropic, sqlite, providerCommon, sdk, internals, notes)) {
+            assertForbidden(from, channelCommon)
+            assertForbidden(from, channelCommon, "testImplementation")
+        }
+        assertAllowed(app, channelCommon)
+        assertAllowed(channelCommon, testkit, "testImplementation")
+        assertAllowed(channelCommon, testkit, "testFixturesApi")
+        assertForbidden(channelCommon, testkit, "api")
+    }
+
+    @Test
+    fun `examples, provider-common and channel-common compile without the SDK's internal API`() {
+        assertEquals(
+            setOf(Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON, Layer.EXAMPLE),
+            AlexandriteLayout.THIRD_PARTY_LAYERS,
+        )
     }
 
     @Test
@@ -795,11 +824,12 @@ class AlexandriteLayoutTest {
         assertContains(message, "'$telegram'")
         assertContains(message, "'$agent'")
         assertContains(message, "'implementation'")
-        assertContains(message, "$sdk, $internals; $testkit only from configurations named test*;")
+        assertContains(message, "$sdk, $internals, $channelCommon; $testkit only from configurations named test*;")
         assertContains(message, AlexandriteLayout.LAYOUT_LOCATION)
         assertContains(
             assertNotNull(violation(app, ksp)),
-            ":libraries:channels:*, :libraries:providers:*, :libraries:provider-common, :libraries:stores:*; " +
+            ":libraries:channels:*, $channelCommon, :libraries:providers:*, :libraries:provider-common, " +
+                ":libraries:stores:*; " +
                 "$testkit, :examples:* only from configurations named test*;",
         )
         assertContains(

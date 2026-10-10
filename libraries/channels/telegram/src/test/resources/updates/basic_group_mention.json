@@ -1,0 +1,27 @@
+{
+  "update_id": 700035,
+  "message": {
+    "message_id": 47,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -4012345,
+      "title": "Old group",
+      "type": "group",
+      "all_members_are_administrators": true
+    },
+    "date": 1760169600,
+    "text": "@alexandrite_test_bot hi",
+    "entities": [
+      {
+        "offset": 0,
+        "length": 21,
+        "type": "mention"
+      }
+    ]
+  }
+}

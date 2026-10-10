@@ -1,11 +1,15 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
 import kotlinx.serialization.Serializable
+import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import java.net.URI
 import java.net.URISyntaxException
 
-/** The config of one bot, bound as the instance section once the plugin contributes its channel. */
+/** The config of one bot. */
+@ChannelInstanceScoped
+@ConfigSection
 @Serializable
 internal class TelegramInstanceConfig(
     val botToken: Secret,

@@ -1,0 +1,33 @@
+{
+  "update_id": 700033,
+  "message": {
+    "message_id": 39,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "sender_chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "text": "@alexandrite_test_bot status",
+    "entities": [
+      {
+        "offset": 0,
+        "length": 21,
+        "type": "mention"
+      }
+    ]
+  }
+}

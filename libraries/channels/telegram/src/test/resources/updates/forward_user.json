@@ -1,0 +1,33 @@
+{
+  "update_id": 700009,
+  "message": {
+    "message_id": 12,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": 1001,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "type": "private"
+    },
+    "date": 1760169600,
+    "forward_origin": {
+      "type": "user",
+      "date": 1760169100,
+      "sender_user": {
+        "id": 1002,
+        "is_bot": false,
+        "first_name": "Bob",
+        "language_code": "de"
+      }
+    },
+    "text": "Can you check this?"
+  }
+}

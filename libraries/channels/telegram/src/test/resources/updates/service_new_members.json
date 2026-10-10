@@ -1,0 +1,40 @@
+{
+  "update_id": 700022,
+  "message": {
+    "message_id": 26,
+    "from": {
+      "id": 1001,
+      "is_bot": false,
+      "first_name": "Ada",
+      "last_name": "Lovelace",
+      "username": "ada_test",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "new_chat_members": [
+      {
+        "id": 1234567890,
+        "is_bot": true,
+        "first_name": "Alexandrite Test Bot",
+        "username": "alexandrite_test_bot"
+      }
+    ],
+    "new_chat_member": {
+      "id": 1234567890,
+      "is_bot": true,
+      "first_name": "Alexandrite Test Bot",
+      "username": "alexandrite_test_bot"
+    },
+    "new_chat_participant": {
+      "id": 1234567890,
+      "is_bot": true,
+      "first_name": "Alexandrite Test Bot",
+      "username": "alexandrite_test_bot"
+    }
+  }
+}

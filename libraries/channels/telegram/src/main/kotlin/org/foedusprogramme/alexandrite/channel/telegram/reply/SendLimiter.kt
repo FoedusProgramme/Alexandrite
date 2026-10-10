@@ -3,11 +3,16 @@ package org.foedusprogramme.alexandrite.channel.telegram.reply
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
+import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
+import org.foedusprogramme.alexandrite.sdk.di.Inject
+import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.slf4j.LoggerFactory
 import kotlin.time.ComparableTimeMark
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
@@ -17,6 +22,7 @@ import kotlin.time.TimeSource
  *
  * A chat's slot is waited for before the bot's, so a chat that backs off holds up no other chat.
  */
+@ChannelInstanceScoped
 internal class SendLimiter(
     perSecond: Int = 25,
     /** The shortest pause between two sends or edits in a chat. */
@@ -27,7 +33,13 @@ internal class SendLimiter(
     private val groupEditInterval: Duration = 3.seconds,
     private val maxRetryAfter: Duration = 60.seconds,
     private val timeSource: TimeSource.WithComparableMarks = TimeSource.Monotonic,
-) {
+) : Lifecycle {
+    @Inject
+    constructor(config: TelegramInstanceConfig) : this(
+        editInterval = config.streaming.editIntervalMillis.milliseconds,
+        groupEditInterval = config.streaming.groupEditIntervalMillis.milliseconds,
+    )
+
     init {
         require(perSecond > 0) { "perSecond must be positive, was $perSecond." }
     }
@@ -54,6 +66,10 @@ internal class SendLimiter(
     /** Stops waiting out back-offs and retrying. */
     fun close() {
         closed.complete(Unit)
+    }
+
+    override suspend fun onClose() {
+        close()
     }
 
     private suspend fun <T> run(

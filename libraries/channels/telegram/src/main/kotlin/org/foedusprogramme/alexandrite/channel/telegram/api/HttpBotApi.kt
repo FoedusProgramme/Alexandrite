@@ -23,14 +23,22 @@ import org.foedusprogramme.alexandrite.internal.http.HttpException
 import org.foedusprogramme.alexandrite.internal.http.HttpFailureKind
 import org.foedusprogramme.alexandrite.internal.http.HttpTimeouts
 import org.foedusprogramme.alexandrite.internal.http.HttpTransport
+import org.foedusprogramme.alexandrite.sdk.di.Binds
+import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
+import org.foedusprogramme.alexandrite.sdk.di.Inject
 import java.net.URI
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** The [BotApi] of the bot that [config] names, served over HTTP. */
-internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts = TIMEOUTS) :
+@ChannelInstanceScoped
+@Binds(BotApi::class)
+internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts) :
     BotApi,
     AutoCloseable {
+    @Inject
+    constructor(config: TelegramInstanceConfig) : this(config, TIMEOUTS)
+
     private val token = config.botToken
     private val base = config.apiBase
     private val transport = HttpTransport(timeouts)
@@ -114,7 +122,7 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         val HEADERS = mapOf("content-type" to "application/json", "accept" to "application/json")
         const val NO_PARAMETERS = "{}"
         val UPDATES = listOf("message")
-        val ENVELOPE = Envelope.serializer(JsonElement.serializer())
+        val ENVELOPE: KSerializer<Envelope<JsonElement>> = Envelope.serializer(JsonElement.serializer())
         val JSON = Json {
             ignoreUnknownKeys = true
             explicitNulls = false

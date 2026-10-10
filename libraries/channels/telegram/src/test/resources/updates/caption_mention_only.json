@@ -1,0 +1,42 @@
+{
+  "update_id": 700037,
+  "message": {
+    "message_id": 49,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -1001234500000,
+      "title": "Backend",
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "photo": [
+      {
+        "file_id": "AgAC-small",
+        "file_unique_id": "AQAD-s",
+        "file_size": 1200,
+        "width": 90,
+        "height": 60
+      },
+      {
+        "file_id": "AgAC-big",
+        "file_unique_id": "AQAD-b",
+        "file_size": 52000,
+        "width": 1280,
+        "height": 853
+      }
+    ],
+    "caption": "@alexandrite_test_bot",
+    "caption_entities": [
+      {
+        "offset": 0,
+        "length": 21,
+        "type": "mention"
+      }
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "update_id": 700008,
+  "message": {
+    "message_id": 32,
+    "from": {
+      "id": 1002,
+      "is_bot": false,
+      "first_name": "Bob",
+      "language_code": "de"
+    },
+    "chat": {
+      "id": -1001234500001,
+      "title": "Projects",
+      "username": "projects_forum",
+      "is_forum": true,
+      "type": "supergroup"
+    },
+    "date": 1760169600,
+    "message_thread_id": 7,
+    "is_topic_message": true,
+    "reply_to_message": {
+      "message_id": 30,
+      "from": {
+        "id": 1234567890,
+        "is_bot": true,
+        "first_name": "Alexandrite Test Bot",
+        "username": "alexandrite_test_bot"
+      },
+      "chat": {
+        "id": -1001234500001,
+        "title": "Projects",
+        "username": "projects_forum",
+        "is_forum": true,
+        "type": "supergroup"
+      },
+      "date": 1760169570,
+      "message_thread_id": 7,
+      "is_topic_message": true,
+      "reply_to_message": {
+        "message_id": 7,
+        "from": {
+          "id": 1001,
+          "is_bot": false,
+          "first_name": "Ada",
+          "last_name": "Lovelace",
+          "username": "ada_test",
+          "language_code": "en"
+        },
+        "chat": {
+          "id": -1001234500001,
+          "title": "Projects",
+          "username": "projects_forum",
+          "is_forum": true,
+          "type": "supergroup"
+        },
+        "date": 1760166000,
+        "message_thread_id": 7,
+        "forum_topic_created": {
+          "name": "Release",
+          "icon_color": 7322096
+        },
+        "is_topic_message": true
+      },
+      "text": "Release notes are ready."
+    },
+    "text": "Ship it"
+  }
+}
