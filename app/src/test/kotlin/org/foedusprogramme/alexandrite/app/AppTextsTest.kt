@@ -7,6 +7,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
+import org.foedusprogramme.alexandrite.runtime.i18n.readTexts
+import org.foedusprogramme.alexandrite.runtime.i18n.textsPath
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.testkit.assertTextsComplete
 import org.foedusprogramme.alexandrite.testkit.testTexts
@@ -18,6 +20,7 @@ import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -89,6 +92,19 @@ class AppTextsTest {
 
         assertEquals(listOf(chinese), assertTextsComplete("alexandrite-agent", packs, classLoader))
         assertEquals("没有 /help 这个命令。", texts.text("notice.unknown_command", chinese, "command" to "help"))
+    }
+
+    @Test
+    fun `the app's Chinese pack holds the commands' texts and translates each command's description`() {
+        val plugin = "alexandrite-commands"
+        val classLoader = AppPlugin::class.java.classLoader
+        val packs = AppTexts.packs(classLoader)
+        val defaults = readTexts(checkNotNull(classLoader.getResource(textsPath(plugin, "en"))))
+        val descriptions = defaults.filterKeys { it.startsWith("command.") && it.endsWith(".description") }
+
+        assertEquals(listOf(chinese), assertTextsComplete(plugin, packs, classLoader))
+        assertEquals(12, descriptions.size)
+        for ((key, text) in descriptions) assertNotEquals(text, packs.text(plugin, chinese, key), key)
     }
 
     // The operator's files.

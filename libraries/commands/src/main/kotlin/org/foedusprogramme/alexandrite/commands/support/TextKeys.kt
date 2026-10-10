@@ -1,0 +1,96 @@
+package org.foedusprogramme.alexandrite.commands.support
+
+/** The keys of the plugin's texts for people. */
+internal object TextKeys {
+    const val NEW_DONE: String = "new.done"
+    const val NEW_DONE_LINKED: String = "new.done_linked"
+
+    const val CANCEL_DONE: String = "cancel.done"
+    const val CANCEL_NONE: String = "cancel.none"
+
+    const val AGENT_CURRENT: String = "agent.current"
+    const val AGENT_CHOICES: String = "agent.choices"
+    const val AGENT_CHOICE: String = "agent.choice"
+    const val AGENT_CHOICE_PLAIN: String = "agent.choice_plain"
+    const val AGENT_DEFAULT_MARK: String = "agent.default_mark"
+    const val AGENT_MALFORMED: String = "agent.malformed"
+    const val AGENT_SWITCHED: String = "agent.switched"
+    const val AGENT_RESET: String = "agent.reset"
+
+    const val MODEL_CURRENT: String = "model.current"
+    const val MODEL_ENDPOINTS: String = "model.endpoints"
+    const val MODEL_LIST: String = "model.list"
+    const val MODEL_LIST_MORE: String = "model.list_more"
+    const val MODEL_LIST_EMPTY: String = "model.list_empty"
+    const val MODEL_LIST_FAILED: String = "model.list_failed"
+    const val MODEL_CURRENT_MARK: String = "model.current_mark"
+    const val MODEL_NO_ENDPOINT: String = "model.no_endpoint"
+    const val MODEL_SET: String = "model.set"
+    const val MODEL_RESET: String = "model.reset"
+
+    const val REASONING_CURRENT: String = "reasoning.current"
+    const val REASONING_SET: String = "reasoning.set"
+    const val REASONING_RESET: String = "reasoning.reset"
+    const val REASONING_UNKNOWN: String = "reasoning.unknown"
+
+    const val LANGUAGE_CURRENT: String = "language.current"
+    const val LANGUAGE_SET: String = "language.set"
+    const val LANGUAGE_RESET: String = "language.reset"
+    const val LANGUAGE_MALFORMED: String = "language.malformed"
+
+    const val HOME_SET: String = "home.set"
+    const val HOME_CLEARED: String = "home.cleared"
+    const val HOME_NOT_HOME: String = "home.not_home"
+
+    const val LINK_OFFER: String = "link.offer"
+    const val LINK_CURRENT: String = "link.current"
+    const val LINK_LINKED: String = "link.linked"
+    const val LINK_OTHER_AGENT: String = "link.other_agent"
+    const val LINK_ANCHOR_NOTICE: String = "link.anchor_notice"
+    const val LINK_REJECTED: String = "link.rejected"
+    const val LINK_LOCKED: String = "link.locked"
+    const val LINK_OWN_CODE: String = "link.own_code"
+    const val LINK_MALFORMED: String = "link.malformed"
+
+    const val UNLINK_DONE: String = "unlink.done"
+    const val UNLINK_NOT_LINKED: String = "unlink.not_linked"
+    const val UNLINK_NOT_IN_GROUP: String = "unlink.not_in_group"
+
+    const val SETTINGS_TITLE: String = "settings.title"
+    const val SETTINGS_AGENT: String = "settings.agent"
+    const val SETTINGS_MODEL: String = "settings.model"
+    const val SETTINGS_REASONING: String = "settings.reasoning"
+    const val SETTINGS_LANGUAGE: String = "settings.language"
+    const val SETTINGS_HOME_HERE: String = "settings.home_here"
+    const val SETTINGS_HOME_ELSEWHERE: String = "settings.home_elsewhere"
+    const val SETTINGS_HOME_NONE: String = "settings.home_none"
+    const val SETTINGS_LINKED: String = "settings.linked"
+    const val SETTINGS_NOT_LINKED: String = "settings.not_linked"
+    const val SETTINGS_ADMIN: String = "settings.admin"
+    const val SETTINGS_MEMBER: String = "settings.member"
+
+    const val TRUST_LIST: String = "trust.list"
+    const val TRUST_NONE: String = "trust.none"
+    const val TRUST_RELATIVE: String = "trust.relative"
+    const val TRUST_DONE: String = "trust.done"
+    const val UNTRUST_DONE: String = "untrust.done"
+    const val UNTRUST_NOT_TRUSTED: String = "untrust.not_trusted"
+
+    const val SOURCE_SELECTED: String = "source.selected"
+    const val SOURCE_HOME: String = "source.home"
+    const val SOURCE_INSTANCE_DEFAULT: String = "source.instance_default"
+    const val SOURCE_OTHER: String = "source.other"
+    const val SOURCE_CHAT: String = "source.chat"
+    const val SOURCE_AGENT: String = "source.agent"
+    const val SOURCE_NO_MODEL: String = "source.no_model"
+    const val SOURCE_MODEL_DEFAULT: String = "source.model_default"
+    const val SOURCE_HOST_DEFAULT: String = "source.host_default"
+
+    const val VALUE_DEFAULT: String = "value.default"
+    const val VALUE_NONE: String = "value.none"
+    const val LIST_ITEM: String = "list.item"
+
+    fun description(command: String): String = "command.$command.description"
+
+    fun usage(command: String): String = "usage.$command"
+}

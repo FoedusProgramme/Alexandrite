@@ -1,0 +1,94 @@
+package org.foedusprogramme.alexandrite.commands.trust
+
+import org.foedusprogramme.alexandrite.commands.support.Replies
+import org.foedusprogramme.alexandrite.commands.support.TextKeys
+import org.foedusprogramme.alexandrite.commands.support.commandWord
+import org.foedusprogramme.alexandrite.commands.support.refusing
+import org.foedusprogramme.alexandrite.commands.support.replies
+import org.foedusprogramme.alexandrite.commands.support.spec
+import org.foedusprogramme.alexandrite.sdk.di.Contribute
+import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.i18n.Texts
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
+import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
+import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
+import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
+
+/** `/trust` and `/untrust`. */
+@Singleton
+@Contribute(CommandHandler::class)
+internal class TrustCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+    override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST))
+
+    override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
+        val replies = texts.replies(context.turn.language)
+        val argument = unquoted(invocation.arguments.trim())
+        when (val name = commandWord(invocation.name)) {
+            TRUST -> when {
+                argument.isEmpty() -> trusted(context, replies)
+                else -> trust(argument, invocation, context, replies)
+            }
+
+            UNTRUST -> when {
+                argument.isEmpty() -> context.reply(replies.usage(name))
+                else -> untrust(argument, invocation, context, replies)
+            }
+        }
+    }
+
+    private suspend fun trust(text: String, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
+        val folder = folder(TRUST, text, context, replies) ?: return
+        val trusted = context.refusing { control.trustFolder(folder, invocation.issuer) } ?: return
+        context.reply(replies.text(TextKeys.TRUST_DONE, "folder" to trusted))
+    }
+
+    private suspend fun untrust(
+        text: String,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val folder = folder(UNTRUST, text, context, replies) ?: return
+        val untrusted = context.refusing { control.untrustFolder(folder, invocation.issuer) } ?: return
+        val key = if (untrusted) TextKeys.UNTRUST_DONE else TextKeys.UNTRUST_NOT_TRUSTED
+        context.reply(replies.text(key, "folder" to folder))
+    }
+
+    private suspend fun trusted(context: CommandContext, replies: Replies) {
+        val folders = control.trustedFolders()
+        val text = if (folders.isEmpty()) {
+            replies.text(TextKeys.TRUST_NONE)
+        } else {
+            replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders))
+        }
+        context.reply(text)
+    }
+
+    /** The absolute folder [text] names, null once the reply says why it names none. */
+    private suspend fun folder(command: String, text: String, context: CommandContext, replies: Replies): Path? {
+        val folder = try {
+            Path.of(text)
+        } catch (e: InvalidPathException) {
+            context.reply(replies.usage(command))
+            return null
+        }
+        if (!folder.isAbsolute) {
+            context.reply(replies.text(TextKeys.TRUST_RELATIVE, "folder" to text))
+            return null
+        }
+        return folder
+    }
+
+    private companion object {
+        const val TRUST = "trust"
+        const val UNTRUST = "untrust"
+    }
+}
+
+private fun unquoted(text: String): String =
+    if (text.length >= 2 && text.first() in QUOTES && text.last() == text.first()) text.drop(1).dropLast(1) else text
+
+private const val QUOTES = "\"'"
