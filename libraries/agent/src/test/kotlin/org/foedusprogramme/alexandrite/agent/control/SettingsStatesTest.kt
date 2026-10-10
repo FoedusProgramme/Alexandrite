@@ -9,6 +9,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.testkit.TestChatStates
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -62,5 +64,58 @@ class SettingsStatesTest {
         assertEquals(Choice(AgentId("helper")), settings.cachedAgent(chat))
         assertEquals(Choice(AgentId("helper")), blocking { settings.loadAgent(chat) })
         assertNull(settings.cachedAgent(thread.chat))
+    }
+
+    @Test
+    fun `a chat that the cache evicted is read again`() {
+        val chat = key.chat
+        val selected = stored.state(SettingsStates.AGENT, Choice<AgentId>())
+
+        blocking {
+            settings.loadAgent(chat)
+            repeat(SettingsStates.CAPACITY) { settings.loadAgent(ChatAddress.parse("test:main:other-$it")) }
+            selected.set(chat, Choice(AgentId("reviewer")))
+        }
+
+        assertNull(settings.cachedAgent(chat))
+        assertEquals(Choice(AgentId("reviewer")), blocking { settings.loadAgent(chat) })
+        assertNull(settings.cachedAgent(ChatAddress.parse("test:main:other-0")))
+    }
+
+    @Test
+    fun `a switch goes through the cache, and the chat's threads read again`() {
+        val chat = key.chat
+
+        blocking {
+            settings.loadAgent(thread.chat)
+            settings.selectAgent(chat, SettingChange.SetTo(AgentId("helper")))
+            settings.selectAgent(thread.chat, SettingChange.Keep)
+        }
+        val switched = settings.cachedAgent(chat)
+        val inherited = settings.cachedAgent(thread.chat)
+        val read = blocking { settings.loadAgent(thread.chat) }
+        blocking { settings.selectAgent(chat, SettingChange.Reset) }
+
+        assertEquals(Choice(AgentId("helper")), switched)
+        assertNull(inherited)
+        assertEquals(Choice(AgentId("helper")), read)
+        assertEquals(Choice(), settings.cachedAgent(chat))
+        assertNull(settings.cachedAgent(thread.chat))
+    }
+
+    @Test
+    fun `an update stores the changes it makes and leaves the rest`() {
+        blocking {
+            settings.update(key, ChatSettingsUpdate.builder().model(ModelRef.parse("local/llama")).build())
+            settings.update(
+                key,
+                ChatSettingsUpdate.builder().reasoning(ReasoningEffort.LOW).language(LanguageTag("fr")).build(),
+            )
+            settings.update(key, ChatSettingsUpdate.builder().resetReasoning().build())
+
+            assertEquals(ModelRef.parse("local/llama"), settings.model(key))
+            assertNull(settings.reasoning(key))
+            assertEquals(LanguageTag("fr"), settings.language(key))
+        }
     }
 }

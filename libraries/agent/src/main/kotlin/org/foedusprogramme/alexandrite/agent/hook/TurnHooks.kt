@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
@@ -19,6 +20,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.turn.ContextLoaded
+import org.foedusprogramme.alexandrite.sdk.turn.ConversationSealed
 import org.foedusprogramme.alexandrite.sdk.turn.ModelCall
 import org.foedusprogramme.alexandrite.sdk.turn.ModelReply
 import org.foedusprogramme.alexandrite.sdk.turn.PromptSections
@@ -150,6 +152,10 @@ internal class TurnHooks(private val hooks: Hooks) {
 
     suspend fun turnCommitted(turn: TurnInfo, entries: List<TranscriptEntry>, outcome: TurnOutcome, usage: Usage?) {
         hooks.fire(TurnPoints.TURN_COMMITTED, TurnCommitted(turn, entries, outcome, usage))
+    }
+
+    suspend fun conversationSealed(turn: TurnInfo, sealed: ConversationId, successor: ConversationId) {
+        hooks.fire(TurnPoints.CONVERSATION_SEALED, ConversationSealed(turn, sealed, successor))
     }
 }
 

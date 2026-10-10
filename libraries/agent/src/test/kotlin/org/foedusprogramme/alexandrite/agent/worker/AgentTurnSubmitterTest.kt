@@ -34,7 +34,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class AgentTurnSubmitterTest {
     private fun config(agents: String, perKey: Int = 20) = """
@@ -158,7 +157,7 @@ class AgentTurnSubmitterTest {
     }
 
     @Test
-    fun `a command nobody claims is a message or else a notice, and a claimed one is not run yet`() {
+    fun `a command nobody claims is a message or else a notice, and a claimed one runs in the command lane`() {
         val handled = CopyOnWriteArrayList<String>()
         val handler = object : CommandHandler {
             override val commands = listOf(CommandSpec.builder("new", "Starts a new conversation.").build())
@@ -177,12 +176,12 @@ class AgentTurnSubmitterTest {
             )
 
             assertEquals("Hi", answer(unclaimed))
-            assertEquals(TurnOutcome.Failed("Command '/NEW' was not run: commands run from T2.5h."), outcome(claimed))
+            assertEquals(TurnOutcome.Completed(null), outcome(claimed))
             val answered = outcome(bare)
             val notice = channel.sent.single()
             assertEquals(TurnOutcome.Completed(null, mapOf(channel.chat() to notice.delivery)), answered)
             assertEquals("There is no command /help." to MessageKind.NOTICE, notice.message.text to notice.message.kind)
-            assertTrue(handled.isEmpty())
+            assertEquals(listOf("NEW"), handled)
         }
     }
 }

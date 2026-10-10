@@ -39,9 +39,10 @@ internal class AgentTurnSubmitter(
     }
 
     private fun command(turn: TurnId, command: Submission.Command, now: Instant): Admission {
+        val handler = commands.handler(command.invocation.name)
         val carrier = command.message
         return when {
-            commands.handler(command.invocation.name) != null -> lanes.submit(turn, command)
+            handler != null -> lanes.submit(turn, command, handler, now)
             carrier != null -> intakes.dispatch(turn, carrier, command.capacity, now)
             else -> lanes.unknown(turn, command.invocation)
         }

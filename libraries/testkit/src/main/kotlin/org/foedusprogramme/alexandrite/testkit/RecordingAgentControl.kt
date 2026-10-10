@@ -2,12 +2,14 @@ package org.foedusprogramme.alexandrite.testkit
 
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
@@ -16,13 +18,16 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 
 /**
  * An [AgentControl] that records its calls, lists the [statuses] the test sets, mints conversations `conversation-<n>`
- * and keeps chat settings per agent and chat, where [defaultAgent] serves every chat until an update switches it.
+ * and keeps chat settings per agent and chat, home chats per agent and instance and linked groups, where
+ * [defaultAgent] serves every chat until an update switches it.
  */
 public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.MAIN) : AgentControl {
     private val lock = Any()
     private val recorded = mutableListOf<Call>()
     private val agents = HashMap<ChatAddress, AgentId>()
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
+    private val homes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
+    private val groups = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
     private var conversations = 0
 
     /** The running and queued turns that [turns] lists and the cancels find. */
@@ -69,18 +74,56 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
             else -> Unit
         }
         val current = snapshot(chat)
-        val next = ChatSettingsSnapshot.builder(current.agent)
+        when (update.home) {
+            true -> homes[current.agent to chat.instance] = chat
+            false -> homes.remove(current.agent to chat.instance)
+            null -> Unit
+        }
+        settings[AgentChatKey(current.agent, chat)] = ChatSettingsSnapshot.builder(current.agent)
             .model(update.model.applyTo(current.model))
             .reasoning(update.reasoning.applyTo(current.reasoning))
             .language(update.language.applyTo(current.language))
             .build()
-        settings[AgentChatKey(next.agent, chat)] = next
-        next
+        snapshot(chat)
+    }
+
+    /** Links [member] into the group that holds [anchor], else into a new one, and refuses a member linked already. */
+    override suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup =
+        synchronized(lock) {
+            recorded += Call.Link(agent, anchor, member, by)
+            val groups = groups[agent].orEmpty()
+            require(groups.none { member == it.anchor || member in it.members }) { "$member is linked already." }
+            val group = groups.firstOrNull { anchor == it.anchor || anchor in it.members }
+            val linked = ChatLinkGroup(agent, group?.anchor ?: anchor, group?.members.orEmpty() + member)
+            this.groups[agent] = if (group == null) groups + linked else groups.map { if (it === group) linked else it }
+            linked
+        }
+
+    /** Takes [member] out of its group and refuses an anchor. */
+    override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Boolean = synchronized(lock) {
+        recorded += Call.Unlink(agent, member, by)
+        val groups = groups[agent].orEmpty()
+        require(groups.none { it.anchor == member }) { "$member anchors its group." }
+        val group = groups.firstOrNull { member in it.members } ?: return@synchronized false
+        val members = group.members - member
+        this.groups[agent] = groups.mapNotNull {
+            when {
+                it !== group -> it
+                members.isEmpty() -> null
+                else -> ChatLinkGroup(agent, group.anchor, members)
+            }
+        }
+        true
+    }
+
+    override fun links(agent: AgentId?): List<ChatLinkGroup> = synchronized(lock) {
+        groups.filterKeys { agent == null || it == agent }.values.flatten()
     }
 
     private fun snapshot(chat: ChatAddress): ChatSettingsSnapshot {
         val agent = agents[chat] ?: defaultAgent
-        return settings[AgentChatKey(agent, chat)] ?: ChatSettingsSnapshot.builder(agent).build()
+        val stored = settings[AgentChatKey(agent, chat)] ?: ChatSettingsSnapshot.builder(agent).build()
+        return stored.toBuilder().home(homes[agent to chat.instance] == chat).build()
     }
 
     private fun record(call: Call) {
@@ -107,6 +150,16 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
             public val update: ChatSettingsUpdate,
             public val by: ChatUser?,
         ) : Call
+
+        public data class Link(
+            public val agent: AgentId,
+            public val anchor: ChatAddress,
+            public val member: ChatAddress,
+            public val by: ChatUser?,
+        ) : Call
+
+        public data class Unlink(public val agent: AgentId, public val member: ChatAddress, public val by: ChatUser?) :
+            Call
     }
 }
 

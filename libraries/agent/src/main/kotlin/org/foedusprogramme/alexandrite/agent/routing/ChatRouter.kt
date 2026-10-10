@@ -50,6 +50,10 @@ internal class ChatRouter(
         return served(chat, attached, choice.value)
     }
 
+    /** How [chat] resolves where it switched to [selected], or to no agent when it is null. */
+    fun resolveAs(chat: ChatAddress, selected: AgentId?): Resolution =
+        unserved(chat) ?: served(chat, directory.attached(chat.instance), selected)
+
     private fun unserved(chat: ChatAddress): Resolution? = when {
         chat.instance !in channels.instances -> Resolution.Unknown
         directory.attached(chat.instance).isEmpty() -> Resolution.NoAgent

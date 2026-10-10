@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
 import org.foedusprogramme.alexandrite.agent.agentHarness
+import org.foedusprogramme.alexandrite.agent.control.TestCommands
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
@@ -37,25 +38,27 @@ class TurnPointsTest {
     """.trimIndent()
 
     @Test
-    fun `a turn that runs a tool fires every turn point`() {
+    fun `a turn that runs a tool and a new conversation after it fire every turn point`() {
         val fired = CopyOnWriteArrayList<String>()
+        val commands = TestCommands()
         model.reply {
             text("Looking.")
             toolCall("fs.read")
         }.reply { text("Found.") }
 
         agentHarness(config, MemoryStore()) {
-            channel(admins = setOf("admin")).model(model).tool(recordingTool("fs.read"))
+            channel(admins = setOf("admin")).model(model).tool(recordingTool("fs.read")).commandHandler(commands)
             points.forEach { hook(recorder(it, fired)) }
         }.execute {
-            val admission = channel().receive("Hi", sender = channel().user("admin")) as Admission.Accepted
-            admission.ticket.outcome()
+            commands.control = get()
+            val admin = channel().user("admin")
+            (channel().receive("Hi", sender = admin) as Admission.Accepted).ticket.outcome()
+            (channel().receiveCommand("new", issuer = admin) as Admission.Accepted).ticket.outcome()
         }
 
-        // conversation.sealed fires from the rotation that T2.5h builds.
-        val pending = setOf(TurnPoints.CONVERSATION_SEALED.id)
         assertEquals(13, points.size)
-        assertEquals(points.map { it.id }.toSet() - pending, fired.toSet())
+        assertEquals(points.map { it.id }.toSet(), fired.toSet())
+        assertEquals(TurnPoints.CONVERSATION_SEALED.id, fired.last())
     }
 
     @Test

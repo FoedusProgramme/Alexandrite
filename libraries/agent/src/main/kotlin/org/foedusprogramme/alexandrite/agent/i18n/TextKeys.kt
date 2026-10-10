@@ -18,6 +18,9 @@ internal object TextKeys {
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"
 
+    /** Takes `{command}`. */
+    const val COMMAND_FAILED: String = "notice.command_failed"
+
     /** Takes `{model}`. */
     const val MODEL_UNKNOWN: String = "notice.model.unknown"
     const val MODEL_AUTHENTICATION: String = "notice.model.authentication"
@@ -29,6 +32,37 @@ internal object TextKeys {
 
     /** Takes `{kind}`. */
     const val MODEL_FAILED: String = "notice.model.failed"
+
+    /** Takes `{chat}`. */
+    const val NO_AGENT: String = "control.no_agent"
+
+    /** Takes `{agent}` and `{instance}`. */
+    const val AGENT_NOT_ATTACHED: String = "control.agent_not_attached"
+
+    /** Takes `{endpoint}`. */
+    const val UNKNOWN_ENDPOINT: String = "control.unknown_endpoint"
+
+    /** Takes `{endpoint}` and `{model}`. */
+    const val UNKNOWN_MODEL: String = "control.unknown_model"
+
+    /** Takes `{effort}` and `{efforts}`. */
+    const val UNKNOWN_REASONING: String = "control.unknown_reasoning"
+
+    /** Takes `{reason}`. */
+    const val CONFIG_REFUSED: String = "control.config_refused"
+
+    /** Takes `{chat}` and `{instance}`. */
+    const val NOT_A_CHAT_OF: String = "control.not_a_chat_of"
+
+    /** Takes `{chat}` and `{agent}`. */
+    const val HOME_TAKEN: String = "control.home_taken"
+    const val SELF_LINK: String = "control.self_link"
+
+    /** Takes `{member}` and `{anchor}`. */
+    const val LINKED_ALREADY: String = "control.linked_already"
+
+    /** Takes `{chat}`. */
+    const val ANCHOR_WITH_MEMBERS: String = "control.anchor_with_members"
 
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {

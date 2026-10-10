@@ -29,6 +29,7 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -228,11 +229,14 @@ class TurnValuesTest {
         }
 
         assertEquals(List(4) { SettingChange.Keep }, listOf(keep.agent, keep.model, keep.reasoning, keep.language))
+        assertNull(keep.home)
         assertEquals(SettingChange.SetTo(AgentId("coder")), update.agent)
         assertEquals(SettingChange.SetTo(claude), update.model)
         assertEquals(SettingChange.Reset, update.reasoning)
         assertEquals(SettingChange.SetTo(LanguageTag("zh-CN")), update.language)
         assertEquals(SettingChange.Reset, update.rebuild { resetModel() }.model)
+        assertEquals(listOf(true, false), listOf(update.rebuild { home() }.home, update.rebuild { noHome() }.home))
+        assertEquals(false, update.rebuild { home() }.rebuild { noHome() }.toBuilder().build().home)
     }
 
     @Test
@@ -247,8 +251,21 @@ class TurnValuesTest {
         assertNull(snapshot.model)
         assertNull(snapshot.reasoning)
         assertNull(snapshot.language)
+        assertFalse(snapshot.home)
         assertEquals(claude, chosen.model)
         assertEquals(ReasoningEffort.HIGH, chosen.reasoning)
+        assertTrue(chosen.rebuild { home(true) }.rebuild { model(null) }.home)
+    }
+
+    @Test
+    fun `a linked group holds at least one member and each chat once`() {
+        val other = ChatAddress.parse("test:main:2")
+        val group = ChatLinkGroup(AgentId("coder"), chat, listOf(other))
+
+        assertEquals(listOf(other), group.members)
+        assertFailsWith<IllegalArgumentException> { ChatLinkGroup(AgentId("coder"), chat, emptyList()) }
+        assertFailsWith<IllegalArgumentException> { ChatLinkGroup(AgentId("coder"), chat, listOf(chat)) }
+        assertFailsWith<IllegalArgumentException> { ChatLinkGroup(AgentId("coder"), chat, listOf(other, other)) }
     }
 
     @Test

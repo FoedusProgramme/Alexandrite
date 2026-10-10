@@ -12,7 +12,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
-import java.util.concurrent.ConcurrentHashMap
+import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 
 /** The chat settings the agent stores, where null is the default of the agent that serves the chat. */
 @Singleton
@@ -21,16 +22,34 @@ internal class SettingsStates(states: ChatStates) {
     private val model: ChatState<AgentChatKey, Choice<ModelRef>> = states.agentState(MODEL, Choice())
     private val reasoning: ChatState<AgentChatKey, Choice<ReasoningEffort>> = states.agentState(REASONING, Choice())
     private val language: ChatState<AgentChatKey, Choice<LanguageTag>> = states.agentState(LANGUAGE, Choice())
-    private val selections = ConcurrentHashMap<ChatAddress, Choice<AgentId>>()
 
-    /** The agent that [chat] or its parent switched to, null until [loadAgent] has read it. */
-    fun cachedAgent(chat: ChatAddress): Choice<AgentId>? = selections[chat]
+    /** The agents that the [CAPACITY] chats read last switched to. */
+    private val selections = object : LinkedHashMap<ChatAddress, Choice<AgentId>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, Choice<AgentId>>) = size > CAPACITY
+    }
 
-    /** Reads the agent that [chat] or its parent switched to, once per chat. */
+    /** The agent that [chat] or its parent switched to, null while [loadAgent] has not read it. */
+    fun cachedAgent(chat: ChatAddress): Choice<AgentId>? = synchronized(selections) { selections[chat] }
+
+    /** Reads the agent that [chat] or its parent switched to, unless it is cached. */
     suspend fun loadAgent(chat: ChatAddress): Choice<AgentId> {
-        selections[chat]?.let { return it }
+        cachedAgent(chat)?.let { return it }
         val read = agent.get(chat)
-        return selections.putIfAbsent(chat, read) ?: read
+        return synchronized(selections) { selections.putIfAbsent(chat, read) ?: read }
+    }
+
+    /** Stores [change] of the agent that [chat] switched to, and caches what [chat] reads then. */
+    suspend fun selectAgent(chat: ChatAddress, change: SettingChange<AgentId>) {
+        when (change) {
+            is SettingChange.SetTo -> agent.set(chat, Choice(change.value))
+            SettingChange.Reset -> agent.reset(chat)
+            else -> return
+        }
+        val read = agent.get(chat)
+        synchronized(selections) {
+            selections[chat] = read
+            if (chat.thread == null) selections.keys.removeAll { it.thread != null && it.parent == chat }
+        }
     }
 
     suspend fun model(key: AgentChatKey): ModelRef? = model.get(key).value
@@ -39,14 +58,31 @@ internal class SettingsStates(states: ChatStates) {
 
     suspend fun language(key: AgentChatKey): LanguageTag? = language.get(key).value
 
+    /** Stores the changes of [update] to the model, reasoning and language at [key]. */
+    suspend fun update(key: AgentChatKey, update: ChatSettingsUpdate) {
+        model.change(key, update.model)
+        reasoning.change(key, update.reasoning)
+        language.change(key, update.language)
+    }
+
     companion object {
         const val AGENT: String = "agent.selected"
         const val MODEL: String = "settings.model"
         const val REASONING: String = "settings.reasoning"
         const val LANGUAGE: String = "settings.language"
+
+        const val CAPACITY: Int = 4096
     }
 }
 
 /** A stored setting, whose [value] is null where the agent's default applies. */
 @Serializable
 internal data class Choice<T : Any>(val value: T? = null)
+
+private suspend fun <T : Any> ChatState<AgentChatKey, Choice<T>>.change(key: AgentChatKey, change: SettingChange<T>) {
+    when (change) {
+        is SettingChange.SetTo -> set(key, Choice(change.value))
+        SettingChange.Reset -> reset(key)
+        else -> Unit
+    }
+}

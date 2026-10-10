@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent
 import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.control.CommandLanes
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.turn.Recovery
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
@@ -20,6 +21,7 @@ public class AgentPlugin internal constructor(
     private val directory: AgentDirectory,
     private val endpoints: Endpoints,
     private val intakes: ChatIntakes,
+    private val lanes: CommandLanes,
     private val workers: TurnWorkers,
     private val recovery: Recovery,
     private val scope: PluginScope,
@@ -40,6 +42,7 @@ public class AgentPlugin internal constructor(
 
     override suspend fun onDrain() {
         intakes.shutDown()
+        lanes.shutDown()
         val shutdown = settings.shutdown
         workers.drain(shutdown.turnGraceSeconds.seconds, shutdown.cancelJoinSeconds.seconds)
     }

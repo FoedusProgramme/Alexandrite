@@ -16,7 +16,12 @@ import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.time.Instant
 
-/** The agent's control primitives, which check no permissions and record who asked as `by`. */
+/**
+ * The agent's control primitives, which check no permissions and record who asked as `by`.
+ *
+ * A change that breaks a rule, or that the config file does not take, throws [IllegalArgumentException] with a message
+ * for the user and changes nothing.
+ */
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface AgentControl {
@@ -44,6 +49,33 @@ public interface AgentControl {
         update: ChatSettingsUpdate,
         by: ChatUser?,
     ): ChatSettingsSnapshot
+
+    /**
+     * Links [member] into the group of [anchor] at [agent], which [anchor] starts when it is in none, and returns the
+     * group.
+     */
+    public suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup
+
+    /** Takes [member] out of its group at [agent], false when it is in none. */
+    public suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Boolean
+
+    /** The linked groups of [agent], or of every agent when null. */
+    public fun links(agent: AgentId? = null): List<ChatLinkGroup>
+}
+
+/** Chats whose messages to [agent] continue one conversation, kept at [anchor]. */
+@Poko
+public class ChatLinkGroup(
+    public val agent: AgentId,
+    public val anchor: ChatAddress,
+    public val members: List<ChatAddress>,
+) {
+    init {
+        require(members.isNotEmpty()) { "A linked group of $anchor has at least one member." }
+        require(anchor !in members && members.toSet().size == members.size) {
+            "A linked group holds each chat once, was $anchor with $members."
+        }
+    }
 }
 
 /** A running or queued turn. */
@@ -118,16 +150,20 @@ public class ChatSettingsSnapshot private constructor(
     public val model: ModelRef?,
     public val reasoning: ReasoningEffort?,
     public val language: LanguageTag?,
+    /** Whether the chat is the home chat of [agent] on its channel instance. */
+    public val home: Boolean,
 ) {
     public fun toBuilder(): Builder = Builder(agent)
         .model(model)
         .reasoning(reasoning)
         .language(language)
+        .home(home)
 
     public class Builder internal constructor(private var agent: AgentId) {
         private var model: ModelRef? = null
         private var reasoning: ReasoningEffort? = null
         private var language: LanguageTag? = null
+        private var home: Boolean = false
 
         public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
@@ -137,7 +173,9 @@ public class ChatSettingsSnapshot private constructor(
 
         public fun language(language: LanguageTag?): Builder = apply { this.language = language }
 
-        public fun build(): ChatSettingsSnapshot = ChatSettingsSnapshot(agent, model, reasoning, language)
+        public fun home(home: Boolean): Builder = apply { this.home = home }
+
+        public fun build(): ChatSettingsSnapshot = ChatSettingsSnapshot(agent, model, reasoning, language, home)
     }
 
     public companion object {
@@ -156,14 +194,20 @@ public class ChatSettingsUpdate private constructor(
     public val model: SettingChange<ModelRef>,
     public val reasoning: SettingChange<ReasoningEffort>,
     public val language: SettingChange<LanguageTag>,
+    /**
+     * True to make the chat the home chat of its agent on its channel instance, false to leave the instance without
+     * one, null to keep it.
+     */
+    public val home: Boolean?,
 ) {
-    public fun toBuilder(): Builder = Builder(agent, model, reasoning, language)
+    public fun toBuilder(): Builder = Builder(agent, model, reasoning, language, home)
 
     public class Builder internal constructor(
         private var agent: SettingChange<AgentId>,
         private var model: SettingChange<ModelRef>,
         private var reasoning: SettingChange<ReasoningEffort>,
         private var language: SettingChange<LanguageTag>,
+        private var home: Boolean?,
     ) {
         public fun agent(agent: AgentId): Builder = apply { this.agent = SettingChange.SetTo(agent) }
 
@@ -182,12 +226,16 @@ public class ChatSettingsUpdate private constructor(
 
         public fun resetLanguage(): Builder = apply { language = SettingChange.Reset }
 
-        public fun build(): ChatSettingsUpdate = ChatSettingsUpdate(agent, model, reasoning, language)
+        public fun home(): Builder = apply { home = true }
+
+        public fun noHome(): Builder = apply { home = false }
+
+        public fun build(): ChatSettingsUpdate = ChatSettingsUpdate(agent, model, reasoning, language, home)
     }
 
     public companion object {
         public fun builder(): Builder =
-            Builder(SettingChange.Keep, SettingChange.Keep, SettingChange.Keep, SettingChange.Keep)
+            Builder(SettingChange.Keep, SettingChange.Keep, SettingChange.Keep, SettingChange.Keep, null)
     }
 }
 

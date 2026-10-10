@@ -22,6 +22,9 @@ internal class Notices(
     fun text(turn: TurnInfo, key: String, vararg args: Pair<String, Any?>): String =
         texts.text(key, turn.language ?: directory.agent(turn.agent)?.language, *args)
 
+    /** The text [key] in the host's language. */
+    fun text(key: String, vararg args: Pair<String, Any?>): String = texts.text(key, null, *args)
+
     /** The text [key] in the language of the chat at [chat]. */
     suspend fun text(chat: AgentChatKey, key: String, vararg args: Pair<String, Any?>): String =
         texts.text(key, settings.language(chat) ?: directory.agent(chat.agent)?.language, *args)

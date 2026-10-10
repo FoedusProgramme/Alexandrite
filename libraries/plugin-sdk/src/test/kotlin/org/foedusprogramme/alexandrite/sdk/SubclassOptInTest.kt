@@ -205,6 +205,18 @@ class SubclassOptInTest {
                 update: org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun link(
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId,
+                anchor: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                member: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun unlink(
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId,
+                member: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override fun links(agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) = TODO()
         }
     """.trimIndent()
 
@@ -517,6 +529,11 @@ class SubclassOptInTest {
                     is Admission.Accepted -> admission.ticket.outcome().replayable
                     is Admission.Refused -> admission.reason == RefusalReason.QUEUE_FULL
                 }
+                val home = ChatSettingsUpdate.builder().home().build()
+                if (!control.updateSettings(invocation.chat, home, invocation.issuer).home) return
+                val agent = control.settings(invocation.chat).agent
+                val group: ChatLinkGroup = control.link(agent, invocation.chat, invocation.chat, invocation.issuer)
+                if (group in control.links(agent)) control.unlink(agent, group.members.first(), null)
             }
         }
 

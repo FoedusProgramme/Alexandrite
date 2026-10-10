@@ -138,6 +138,8 @@ class PublicApiTest {
             control.cancelRun(RunId("r"), true, null)
             control.newConversation(testChat(), null)
             control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
+            control.link(AgentId.MAIN, testChat(), testChat("other"), null)
+            control.unlink(AgentId.MAIN, testChat("other"), null)
             val call = when (val recorded = control.calls.first()) {
                 is RecordingAgentControl.Call.Cancel -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
@@ -145,13 +147,16 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
                 is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
+                is RecordingAgentControl.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
+                is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
             }
             val states = TestChatStates()
             return listOf(
                 submitter.submissions, submitter.results, submitter.tickets, submitter.awaitSubmissions(1),
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies, invoked, call,
-                control.turns(null), control.settings(testChat()), states.of("probe"), testChatStates("probe"),
+                control.turns(null), control.settings(testChat()), control.links(), states.of("probe"),
+                testChatStates("probe"),
                 testToolContext(testDelegatedTurn(testTurn(), RunId("r"), ToolCallId("c")) { }, ToolCallId("c")),
                 testMessage("hi", testChat(), testUser("ada", true, TEST_INSTANCE), "m1") { }, TEST_TIME,
             )

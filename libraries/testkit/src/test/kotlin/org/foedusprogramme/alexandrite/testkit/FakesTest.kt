@@ -22,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
@@ -268,6 +269,48 @@ class FakesTest {
             },
         )
         assertEquals(3, control.calls.filterIsInstance<RecordingAgentControl.Call.UpdateSettings>().size)
+    }
+
+    @Test
+    fun `a recording agent control keeps home chats per agent and instance`() {
+        val control = RecordingAgentControl()
+        val chat = testChat()
+        val coder = AgentId("coder")
+
+        val home = blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().home().build(), null) }
+        val switched =
+            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().agent(coder).build(), null) }
+        val back = blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().resetAgent().build(), null) }
+        val left = blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().noHome().build(), null) }
+
+        assertEquals(listOf(true, false, true, false), listOf(home, switched, back, left).map { it.home })
+        assertFalse(blocking { control.settings(testChat("other")) }.home)
+    }
+
+    @Test
+    fun `a recording agent control links chats into groups and unlinks them`() {
+        val control = RecordingAgentControl()
+        val coder = AgentId("coder")
+        val (anchor, first, second) = listOf("a", "b", "c").map { testChat(it) }
+        val admin = testUser("ada", isAdmin = true)
+
+        val linked = blocking {
+            control.link(coder, anchor, first, admin)
+            control.link(coder, first, second, null)
+        }
+
+        assertEquals(ChatLinkGroup(coder, anchor, listOf(first, second)), linked)
+        assertEquals(listOf(linked), control.links(coder))
+        assertEquals(emptyList(), control.links(AgentId.MAIN))
+        assertFailsWith<IllegalArgumentException> { blocking { control.link(coder, testChat("d"), second, null) } }
+        assertFailsWith<IllegalArgumentException> { blocking { control.unlink(coder, anchor, null) } }
+        assertEquals(
+            listOf(true, true, false),
+            blocking { listOf(first, second, first).map { control.unlink(coder, it, null) } },
+        )
+        assertEquals(emptyList(), control.links())
+        assertEquals(RecordingAgentControl.Call.Link(coder, anchor, first, admin), control.calls.first())
+        assertEquals(RecordingAgentControl.Call.Unlink(coder, first, null), control.calls.last())
     }
 
     // Chat states.

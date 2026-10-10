@@ -35,6 +35,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration
 
 /** A job of a worker's queue. */
@@ -46,6 +48,11 @@ internal sealed interface WorkerJob {
         /** Completes exceptionally when [effect] failed or the agent shut down before it ran. */
         val done: CompletableDeferred<Unit> = CompletableDeferred()
     }
+}
+
+/** The key whose worker runs the turn of the coroutine. */
+internal class RunningTurn(val workerKey: AgentChatKey) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<RunningTurn>
 }
 
 /** One FIFO worker per agent and chat key, created on demand and removed once idle, whose turns share permits. */
@@ -93,6 +100,14 @@ internal class TurnWorkers(
                 enqueue(key, turn)
                 Admission.Accepted(turn.ticket)
             }
+        }
+    }
+
+    /** Queues [job] at [key] behind the turns there, or throws [IllegalStateException] once the agent is closed. */
+    fun control(key: AgentChatKey, job: WorkerJob.Control) {
+        lock.locked {
+            check(open) { "The agent is not running." }
+            enqueue(key, job)
         }
     }
 
@@ -238,7 +253,7 @@ internal class TurnWorkers(
     }
 
     private fun launch(current: Current, turn: WorkerJob.Turn): Job {
-        val child = lock.launch { execute(current, turn) }
+        val child = lock.launch(RunningTurn(turn.plan.key)) { execute(current, turn) }
         child.invokeOnCompletion { error -> error?.let { turn.ticket.complete(interrupted(current, it)) } }
         return child
     }

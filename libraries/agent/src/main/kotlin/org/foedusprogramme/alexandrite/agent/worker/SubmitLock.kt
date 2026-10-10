@@ -7,6 +7,8 @@ import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import java.util.concurrent.locks.ReentrantLock
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /** The lock over the intakes and the workers, held only by code that does not suspend. */
 @Singleton
@@ -29,9 +31,9 @@ internal class SubmitLock(private val scope: PluginScope) {
         }
     }
 
-    /** Launches [block] in the plugin's scope once the lock is released, which the caller holds. */
-    fun launch(block: suspend CoroutineScope.() -> Unit): Job {
+    /** Launches [block] with [context] in the plugin's scope once the lock is released, which the caller holds. */
+    fun launch(context: CoroutineContext = EmptyCoroutineContext, block: suspend CoroutineScope.() -> Unit): Job {
         check(lock.isHeldByCurrentThread) { "Coroutines are launched under the submit lock." }
-        return scope.launch(start = CoroutineStart.LAZY, block = block).also { starts += it }
+        return scope.launch(context, CoroutineStart.LAZY, block).also { starts += it }
     }
 }

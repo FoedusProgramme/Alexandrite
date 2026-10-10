@@ -185,9 +185,11 @@ class ChatRouterTest {
     fun `a change of a home chat or a group applies to the next resolution`() {
         val main = ChannelInstanceId.parse("test:main")
 
-        topology.setHome(AgentId("helper"), main, ChatAddress.parse("test:main:5"))
-        topology.setHome(AgentId("reviewer"), main, null)
-        topology.link(AgentId("coder"), ChatAddress.parse("test:solo:7"), ChatAddress.parse("test:main:9"))
+        topology.apply(topology.homeChange(AgentId("helper"), main, ChatAddress.parse("test:main:5")))
+        topology.apply(topology.homeChange(AgentId("reviewer"), main, null))
+        topology.apply(
+            topology.linkChange(AgentId("coder"), ChatAddress.parse("test:solo:7"), ChatAddress.parse("test:main:9")),
+        )
 
         assertEquals("helper@test:main:5", resolve("test:main:5"))
         assertEquals("coder@test:main:1", resolve("test:main:1"))
