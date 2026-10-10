@@ -170,7 +170,7 @@ public object OneBotSegmentCodec {
     }
 
     /** [value] as a JSON number when it is one, as a string when it is too large for a [Long]. */
-    private fun number(id: String): JsonElement = id.toLongOrNull()?.let(::JsonPrimitive) ?: JsonPrimitive(id)
+    internal fun number(id: String): JsonElement = id.toLongOrNull()?.let(::JsonPrimitive) ?: JsonPrimitive(id)
 
     /** [qq] as a JSON number, or the string `all`. */
     private fun user(qq: String): JsonElement = qq.toLongOrNull()?.let(::JsonPrimitive) ?: JsonPrimitive(qq)

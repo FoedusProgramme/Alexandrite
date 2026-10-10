@@ -118,7 +118,13 @@ public object OneBotMessages {
             Markup.MARKDOWN.id -> markdown(message.text)
             else -> listOf(OneBotSegment.Text(message.text))
         }
-        val reply = message.replyTo?.let { OneBotSegment.Reply(MessageId(it.id)) }
+        // A reply names a message of the implementation by its numeric id. A reference this version made up because
+        // no id came back, `sent` or `async`, names no message there, so a message that answers one is sent without
+        // the reply segment rather than failing before it is sent.
+        val reply = message.replyTo
+            ?.id
+            ?.takeIf { it.toLongOrNull() != null }
+            ?.let { OneBotSegment.Reply(MessageId(it)) }
         return OneBotMessage.ArrayValue(if (reply == null) segments else listOf(reply) + segments)
     }
 

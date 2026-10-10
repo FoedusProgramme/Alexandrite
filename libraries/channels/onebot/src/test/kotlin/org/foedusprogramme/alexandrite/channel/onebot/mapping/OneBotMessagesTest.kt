@@ -154,6 +154,18 @@ class OneBotMessagesTest {
     }
 
     @Test
+    fun `a reply to a message whose id is not one of the implementation is sent without the reply segment`() {
+        // The delivery of a message this version could not name is referenced as `sent` or `async`, which names no
+        // message of the implementation. Answering one has to send the answer rather than fail before sending it.
+        val message = OutboundMessage.builder("hi", org.foedusprogramme.alexandrite.sdk.channel.MessageKind.REPLY)
+            .replyTo(org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef(chat(), "sent"))
+            .build()
+
+        val segments = OneBotMessages.outgoing(chat(), message).segments
+        assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("hi")), segments)
+    }
+
+    @Test
     fun `a reply to another message leads with the reply segment`() {
         val message = OutboundMessage.builder("hi", org.foedusprogramme.alexandrite.sdk.channel.MessageKind.REPLY)
             .replyTo(org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef(chat(), "42"))
