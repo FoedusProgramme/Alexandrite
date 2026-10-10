@@ -119,7 +119,19 @@ internal class OneBotHttpPostReceiver(
         try {
             client.soTimeout = settings.firstByteTimeoutMillis.toInt()
             val input = BufferedInputStream(client.getInputStream())
-            val request = read(input) ?: return respond(client, OneBotReportRejection.NOT_A_REPORT)
+            // A report larger than this instance reads is refused as such, which is what the implementation is told.
+            // Its declared body is read into nothing first, so that the answer is read by a peer that is still
+            // sending rather than lost to a connection that closed under it.
+            val request = when (val outcome = read(input)) {
+                is ReadOutcome.TooLarge -> {
+                    drain(input, outcome.declaredBytes)
+                    return respond(client, OneBotReportRejection.TOO_LARGE)
+                }
+
+                is ReadOutcome.Read -> outcome.request
+
+                ReadOutcome.NotAReport -> return respond(client, OneBotReportRejection.NOT_A_REPORT)
+            }
             if (request.method != "POST" || request.path != settings.path) {
                 val rejection =
                     if (request.method ==
@@ -200,28 +212,56 @@ internal class OneBotHttpPostReceiver(
 
     private class Request(val method: String, val path: String, val headers: Map<String, String>, val body: String)
 
-    /** The request of [input], null when it is not an HTTP request this receiver reads. */
-    private fun read(input: BufferedInputStream): Request? {
-        val head = readHead(input) ?: return null
+    /** What reading the head of a connection came to. */
+    private sealed interface ReadOutcome {
+        /** A request this receiver reads. */
+        data class Read(val request: Request) : ReadOutcome
+
+        /** A body whose declared length is over what this instance reads, refused before it is allocated. */
+        data class TooLarge(val declaredBytes: Int) : ReadOutcome
+
+        /** Not an HTTP request this receiver reads. */
+        data object NotAReport : ReadOutcome
+    }
+
+    /**
+     * Reads [declaredBytes] of a body that will not be kept, in fixed pieces.
+     *
+     * Reading nothing would answer a peer that is still sending, and reading it in one piece is what the limit
+     * exists to prevent, so it is read in pieces small enough to be forgotten.
+     */
+    private fun drain(input: BufferedInputStream, declaredBytes: Int) {
+        val piece = ByteArray(DRAIN_PIECE_BYTES)
+        var left = declaredBytes.toLong()
+        while (left > 0) {
+            val count = input.read(piece, 0, minOf(piece.size.toLong(), left).toInt())
+            if (count < 0) return
+            left -= count
+        }
+    }
+
+    /** The request of [input], or why it is not one this receiver reads. */
+    private fun read(input: BufferedInputStream): ReadOutcome {
+        val head = readHead(input) ?: return ReadOutcome.NotAReport
         val lines = head.split("\r\n")
-        val start = lines.firstOrNull()?.split(' ') ?: return null
-        if (start.size < 2) return null
+        val start = lines.firstOrNull()?.split(' ') ?: return ReadOutcome.NotAReport
+        if (start.size < 2) return ReadOutcome.NotAReport
         val headers = lines.drop(1).mapNotNull { line ->
             val colon = line.indexOf(':')
             if (colon <= 0) null else line.substring(0, colon).trim().lowercase() to line.substring(colon + 1).trim()
         }.toMap()
         val length = headers["content-length"]?.toIntOrNull() ?: 0
-        // The length is checked before it is used to allocate, so that a client cannot ask this listener for an
-        // array of the size it names. A declared body over the limit is read as none, which its caller refuses.
-        if (length < 0 || length > MAX_REPORT_BYTES) return null
+        // The length is checked before it is used to allocate, so that a client cannot ask this listener for an array
+        // of the size it names.
+        if (length < 0 || length > MAX_REPORT_BYTES) return ReadOutcome.TooLarge(length)
         val bytes = ByteArray(length)
         var read = 0
         while (read < length) {
             val count = input.read(bytes, read, length - read)
-            if (count < 0) return null
+            if (count < 0) return ReadOutcome.NotAReport
             read += count
         }
-        return Request(start[0].uppercase(), start[1], headers, String(bytes, StandardCharsets.UTF_8))
+        return ReadOutcome.Read(Request(start[0].uppercase(), start[1], headers, String(bytes, StandardCharsets.UTF_8)))
     }
 
     /** The request head of [input], which ends at the first empty line, null when it ends first. */
@@ -241,7 +281,10 @@ internal class OneBotHttpPostReceiver(
     }
 
     private companion object {
-        const val MAX_REPORT_BYTES = 8 * 1024 * 1024
+        internal const val MAX_REPORT_BYTES = 8 * 1024 * 1024
+
+        /** How much of a refused body is read at a time, so that nothing large is ever held. */
+        const val DRAIN_PIECE_BYTES = 8 * 1024
 
         const val MAX_HEAD_BYTES = 32 * 1024
 

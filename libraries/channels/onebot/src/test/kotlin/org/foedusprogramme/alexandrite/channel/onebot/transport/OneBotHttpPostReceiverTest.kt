@@ -133,6 +133,17 @@ class OneBotHttpPostReceiverTest {
         assertFalse(response.body().contains("s3cr3t-token"))
     }
 
+    @Test
+    fun `a report larger than the limit is refused with its status rather than closed`() {
+        // The declared length is over the limit, so the body is never read. The implementation is still told why,
+        // which is what makes the refusal something its author can act on rather than a connection that dropped.
+        val body = privateMessage().padEnd(8 * 1024 * 1024 + 1, ' ')
+        val response = post(body, OneBotAuth.signature(secret, body), "/")
+
+        assertEquals(413, response.statusCode())
+        assertEquals(0, receiver.reported())
+    }
+
     private fun OneBotHttpPostReceiver.reported(): Int = reportedCount
 
     @Test
