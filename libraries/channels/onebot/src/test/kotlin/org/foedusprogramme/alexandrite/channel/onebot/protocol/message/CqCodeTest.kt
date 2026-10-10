@@ -166,6 +166,16 @@ class CqCodeTest {
     }
 
     @Test
+    fun `an optional parameter of a segment is left out when it is absent`() {
+        // The standard's request contract has no room for a parameter that is present and null: an implementation
+        // reading `type` as a string meets a null, and one reading `timeout` as a number does too.
+        val written = OneBotSegmentCodec.encodeSegment(OneBotSegment.Image(file = "1.jpg"))
+
+        val data = assertIs<JsonObject>(written["data"])
+        assertEquals(setOf("file"), data.keys)
+    }
+
+    @Test
     fun `a segment keeps its data and writes type once`() {
         val element = buildJsonObject {
             put("type", "image")

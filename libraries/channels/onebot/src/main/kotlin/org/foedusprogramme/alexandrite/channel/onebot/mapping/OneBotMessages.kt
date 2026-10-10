@@ -167,9 +167,13 @@ public object OneBotMessages {
         is OneBotResult.Failed -> Delivery.NotDelivered(failureKind(result.retcode), result.message)
 
         is OneBotResult.Unreachable -> Delivery.NotDelivered(
-            when (result.failure.kind) {
-                OneBotFailureKind.TIMEOUT, OneBotFailureKind.CONNECTION -> DeliveryFailure.TRANSIENT
-                OneBotFailureKind.AUTHENTICATION -> DeliveryFailure.FORBIDDEN
+            when {
+                // Whether the same call may succeed again is the one thing a caller can act on, and the transport
+                // already answers it: a 5xx is retryable where a 4xx is not.
+                result.failure.retryable -> DeliveryFailure.TRANSIENT
+
+                result.failure.kind == OneBotFailureKind.AUTHENTICATION -> DeliveryFailure.FORBIDDEN
+
                 else -> DeliveryFailure.UNKNOWN
             },
             result.failure.message,

@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
@@ -72,28 +73,28 @@ public object OneBotSegmentCodec {
 
             is OneBotSegment.Image -> putJsonObject("data") {
                 put("file", segment.file)
-                put("type", segment.subtype)
-                put("url", segment.url)
-                put("cache", segment.cache?.let(::flag))
-                put("proxy", segment.proxy?.let(::flag))
-                put("timeout", segment.timeout)
+                optional("type", segment.subtype)
+                optional("url", segment.url)
+                optional("cache", segment.cache?.let(::flag))
+                optional("proxy", segment.proxy?.let(::flag))
+                optional("timeout", segment.timeout)
             }
 
             is OneBotSegment.Record -> putJsonObject("data") {
                 put("file", segment.file)
-                put("magic", segment.magic?.let(::flag))
-                put("url", segment.url)
-                put("cache", segment.cache?.let(::flag))
-                put("proxy", segment.proxy?.let(::flag))
-                put("timeout", segment.timeout)
+                optional("magic", segment.magic?.let(::flag))
+                optional("url", segment.url)
+                optional("cache", segment.cache?.let(::flag))
+                optional("proxy", segment.proxy?.let(::flag))
+                optional("timeout", segment.timeout)
             }
 
             is OneBotSegment.Video -> putJsonObject("data") {
                 put("file", segment.file)
-                put("url", segment.url)
-                put("cache", segment.cache?.let(::flag))
-                put("proxy", segment.proxy?.let(::flag))
-                put("timeout", segment.timeout)
+                optional("url", segment.url)
+                optional("cache", segment.cache?.let(::flag))
+                optional("proxy", segment.proxy?.let(::flag))
+                optional("timeout", segment.timeout)
             }
 
             is OneBotSegment.At -> putJsonObject("data") { put("qq", user(segment.userId)) }
@@ -103,16 +104,16 @@ public object OneBotSegmentCodec {
             is OneBotSegment.Poke -> putJsonObject("data") {
                 put("type", segment.pokeType)
                 put("id", segment.id)
-                put("name", segment.name)
+                optional("name", segment.name)
             }
 
-            is OneBotSegment.Anonymous -> putJsonObject("data") { put("ignore", segment.ignore?.let(::flag)) }
+            is OneBotSegment.Anonymous -> putJsonObject("data") { optional("ignore", segment.ignore?.let(::flag)) }
 
             is OneBotSegment.Share -> putJsonObject("data") {
-                put("url", segment.url)
-                put("title", segment.title)
-                put("content", segment.content)
-                put("image", segment.image)
+                optional("url", segment.url)
+                optional("title", segment.title)
+                optional("content", segment.content)
+                optional("image", segment.image)
             }
 
             is OneBotSegment.Contact -> putJsonObject("data") {
@@ -123,18 +124,18 @@ public object OneBotSegmentCodec {
             is OneBotSegment.Location -> putJsonObject("data") {
                 put("lat", segment.lat)
                 put("lon", segment.lon)
-                put("title", segment.title)
-                put("content", segment.content)
+                optional("title", segment.title)
+                optional("content", segment.content)
             }
 
             is OneBotSegment.Music -> putJsonObject("data") {
                 put("type", segment.musicType)
                 put("id", segment.id)
-                put("url", segment.url)
-                put("audio", segment.audio)
-                put("title", segment.title)
-                put("content", segment.content)
-                put("image", segment.image)
+                optional("url", segment.url)
+                optional("audio", segment.audio)
+                optional("title", segment.title)
+                optional("content", segment.content)
+                optional("image", segment.image)
             }
 
             is OneBotSegment.Reply -> putJsonObject("data") { put("id", number(segment.id.value)) }
@@ -158,7 +159,17 @@ public object OneBotSegmentCodec {
 
     private fun flag(value: Boolean): String = if (value) "1" else "0"
 
-    /** [id] as a JSON number when it is one, as a string when it is too large for a [Long]. */
+    /** [value] written under [key], and left out when it is null, as an optional parameter that is absent. */
+    private fun JsonObjectBuilder.optional(key: String, value: String?) {
+        if (value != null) put(key, value)
+    }
+
+    /** [value] written under [key], and left out when it is null. */
+    private fun JsonObjectBuilder.optional(key: String, value: Int?) {
+        if (value != null) put(key, value)
+    }
+
+    /** [value] as a JSON number when it is one, as a string when it is too large for a [Long]. */
     private fun number(id: String): JsonElement = id.toLongOrNull()?.let(::JsonPrimitive) ?: JsonPrimitive(id)
 
     /** [qq] as a JSON number, or the string `all`. */

@@ -120,6 +120,7 @@ public object OneBotEventCodec {
                 operatorId = operatorId(),
                 isBan = subType == OneBotEvent.Notice.BAN,
                 duration = raw.number("duration"),
+                subType = subType,
                 raw = raw,
             )
 
