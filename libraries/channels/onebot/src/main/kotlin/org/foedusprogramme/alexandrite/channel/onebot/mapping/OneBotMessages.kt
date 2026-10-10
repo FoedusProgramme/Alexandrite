@@ -124,6 +124,16 @@ public object OneBotMessages {
     /** Whether [chat] is a group, which decides the action a message is sent with. */
     public fun isGroup(chat: ChatAddress): Boolean = chat.chat.startsWith(OneBotChats.GROUP + ":")
 
+    /**
+     * The user a temporary session belongs to, null when [chat] is no such session.
+     *
+     * A temporary session is a message of a group sent privately, and its thread is the user who sent it. A reply has
+     * to go there rather than into the group the message came through.
+     */
+    public fun privateTemporary(chat: ChatAddress): UserId? = chat.thread
+        ?.takeIf { isGroup(chat) && it.isNotEmpty() }
+        ?.let(::UserId)
+
     /** The user a private chat belongs to, null when [chat] is no private chat. */
     public fun privateUser(chat: ChatAddress): UserId? = chat.chat
         .takeIf { it.startsWith(OneBotChats.PRIVATE + ":") }

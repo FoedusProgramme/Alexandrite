@@ -1,8 +1,13 @@
 package org.foedusprogramme.alexandrite.channel.onebot.mapping
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.UserId
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.SendPrivateMessage
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEventCodec
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotMessage
@@ -96,6 +101,20 @@ class OneBotMessagesTest {
     }
 
     @Test
+    fun `a temporary session answers its sender and not its group`() {
+        val event =
+            assertIs<OneBotEvent.Message.Private>(
+                OneBotEventCodec.decode(parse(privateJson(subType = "group", groupId = 100100))),
+            )
+        val chat = OneBotChats.addressOf(instance, event)
+
+        // A reply to this chat belongs to the user who sent it: the group it came through is not where an answer to a
+        // private message goes, and the address says so by keeping the sender as its thread.
+        assertEquals(UserId("12345678"), OneBotMessages.privateTemporary(chat))
+        assertNull(OneBotMessages.privateUser(chat), "the chat itself names the group, not the sender")
+    }
+
+    @Test
     fun `plain text leaves as one text segment`() {
         val message = OutboundMessage.builder(
             "hello",
@@ -103,6 +122,20 @@ class OneBotMessagesTest {
         ).build()
         val segments = OneBotMessages.outgoing(chat(), message).segments
         assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("hello")), segments)
+    }
+
+    @Test
+    fun `a message keeps the shape it was written in when it asks to be taken literally`() {
+        // A whole message as one piece of text is sent as text, so that `auto_escape` can say to take the CQ codes
+        // inside it as the characters they are. A message of segments is sent as segments and asks for no escaping,
+        // because an implementation that read the text of one as an escape would send something else.
+        val literal = SendPrivateMessage(UserId("1"), OneBotMessage.StringValue("hello [CQ:face]"), autoEscape = true)
+        assertEquals("hello [CQ:face]", literal.toJson()["message"]?.jsonPrimitive?.content)
+        assertEquals(true, literal.toJson()["auto_escape"]?.jsonPrimitive?.boolean)
+
+        val segments = SendPrivateMessage(UserId("1"), OneBotMessage.ArrayValue(listOf(OneBotSegment.Text("hi"))))
+        assertIs<JsonArray>(segments.toJson()["message"])
+        assertNull(segments.toJson()["auto_escape"])
     }
 
     @Test

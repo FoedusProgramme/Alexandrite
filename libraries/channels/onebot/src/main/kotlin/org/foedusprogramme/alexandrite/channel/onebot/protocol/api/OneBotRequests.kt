@@ -29,8 +29,11 @@ public class SendPrivateMessage(
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
         put("user_id", userId.value)
-        put("message", OneBotSegmentCodec.encodeMessageArray(message))
-        if (autoEscape) put("auto_escape", true)
+        put("message", OneBotSegmentCodec.encodeMessage(message))
+        // Only a whole message as one piece of text can be taken as it is written, which is what an implementation
+        // reads `auto_escape` as. A message of segments is sent as segments, so that the CQ text one of them holds
+        // is not read as an escape it never asked for.
+        if (autoEscape && message is OneBotMessage.StringValue) put("auto_escape", true)
     }
 }
 
@@ -42,8 +45,11 @@ public class SendGroupMessage(
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
         put("group_id", groupId.value)
-        put("message", OneBotSegmentCodec.encodeMessageArray(message))
-        if (autoEscape) put("auto_escape", true)
+        put("message", OneBotSegmentCodec.encodeMessage(message))
+        // Only a whole message as one piece of text can be taken as it is written, which is what an implementation
+        // reads `auto_escape` as. A message of segments is sent as segments, so that the CQ text one of them holds
+        // is not read as an escape it never asked for.
+        if (autoEscape && message is OneBotMessage.StringValue) put("auto_escape", true)
     }
 }
 
@@ -67,8 +73,11 @@ public class SendMessage(
         messageType?.let { put("message_type", it) }
         userId?.let { put("user_id", it.value) }
         groupId?.let { put("group_id", it.value) }
-        put("message", OneBotSegmentCodec.encodeMessageArray(message))
-        if (autoEscape) put("auto_escape", true)
+        put("message", OneBotSegmentCodec.encodeMessage(message))
+        // Only a whole message as one piece of text can be taken as it is written, which is what an implementation
+        // reads `auto_escape` as. A message of segments is sent as segments, so that the CQ text one of them holds
+        // is not read as an escape it never asked for.
+        if (autoEscape && message is OneBotMessage.StringValue) put("auto_escape", true)
     }
 
     public companion object {

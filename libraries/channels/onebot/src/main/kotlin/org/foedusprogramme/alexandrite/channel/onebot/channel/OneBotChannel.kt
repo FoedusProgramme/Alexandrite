@@ -36,8 +36,14 @@ internal class OneBotChannel(
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Channel {
-    /** The action that sends a message to [chat], null when this instance serves no such chat. */
+    /**
+     * The action that sends a message to [chat], null when this instance serves no such chat.
+     *
+     * A temporary session of a group is a private chat whose thread names the sender, so it is asked for first: a
+     * reply to it goes to the sender and not into the group, which is what its address means.
+     */
     internal fun action(chat: ChatAddress): Pair<String, ChatAddress>? = when {
+        OneBotMessages.privateTemporary(chat) != null -> "send_private_msg" to chat
         OneBotMessages.isGroup(chat) && OneBotMessages.group(chat) != null -> "send_group_msg" to chat
         OneBotMessages.privateUser(chat) != null -> "send_private_msg" to chat
         else -> null
@@ -45,10 +51,12 @@ internal class OneBotChannel(
 
     /** The parameters that send [message] to [chat], null when this instance serves no such chat. */
     internal fun params(chat: ChatAddress, message: OutboundMessage): kotlinx.serialization.json.JsonObject? {
+        val temporary = OneBotMessages.privateTemporary(chat)
         val user = OneBotMessages.privateUser(chat)
         val group = OneBotMessages.group(chat)
         val segments = OneBotMessages.outgoing(chat, message)
         return when {
+            temporary != null -> SendPrivateMessage(temporary, segments).toJson()
             group != null -> SendGroupMessage(group, segments).toJson()
             user != null -> SendPrivateMessage(user, segments).toJson()
             else -> null
