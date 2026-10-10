@@ -25,6 +25,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
@@ -162,6 +163,24 @@ class PluginHarnessTest {
             assertEquals(directory.resolve("cache/plugins/probe"), cacheDir)
             assertEquals(dataDir, files.dataDir)
             assertEquals(cacheDir, files.cacheDir)
+        }
+    }
+
+    @Test
+    fun `the host paths name the config file and the protected places the harness was given`() {
+        val file = directory.resolve("config/alexandrite.json")
+        val logs = directory.resolve("logs")
+
+        harness { configFile(file).protect(logs).protect(directory.resolve("unit")) }.execute {
+            val paths = get<HostPaths>()
+
+            assertEquals(directory, paths.dataRoot)
+            assertEquals(file, paths.configFile)
+            assertEquals(listOf(logs, directory.resolve("unit")), paths.protected)
+        }
+        harness().execute {
+            assertNull(get<HostPaths>().configFile)
+            assertEquals(emptyList(), get<HostPaths>().protected)
         }
     }
 

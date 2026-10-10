@@ -13,7 +13,7 @@ public value class AgentId(public val value: String) {
     override fun toString(): String = value
 
     public companion object {
-        /** The main agent of every chat that configures no other. */
+        /** The conventional id of a main agent. */
         public val MAIN: AgentId = AgentId("main")
     }
 }

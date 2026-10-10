@@ -45,6 +45,8 @@ public class PluginHarness private constructor(
     private val plugins: PluginSet,
     private val pluginConfig: ConfigSource,
     private val dataRoot: Path?,
+    private val configFile: Path?,
+    private val offLimits: List<Path>,
     private val zone: ZoneId,
     private val shutdownGrace: Duration?,
     private val inspectTermination: Boolean,
@@ -80,7 +82,8 @@ public class PluginHarness private constructor(
     }
 
     private suspend fun runIn(root: Path, block: suspend Running.() -> Unit): Termination {
-        val settings = RuntimeConfig.builder(root).zone(zone).name("harness")
+        val settings = RuntimeConfig.builder(root).zone(zone).name("harness").configFile(configFile)
+        offLimits.forEach(settings::protect)
         shutdownGrace?.let(settings::shutdownGrace)
         val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(pluginConfig).build()
         var running: Running? = null
@@ -158,6 +161,8 @@ public class PluginHarness private constructor(
         private val extras = mutableListOf<PluginIndex>()
         private val configs = LinkedHashMap<String, JsonObject>()
         private var dataRoot: Path? = null
+        private var configFile: Path? = null
+        private val offLimits = mutableListOf<Path>()
         private var zone: ZoneId = ZoneOffset.UTC
         private var grace: Duration? = null
         private var inspectTermination = false
@@ -195,6 +200,12 @@ public class PluginHarness private constructor(
 
         /** The runtime's data directory, a temporary one deleted when the run ends unless set. */
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
+
+        /** The config file that the runtime's host paths name, none unless set. */
+        public fun configFile(file: Path): Builder = apply { configFile = file }
+
+        /** Declares [path] off-limits, as a host does. */
+        public fun protect(path: Path): Builder = apply { offLimits.add(path) }
 
         /** The runtime's zone, UTC unless set. */
         public fun zone(zone: ZoneId): Builder = apply { this.zone = zone }
@@ -270,6 +281,8 @@ public class PluginHarness private constructor(
                 indexes.fold(PluginSet.of(plugin), PluginSet::plus),
                 JsonConfigSource(tree),
                 dataRoot,
+                configFile,
+                offLimits.toList(),
                 zone,
                 grace,
                 inspectTermination,

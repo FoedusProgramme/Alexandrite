@@ -1,5 +1,6 @@
 plugins {
     id("alexandrite.kotlin-library")
+    id("alexandrite.kotlin-serialization")
 }
 
 dependencies {
@@ -7,4 +8,5 @@ dependencies {
     implementation(project(":libraries:internal"))
 
     testImplementation(project(":libraries:testkit"))
+    testImplementation(libs.logback.classic)
 }

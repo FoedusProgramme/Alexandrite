@@ -206,6 +206,8 @@ class PublicApiTest {
                 .config(other, "{}")
                 .config(other, JsonObject(emptyMap()))
                 .dataRoot(root)
+                .configFile(root.resolve("alexandrite.json"))
+                .protect(root.resolve("logs"))
                 .zone(ZoneOffset.UTC)
                 .shutdownGrace(1.seconds)
                 .inspectTermination()
