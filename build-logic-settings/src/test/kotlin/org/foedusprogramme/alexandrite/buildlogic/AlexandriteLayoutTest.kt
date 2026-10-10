@@ -18,6 +18,7 @@ class AlexandriteLayoutTest {
     private val runtime = ":libraries:runtime"
     private val agent = ":libraries:agent"
     private val tools = ":libraries:tools"
+    private val commands = ":libraries:commands"
     private val telegram = ":libraries:channels:telegram"
     private val openAi = ":libraries:providers:openai-compatible"
     private val anthropic = ":libraries:providers:anthropic-compatible"
@@ -33,12 +34,12 @@ class AlexandriteLayoutTest {
     private val echo = ":examples:echo"
     private val vendors = listOf(deepSeek, lmStudio, openRouter)
     private val libraries =
-        listOf(sdk, internals, runtime, agent, tools, telegram, openAi, anthropic) + vendors +
+        listOf(sdk, internals, runtime, agent, tools, commands, telegram, openAi, anthropic) + vendors +
             listOf(providerCommon, sqlite, testkit)
     private val builtIn = libraries + ksp + app
     private val all = builtIn + notes
-    private val indexed = listOf(agent, tools, telegram, openAi, anthropic) + vendors + listOf(sqlite, app)
-    private val plugins = listOf(agent, tools, telegram, openAi, anthropic) + vendors + sqlite
+    private val indexed = listOf(agent, tools, commands, telegram, openAi, anthropic) + vendors + listOf(sqlite, app)
+    private val plugins = listOf(agent, tools, commands, telegram, openAi, anthropic) + vendors + sqlite
 
     private val today = all.map { it.removePrefix(":").replace(':', '/') }
 
@@ -78,6 +79,7 @@ class AlexandriteLayoutTest {
             runtime to Layer.RUNTIME,
             agent to Layer.AGENT,
             tools to Layer.TOOLS,
+            commands to Layer.COMMANDS,
             telegram to Layer.CHANNEL,
             openAi to Layer.PROVIDER,
             anthropic to Layer.PROVIDER,
@@ -103,7 +105,7 @@ class AlexandriteLayoutTest {
         for (path in listOf(
             "", ":", ":libraries", ":libraries:channels", ":libraries:providers", ":libraries:stores", ":libraries:foo",
             ":libraries:providers:x:y", ":libraries:agent:sub", ":libraries:runtime:sub", ":build-logic", ":other",
-            ":libraries:provider-common:sub",
+            ":libraries:provider-common:sub", ":libraries:commands:sub",
             "libraries:agent", ":examples", ":examples:hello:sub", ":libraries:examples:hello",
         )) {
             assertNull(AlexandriteLayout.moduleAt(path), path)
@@ -118,6 +120,7 @@ class AlexandriteLayoutTest {
             runtime to "alexandrite-runtime",
             agent to "alexandrite-agent",
             tools to "alexandrite-tools",
+            commands to "alexandrite-commands",
             telegram to "alexandrite-channel-telegram",
             openAi to "alexandrite-provider-openai-compatible",
             anthropic to "alexandrite-provider-anthropic-compatible",
@@ -150,6 +153,7 @@ class AlexandriteLayoutTest {
             runtime to null,
             agent to "agent",
             tools to "tools",
+            commands to "commands",
             telegram to "channels.telegram",
             openAi to "providers.openai-compatible",
             anthropic to "providers.anthropic-compatible",
@@ -177,7 +181,16 @@ class AlexandriteLayoutTest {
     @Test
     fun `exactly the modules of indexed layers have a config root`() {
         assertEquals(
-            setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.STORE, Layer.EXAMPLE, Layer.APP),
+            setOf(
+                Layer.AGENT,
+                Layer.TOOLS,
+                Layer.COMMANDS,
+                Layer.CHANNEL,
+                Layer.PROVIDER,
+                Layer.STORE,
+                Layer.EXAMPLE,
+                Layer.APP,
+            ),
             AlexandriteLayout.INDEXED_LAYERS,
         )
         for (path in all + ":libraries:channels:discord" + ":libraries:providers:example" + echo) {
@@ -193,6 +206,7 @@ class AlexandriteLayoutTest {
         val expected = mapOf(
             agent to "alexandrite-agent",
             tools to "alexandrite-tools",
+            commands to "alexandrite-commands",
             telegram to "alexandrite-channel-telegram",
             openAi to "alexandrite-provider-openai-compatible",
             anthropic to "alexandrite-provider-anthropic-compatible",
@@ -210,6 +224,7 @@ class AlexandriteLayoutTest {
         val expected = mapOf(
             agent to "org.foedusprogramme.alexandrite.agent",
             tools to "org.foedusprogramme.alexandrite.tools",
+            commands to "org.foedusprogramme.alexandrite.commands",
             telegram to "org.foedusprogramme.alexandrite.channel.telegram",
             openAi to "org.foedusprogramme.alexandrite.provider.openaicompatible",
             anthropic to "org.foedusprogramme.alexandrite.provider.anthropiccompatible",
@@ -243,6 +258,7 @@ class AlexandriteLayoutTest {
         val expected = mapOf(
             agent to "$base.agent.AlexandriteAgentIndex",
             tools to "$base.tools.AlexandriteToolsIndex",
+            commands to "$base.commands.AlexandriteCommandsIndex",
             telegram to "$base.channel.telegram.AlexandriteChannelTelegramIndex",
             openAi to "$base.provider.openaicompatible.AlexandriteProviderOpenaiCompatibleIndex",
             anthropic to "$base.provider.anthropiccompatible.AlexandriteProviderAnthropicCompatibleIndex",
@@ -297,6 +313,7 @@ class AlexandriteLayoutTest {
         val expected = mapOf(
             sdk to base,
             agent to base,
+            commands to base,
             ksp to base,
             app to base,
             providerCommon to base,
@@ -331,7 +348,7 @@ class AlexandriteLayoutTest {
     // Discovery.
 
     @Test
-    fun `today's tree yields today's seventeen modules in path order`() {
+    fun `today's tree yields today's eighteen modules in path order`() {
         val discovery = AlexandriteLayout.discover(today)
         assertNull(discovery.failure)
         assertEquals(all.sorted(), discovery.modules.map { it.path })
@@ -344,7 +361,7 @@ class AlexandriteLayoutTest {
         val shuffled = (today + added).shuffled(Random(7))
         val paths = AlexandriteLayout.discover(shuffled).modules.map { it.path }
         assertEquals(paths.sorted(), paths)
-        assertEquals(20, paths.size)
+        assertEquals(21, paths.size)
     }
 
     @Test
@@ -441,7 +458,14 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `a slot without a build file fails`() {
-        for (slot in listOf("libraries/agent", "libraries/runtime", "libraries/testkit", "app", "build-ksp-plugin")) {
+        for (slot in listOf(
+            "libraries/agent",
+            "libraries/commands",
+            "libraries/runtime",
+            "libraries/testkit",
+            "app",
+            "build-ksp-plugin",
+        )) {
             val discovery = discoverIn(today - slot)
             assertEquals(listOf(slot), discovery.missingSlots.map { it.directory }, slot)
             assertContains(assertNotNull(discovery.failure, slot), "$slot/ is the")
@@ -452,6 +476,7 @@ class AlexandriteLayoutTest {
     fun `the placement failure says where modules may live and how to add a slot`() {
         val failure = assertNotNull(discoverIn(today + "libraries/foo").failure)
         assertContains(failure, "libraries/plugin-sdk/ (SDK)")
+        assertContains(failure, "libraries/commands/ (COMMANDS)")
         assertContains(failure, "libraries/channels/<name>/ (CHANNEL)")
         assertContains(failure, "libraries/providers/<name>/ (PROVIDER)")
         assertContains(failure, "libraries/stores/<name>/ (STORE)")
@@ -492,8 +517,8 @@ class AlexandriteLayoutTest {
 
         assertEquals(
             listOf(
-                app, agent, ":libraries:channels:discord", telegram, anthropic, deepSeek, lmStudio, openAi, openRouter,
-                sqlite, tools,
+                app, agent, ":libraries:channels:discord", telegram, commands, anthropic, deepSeek, lmStudio, openAi,
+                openRouter, sqlite, tools,
             ),
             BuiltInList.modules(discovery).map { it.path },
         )
@@ -510,6 +535,7 @@ class AlexandriteLayoutTest {
             public enum class BuiltInLayer {
                 AGENT,
                 TOOLS,
+                COMMANDS,
                 CHANNEL,
                 PROVIDER,
                 STORE,
@@ -560,7 +586,7 @@ class AlexandriteLayoutTest {
     @Test
     fun `the built-in layers are the indexed layers with built-in locations`() {
         assertEquals(
-            listOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.STORE, Layer.APP),
+            listOf(Layer.AGENT, Layer.TOOLS, Layer.COMMANDS, Layer.CHANNEL, Layer.PROVIDER, Layer.STORE, Layer.APP),
             BuiltInList.LAYERS,
         )
     }
@@ -593,10 +619,10 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `allowed pairs`() {
+        val dependents =
+            listOf(runtime, agent, tools, commands, telegram, openAi, anthropic, providerCommon, sqlite, testkit)
         for (base in listOf(sdk, internals)) {
-            for (from in listOf(runtime, agent, tools, telegram, openAi, anthropic, providerCommon, sqlite, testkit)) {
-                assertAllowed(from, base)
-            }
+            for (from in dependents) assertAllowed(from, base)
             assertAllowed(app, base)
         }
         assertAllowed(testkit, runtime)
@@ -612,6 +638,10 @@ class AlexandriteLayoutTest {
         assertForbidden(sdk, internals)
         assertForbidden(internals, sdk)
         for (from in listOf(tools, telegram, openAi, anthropic, sqlite)) assertForbidden(from, agent)
+        for (other in listOf(agent, tools, telegram, openAi, sqlite)) {
+            assertForbidden(commands, other)
+            assertForbidden(other, commands)
+        }
         assertForbidden(agent, tools)
         assertForbidden(agent, sqlite)
         assertForbidden(sqlite, telegram)
@@ -665,7 +695,7 @@ class AlexandriteLayoutTest {
             assertForbidden(providerCommon, to)
             assertForbidden(providerCommon, to, "testImplementation")
         }
-        for (from in listOf(agent, tools, telegram, sqlite, sdk, internals)) {
+        for (from in listOf(agent, tools, commands, telegram, sqlite, sdk, internals)) {
             assertForbidden(from, providerCommon)
             assertForbidden(from, providerCommon, "testImplementation")
         }

@@ -50,9 +50,14 @@ public class HttpCall(
     public val body: String? = null,
     /** Values masked in every message about the call. */
     public val secrets: Collection<String> = emptyList(),
+    /** The first-byte timeout of this call, null for the transport's. */
+    public val firstByte: Duration? = null,
 ) {
     init {
-        require(uri.scheme == "http" || uri.scheme == "https") { "No HTTP URI: ${printable(uri)}." }
+        require(uri.scheme == "http" || uri.scheme == "https") { "No HTTP URI: ${mask(printable(uri))}." }
+        require(firstByte == null || (firstByte.isPositive() && firstByte.isFinite())) {
+            "The first byte timeout is positive and finite, was $firstByte."
+        }
     }
 
     /** [text] with [secrets] masked. */
@@ -61,7 +66,7 @@ public class HttpCall(
             masked.replace(secret, MASK)
         }
 
-    override fun toString(): String = "$method ${printable(uri)}"
+    override fun toString(): String = "$method ${mask(printable(uri))}"
 
     private companion object {
         const val MASK = "***"
@@ -96,6 +101,7 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
      */
     public suspend fun <T> open(call: HttpCall, block: suspend (HttpResponseStream) -> T): T {
         val started = TimeSource.Monotonic.markNow()
+        val firstByte = call.firstByte ?: timeouts.firstByte
         val body = BodyChannel()
         val info = CompletableDeferred<HttpResponse.ResponseInfo>()
         val future = try {
@@ -115,16 +121,16 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
         }
         try {
             val response = try {
-                withTimeoutOrNull(timeouts.firstByte) { info.await() }
+                withTimeoutOrNull(firstByte) { info.await() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 throw failure(call, e)
             } ?: throw HttpException(
                 HttpFailureKind.TIMEOUT,
-                "$call got no response within ${timeouts.firstByte}.",
+                "$call got no response within $firstByte.",
             )
-            val stream = HttpResponseStream(call, response, body, started + timeouts.firstByte, timeouts.idle)
+            val stream = HttpResponseStream(call, response, body, started + firstByte, timeouts.idle)
             if (response.statusCode() !in 200..299) throw stream.failure(clock)
             return block(stream)
         } finally {

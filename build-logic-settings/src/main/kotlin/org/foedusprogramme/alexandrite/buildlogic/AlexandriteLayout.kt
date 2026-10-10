@@ -16,6 +16,9 @@ enum class Layer {
     /** Built-in tools. */
     TOOLS,
 
+    /** The default command plugin. */
+    COMMANDS,
+
     /** Front ends. */
     CHANNEL,
 
@@ -126,6 +129,7 @@ object AlexandriteLayout {
         Location.Slot("libraries/runtime", Layer.RUNTIME),
         Location.Slot("libraries/agent", Layer.AGENT, configRoot = "agent", packageName = "$PACKAGE.agent"),
         Location.Slot("libraries/tools", Layer.TOOLS, configRoot = "tools", packageName = "$PACKAGE.tools"),
+        Location.Slot("libraries/commands", Layer.COMMANDS, configRoot = "commands", packageName = "$PACKAGE.commands"),
         Location.Family(
             "libraries/channels",
             Layer.CHANNEL,
@@ -172,6 +176,7 @@ object AlexandriteLayout {
         Layer.RUNTIME to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.AGENT to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.TOOLS to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.COMMANDS to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.CHANNEL to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.PROVIDER to setOf(Layer.SDK, Layer.INTERNAL, Layer.PROVIDER_COMMON),
         Layer.PROVIDER_COMMON to setOf(Layer.SDK, Layer.INTERNAL),
@@ -184,6 +189,7 @@ object AlexandriteLayout {
             Layer.RUNTIME,
             Layer.AGENT,
             Layer.TOOLS,
+            Layer.COMMANDS,
             Layer.CHANNEL,
             Layer.PROVIDER,
             Layer.PROVIDER_COMMON,
@@ -194,6 +200,7 @@ object AlexandriteLayout {
     val TEST_LAYER_DEPENDENCIES: Map<Layer, Set<Layer>> = mapOf(
         Layer.AGENT to setOf(Layer.TESTKIT),
         Layer.TOOLS to setOf(Layer.TESTKIT),
+        Layer.COMMANDS to setOf(Layer.TESTKIT),
         Layer.CHANNEL to setOf(Layer.TESTKIT),
         Layer.PROVIDER to setOf(Layer.TESTKIT),
         Layer.PROVIDER_COMMON to setOf(Layer.TESTKIT),
@@ -207,8 +214,16 @@ object AlexandriteLayout {
     val THIRD_PARTY_LAYERS: Set<Layer> = setOf(Layer.PROVIDER_COMMON, Layer.EXAMPLE)
 
     /** Layers whose modules get a generated `PluginIndex` */
-    val INDEXED_LAYERS: Set<Layer> =
-        setOf(Layer.AGENT, Layer.TOOLS, Layer.CHANNEL, Layer.PROVIDER, Layer.STORE, Layer.EXAMPLE, Layer.APP)
+    val INDEXED_LAYERS: Set<Layer> = setOf(
+        Layer.AGENT,
+        Layer.TOOLS,
+        Layer.COMMANDS,
+        Layer.CHANNEL,
+        Layer.PROVIDER,
+        Layer.STORE,
+        Layer.EXAMPLE,
+        Layer.APP,
+    )
 
     /** The grammar of the module names of [INDEXED_LAYERS] */
     val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")

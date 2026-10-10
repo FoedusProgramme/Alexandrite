@@ -6,6 +6,7 @@ my-plugin MyPluginIndex
 web2-x9-hooks Web2X9HooksIndex
 alexandrite-agent AlexandriteAgentIndex
 alexandrite-tools AlexandriteToolsIndex
+alexandrite-commands AlexandriteCommandsIndex
 alexandrite-app AlexandriteAppIndex
 alexandrite-channel-telegram AlexandriteChannelTelegramIndex
 alexandrite-provider-anthropic-compatible AlexandriteProviderAnthropicCompatibleIndex

@@ -19,6 +19,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 class HttpTransportTest {
@@ -39,6 +41,14 @@ class HttpTransportTest {
         """{"stream":true}""",
         listOf(key),
     )
+
+    private fun bot(firstByte: Duration? = null) =
+        HttpCall("POST", server.uri.resolve("/bot$TOKEN/getMe"), secrets = listOf(TOKEN), firstByte = firstByte)
+
+    private fun assertMasked(error: Throwable) {
+        for (cause in generateSequence(error) { it.cause }) assertFalse(TOKEN in cause.toString(), cause.toString())
+        assertFalse(TOKEN in (error as? HttpException)?.body.orEmpty(), error.toString())
+    }
 
     @Test
     fun `events stream in order, the last one also without a blank line`() = runBlocking {
@@ -174,6 +184,117 @@ class HttpTransportTest {
     }
 
     @Test
+    fun `a call prints the secrets of its path masked`() {
+        assertEquals("POST ${server.uri}/bot***/getMe", bot().toString())
+        assertEquals("POST ${server.uri}/bot$TOKEN/getMe", HttpCall("POST", bot().uri).toString())
+    }
+
+    @Test
+    fun `a secret in the path appears in no failure of a status`() = runBlocking {
+        server.handle { it.status(401).chunk("""{"description":"Unauthorized: /bot$TOKEN/getMe"}""").end() }
+
+        val error = assertFailsWith<HttpException> { transport.send(bot()) }
+
+        assertEquals(HttpFailureKind.AUTHENTICATION, error.kind)
+        assertTrue("Unauthorized" in error.body.orEmpty(), error.body)
+        assertMasked(error)
+    }
+
+    @Test
+    fun `a secret in the path appears in no failure of a status whose body cannot be read`() = runBlocking {
+        server.handle { it.status(500).chunk("partial").drop() }
+
+        val error = assertFailsWith<HttpException> { transport.send(bot()) }
+
+        assertEquals(500, error.status)
+        assertMasked(error)
+    }
+
+    @Test
+    fun `a secret in the path appears in no timeout`() = runBlocking {
+        val quick = HttpTransport(QUICK)
+        server.handle { Thread.sleep(1_000) }
+        server.handle { it.pause(1.seconds).end() }
+        server.handle { it.chunk("data: a\n\n").pause(1.seconds).end() }
+
+        val errors = quick.use { client ->
+            List(3) { assertFailsWith<HttpException> { client.open(bot()) { response -> response.events().toList() } } }
+        }
+
+        assertEquals(List(3) { HttpFailureKind.TIMEOUT }, errors.map { it.kind })
+        assertEquals(listOf(false, false, true), errors.map { it.afterResponse })
+        errors.forEach(::assertMasked)
+    }
+
+    @Test
+    fun `a secret in the path appears in no broken connection`() = runBlocking {
+        val port = ServerSocket(0).use { it.localPort }
+        server.handle { it.chunk("data: a\n\n").drop() }
+
+        val refused = assertFailsWith<HttpException> {
+            transport.send(HttpCall("POST", URI("http://127.0.0.1:$port/bot$TOKEN/getMe"), secrets = listOf(TOKEN)))
+        }
+        val broken = assertFailsWith<HttpException> { transport.open(bot()) { it.events().toList() } }
+
+        assertEquals(listOf(false, true), listOf(refused, broken).map { it.afterResponse })
+        assertMasked(refused)
+        assertMasked(broken)
+    }
+
+    @Test
+    fun `a secret in the path appears in no failure of a closed transport or of a URI that is no HTTP URI`() =
+        runBlocking {
+            transport.close()
+
+            val closed = assertFailsWith<HttpException> { transport.send(bot()) }
+            val notHttp = assertFailsWith<IllegalArgumentException> {
+                HttpCall("GET", URI("ftp://example.com/bot$TOKEN/getMe"), secrets = listOf(TOKEN))
+            }
+
+            assertEquals(HttpFailureKind.CONNECTION, closed.kind)
+            assertMasked(closed)
+            assertMasked(notHttp)
+        }
+
+    @Test
+    fun `a call's first-byte timeout replaces the transport's`() = runBlocking {
+        server.handle { Thread.sleep(1_000) }
+        server.handle { exchange ->
+            Thread.sleep(600)
+            exchange.chunk("data: ok\n\n").end()
+        }
+
+        val error = assertFailsWith<HttpException> { transport.send(bot(firstByte = 300.milliseconds)) }
+        val text = HttpTransport(QUICK).use { it.send(bot(firstByte = 2.seconds)) }
+
+        assertEquals(HttpFailureKind.TIMEOUT, error.kind)
+        assertTrue("within 300ms" in error.message.orEmpty(), error.message)
+        assertEquals("data: ok\n\n", text)
+    }
+
+    @Test
+    fun `a call's first-byte timeout also bounds the first piece of its body`() = runBlocking {
+        val quick = HttpTransport(QUICK)
+        repeat(2) { server.handle { it.pause(600.milliseconds).chunk("data: late\n\n").end() } }
+
+        val (late, error) = quick.use { client ->
+            client.open(bot(firstByte = 2.seconds)) { it.events().toList() } to
+                assertFailsWith<HttpException> { client.open(bot()) { it.events().toList() } }
+        }
+
+        assertEquals(listOf("late"), late.map { it.data })
+        assertEquals(HttpFailureKind.TIMEOUT, error.kind)
+        assertFalse(error.afterResponse)
+    }
+
+    @Test
+    fun `a call's first-byte timeout is positive and finite`() {
+        for (timeout in listOf(Duration.ZERO, (-1).seconds, Duration.INFINITE)) {
+            assertFailsWith<IllegalArgumentException> { bot(firstByte = timeout) }
+        }
+    }
+
+    @Test
     fun `calls run in parallel on one transport`() = runBlocking {
         repeat(2) { server.handle { it.chunk("data: ok\n\n").end() } }
 
@@ -225,5 +346,9 @@ class HttpTransportTest {
         assertEquals(null, retryAfter(headers("retry-after" to "soon"), now))
         assertEquals(null, retryAfter(headers(), now))
         assertEquals("abc", requestId(headers("request-id" to "abc")))
+    }
+
+    private companion object {
+        const val TOKEN = "123456:AAH-path-token_x"
     }
 }
