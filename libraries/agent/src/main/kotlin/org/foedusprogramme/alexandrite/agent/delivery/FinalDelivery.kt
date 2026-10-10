@@ -14,7 +14,11 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** The text of [message] that a chat is shown. */
 internal fun visibleText(message: AssistantEntry): String =
-    message.parts.filterIsInstance<TextPart>().map { it.text }.filter { it.isNotBlank() }.joinToString("\n\n")
+    visibleText(message.parts.filterIsInstance<TextPart>().map { it.text })
+
+/** What a chat is shown of the text parts [texts]. */
+internal fun visibleText(texts: Collection<CharSequence>): String =
+    texts.filter { it.isNotBlank() }.joinToString("\n\n")
 
 /** The final reply [text] that replies to [trigger], in Markdown where [capabilities] take it. */
 internal fun replyMessage(

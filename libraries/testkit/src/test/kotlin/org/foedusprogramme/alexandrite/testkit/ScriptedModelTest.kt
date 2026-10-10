@@ -375,15 +375,26 @@ class ScriptedModelTest {
     // The endpoint.
 
     @Test
-    fun `the endpoint lists its models and answers the turn-context mode it was given`() {
+    fun `the endpoint lists its models and answers the turn-context modes it was given`() {
         val models = listOf(ScriptedModel.modelInfo("a"), ScriptedModel.modelInfo("b"))
         val endpoint = ScriptedModel(EndpointId("side"), models, TurnContextMode.NOT_SUPPORTED)
+        val split = ScriptedModel(untrustedTurnContextMode = TurnContextMode.KEPT_UNRENDERED)
 
         assertEquals(models, blocking { endpoint.models() })
         assertEquals(ModelRef(EndpointId("side"), "a"), endpoint.ref)
         assertEquals(TurnContextMode.NOT_SUPPORTED, endpoint.turnContextMode("a", ModelOptions.DEFAULT, Trust.TRUSTED))
+        assertEquals(
+            TurnContextMode.NOT_SUPPORTED,
+            endpoint.turnContextMode("a", ModelOptions.DEFAULT, Trust.UNTRUSTED),
+        )
         val mode = model.turnContextMode("test-model", ModelOptions.DEFAULT, Trust.UNTRUSTED)
         assertEquals(TurnContextMode.TRANSIENT, mode)
+        assertEquals(
+            listOf(TurnContextMode.TRANSIENT, TurnContextMode.KEPT_UNRENDERED),
+            listOf(Trust.TRUSTED, Trust.UNTRUSTED).map {
+                split.turnContextMode("test-model", ModelOptions.DEFAULT, it)
+            },
+        )
         assertFailsWith<IllegalArgumentException> { ScriptedModel(models = emptyList()) }
         assertFailsWith<IllegalArgumentException> { ScriptedModel(models = listOf(models[0], models[0])) }
     }

@@ -23,11 +23,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
-import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
-import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
-import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
-import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
+import org.foedusprogramme.alexandrite.sdk.model.ModelError
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
@@ -385,7 +382,7 @@ class FirstAnswerTest {
 
     @Test
     fun `a model error fails the turn with a notice of its kind`() {
-        model.fail(ModelErrorKind.OVERLOADED, "Busy.")
+        model.fail(ModelError.builder(ModelErrorKind.OVERLOADED, "Busy.").retryable(false).build())
 
         harness().execute {
             val admission = channel().receive("Hi")
@@ -534,41 +531,6 @@ class FirstAnswerTest {
     private val chinese = TextCatalog.builder()
         .text("alexandrite-agent", LanguageTag("zh-CN"), "notice.blank_reply", "模型没有给出回答。")
         .build()
-}
-
-private fun <P : Any> stopper(point: InterceptorPoint<P>, reply: String?): Hook =
-    Interceptor(point, CopyOnWriteArrayList()) { HookDecision.Abort(reply) }
-
-/** An interceptor that records the id of its point and decides with [decide]. */
-private class Interceptor<P : Any>(
-    override val point: InterceptorPoint<P>,
-    private val fired: MutableList<String>,
-    private val decide: (P) -> HookDecision<P> = { HookDecision.Continue },
-) : InterceptorHook<P> {
-    override suspend fun intercept(payload: P): HookDecision<P> {
-        fired += point.id
-        return decide(payload)
-    }
-}
-
-/** An observer that keeps what it saw and records the id of its point. */
-private class Observer<P : Any>(
-    override val point: ObserverPoint<P>,
-    private val fired: MutableList<String> = CopyOnWriteArrayList(),
-) : ObserverHook<P> {
-    val seen: MutableList<P> = CopyOnWriteArrayList()
-
-    override suspend fun observe(payload: P) {
-        fired += point.id
-        seen += payload
-    }
-}
-
-private fun TranscriptEntry.withoutRecord(): TranscriptEntry = when (this) {
-    is UserEntry -> UserEntry(null, parts, origin)
-    is AssistantEntry -> AssistantEntry(null, parts, producedBy, providerData)
-    is NoticeEntry -> NoticeEntry(null, text, kind)
-    else -> this
 }
 
 private fun sha256(text: String): String =

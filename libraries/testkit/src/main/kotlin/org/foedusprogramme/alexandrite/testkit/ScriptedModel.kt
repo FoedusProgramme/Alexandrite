@@ -31,6 +31,7 @@ public class ScriptedModel(
     override val id: EndpointId = EndpointId("scripted"),
     models: List<ModelInfo> = listOf(modelInfo()),
     private val turnContextMode: TurnContextMode = TurnContextMode.TRANSIENT,
+    private val untrustedTurnContextMode: TurnContextMode = turnContextMode,
 ) : ModelEndpoint {
     private val models = models.toList()
     private val lock = Any()
@@ -87,7 +88,8 @@ public class ScriptedModel(
 
     override suspend fun models(): List<ModelInfo> = models
 
-    override fun turnContextMode(model: String, options: ModelOptions, trust: Trust): TurnContextMode = turnContextMode
+    override fun turnContextMode(model: String, options: ModelOptions, trust: Trust): TurnContextMode =
+        if (trust == Trust.UNTRUSTED) untrustedTurnContextMode else turnContextMode
 
     override fun stream(request: ModelRequest): Flow<ModelEvent> = flow {
         val (number, step) = take(request)

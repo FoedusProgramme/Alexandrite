@@ -132,9 +132,12 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** The model's answer was cut off at its output limit. */
         public val OUTPUT_LIMIT: NoticeKind = NoticeKind("output_limit")
 
+        /** The reply was too long for its chat. */
+        public val TOO_LONG: NoticeKind = NoticeKind("too_long")
+
         /** The values this version knows. */
         public val entries: List<NoticeKind> =
-            listOf(BLANK_REPLY, HOOK_ABORTED, FAILED, REFUSED, INTERRUPTED, OUTPUT_LIMIT)
+            listOf(BLANK_REPLY, HOOK_ABORTED, FAILED, REFUSED, INTERRUPTED, OUTPUT_LIMIT, TOO_LONG)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): NoticeKind = NoticeKind(id)

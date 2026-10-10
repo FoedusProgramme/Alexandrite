@@ -8,6 +8,8 @@ internal object TextKeys {
     const val BLANK_REPLY: String = "notice.blank_reply"
     const val REFUSED: String = "notice.refused"
     const val CONTEXT_WINDOW: String = "notice.context_window"
+    const val OUTPUT_LIMIT: String = "notice.output_limit"
+    const val OUTPUT_LIMIT_UNANSWERED: String = "notice.output_limit_unanswered"
     const val REPLY_TOO_LONG: String = "notice.reply_too_long"
     const val FAILED: String = "notice.failed"
 

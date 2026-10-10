@@ -46,7 +46,8 @@ class PublicApiTest {
 
         suspend fun models(): List<Any?> {
             val info = ScriptedModel.modelInfo("m")
-            val scripted = ScriptedModel(EndpointId("main"), listOf(info), TurnContextMode.TRANSIENT)
+            val scripted =
+                ScriptedModel(EndpointId("main"), listOf(info), TurnContextMode.TRANSIENT, TurnContextMode.NOT_SUPPORTED)
             scripted.reply(RequestMatch.round(0)) {
                 reasoning("Hm.", summary = "short", seal = "sig", sealKind = SealKind.SIGNATURE)
                 text("Sav", "ing.")

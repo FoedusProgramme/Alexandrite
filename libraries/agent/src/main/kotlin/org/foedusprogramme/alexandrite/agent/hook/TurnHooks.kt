@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Interception
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
+import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
 import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
@@ -19,7 +20,9 @@ import org.foedusprogramme.alexandrite.sdk.turn.ModelCall
 import org.foedusprogramme.alexandrite.sdk.turn.ModelReply
 import org.foedusprogramme.alexandrite.sdk.turn.PromptSections
 import org.foedusprogramme.alexandrite.sdk.turn.ReplyDraft
+import org.foedusprogramme.alexandrite.sdk.turn.ReplyPreview
 import org.foedusprogramme.alexandrite.sdk.turn.TurnCommitted
+import org.foedusprogramme.alexandrite.sdk.turn.TurnContext
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInput
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
@@ -55,6 +58,17 @@ internal class TurnHooks(private val hooks: Hooks) {
     suspend fun turnInput(turn: TurnInfo, message: IncomingMessage?, text: String): Hooked<String> =
         hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, message, text, followUp = false)).map { it.text }
 
+    /** The turn-context items of [turn], whose input reads [text]: [builtIns] and what hooks added. */
+    suspend fun contextInject(turn: TurnInfo, text: String, builtIns: List<TurnContextItem>): List<TurnContextItem> {
+        val fired = hooks.fire(TurnPoints.CONTEXT_INJECT, TurnContext(turn, text, builtIns))
+        val items = (fired as? Interception.Proceed)?.payload?.items ?: return builtIns
+        if (items.take(builtIns.size) != builtIns) {
+            logger.warn("A context.inject hook removed turn {}'s own turn context: no item of a hook is kept", turn.id)
+            return builtIns
+        }
+        return items
+    }
+
     suspend fun contextLoaded(turn: TurnInfo, history: List<TranscriptEntry>) {
         hooks.fire(TurnPoints.CONTEXT_LOADED, ContextLoaded(turn, history))
     }
@@ -77,6 +91,12 @@ internal class TurnHooks(private val hooks: Hooks) {
 
     suspend fun llmResponse(turn: TurnInfo, round: Int, response: ModelEvent.Completed): Hooked<Unit> =
         hooks.fire(TurnPoints.LLM_RESPONSE, ModelReply(turn, round, response)).map { }
+
+    /** The text that [turn]'s chat is shown in place of the preview [text] of [segment], null for none. */
+    suspend fun responsePreview(turn: TurnInfo, segment: Int, text: String): String? {
+        val fired = hooks.fire(TurnPoints.RESPONSE_PREVIEW, ReplyPreview(turn, segment, text))
+        return (fired as? Interception.Proceed)?.payload?.text
+    }
 
     /** The message that [destination] gets in place of [message]. */
     suspend fun responseBefore(turn: TurnInfo, message: OutboundMessage, destination: ChatAddress): OutboundMessage {
