@@ -86,13 +86,19 @@ class EndToEndTest {
                     val telegram = root.child("telegram bot", setOf("telegram"))
 
                     assertEquals(listOf("telegram bot"), recorder.all())
-                    assertEquals("telegram bot in ${Path.of("/data", "telegram")}", telegram.get(key<Probe>("telegram")).report())
+                    assertEquals(
+                        "telegram bot in ${Path.of("/data", "telegram")}",
+                        telegram.get(key<Probe>("telegram")).report(),
+                    )
                     val error = assertFailsWith<DiException> { telegram.get(key<Probe>("discord")) }
                     assertEquals(DiProblemKind.UNLISTED_PLUGIN, error.problems.single().kind)
 
                     val discord = root.child("discord bot", setOf("discord"))
                     assertEquals(listOf("telegram bot", "discord bot"), recorder.all())
-                    assertEquals("discord bot in ${Path.of("/data", "discord")}", discord.get(key<Probe>("discord")).report())
+                    assertEquals(
+                        "discord bot in ${Path.of("/data", "discord")}",
+                        discord.get(key<Probe>("discord")).report(),
+                    )
                 }
             }
         }

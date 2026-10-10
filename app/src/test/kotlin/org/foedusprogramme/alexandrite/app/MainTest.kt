@@ -27,6 +27,7 @@ import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -66,9 +67,26 @@ class MainTest {
     private fun hostWith(json: String, execute: Execute = stopping()): Int =
         host("--config", "${config(json)}", "--data-dir", "$dataDir", execute = execute)
 
-    private fun stdout(): String = out.toString(Charsets.UTF_8)
+    /** The reason a host gives for a path that names no valid path, whose wording differs between hosts. */
+    private fun noValidPathReason(): String = if (System.getProperty("os.name").startsWith("Windows")) {
+        val error =
+            assertFailsWith<IllegalArgumentException> {
+                locations(
+                    Options(),
+                    mapOf("ALEXANDRITE_DATA_DIR" to "a\u0000b"),
+                    "Linux",
+                    java.nio.file.Path.of("/home/me"),
+                )
+            }
+        error.message.orEmpty().substringAfter("names no valid path: ")
+    } else {
+        "Nul character not allowed."
+    }
 
-    private fun stderr(): String = err.toString(Charsets.UTF_8)
+    /** What the host printed, with the host's line endings, which differ between platforms. */
+    private fun stdout(): String = out.toString(Charsets.UTF_8).replace("\r\n", "\n")
+
+    private fun stderr(): String = err.toString(Charsets.UTF_8).replace("\r\n", "\n")
 
     private fun logged(block: () -> Unit): List<String> {
         val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app") as Logger
@@ -84,12 +102,20 @@ class MainTest {
 
     @Test
     fun `--help prints the usage with this machine's defaults`() {
-        val code = host("--help", environment = mapOf("ALEXANDRITE_DATA_DIR" to "/srv/alexandrite"))
+        val named = if (System.getProperty(
+                "os.name",
+            ).startsWith("Windows")
+        ) {
+            "C:\\srv\\alexandrite"
+        } else {
+            "/srv/alexandrite"
+        }
+        val code = host("--help", environment = mapOf("ALEXANDRITE_DATA_DIR" to named))
 
         assertEquals(0, code)
         assertContains(stdout(), "Usage: alexandrite [--config <file>] [--data-dir <dir>] [--cache-dir <dir>]")
         assertContains(stdout(), "by default ${home.resolve(".config/alexandrite/alexandrite.json")}")
-        assertContains(stdout(), "by default /srv/alexandrite")
+        assertContains(stdout(), "by default $named")
         assertEquals("", stderr())
     }
 
@@ -97,14 +123,17 @@ class MainTest {
     fun `--version prints the version`() {
         assertEquals(0, host("--version"))
 
-        assertTrue(Regex("""alexandrite \d+\.\d+\.\d+\S*\n""").matches(stdout()), stdout())
+        assertTrue(Regex("""alexandrite \d+\.\d+\.\d+\S*\n""").matches(stdout().replace("\r\n", "\n")), stdout())
     }
 
     @Test
     fun `bad arguments print the reason and the usage to stderr and exit 64`() {
         assertEquals(64, host("--config"))
 
-        assertTrue(stderr().startsWith("alexandrite: --config needs a value.\n\nUsage: alexandrite"), stderr())
+        assertTrue(
+            stderr().replace("\r\n", "\n").startsWith("alexandrite: --config needs a value.\n\nUsage: alexandrite"),
+            stderr(),
+        )
         assertEquals("", stdout())
     }
 
@@ -221,7 +250,7 @@ class MainTest {
         assertEquals(78, host("--config", "${config("{}")}", environment = invalid))
 
         assertEquals(
-            List(2) { "alexandrite: ALEXANDRITE_DATA_DIR names no valid path: Nul character not allowed." },
+            List(2) { "alexandrite: ALEXANDRITE_DATA_DIR names no valid path: " + noValidPathReason() },
             stderr().lines().filter { it.isNotEmpty() },
         )
         assertEquals(0, host("--version", environment = invalid))

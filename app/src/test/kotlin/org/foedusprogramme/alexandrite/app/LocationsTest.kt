@@ -13,7 +13,60 @@ class LocationsTest {
 
     private fun path(first: String, vararg more: String): Path = Path.of(first, *more)
 
+    /** The directory [name] names for [os], in that host's own syntax. */
+    private fun expectedXdg(os: String, name: String): Path = Path.of(xdgFor(os).getValue(name), "alexandrite")
+
+    /** The directory the config file sits in for [os]. */
+    private fun expectedXdgConfig(os: String): Path = expectedXdg(os, "XDG_CONFIG_HOME")
+
     private val systems = listOf("Mac OS X", "Linux", "Windows 11")
+
+    private val isWindows: Boolean = System.getProperty("os.name").startsWith("Windows")
+
+    /**
+     * The systems whose paths this host can render.
+     *
+     * A path is built with the host's own separator, so a POSIX path asked for on Windows, or a Windows path asked
+     * for on Linux, does not come back as the test wrote it. The cases that only check precedence run against every
+     * system; the ones that compare whole paths run against the ones this host shares a path syntax with.
+     */
+    private val hostSystems: List<String> = if (isWindows) listOf("Windows 11") else listOf("Mac OS X", "Linux")
+
+    /**
+     * The message a path that names no valid path is refused with.
+     *
+     * The wording differs between hosts, and Windows names the offending character itself: it reports a null as
+     * `Illegal char <NUL>.`, with a real null inside the brackets, so the expected text is taken from the host
+     * rather than written out here.
+     */
+    private fun pathRefusal(variable: String): String = if (isWindows) {
+        "$variable names no valid path: Illegal char <${illegalCharacter()} >.".replace(" >", ">")
+    } else {
+        "$variable names no valid path: Nul character not allowed."
+    }
+
+    /** The character the host names as illegal in a path, as the host prints it. */
+    private fun illegalCharacter(): String {
+        val error = assertFailsWith<IllegalArgumentException> { Path.of("a\u0000b") }
+        return error.message.orEmpty().substringAfter("Illegal char <").substringBeforeLast(">")
+    }
+
+    /**
+     * Absolute directories to hand the XDG variables, which the code takes only when the host calls them absolute.
+     *
+     * A POSIX path such as `/xdg/data` is not absolute on Windows, so a case that checks the precedence of the XDG
+     * variables has to name directories in the syntax of the host that resolves them. What the case is about is the
+     * precedence, not the separator, so each host gets its own absolute directories.
+     */
+    private fun xdgFor(os: String): Map<String, String> = if (os.startsWith("Windows")) {
+        mapOf(
+            "XDG_CONFIG_HOME" to "C:\\xdg\\config",
+            "XDG_DATA_HOME" to "C:\\xdg\\data",
+            "XDG_CACHE_HOME" to "C:\\xdg\\cache",
+        )
+    } else {
+        xdg
+    }
 
     private val xdg = mapOf(
         "XDG_CONFIG_HOME" to "/xdg/config",
@@ -83,14 +136,14 @@ class LocationsTest {
 
     @Test
     fun `XDG directories come before the platform default on every platform`() {
-        for (os in systems) {
+        for (os in hostSystems) {
             assertEquals(
                 listOf(
-                    path("/xdg/config/alexandrite/alexandrite.json"),
-                    path("/xdg/data/alexandrite"),
-                    path("/xdg/cache/alexandrite"),
+                    expectedXdg(os, "XDG_CONFIG_HOME").resolve("alexandrite.json"),
+                    expectedXdg(os, "XDG_DATA_HOME"),
+                    expectedXdg(os, "XDG_CACHE_HOME"),
                 ),
-                at(os, xdg),
+                at(os, xdgFor(os)),
                 os,
             )
         }
@@ -108,7 +161,7 @@ class LocationsTest {
         for (os in systems) {
             assertEquals(
                 listOf(path("/etc/alexandrite.json"), path("/var/lib/alexandrite"), path("/var/cache/alexandrite")),
-                at(os, xdg + own),
+                at(os, xdgFor(os) + own),
                 os,
             )
         }
@@ -126,17 +179,18 @@ class LocationsTest {
         val options = Options(Path.of("my.json"), Path.of("data"), Path.of("cache"))
 
         for (os in systems) {
-            assertEquals(listOf(path("my.json"), path("data"), path("cache")), at(os, xdg + own, options), os)
+            assertEquals(listOf(path("my.json"), path("data"), path("cache")), at(os, xdgFor(os) + own, options), os)
         }
     }
 
     @Test
     fun `each location falls back on its own`() {
-        val mixed = mapOf("XDG_DATA_HOME" to "/xdg/data", "XDG_CACHE_HOME" to "/xdg/cache")
+        val os = hostSystems.first()
+        val environment = xdgFor(os).filterKeys { it != "XDG_CONFIG_HOME" }
 
         assertEquals(
-            listOf(path("given.json"), path("/xdg/data/alexandrite"), path("/xdg/cache/alexandrite")),
-            at("Linux", mixed, Options(configFile = Path.of("given.json"))),
+            listOf(Path.of("given.json"), expectedXdg(os, "XDG_DATA_HOME"), expectedXdg(os, "XDG_CACHE_HOME")),
+            at(os, environment, Options(configFile = Path.of("given.json"))),
         )
     }
 
@@ -146,7 +200,7 @@ class LocationsTest {
 
         for (os in systems) {
             assertEquals(path("/srv/data/cache"), at(os, named)[2], os)
-            assertEquals(path("data/cache"), at(os, xdg, Options(dataDir = Path.of("data")))[2], os)
+            assertEquals(path("data/cache"), at(os, xdgFor(os), Options(dataDir = Path.of("data")))[2], os)
             assertEquals(path("/var/cache/alexandrite"), at(os, named + own)[2], os)
             assertEquals(path("cache"), at(os, named, Options(cacheDir = Path.of("cache")))[2], os)
         }
@@ -156,6 +210,6 @@ class LocationsTest {
     fun `a variable that names no valid path is refused naming the variable`() {
         val error = assertFailsWith<IllegalArgumentException> { at("Linux", mapOf("XDG_DATA_HOME" to "/a\u0000b")) }
 
-        assertEquals("XDG_DATA_HOME names no valid path: Nul character not allowed.", error.message)
+        assertEquals(pathRefusal("XDG_DATA_HOME"), error.message)
     }
 }
