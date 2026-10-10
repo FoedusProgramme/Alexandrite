@@ -22,6 +22,9 @@ import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
+import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
@@ -260,7 +263,10 @@ class FakesTest {
             ChatSettingsSnapshot.builder(AgentId.MAIN).model(TEST_MODEL).reasoning(ReasoningEffort.HIGH).build(),
             main,
         )
-        assertEquals(ChatSettingsSnapshot.builder(coder).language(LanguageTag("de")).build(), switched)
+        assertEquals(
+            ChatSettingsSnapshot.builder(coder).language(LanguageTag("de")).agentSource(AgentSource.SELECTED).build(),
+            switched,
+        )
         assertEquals(ChatSettingsSnapshot.builder(AgentId.MAIN).model(TEST_MODEL).build(), returned)
         assertEquals(returned, blocking { control.settings(chat) })
         assertEquals(
@@ -286,6 +292,67 @@ class FakesTest {
 
         assertEquals(listOf(true, false, true, false), listOf(home, switched, back, left).map { it.home })
         assertFalse(blocking { control.settings(testChat("other")) }.home)
+    }
+
+    @Test
+    fun `a recording agent control routes a chat to its home agent unless it switched, and keeps homes apart`() {
+        val control = RecordingAgentControl()
+        val (chat, other) = listOf(testChat("a"), testChat("b"))
+        val coder = AgentId("coder")
+        fun update(block: ChatSettingsUpdate.Builder.() -> Unit) = ChatSettingsUpdate.builder().apply(block).build()
+
+        val chosen = blocking { control.updateSettings(chat, update { agent(coder).home() }, null) }
+        val reset = blocking { control.updateSettings(chat, update { resetAgent() }, null) }
+        val thread = blocking { control.settings(testChat("a", "7")) }
+        val taken = assertFailsWith<IllegalArgumentException> {
+            blocking { control.updateSettings(chat, update { agent(AgentId.MAIN).home() }, null) }
+        }
+        val unchanged = blocking { control.settings(chat) }
+        val elsewhere = blocking { control.settings(other) }
+        val left = blocking { control.updateSettings(chat, update { noHome() }, null) }
+
+        assertEquals(
+            listOf(Triple(coder, AgentSource.SELECTED, true), Triple(coder, AgentSource.HOME, true)),
+            listOf(chosen, reset).map { Triple(it.agent, it.agentSource, it.home) },
+        )
+        assertEquals(Triple(coder, AgentSource.HOME, false), Triple(thread.agent, thread.agentSource, thread.home))
+        assertEquals("test:main:a is the home chat of agent 'coder'.", taken.message)
+        assertEquals(AgentId.MAIN to AgentSource.DEFAULT, elsewhere.agent to elsewhere.agentSource)
+        assertEquals(reset, unchanged)
+        assertEquals(AgentId.MAIN to AgentSource.DEFAULT, left.agent to left.agentSource)
+    }
+
+    @Test
+    fun `a recording agent control lists its default and scripted agents with their homes and settings`() {
+        val control = RecordingAgentControl(AgentId("coder"))
+        val helper = AgentId("helper")
+        val chat = testChat()
+        val english = AgentDefaults(TEST_MODEL, ReasoningEffort.LOW, LanguageTag("en"))
+        control.scriptAgent(helper, "Helper", "Answers questions.", AgentDefaults(language = LanguageTag("de")))
+        control.scriptAgent(AgentId("coder"), "Coder", defaults = english)
+
+        val listed = control.agents(TEST_INSTANCE)
+        val home = blocking {
+            control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).home().build(), null)
+        }
+        val languages = blocking {
+            val german = control.language(chat)
+            control.updateSettings(chat, ChatSettingsUpdate.builder().language(LanguageTag("fr")).build(), null)
+            listOf(german, control.language(chat), control.language(testChat("other")))
+        }
+
+        assertEquals(
+            listOf(
+                AgentSummary(AgentId("coder"), "Coder", null, true, null),
+                AgentSummary(helper, "Helper", "Answers questions.", false, null),
+            ),
+            listed,
+        )
+        assertEquals(listOf(null, chat), control.agents(TEST_INSTANCE).map { it.home })
+        assertEquals(AgentDefaults(language = LanguageTag("de")), home.defaults)
+        assertEquals(english, blocking { control.settings(testChat("other")) }.defaults)
+        assertEquals(listOf("de", "fr", "en").map(::LanguageTag), languages)
+        assertEquals(AgentDefaults(), blocking { RecordingAgentControl().settings(chat) }.defaults)
     }
 
     @Test

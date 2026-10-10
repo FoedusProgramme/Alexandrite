@@ -308,7 +308,7 @@ public class PluginHarness private constructor(
         /** Hands [initiator] every turn that a plugin's TurnInitiator starts, with the plugin's id. */
         public fun turnInitiator(initiator: RecordingTurnInitiator): Builder = apply { this.initiator = initiator }
 
-        /** Binds [control] as the runtime's AgentControl. */
+        /** Binds [control] as the runtime's AgentControl and ChatSettings. */
         public fun agentControl(control: RecordingAgentControl): Builder = apply { this.control = control }
 
         /** Keeps every plugin's chat states in [states]. */

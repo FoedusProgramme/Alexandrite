@@ -28,6 +28,9 @@ public interface ReplySink {
     /** Shows [text], the whole text of [segment] so far, where a higher segment freezes the earlier ones. */
     public suspend fun preview(segment: Int, text: String)
 
+    /** Starts [segment], which freezes the earlier ones, before its first preview if it gets any. */
+    public suspend fun startSegment(segment: Int) {}
+
     /** Delivers the final reply, in place of the previews where the channel can. */
     public suspend fun complete(message: OutboundMessage): Delivery
 

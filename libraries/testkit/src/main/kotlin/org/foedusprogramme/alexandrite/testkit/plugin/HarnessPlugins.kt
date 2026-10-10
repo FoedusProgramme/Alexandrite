@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatSettings
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -82,7 +83,10 @@ internal class DoublesPlugin(
             }
             add(instanceBinding(key<TurnInitiation>(), initiation, ID, "RecordingTurnInitiator"))
         }
-        control?.let { add(instanceBinding(key<AgentControl>(), it, ID, "RecordingAgentControl")) }
+        control?.let {
+            add(instanceBinding(key<AgentControl>(), it, ID, "RecordingAgentControl"))
+            add(instanceBinding(key<ChatSettings>(), it, ID, "RecordingAgentControl"))
+        }
         store?.let {
             add(instanceBinding(key<ConversationStore>(), it.conversations, ID, "MemoryStore.conversations"))
             add(instanceBinding(key<TranscriptStore>(), it.transcripts, ID, "MemoryStore.transcripts"))

@@ -53,6 +53,7 @@ internal class ReplyStream(
         texts.clear()
         calling = false
         offered = null
+        toSink("The start of segment $segment") { sink.startSegment(segment) }
     }
 
     private suspend fun offer(throttled: Boolean) {
@@ -65,12 +66,17 @@ internal class ReplyStream(
         offeredAt = now
         val previewed = preview(segment, text)?.takeIf { it.isNotEmpty() } ?: return
         shown = true
+        toSink("A preview") { sink.preview(segment, previewed) }
+    }
+
+    /** Runs [call], logging a failure as [what] that did not reach the chat. */
+    private suspend fun toSink(what: String, call: suspend () -> Unit) {
         try {
-            sink.preview(segment, previewed)
+            call()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logger.warn("A preview of turn {} did not reach its chat: {}", turn, e.toString())
+            logger.warn("{} of turn {} did not reach its chat: {}", what, turn, e.toString())
         }
     }
 }

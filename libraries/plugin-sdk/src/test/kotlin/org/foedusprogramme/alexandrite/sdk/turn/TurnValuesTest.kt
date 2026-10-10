@@ -30,6 +30,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -258,6 +259,38 @@ class TurnValuesTest {
     }
 
     @Test
+    fun `a settings snapshot has the default agent with nothing configured until set`() {
+        val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
+        val configured = AgentDefaults(claude, ReasoningEffort.LOW, LanguageTag("de"))
+        val chosen = snapshot.rebuild {
+            agentSource(AgentSource.SELECTED)
+            defaults(configured)
+        }
+
+        assertEquals(AgentSource.DEFAULT, snapshot.agentSource)
+        assertEquals(listOf(null, null, null), snapshot.defaults.let { listOf(it.model, it.reasoning, it.language) })
+        assertEquals(AgentSource.SELECTED to configured, chosen.agentSource to chosen.defaults)
+        assertEquals(chosen, chosen.rebuild { home(true) }.toBuilder().home(false).build())
+        assertNotEquals(snapshot, chosen.rebuild { agentSource(AgentSource.DEFAULT) })
+        assertEquals(snapshot, chosen.rebuild { agentSource(AgentSource.DEFAULT).defaults(AgentDefaults()) })
+    }
+
+    @Test
+    fun `an agent summary and an agent's configured settings are equal by their properties`() {
+        val home = ChatAddress(work, "42")
+        val summary = AgentSummary(AgentId("coder"), "Coder", "Writes code.", default = true, home = home)
+
+        assertEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, home), summary)
+        assertNotEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, null), summary)
+        assertEquals(
+            "AgentSummary(id=coder, name=Coder, description=Writes code., default=true, home=telegram:work:42)",
+            summary.toString(),
+        )
+        assertEquals(AgentDefaults(claude, null, null), AgentDefaults(model = claude))
+        assertNotEquals(AgentDefaults(), AgentDefaults(language = LanguageTag("de")))
+    }
+
+    @Test
     fun `a linked group holds at least one member and each chat once`() {
         val other = ChatAddress.parse("test:main:2")
         val group = ChatLinkGroup(AgentId("coder"), chat, listOf(other))
@@ -273,6 +306,7 @@ class TurnValuesTest {
         assertEquals("\"queue_full\"", Json.encodeToString(RefusalReason.QUEUE_FULL))
         assertEquals(RefusalReason.NO_AGENT, Json.decodeFromString<RefusalReason>("\"no_agent\""))
         assertEquals("\"running\"", Json.encodeToString(TurnPhase.RUNNING))
+        assertEquals(AgentSource.HOME, Json.decodeFromString<AgentSource>("\"home\""))
         assertEquals(InstanceState.STOPPING, Json.decodeFromString<InstanceState>("\"stopping\""))
     }
 }

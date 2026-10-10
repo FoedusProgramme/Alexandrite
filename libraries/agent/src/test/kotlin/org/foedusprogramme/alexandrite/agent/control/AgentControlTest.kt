@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.agent.worker.ticket
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatSettings
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
@@ -18,6 +19,9 @@ import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
@@ -43,6 +47,10 @@ class AgentControlTest {
     private val sealed = Observer(TurnPoints.CONVERSATION_SEALED)
     private val coder = AgentId("coder")
     private val helper = AgentId("helper")
+    private val configured = mapOf(
+        coder to AgentDefaults(model.ref, null, LanguageTag("en")),
+        helper to AgentDefaults(model.ref),
+    )
 
     /** `coder` is the default of `test:main`, and `helper` answers in its home chat `test:main:home`. */
     private fun harness(configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness = agentHarness(
@@ -63,6 +71,16 @@ class AgentControlTest {
         commands.control = get()
         return channel()
     }
+
+    private fun snapshot(
+        agent: AgentId,
+        source: AgentSource,
+        block: ChatSettingsSnapshot.Builder.() -> Unit = {},
+    ): ChatSettingsSnapshot = ChatSettingsSnapshot.builder(agent)
+        .agentSource(source)
+        .defaults(configured.getValue(agent))
+        .apply(block)
+        .build()
 
     private val Admission.accepted: Admission.Accepted get() = this as Admission.Accepted
 
@@ -149,7 +167,7 @@ class AgentControlTest {
             assertEquals(coder, channel.answered(running).turn.agent)
             assertEquals(listOf(helper, helper, coder), listOf(switched, atHome, switchedHome).map { it.agent })
             assertEquals(listOf(helper, coder), commands.snapshots.map { it.agent })
-            assertEquals(ChatSettingsSnapshot.builder(coder).build(), commands.control.settings(home))
+            assertEquals(snapshot(coder, AgentSource.SELECTED), commands.control.settings(home))
         }
     }
 
@@ -160,11 +178,11 @@ class AgentControlTest {
             text("Old.")
             pause { first.await() }
         }.reply { text("New.") }
-        val tuned = ChatSettingsSnapshot.builder(coder)
-            .model(ModelRef.parse("scripted/other"))
-            .reasoning(ReasoningEffort.HIGH)
-            .language(LanguageTag("de"))
-            .build()
+        val tuned = snapshot(coder, AgentSource.DEFAULT) {
+            model(ModelRef.parse("scripted/other"))
+            reasoning(ReasoningEffort.HIGH)
+            language(LanguageTag("de"))
+        }
 
         harness().execute {
             val channel = start()
@@ -188,6 +206,69 @@ class AgentControlTest {
             assertEquals(LanguageTag("de"), after.language)
             assertEquals(LanguageTag("de"), get<ChatSettings>().language(channel.chat()))
             assertNull(get<ChatSettings>().language(ChatAddress.parse("test:other:1")))
+        }
+    }
+
+    @Test
+    fun `settings name why their agent serves the chat and what the agent is configured with`() {
+        harness().execute {
+            val control = get<AgentControl>()
+            val chat = channel().chat()
+            val home = channel().chat("home")
+
+            val before = listOf(chat, home, channel().chat("home", "1")).map { control.settings(it) }
+            val switched = control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).build(), null)
+            val homeSwitched = control.updateSettings(home, ChatSettingsUpdate.builder().agent(helper).build(), null)
+            val reset = control.updateSettings(chat, ChatSettingsUpdate.builder().resetAgent().build(), null)
+
+            assertEquals(
+                listOf(
+                    snapshot(coder, AgentSource.DEFAULT),
+                    snapshot(helper, AgentSource.HOME) { home(true) },
+                    snapshot(helper, AgentSource.HOME),
+                ),
+                before,
+            )
+            assertEquals(snapshot(helper, AgentSource.SELECTED), switched)
+            assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, homeSwitched)
+            assertEquals(snapshot(coder, AgentSource.DEFAULT), reset)
+        }
+    }
+
+    @Test
+    fun `agents lists the agents of an instance in config order with their homes there`() {
+        val config = """
+            {
+              "agents": {
+                "helper": {
+                  "name": "Helper",
+                  "description": "Answers questions.",
+                  "model": "scripted/test-model",
+                  "channels": {"test:main": {"home": "home"}, "test:side": {"home": "7#2"}}
+                },
+                "coder": {"model": "scripted/test-model", "channels": {"test:main": {"default": true}}},
+                "planner": {"model": "scripted/test-model"}
+              }
+            }
+        """.trimIndent()
+
+        agentHarness(config, store) { channel().channel("side").model(model) }.execute {
+            val control = get<AgentControl>()
+            val main = channel().instance
+            val side = channel("side").instance
+
+            assertEquals(
+                listOf(
+                    AgentSummary(helper, "Helper", "Answers questions.", false, channel().chat("home")),
+                    AgentSummary(coder, "coder", null, true, null),
+                ),
+                control.agents(main),
+            )
+            assertEquals(
+                listOf(AgentSummary(helper, "Helper", "Answers questions.", true, channel("side").chat("7", "2"))),
+                control.agents(side),
+            )
+            assertEquals(emptyList(), control.agents(ChannelInstanceId.parse("test:other")))
         }
     }
 
@@ -221,8 +302,8 @@ class AgentControlTest {
                 refused { agent(helper).home() },
             )
 
-            assertEquals(ChatSettingsSnapshot.builder(coder).build(), control.settings(channel.chat()))
-            assertEquals(ChatSettingsSnapshot.builder(helper).home(true).build(), control.settings(home))
+            assertEquals(snapshot(coder, AgentSource.DEFAULT), control.settings(channel.chat()))
+            assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, control.settings(home))
             assertEquals(
                 "No agent serves test:other:1.",
                 assertFailsWith<IllegalArgumentException> {

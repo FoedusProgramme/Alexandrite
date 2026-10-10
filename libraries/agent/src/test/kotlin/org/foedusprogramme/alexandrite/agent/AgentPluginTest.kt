@@ -20,6 +20,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
@@ -58,7 +59,7 @@ class AgentPluginTest {
 
                 assertEquals(listOf(AgentId("coder")), get<AgentDirectory>().agents.map { it.id })
                 assertEquals(
-                    Resolution.Served(AgentChatKey(AgentId("coder"), chat), chat),
+                    Resolution.Served(AgentChatKey(AgentId("coder"), chat), chat, AgentSource.DEFAULT),
                     get<ChatRouter>().resolve(chat),
                 )
                 assertEquals(

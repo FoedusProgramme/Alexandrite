@@ -203,6 +203,7 @@ class SubclassOptInTest {
                 chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override fun agents(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
             override suspend fun settings(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun updateSettings(
                 chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
@@ -364,6 +365,13 @@ class SubclassOptInTest {
             ELSE
         }
 
+        fun source(source: org.foedusprogramme.alexandrite.sdk.turn.AgentSource): Int = when (source) {
+            org.foedusprogramme.alexandrite.sdk.turn.AgentSource.SELECTED -> 0
+            org.foedusprogramme.alexandrite.sdk.turn.AgentSource.HOME -> 1
+            org.foedusprogramme.alexandrite.sdk.turn.AgentSource.DEFAULT -> 2
+            ELSE
+        }
+
         fun refusal(refusal: org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal): Int = when (refusal) {
             org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.NO_FILE -> 0
             org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal.READ_ONLY -> 1
@@ -396,6 +404,8 @@ class SubclassOptInTest {
             override suspend fun openReply(request: ReplyRequest): ReplySink = object : ReplySink {
                 override suspend fun preview(segment: Int, text: String) = print(text)
 
+                override suspend fun startSegment(segment: Int) = println()
+
                 override suspend fun complete(message: OutboundMessage): Delivery =
                     Delivery.Delivered(listOfNotNull(request.trigger))
 
@@ -405,6 +415,14 @@ class SubclassOptInTest {
             override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
                 if (message.kind == MessageKind.REPLY) Delivery.Delivered(emptyList())
                 else Delivery.NotDelivered(DeliveryFailure.UNSUPPORTED, "notices are not shown")
+        }
+
+        object Silent : ReplySink {
+            override suspend fun preview(segment: Int, text: String) {}
+
+            override suspend fun complete(message: OutboundMessage): Delivery = Delivery.Delivered(emptyList())
+
+            override suspend fun abandon(end: ReplyEnd) {}
         }
 
         val content = MediaContent { maxBytes -> ByteArray(minOf(maxBytes, 4L).toInt()) }
@@ -544,7 +562,12 @@ class SubclassOptInTest {
                 }
                 val home = ChatSettingsUpdate.builder().home().build()
                 if (!control.updateSettings(invocation.chat, home, invocation.issuer).home) return
-                val agent = control.settings(invocation.chat).agent
+                val settings = control.settings(invocation.chat)
+                val agent = settings.agent
+                val described: AgentSummary? = control.agents(invocation.chat.instance).firstOrNull { it.id == agent }
+                val model = settings.model ?: settings.defaults.model
+                val chosenDefault = settings.agentSource == AgentSource.SELECTED && described?.default == true
+                if (chosenDefault) context.reply("${'$'}model")
                 val group: ChatLinkGroup = control.link(agent, invocation.chat, invocation.chat, invocation.issuer)
                 if (group in control.links(agent)) control.unlink(agent, group.members.first(), null)
             }

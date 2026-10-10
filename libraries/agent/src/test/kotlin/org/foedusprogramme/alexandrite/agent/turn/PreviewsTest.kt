@@ -102,6 +102,28 @@ class PreviewsTest {
     }
 
     @Test
+    fun `each round after the first starts a segment, also one that shows no preview`() {
+        model.reply {
+            text("Looking.")
+            toolCall("fs.read")
+        }.reply { toolCall("fs.glob") }.reply { text("Found.") }
+
+        harness(interval = 60_000).execute {
+            val admission = channel().receive("Hi")
+            admission.outcome()
+
+            val reply = channel().reply(admission)
+            assertEquals(listOf(1, 2), reply.startedSegments)
+            assertEquals(listOf(Preview(0, "Looking.")), reply.previews)
+            assertEquals("Found.", reply.completed?.text)
+            assertEquals(
+                listOf("Received", "Opened", "Previewed", "Completed"),
+                channel().events.map { it::class.simpleName },
+            )
+        }
+    }
+
+    @Test
     fun `response preview hooks see each preview and replace it, hold it back or fail to show it`() {
         val cases: List<Pair<(ReplyPreview) -> HookDecision<ReplyPreview>, List<Preview>>> = listOf(
             { it: ReplyPreview -> HookDecision.Replace(it.withText(it.text.uppercase())) } to

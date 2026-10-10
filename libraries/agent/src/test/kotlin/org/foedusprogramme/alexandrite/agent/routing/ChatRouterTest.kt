@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -74,6 +75,9 @@ class ChatRouterTest {
 
     private fun resolve(chat: String): String = describe(blocking { router.resolve(ChatAddress.parse(chat)) })
 
+    private fun source(chat: String): AgentSource =
+        (blocking { router.resolve(ChatAddress.parse(chat)) } as Resolution.Served).source
+
     private fun describe(resolution: Resolution?): String = when (resolution) {
         is Resolution.Served -> resolution.key.toString()
         Resolution.Unknown -> "unknown"
@@ -129,6 +133,22 @@ class ChatRouterTest {
     }
 
     @Test
+    fun `a resolution names the rule that chose its agent`() {
+        select("test:main:5", "coder")
+        select("test:lone:5", "loner")
+
+        val reset = router.resolveAs(ChatAddress.parse("test:main:5"), null) as Resolution.Served
+
+        assertEquals(AgentSource.SELECTED, source("test:main:5"))
+        assertEquals(AgentSource.SELECTED, source("test:main:5#3"))
+        assertEquals(AgentSource.HOME, source("test:main:1"))
+        assertEquals(AgentSource.HOME, source("test:main:2#7"))
+        assertEquals(AgentSource.DEFAULT, source("test:main:2"))
+        assertEquals(AgentSource.DEFAULT, source("test:lone:5"))
+        assertEquals(AgentSource.DEFAULT, reset.source)
+    }
+
+    @Test
     fun `a switch to an agent that no longer serves the instance is ignored with one warning per chat`() {
         select("test:main:5", "planner")
         select("test:main:1", "planner")
@@ -163,7 +183,10 @@ class ChatRouterTest {
         assertNull(router.cached(chat))
         assertEquals("loner@test:lone:5", describe(router.cached(ChatAddress.parse("test:lone:5"))))
         assertEquals("reviewer@test:main:5", resolve("test:main:5"))
-        assertEquals(Resolution.Served(AgentChatKey.parse("reviewer@test:main:5"), chat), router.cached(chat))
+        assertEquals(
+            Resolution.Served(AgentChatKey.parse("reviewer@test:main:5"), chat, AgentSource.SELECTED),
+            router.cached(chat),
+        )
         assertEquals(1, reads.get())
     }
 
@@ -173,7 +196,7 @@ class ChatRouterTest {
         val member = ChatAddress.parse("test:solo:7")
 
         assertEquals(
-            Resolution.Served(AgentChatKey.parse("coder@test:main:7"), member),
+            Resolution.Served(AgentChatKey.parse("coder@test:main:7"), member, AgentSource.SELECTED),
             blocking { router.resolve(member) },
         )
         assertEquals("coder@test:main:7", resolve("test:main:7"))

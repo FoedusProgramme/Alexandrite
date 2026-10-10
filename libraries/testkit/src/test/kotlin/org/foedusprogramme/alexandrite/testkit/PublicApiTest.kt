@@ -93,6 +93,7 @@ class PublicApiTest {
             )
             val sink = channel.openReply(ReplyRequest(testTurn(), null))
             sink.preview(0, "Hel")
+            sink.startSegment(1)
             sink.complete(OutboundMessage.builder("Hello", MessageKind.REPLY).build())
             channel.send(channel.chat(), OutboundMessage.builder("Note", MessageKind.NOTICE).build())
             val recorded: RecordedReply = channel.awaitReply(TurnId("test-turn")).awaitEnd()
@@ -108,7 +109,8 @@ class PublicApiTest {
             }
             return listOf(
                 command, admissions, described, preview.segment, preview.text, recorded.request, recorded.turn,
-                recorded.segments, recorded.completed, recorded.delivery, recorded.abandoned, recorded.ended,
+                recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,
+                recorded.ended,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,
                 channel.violations, channel.capabilities(channel.chat()),
                 channel.partsNeeded(channel.chat(), "x", Markup.PLAIN),
@@ -133,6 +135,7 @@ class PublicApiTest {
             val invoked = testCommandContext(testCommand("new"))
             val control = RecordingAgentControl(AgentId.MAIN)
             control.statuses = emptyList()
+            control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", AgentDefaults(language = LanguageTag("en")))
             control.cancel(testChat(), null)
             control.cancelTurn(TurnId("t"), null)
             control.cancelRun(RunId("r"), true, null)
@@ -160,6 +163,7 @@ class PublicApiTest {
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies, invoked, call,
                 control.turns(null), control.settings(testChat()), control.links(), control.trustedFolders(),
+                control.agents(TEST_INSTANCE), control.language(testChat()),
                 states.of("probe"),
                 testChatStates("probe"),
                 testToolContext(testDelegatedTurn(testTurn(), RunId("r"), ToolCallId("c")) { }, ToolCallId("c")),

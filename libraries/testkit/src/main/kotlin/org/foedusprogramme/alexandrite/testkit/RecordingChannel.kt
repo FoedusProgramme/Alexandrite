@@ -249,6 +249,25 @@ public class RecordingChannel(
             }
         }
 
+        override suspend fun startSegment(segment: Int) {
+            synchronized(lock) {
+                violation(
+                    when {
+                        stopped -> "segment $segment of turn $turn started after the instance stopped."
+
+                        reply.end != null -> "segment $segment of turn $turn started after its reply ended."
+
+                        segment < reply.segment ->
+                            "segment $segment of turn $turn started after segment ${reply.segment}."
+
+                        else -> null
+                    },
+                )
+                reply.segment = segment
+                reply.started += segment
+            }
+        }
+
         override suspend fun complete(message: OutboundMessage): Delivery = synchronized(lock) {
             checkOpen("completed")
             val delivery = delivery(reply.turn.chat, message, replying = true)
@@ -318,6 +337,7 @@ public class RecordedReply internal constructor(
 ) {
     internal var segment = 0
     internal val previewed = mutableListOf<Preview>()
+    internal val started = mutableListOf<Int>()
     internal var end: RecordingChannel.Event? = null
 
     public val turn: TurnInfo get() = request.turn
@@ -326,6 +346,9 @@ public class RecordedReply internal constructor(
 
     /** The last preview of each segment. */
     public val segments: Map<Int, String> get() = previews.associate { it.segment to it.text }
+
+    /** The segments the agent started, in order. */
+    public val startedSegments: List<Int> get() = channel.read { started.toList() }
 
     /** The final message, null until the reply completes. */
     public val completed: OutboundMessage? get() = channel.read { (end as? RecordingChannel.Event.Completed)?.message }

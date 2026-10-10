@@ -16,6 +16,9 @@ import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
@@ -76,6 +79,16 @@ class WriteBackTest {
     }
 
     private fun PluginHarness.Running.channelOf(chat: ChatAddress): RecordingChannel = channel(chat.instance)
+
+    private fun snapshot(
+        agent: AgentId,
+        source: AgentSource,
+        block: ChatSettingsSnapshot.Builder.() -> Unit = {},
+    ): ChatSettingsSnapshot = ChatSettingsSnapshot.builder(agent)
+        .agentSource(source)
+        .defaults(AgentDefaults(model.ref))
+        .apply(block)
+        .build()
 
     /** The reply of a message in [chat], once its turn ended. */
     private suspend fun PluginHarness.Running.ask(chat: ChatAddress, text: String = "Hi"): RecordedReply {
@@ -147,15 +160,24 @@ class WriteBackTest {
 
             val home = control.updateSettings(chat, update { agent(helper).home() }, null)
             val written = configured(helper, "channels/test:main/home")
+            val listed = control.agents(chat.instance)
             val reset = control.updateSettings(chat, update { resetAgent() }, null)
             val thread = control.settings(ChatAddress.parse("test:main:5#9"))
             val left = control.updateSettings(chat, update { noHome() }, null)
 
-            assertEquals(ChatSettingsSnapshot.builder(helper).home(true).build(), home)
+            assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, home)
             assertEquals(JsonPrimitive("5"), written)
-            assertEquals(ChatSettingsSnapshot.builder(helper).home(true).build(), reset)
-            assertEquals(ChatSettingsSnapshot.builder(helper).build(), thread)
-            assertEquals(ChatSettingsSnapshot.builder(coder).build(), left)
+            assertEquals(
+                listOf(
+                    AgentSummary(coder, "coder", null, true, null),
+                    AgentSummary(helper, "helper", null, false, chat),
+                ),
+                listed,
+            )
+            assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, reset)
+            assertEquals(snapshot(helper, AgentSource.HOME), thread)
+            assertEquals(snapshot(coder, AgentSource.DEFAULT), left)
+            assertEquals(listOf(null, null), control.agents(chat.instance).map { it.home })
             assertNull(configured(helper, "channels/test:main/home"))
         }
     }
@@ -192,7 +214,7 @@ class WriteBackTest {
             )
             assertEquals("The config file did not take the change (invalid_result), so nothing changed.", invalid)
             assertEquals(handEdited, Files.readString(file))
-            assertEquals(ChatSettingsSnapshot.builder(coder).build(), control.settings(chat))
+            assertEquals(snapshot(coder, AgentSource.DEFAULT), control.settings(chat))
             assertEquals(emptyList(), control.links())
             assertEquals(AgentChatKey(coder, member), ask(member).turn.key)
         }

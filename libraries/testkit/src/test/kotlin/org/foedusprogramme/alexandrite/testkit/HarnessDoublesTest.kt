@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatSettings
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.state
@@ -156,11 +157,12 @@ class HarnessDoublesTest {
     }
 
     @Test
-    fun `the harness binds the agent control it was given`() {
+    fun `the harness binds the agent control it was given, also as the chat settings`() {
         val control = RecordingAgentControl()
 
         PluginHarness.builder(probe).agentControl(control).execute {
             get<AgentControl>().cancel(testChat(), null)
+            assertSame(control, get<ChatSettings>())
         }
 
         assertEquals(listOf(RecordingAgentControl.Call.Cancel(testChat(), null)), control.calls)

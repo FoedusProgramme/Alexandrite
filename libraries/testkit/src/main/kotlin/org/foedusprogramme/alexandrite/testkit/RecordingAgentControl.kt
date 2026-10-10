@@ -4,11 +4,16 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatSettings
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
@@ -18,14 +23,17 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import java.nio.file.Path
 
 /**
- * An [AgentControl] that records its calls, lists the [statuses] the test sets, mints conversations `conversation-<n>`
- * and keeps chat settings per agent and chat, home chats per agent and instance, linked groups and trusted folders,
- * where [defaultAgent] serves every chat until an update switches it.
+ * An [AgentControl] and [ChatSettings] that records its calls, lists the [statuses] the test sets, mints conversations
+ * `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance, linked groups and
+ * trusted folders, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
  */
-public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.MAIN) : AgentControl {
+public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.MAIN) :
+    AgentControl,
+    ChatSettings {
     private val lock = Any()
     private val recorded = mutableListOf<Call>()
-    private val agents = HashMap<ChatAddress, AgentId>()
+    private val profiles = linkedMapOf(defaultAgent to Profile(defaultAgent.value, null, AgentDefaults()))
+    private val selected = HashMap<ChatAddress, AgentId>()
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
     private val homes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
     private val groups = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
@@ -37,6 +45,16 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     public var statuses: List<TurnStatus> = emptyList()
 
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
+
+    /** Lists [agent], in its place when it is listed already, with [name], [description] and [defaults]. */
+    public fun scriptAgent(
+        agent: AgentId,
+        name: String = agent.value,
+        description: String? = null,
+        defaults: AgentDefaults = AgentDefaults(),
+    ) {
+        synchronized(lock) { profiles[agent] = Profile(name, description, defaults) }
+    }
 
     override fun turns(chat: ChatAddress?): List<TurnStatus> = statuses.filter { chat == null || it.turn.chat == chat }
 
@@ -62,29 +80,47 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         ConversationId("conversation-${++conversations}").also { recorded += Call.NewConversation(chat, by, it) }
     }
 
+    /** [defaultAgent] and the scripted agents, in order. */
+    override fun agents(instance: ChannelInstanceId): List<AgentSummary> = synchronized(lock) {
+        profiles.map { (id, profile) ->
+            AgentSummary(id, profile.name, profile.description, id == defaultAgent, homes[id to instance])
+        }
+    }
+
     override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot = synchronized(lock) { snapshot(chat) }
 
+    /** The language stored at [chat], else the one its agent is scripted with. */
+    override suspend fun language(chat: ChatAddress): LanguageTag? = synchronized(lock) {
+        snapshot(chat).let { it.language ?: it.defaults.language }
+    }
+
+    /** Refuses to make [chat] the home of its agent while it is another agent's home chat. */
     override suspend fun updateSettings(
         chat: ChatAddress,
         update: ChatSettingsUpdate,
         by: ChatUser?,
     ): ChatSettingsSnapshot = synchronized(lock) {
         recorded += Call.UpdateSettings(chat, update, by)
-        when (val change = update.agent) {
-            is SettingChange.SetTo -> agents[chat] = change.value
-            SettingChange.Reset -> agents.remove(chat)
-            else -> Unit
+        val choice = when (val change = update.agent) {
+            is SettingChange.SetTo -> change.value
+            SettingChange.Reset -> null
+            else -> selected[chat]
         }
-        val current = snapshot(chat)
+        val agent = choice ?: homeAgent(chat) ?: defaultAgent
+        val owner = homeOf(chat)
+        require(update.home != true || owner == null || owner == agent) { "$chat is the home chat of agent '$owner'." }
+        if (choice == null) selected.remove(chat) else selected[chat] = choice
         when (update.home) {
-            true -> homes[current.agent to chat.instance] = chat
-            false -> homes.remove(current.agent to chat.instance)
+            true -> homes[agent to chat.instance] = chat
+            false -> homes.remove(agent to chat.instance)
             null -> Unit
         }
-        settings[AgentChatKey(current.agent, chat)] = ChatSettingsSnapshot.builder(current.agent)
-            .model(update.model.applyTo(current.model))
-            .reasoning(update.reasoning.applyTo(current.reasoning))
-            .language(update.language.applyTo(current.language))
+        val key = AgentChatKey(agent, chat)
+        val stored = settings[key]
+        settings[key] = ChatSettingsSnapshot.builder(agent)
+            .model(update.model.applyTo(stored?.model))
+            .reasoning(update.reasoning.applyTo(stored?.reasoning))
+            .language(update.language.applyTo(stored?.language))
             .build()
         snapshot(chat)
     }
@@ -138,14 +174,31 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     override fun trustedFolders(): List<Path> = synchronized(lock) { trusted.toList() }
 
     private fun snapshot(chat: ChatAddress): ChatSettingsSnapshot {
-        val agent = agents[chat] ?: defaultAgent
+        val chosen = selected[chat]
+        val home = homeAgent(chat)
+        val (agent, source) = when {
+            chosen != null -> chosen to AgentSource.SELECTED
+            home != null -> home to AgentSource.HOME
+            else -> defaultAgent to AgentSource.DEFAULT
+        }
         val stored = settings[AgentChatKey(agent, chat)] ?: ChatSettingsSnapshot.builder(agent).build()
-        return stored.toBuilder().home(homes[agent to chat.instance] == chat).build()
+        return stored.toBuilder()
+            .home(homes[agent to chat.instance] == chat)
+            .agentSource(source)
+            .defaults(profiles[agent]?.defaults ?: AgentDefaults())
+            .build()
     }
+
+    /** The agent whose home [chat] is, else the one whose home its parent is. */
+    private fun homeAgent(chat: ChatAddress): AgentId? = homeOf(chat) ?: homeOf(chat.parent)
+
+    private fun homeOf(chat: ChatAddress): AgentId? = homes.entries.firstOrNull { it.value == chat }?.key?.first
 
     private fun record(call: Call) {
         synchronized(lock) { recorded += call }
     }
+
+    private class Profile(val name: String, val description: String?, val defaults: AgentDefaults)
 
     /** A call of the control port. */
     public sealed interface Call {

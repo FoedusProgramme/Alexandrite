@@ -47,6 +47,8 @@ import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
@@ -111,8 +113,20 @@ internal class AgentControlImpl(
         return successor
     }
 
-    override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot =
-        snapshot(refusing(null) { served(chat).key }, chat)
+    override fun agents(instance: ChannelInstanceId): List<AgentSummary> {
+        val default = directory.default(instance)?.id
+        return directory.attached(instance).map { agent ->
+            AgentSummary(
+                agent.id,
+                agent.name,
+                agent.config.description,
+                agent.id == default,
+                topology.home(agent.id, instance),
+            )
+        }
+    }
+
+    override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot = snapshot(refusing(null) { served(chat) })
 
     override suspend fun updateSettings(
         chat: ChatAddress,
@@ -199,13 +213,19 @@ internal class AgentControlImpl(
         throw IllegalArgumentException(text, e)
     }
 
-    private suspend fun snapshot(key: AgentChatKey, chat: ChatAddress): ChatSettingsSnapshot =
-        ChatSettingsSnapshot.builder(key.agent)
+    private suspend fun snapshot(served: Resolution.Served): ChatSettingsSnapshot {
+        val key = served.key
+        val chat = served.origin
+        val agent = directory.agent(key.agent)
+        return ChatSettingsSnapshot.builder(key.agent)
             .model(states.model(key))
             .reasoning(states.reasoning(key))
             .language(states.language(key))
             .home(topology.home(key.agent, chat.instance) == chat)
+            .agentSource(served.source)
+            .defaults(AgentDefaults(agent?.model, agent?.reasoning, agent?.language))
             .build()
+    }
 
     /** The agent that serves [chat], served by [current] now, once [change] is made. */
     private suspend fun agentAfter(chat: ChatAddress, current: AgentId, change: SettingChange<AgentId>): AgentId =

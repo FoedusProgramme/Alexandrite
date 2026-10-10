@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
@@ -81,7 +82,7 @@ internal class AgentTurnInitiation(
     private fun named(agent: AgentId, chat: ChatAddress): Resolution = when {
         chat.instance !in channels.instances -> Resolution.Unknown
         directory.attached(chat.instance).none { it.id == agent } -> Resolution.NoAgent
-        else -> Resolution.Served(topology.key(agent, chat), chat)
+        else -> Resolution.Served(topology.key(agent, chat), chat, AgentSource.SELECTED)
     }
 
     private fun hold(initiation: Initiation): Admission {

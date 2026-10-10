@@ -4,6 +4,7 @@ import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
@@ -40,6 +41,9 @@ public interface AgentControl {
 
     /** Seals the conversation of the chat's agent once its running turn has ended, and returns the new one. */
     public suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId
+
+    /** The agents that serve [instance], in config order. */
+    public fun agents(instance: ChannelInstanceId): List<AgentSummary>
 
     /** The settings at [chat], of the agent that serves it. */
     public suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot
@@ -90,6 +94,19 @@ public class ChatLinkGroup(
         }
     }
 }
+
+/** An agent as it serves one channel instance. */
+@Poko
+public class AgentSummary(
+    public val id: AgentId,
+    /** How the agent calls itself. */
+    public val name: String,
+    public val description: String?,
+    /** Whether the agent serves the instance's chats that choose no other agent. */
+    public val default: Boolean,
+    /** The agent's home chat on the instance, null when it has none. */
+    public val home: ChatAddress?,
+)
 
 /** A running or queued turn. */
 @Poko
@@ -165,18 +182,26 @@ public class ChatSettingsSnapshot private constructor(
     public val language: LanguageTag?,
     /** Whether the chat is the home chat of [agent] on its channel instance. */
     public val home: Boolean,
+    /** Why [agent] serves the chat. */
+    public val agentSource: AgentSource,
+    /** The settings [agent] is configured with. */
+    public val defaults: AgentDefaults,
 ) {
     public fun toBuilder(): Builder = Builder(agent)
         .model(model)
         .reasoning(reasoning)
         .language(language)
         .home(home)
+        .agentSource(agentSource)
+        .defaults(defaults)
 
     public class Builder internal constructor(private var agent: AgentId) {
         private var model: ModelRef? = null
         private var reasoning: ReasoningEffort? = null
         private var language: LanguageTag? = null
         private var home: Boolean = false
+        private var agentSource: AgentSource = AgentSource.DEFAULT
+        private var defaults: AgentDefaults = AgentDefaults()
 
         public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
@@ -188,7 +213,12 @@ public class ChatSettingsSnapshot private constructor(
 
         public fun home(home: Boolean): Builder = apply { this.home = home }
 
-        public fun build(): ChatSettingsSnapshot = ChatSettingsSnapshot(agent, model, reasoning, language, home)
+        public fun agentSource(agentSource: AgentSource): Builder = apply { this.agentSource = agentSource }
+
+        public fun defaults(defaults: AgentDefaults): Builder = apply { this.defaults = defaults }
+
+        public fun build(): ChatSettingsSnapshot =
+            ChatSettingsSnapshot(agent, model, reasoning, language, home, agentSource, defaults)
     }
 
     public companion object {
@@ -198,6 +228,38 @@ public class ChatSettingsSnapshot private constructor(
 
 public inline fun ChatSettingsSnapshot.rebuild(block: ChatSettingsSnapshot.Builder.() -> Unit): ChatSettingsSnapshot =
     toBuilder().apply(block).build()
+
+/** Why an agent serves a chat. */
+@JvmInline
+@Serializable
+public value class AgentSource internal constructor(public val id: String) {
+    override fun toString(): String = id
+
+    public companion object {
+        /** The chat switched to the agent. */
+        public val SELECTED: AgentSource = AgentSource("selected")
+
+        /** The chat, or the chat of its thread, is the agent's home chat. */
+        public val HOME: AgentSource = AgentSource("home")
+
+        /** The agent is the default of the chat's channel instance. */
+        public val DEFAULT: AgentSource = AgentSource("default")
+
+        /** The values this version knows. */
+        public val entries: List<AgentSource> = listOf(SELECTED, HOME, DEFAULT)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): AgentSource = AgentSource(id)
+    }
+}
+
+/** The settings an agent is configured with. */
+@Poko
+public class AgentDefaults(
+    public val model: ModelRef? = null,
+    public val reasoning: ReasoningEffort? = null,
+    public val language: LanguageTag? = null,
+)
 
 /** Changes to the settings of a chat, which keep each setting a builder leaves alone. */
 @Poko

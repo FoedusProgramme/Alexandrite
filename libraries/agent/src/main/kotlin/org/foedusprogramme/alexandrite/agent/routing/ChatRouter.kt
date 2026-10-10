@@ -9,13 +9,14 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /** Which agent serves a chat. */
 internal sealed interface Resolution {
     /** Served at [key] for the chat [origin], which the turn came from. */
-    data class Served(val key: AgentChatKey, val origin: ChatAddress) : Resolution
+    data class Served(val key: AgentChatKey, val origin: ChatAddress, val source: AgentSource) : Resolution
 
     /** The chat's channel instance is not configured. */
     data object Unknown : Resolution
@@ -61,10 +62,14 @@ internal class ChatRouter(
     }
 
     private fun served(chat: ChatAddress, attached: List<Agent>, selected: AgentId?): Resolution.Served {
-        val agent = selected?.let { attachedOrWarn(chat, attached, it) }
-            ?: topology.homeAgent(chat)
-            ?: checkNotNull(directory.default(chat.instance)).id
-        return Resolution.Served(topology.key(agent, chat), chat)
+        val chosen = selected?.let { attachedOrWarn(chat, attached, it) }
+        val home = topology.homeAgent(chat)
+        val (agent, source) = when {
+            chosen != null -> chosen to AgentSource.SELECTED
+            home != null -> home to AgentSource.HOME
+            else -> checkNotNull(directory.default(chat.instance)).id to AgentSource.DEFAULT
+        }
+        return Resolution.Served(topology.key(agent, chat), chat, source)
     }
 
     /** [selected], null when it no longer serves [chat]'s instance. */

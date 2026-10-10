@@ -88,6 +88,30 @@ class ReplyStreamTest {
     }
 
     @Test
+    fun `each next segment starts on the sink once the last text of the one before is shown`() = runTest {
+        val stream = stream()
+
+        stream.text("Hel")
+        stream.text("lo", afterMillis = 100)
+        stream.nextSegment()
+        stream.nextSegment()
+        stream.text("Done", afterMillis = 800)
+
+        assertEquals(listOf("preview 0 Hel", "preview 0 Hello", "start 1", "start 2", "preview 2 Done"), sink.calls)
+    }
+
+    @Test
+    fun `a segment starts on the sink also when no preview is shown`() = runTest {
+        val stream = stream(interval = 0) { _, _ -> null }
+
+        stream.text("Hel")
+        stream.nextSegment()
+
+        assertEquals(listOf("start 1"), sink.calls)
+        assertFalse(stream.shown)
+    }
+
+    @Test
     fun `the hook replaces a preview, or holds it back while the throttle still counts it`() = runTest {
         val stream = stream { _, text -> if (text.endsWith("!")) null else text.uppercase() }
 
@@ -128,15 +152,43 @@ class ReplyStreamTest {
             lines,
         )
     }
+
+    @Test
+    fun `a segment start the sink fails is logged and the stream goes on`() {
+        sink.failing = true
+        val stream = stream(interval = 0) { _, _ -> null }
+
+        val lines = logged {
+            blocking {
+                stream.nextSegment()
+                stream.nextSegment()
+            }
+        }
+
+        assertEquals(
+            (1..2).map {
+                "WARN The start of segment $it of turn t-1 did not reach its chat: " +
+                    "java.lang.IllegalStateException: Gone."
+            },
+            lines,
+        )
+    }
 }
 
 private class Sink : ReplySink {
     val previews = mutableListOf<Pair<Int, String>>()
+    val calls = mutableListOf<String>()
     var failing = false
 
     override suspend fun preview(segment: Int, text: String) {
         check(!failing) { "Gone." }
         previews += segment to text
+        calls += "preview $segment $text"
+    }
+
+    override suspend fun startSegment(segment: Int) {
+        check(!failing) { "Gone." }
+        calls += "start $segment"
     }
 
     override suspend fun complete(message: OutboundMessage): Delivery = error("A stream never completes its reply.")

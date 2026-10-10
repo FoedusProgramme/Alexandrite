@@ -211,6 +211,50 @@ class RecordingChannelTest {
     }
 
     @Test
+    fun `a reply records the segments the agent starts, apart from the events`() {
+        val sink = open()
+
+        blocking {
+            sink.preview(0, "Looking")
+            sink.startSegment(1)
+            sink.startSegment(1)
+            sink.startSegment(2)
+            sink.preview(2, "Found")
+            sink.complete(reply("Found"))
+        }
+
+        val recorded = channel.reply(turn.id)
+        assertEquals(listOf(1, 1, 2), recorded.startedSegments)
+        assertEquals(mapOf(0 to "Looking", 2 to "Found"), recorded.segments)
+        assertEquals(
+            listOf("Opened", "Previewed", "Previewed", "Completed"),
+            channel.events.map { it::class.simpleName },
+        )
+        assertEquals(emptyList(), channel.violations)
+    }
+
+    @Test
+    fun `segments start in order and only while the reply is open`() {
+        val started = open(turn("started"))
+        val ended = open(turn("ended"))
+        val stopped = open(turn("stopped"))
+        blocking {
+            started.startSegment(2)
+            ended.abandon(ReplyEnd.CANCELLED)
+        }
+
+        assertViolation("segment 1 of turn started started after segment 2.") { started.startSegment(1) }
+        assertViolation("a preview of turn started in segment 1 after segment 2 froze it.") {
+            started.preview(1, "Late")
+        }
+        assertViolation("segment 1 of turn ended started after its reply ended.") { ended.startSegment(1) }
+        channel.stopped = true
+        assertViolation("segment 1 of turn stopped started after the instance stopped.") { stopped.startSegment(1) }
+        assertEquals(listOf(2), channel.reply(TurnId("started")).startedSegments)
+        assertEquals(emptyList(), channel.reply(TurnId("ended")).startedSegments)
+    }
+
+    @Test
     fun `only a turn of the instance that replies to its chat opens one reply`() {
         open()
         val foreign = testTurn(chat = testChat(instance = ChannelInstanceId(ChannelType("test"), "work")))
