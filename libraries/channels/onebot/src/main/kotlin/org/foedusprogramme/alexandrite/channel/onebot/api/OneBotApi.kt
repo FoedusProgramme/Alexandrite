@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.onebot.api
 
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.DeleteMessage
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.GetCookies
@@ -150,7 +151,7 @@ public interface OneBotApi {
     public suspend fun handleQuickOperation(request: HandleQuickOperation): OneBotResult<Unit>
 
     /** Calls an action of the implementation that this version does not model, with its answer untouched. */
-    public suspend fun raw(action: String, params: JsonObject = JsonObject(emptyMap())): OneBotResult<JsonObject>
+    public suspend fun raw(action: String, params: JsonObject = JsonObject(emptyMap())): OneBotResult<JsonElement>
 
     /**
      * Calls one action through this version's own request type, under [suffix].
@@ -163,5 +164,5 @@ public interface OneBotApi {
         action: String,
         request: OneBotRequest,
         suffix: OneBotCallSuffix = OneBotCallSuffix.NONE,
-    ): OneBotResult<JsonObject>
+    ): OneBotResult<JsonElement>
 }

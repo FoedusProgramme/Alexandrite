@@ -135,6 +135,19 @@ class OneBotHttpPostReceiverTest {
 
     private fun OneBotHttpPostReceiver.reported(): Int = reportedCount
 
+    @Test
+    fun `a report that arrives while nothing reads is dropped and counted`() {
+        // The fixture holds room for sixteen events and reads none of them, so a listener that keeps taking reports
+        // has to say how many it could not keep. A count that stayed at zero here would be the silence the class
+        // promises not to keep.
+        val body = privateMessage()
+        val signature = OneBotAuth.signature(secret, body)
+        repeat(20) { post(body, signature, "/") }
+
+        assertEquals(20, receiver.reported(), "every report was taken")
+        assertEquals(4L, receiver.droppedEvents, "the reports past the room of the queue were dropped")
+    }
+
     private fun post(body: String, signature: String?, path: String): HttpResponse<String> =
         postTo(receiver.port, body, signature, path, selfId = "10001000")
 
@@ -167,7 +180,6 @@ class OneBotHttpPostReceiverTest {
         idleTimeoutMillis = 5_000,
         reconnectIntervalMillis = 100,
         eventCapacity = 16,
-        rateLimitIntervalMillis = 0,
     )
 
     private fun privateMessage(): String = """

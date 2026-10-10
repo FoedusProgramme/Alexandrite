@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.onebot.channel
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -8,6 +9,8 @@ import kotlinx.serialization.json.put
 import org.foedusprogramme.alexandrite.channel.onebot.auth.OneBotAuth
 import org.foedusprogramme.alexandrite.channel.onebot.auth.Value
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotHttpApi
+import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotWire
+import org.foedusprogramme.alexandrite.channel.onebot.transport.envelopeResult
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import java.io.BufferedInputStream
 import java.io.OutputStreamWriter
@@ -107,6 +110,31 @@ class OneBotHttpTransportTest {
         val malformed =
             assertIs<org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult.Malformed>(result)
         assertTrue(!malformed.detail.contains("s3cr3t-token"), "the token leaked: ${malformed.detail}")
+    }
+
+    @Test
+    fun `an answer that carries an array keeps it instead of an empty object`() {
+        // The standard answers `get_friend_list` and `get_group_list` with an array, so an answer read as an object
+        // alone became empty and every such call was reported as one this version cannot read.
+        val answer = OneBotWire.parseToJsonElement(
+            """{"status":"ok","retcode":0,"data":[{"user_id":10001000,"nickname":"someone"}]}""",
+        ) as JsonObject
+
+        val ok = assertIs<org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult.Ok<*>>(
+            envelopeResult(answer),
+        )
+        assertEquals(1, assertIs<JsonArray>(ok.data).size)
+    }
+
+    @Test
+    fun `an answer that carries an object keeps it`() {
+        val answer = OneBotWire.parseToJsonElement("""{"status":"ok","retcode":0,"data":{"message_id":42}}""")
+            as JsonObject
+
+        val ok = assertIs<org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult.Ok<*>>(
+            envelopeResult(answer),
+        )
+        assertEquals("42", (ok.data as? JsonObject)?.get("message_id")?.jsonPrimitive?.content)
     }
 
     /** A peer that answers one request with what the test set. */

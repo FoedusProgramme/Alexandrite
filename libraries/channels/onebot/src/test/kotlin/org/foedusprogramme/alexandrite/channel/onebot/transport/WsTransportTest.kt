@@ -117,7 +117,6 @@ class WsTransportTest {
         idleTimeoutMillis = 5_000,
         reconnectIntervalMillis = 100,
         eventCapacity = 16,
-        rateLimitIntervalMillis = 0,
     )
 
     /** An implementation that serves the API and pushes one event, as the standard's server does. */

@@ -24,7 +24,6 @@ internal class OneBotSettings(
     val idleTimeoutMillis: Long,
     val reconnectIntervalMillis: Long,
     val eventCapacity: Int,
-    val rateLimitIntervalMillis: Long,
 ) {
     /** The endpoint of a transport that calls its implementation, which one that listens does not hold. */
     fun requireEndpoint(): String = requireNotNull(endpoint) { "This instance listens for its implementation." }
@@ -44,7 +43,6 @@ internal class OneBotSettings(
             idleTimeoutMillis = instance.idleTimeoutMillis,
             reconnectIntervalMillis = instance.reconnectIntervalMillis,
             eventCapacity = plugin.eventQueueCapacity,
-            rateLimitIntervalMillis = plugin.rateLimitIntervalMillis,
         )
     }
 }

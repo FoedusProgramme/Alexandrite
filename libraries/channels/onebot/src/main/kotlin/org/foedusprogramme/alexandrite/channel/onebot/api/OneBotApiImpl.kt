@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.onebot.api
 
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.channel.OneBotLink
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.DeleteMessage
@@ -175,13 +176,13 @@ internal class OneBotApiImpl(private val link: OneBotLink) : OneBotApi {
     override suspend fun handleQuickOperation(request: HandleQuickOperation): OneBotResult<Unit> =
         nothing(".handle_quick_operation", request)
 
-    override suspend fun raw(action: String, params: JsonObject): OneBotResult<JsonObject> = link.call(action, params)
+    override suspend fun raw(action: String, params: JsonObject): OneBotResult<JsonElement> = link.call(action, params)
 
     override suspend fun call(
         action: String,
         request: OneBotRequest,
         suffix: OneBotCallSuffix,
-    ): OneBotResult<JsonObject> = link.call(action + suffix.suffix, request.toJson())
+    ): OneBotResult<JsonElement> = link.call(action + suffix.suffix, request.toJson())
 
     /** Runs an action whose data is one object of the standard. */
     private suspend fun <T> action(
@@ -220,7 +221,7 @@ internal class OneBotApiImpl(private val link: OneBotLink) : OneBotApi {
         link.call(name, request.toJson()).asUnit()
 
     /** Turns an answer into one that carries no data. */
-    private fun OneBotResult<JsonObject>.asUnit(): OneBotResult<Unit> = when (this) {
+    private fun OneBotResult<JsonElement>.asUnit(): OneBotResult<Unit> = when (this) {
         is OneBotResult.Ok -> OneBotResult.Ok(Unit, retcode, echo, raw)
         is OneBotResult.Async -> OneBotResult.Async(retcode, echo, raw)
         is OneBotResult.Failed -> this

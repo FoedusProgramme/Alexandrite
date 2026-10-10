@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.onebot.transport
 
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -45,7 +46,7 @@ public class OneBotHttpApi(
     )
 
     /** Sends one call, with [action] already carrying its suffix. */
-    public suspend fun call(action: String, params: JsonObject): OneBotResult<JsonObject> {
+    public suspend fun call(action: String, params: JsonObject): OneBotResult<JsonElement> {
         val call = HttpCall(
             method = "POST",
             // The token goes in both places the standard allows: a call is accepted by an implementation that reads
@@ -92,7 +93,7 @@ public class OneBotHttpApi(
         OneBotFailure(kind, OneBotAuth.redact(message, masked), httpStatus),
     )
 
-    private fun resultOf(answer: JsonObject, call: HttpCall): OneBotResult<JsonObject> {
+    private fun resultOf(answer: JsonObject, call: HttpCall): OneBotResult<JsonElement> {
         val status = answer.status()
         val retcode = answer.retcode()
         val echo = answer["echo"]?.takeUnless { it is JsonNull }
@@ -132,7 +133,7 @@ public class OneBotHttpApi(
  * data was the envelope, which a caller read as a delivery that happened. The status is what says whether a call
  * succeeded, whichever transport carried it.
  */
-internal fun envelopeResult(answer: JsonObject): OneBotResult<JsonObject> {
+internal fun envelopeResult(answer: JsonObject): OneBotResult<JsonElement> {
     val status = answer.status()
     val retcode = answer.retcode()
     val echo = answer["echo"]?.takeUnless { it is JsonNull }
@@ -171,8 +172,13 @@ internal fun JsonObject.status(): OneBotStatus? =
 /** The `retcode` of this answer, null when it carries none. */
 internal fun JsonObject.retcode(): Int? = (this["retcode"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
 
-/** The `data` of this answer as an object, empty when it carries another shape. */
-internal fun JsonObject.data(): JsonObject = this["data"] as? JsonObject ?: JsonObject(emptyMap())
+/**
+ * The `data` of this answer as it arrived.
+ *
+ * The standard lets an action answer with an object, with an array or with nothing, and a list of friends or of groups
+ * is one of the arrays, so a reader that took the object shape alone reported every such answer as malformed.
+ */
+internal fun JsonObject.data(): JsonElement = this["data"] ?: JsonNull
 
 /** The `message` or `wording` of this answer, null when it carries neither. */
 internal fun JsonObject.message(): String? =

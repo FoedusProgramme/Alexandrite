@@ -6,9 +6,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
+import java.util.concurrent.atomic.AtomicLong
 
 /** Where a connection is in its life, which its instance reports to whoever asks. */
 public enum class OneBotLinkState {
@@ -54,16 +56,28 @@ public interface OneBotConnection : AutoCloseable {
  * What every transport of this module shares: the events it reports, the state it reports them under and the close
  * that ends both.
  *
- * A full queue drops its oldest event rather than blocking the thread the implementation reports on, and counts what
- * it dropped, so that a connection that cannot keep up is visible rather than silent.
+ * A full queue drops its oldest event rather than blocking the thread the implementation reports on, and what it
+ * dropped is worked out from what it took less what was read and what still waits, so that a connection that cannot
+ * keep up is visible rather than silent.
  */
-internal abstract class AbstractOneBotConnection(eventCapacity: Int) : OneBotConnection {
+internal abstract class AbstractOneBotConnection(private val eventCapacity: Int) : OneBotConnection {
     private val queue = Channel<OneBotEvent>(eventCapacity, BufferOverflow.DROP_OLDEST)
     private val mutableState = MutableStateFlow(OneBotLinkState.CLOSED)
+    private val reported = AtomicLong()
+    private val read = AtomicLong()
+
+    /**
+     * How many events this connection dropped because nothing read them fast enough.
+     *
+     * The queue answers that it took an event even when it displaced one, so what was lost is what it took, less what
+     * a reader has seen and what its room still holds.
+     */
+    internal val droppedEvents: Long
+        get() = (reported.get() - read.get() - eventCapacity).coerceAtLeast(0L)
 
     override val state: StateFlow<OneBotLinkState> = mutableState.asStateFlow()
 
-    override val events: Flow<OneBotEvent> = queue.receiveAsFlow()
+    override val events: Flow<OneBotEvent> = queue.receiveAsFlow().onEach { read.incrementAndGet() }
 
     /** The last failure of the connection, null while it is healthy. */
     @Volatile
@@ -73,7 +87,10 @@ internal abstract class AbstractOneBotConnection(eventCapacity: Int) : OneBotCon
     private var closed = false
 
     /** Reports [event], dropping the oldest when nothing reads them fast enough. */
-    protected fun report(event: OneBotEvent): Boolean = queue.trySend(event).isSuccess
+    protected fun report(event: OneBotEvent): Boolean {
+        reported.incrementAndGet()
+        return queue.trySend(event).isSuccess
+    }
 
     /** Moves the connection to [state]. */
     protected fun moveTo(state: OneBotLinkState) {

@@ -64,7 +64,7 @@ public object OneBotEventCodec {
             raw = raw,
         )
 
-        else -> OneBotEvent.Unknown(time, selfId, messageType.orEmpty(), raw)
+        else -> OneBotEvent.Unknown(time, selfId, OneBotEvent.Message.POST_TYPE, raw)
     }
 
     private fun decodeNotice(raw: JsonObject, time: Long, selfId: SelfId): OneBotEvent {

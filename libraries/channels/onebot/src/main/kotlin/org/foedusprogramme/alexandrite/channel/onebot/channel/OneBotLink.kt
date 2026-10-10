@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.onebot.channel
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotConfig
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
@@ -70,7 +71,7 @@ internal class OneBotLink(private val config: OneBotConfig, private val instance
     }
 
     /** Runs one call of [action], with the suffix the caller chose already applied. */
-    internal suspend fun call(action: String, params: JsonObject): OneBotResult<JsonObject> = when {
+    internal suspend fun call(action: String, params: JsonObject): OneBotResult<JsonElement> = when {
         http != null -> http.call(action, params)
 
         forward != null -> envelopeResult(forward.send(action, params))

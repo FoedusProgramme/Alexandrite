@@ -307,7 +307,10 @@ class OneBotEventCodecTest {
             put("message", "hi")
         }
         val event = assertIs<OneBotEvent.Unknown>(OneBotEventCodec.decode(raw))
-        assertEquals("channel", event.postType)
+        // `postType` is the top-level `post_type`, not the subtype this version cannot read, which stays in the raw
+        // JSON: a consumer that asks what kind of event this is has to be told that it is a message.
+        assertEquals("message", event.postType)
+        assertEquals("channel", (raw["message_type"] as? JsonPrimitive)?.content)
         assertEquals(raw, event.raw)
     }
 

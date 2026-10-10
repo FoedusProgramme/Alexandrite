@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.onebot.mapping
 
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.GroupId
@@ -149,10 +150,15 @@ public object OneBotMessages {
         ?.let(::GroupId)
 
     /** What a call that ended in [result] means for the delivery of a message to [chat]. */
-    public fun delivery(result: OneBotResult<JsonObject>, chat: ChatAddress): Delivery = when (result) {
+    public fun delivery(result: OneBotResult<JsonElement>, chat: ChatAddress): Delivery = when (result) {
         is OneBotResult.Ok -> {
-            val data = result.data["data"] as? JsonObject ?: result.data
-            val id = (data["message_id"] as? JsonPrimitive)?.content ?: result.echo?.toString() ?: "sent"
+            // The data of the answer of a send is either the object that names the message or the message itself,
+            // which is what an implementation that answers with the identifier alone sends.
+            val data = (result.data as? JsonObject)?.get("data") as? JsonObject ?: result.data
+            val id =
+                ((data as? JsonObject)?.get("message_id") as? JsonPrimitive)?.content
+                    ?: result.echo?.toString()
+                    ?: "sent"
             Delivery.Delivered(listOf(ChannelMessageRef(chat, id)))
         }
 
