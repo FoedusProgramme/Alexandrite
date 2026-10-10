@@ -74,13 +74,30 @@ class PreviewsTest {
             text("Looking.")
             toolCall("fs.read")
             text("Done.")
-        }
+        }.reply { text("Read.") }
 
         harness().execute {
             val admission = channel().receive("Hi")
             admission.outcome()
 
-            assertEquals(listOf(Preview(0, "Looking.")), channel().reply(admission).previews)
+            assertEquals(listOf(Preview(0, "Looking."), Preview(1, "Read.")), channel().reply(admission).previews)
+        }
+    }
+
+    @Test
+    fun `a round's last text is shown before the next round starts, whose previews keep the interval`() {
+        model.reply {
+            text("Look", "ing")
+            toolCall("fs.read")
+        }.reply { text("Fou", "nd") }
+
+        harness(interval = 60_000).execute {
+            val admission = channel().receive("Hi")
+            admission.outcome()
+
+            val reply = channel().reply(admission)
+            assertEquals(listOf(Preview(0, "Look"), Preview(0, "Looking")), reply.previews)
+            assertEquals("Found", reply.completed?.text)
         }
     }
 

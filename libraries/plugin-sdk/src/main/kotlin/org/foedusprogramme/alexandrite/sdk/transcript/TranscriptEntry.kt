@@ -135,9 +135,12 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** The reply was too long for its chat. */
         public val TOO_LONG: NoticeKind = NoticeKind("too_long")
 
+        /** The turn used up its tool rounds. */
+        public val ROUND_LIMIT: NoticeKind = NoticeKind("round_limit")
+
         /** The values this version knows. */
         public val entries: List<NoticeKind> =
-            listOf(BLANK_REPLY, HOOK_ABORTED, FAILED, REFUSED, INTERRUPTED, OUTPUT_LIMIT, TOO_LONG)
+            listOf(BLANK_REPLY, HOOK_ABORTED, FAILED, REFUSED, INTERRUPTED, OUTPUT_LIMIT, TOO_LONG, ROUND_LIMIT)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): NoticeKind = NoticeKind(id)

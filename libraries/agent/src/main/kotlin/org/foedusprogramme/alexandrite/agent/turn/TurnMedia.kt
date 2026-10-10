@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.agent.prompt.mediaNote
 import org.foedusprogramme.alexandrite.sdk.channel.MediaAttachment
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.storeInline
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaId
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
@@ -33,6 +34,25 @@ internal class TurnMedia(private val turn: TurnId, private val store: MediaStore
         }
         if (leftOut.isNotEmpty()) parts += mediaNote(leftOut)
         return parts
+    }
+
+    /** [result] with its inline media put into the store, or a note where a part is left out. */
+    suspend fun stored(result: ToolResultEntry): ToolResultEntry {
+        val small = result.withContent { part ->
+            if ((part.inlineBytes()?.size ?: 0) > maxBytes) leftOut(part, "larger than $maxBytes bytes") else part
+        }
+        val stored = try {
+            store.storeInline(small) as ToolResultEntry
+        } catch (e: IllegalArgumentException) {
+            logger.debug("Turn {} cannot store the media of a tool result", turn, e)
+            return small.withContent { if (it.inlineBytes() != null) leftOut(it, "the store refused it") else it }
+        }
+        for ((part, put) in small.content.zip(stored.content)) {
+            val bytes = part.inlineBytes() ?: continue
+            val id = ((put as? MediaPart)?.source as? StoredMedia)?.id ?: continue
+            loaded[id] = bytes
+        }
+        return stored
     }
 
     /** [entries] with the stored media they refer to carried inline. */
@@ -89,6 +109,13 @@ internal class TurnMedia(private val turn: TurnId, private val store: MediaStore
         return MediaPart(part.kind, part.mediaType, bytes, part.name, part.width, part.height)
     }
 
+    /** What the model reads in place of [part] of a tool result, left out for [why]. */
+    private fun leftOut(part: ToolOutputPart, why: String): ToolOutputPart {
+        if (part !is MediaPart) return part
+        logger.warn("Turn {} leaves out a tool result's {} of type {} ({})", turn, part.kind, part.mediaType, why)
+        return TextPart("(${part.kind} of type ${part.mediaType}, left out: $why)")
+    }
+
     /** What the model reads in place of [part], whose bytes the store no longer has. */
     private fun missing(part: MediaPart): TextPart =
         TextPart("(${part.kind} of type ${part.mediaType}, no longer stored)")
@@ -100,5 +127,10 @@ internal class TurnMedia(private val turn: TurnId, private val store: MediaStore
         return bytes
     }
 }
+
+private fun ToolOutputPart.inlineBytes(): InlineMedia? = (this as? MediaPart)?.source as? InlineMedia
+
+private fun ToolResultEntry.withContent(part: (ToolOutputPart) -> ToolOutputPart): ToolResultEntry =
+    ToolResultEntry(record, callId, toolName, content.map(part), outcome)
 
 private val logger = LoggerFactory.getLogger(TurnMedia::class.java)

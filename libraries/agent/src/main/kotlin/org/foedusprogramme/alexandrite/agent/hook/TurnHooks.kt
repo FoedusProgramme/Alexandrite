@@ -14,6 +14,9 @@ import org.foedusprogramme.alexandrite.sdk.model.PromptSection
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
 import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.turn.ContextLoaded
 import org.foedusprogramme.alexandrite.sdk.turn.ModelCall
@@ -21,6 +24,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.ModelReply
 import org.foedusprogramme.alexandrite.sdk.turn.PromptSections
 import org.foedusprogramme.alexandrite.sdk.turn.ReplyDraft
 import org.foedusprogramme.alexandrite.sdk.turn.ReplyPreview
+import org.foedusprogramme.alexandrite.sdk.turn.ToolCallCheck
+import org.foedusprogramme.alexandrite.sdk.turn.ToolCallDone
 import org.foedusprogramme.alexandrite.sdk.turn.TurnCommitted
 import org.foedusprogramme.alexandrite.sdk.turn.TurnContext
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInput
@@ -54,9 +59,13 @@ internal class TurnHooks(private val hooks: Hooks) {
     ): Hooked<List<ToolDefinition>> =
         hooks.fire(TurnPoints.TURN_START, TurnStart(turn, message, tools)).map { narrowed(turn, tools, it.tools) }
 
-    /** The text of [turn]'s input that the model reads. */
-    suspend fun turnInput(turn: TurnInfo, message: IncomingMessage?, text: String): Hooked<String> =
-        hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, message, text, followUp = false)).map { it.text }
+    /** The text that the model reads of [turn]'s input, or of a follow-up that joins [turn]. */
+    suspend fun turnInput(
+        turn: TurnInfo,
+        message: IncomingMessage?,
+        text: String,
+        followUp: Boolean = false,
+    ): Hooked<String> = hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, message, text, followUp)).map { it.text }
 
     /** The turn-context items of [turn], whose input reads [text]: [builtIns] and what hooks added. */
     suspend fun contextInject(turn: TurnInfo, text: String, builtIns: List<TurnContextItem>): List<TurnContextItem> {
@@ -66,24 +75,47 @@ internal class TurnHooks(private val hooks: Hooks) {
             logger.warn("A context.inject hook removed turn {}'s own turn context: no item of a hook is kept", turn.id)
             return builtIns
         }
-        return items
+        val (reserved, added) = items.drop(builtIns.size).partition { isReserved(it.source) }
+        if (reserved.isNotEmpty()) {
+            logger.warn(
+                "A context.inject hook gave turn {} turn context of the reserved sources {}: it is ignored",
+                turn.id,
+                reserved.joinToString { it.source },
+            )
+        }
+        return builtIns + added
     }
 
     suspend fun contextLoaded(turn: TurnInfo, history: List<TranscriptEntry>) {
         hooks.fire(TurnPoints.CONTEXT_LOADED, ContextLoaded(turn, history))
     }
 
-    /** The sections of [turn]'s system prompt, where text that hooks wrote is escaped. */
+    /** The sections of [turn]'s system prompt, where hooks' text is escaped and their reserved sections ignored. */
     suspend fun promptSections(turn: TurnInfo, sections: List<PromptSection>): List<PromptSection> {
         val fired = hooks.fire(TurnPoints.PROMPT_SECTIONS, PromptSections(turn, sections))
         val hooked = (fired as? Interception.Proceed)?.payload?.sections ?: return sections
-        return hooked.map { section ->
-            if (section in sections) {
-                section
-            } else {
-                PromptSection(section.id, Escaper.HEADERS.text(section.text), section.stable)
+        val own = sections.associateBy { it.id }
+        val reserved = mutableListOf<String>()
+        val kept = hooked.mapNotNull { section ->
+            when {
+                section in sections -> section
+
+                isReserved(section.id) -> {
+                    reserved += section.id
+                    own[section.id]
+                }
+
+                else -> PromptSection(section.id, Escaper.HEADERS.text(section.text), section.stable)
             }
         }
+        if (reserved.isNotEmpty()) {
+            logger.warn(
+                "A prompt.sections hook gave turn {} the sections {}, whose ids are reserved: they are ignored",
+                turn.id,
+                reserved.joinToString(),
+            )
+        }
+        return kept
     }
 
     suspend fun llmRequest(turn: TurnInfo, round: Int, request: ModelRequest): Hooked<ModelRequest> =
@@ -91,6 +123,18 @@ internal class TurnHooks(private val hooks: Hooks) {
 
     suspend fun llmResponse(turn: TurnInfo, round: Int, response: ModelEvent.Completed): Hooked<Unit> =
         hooks.fire(TurnPoints.LLM_RESPONSE, ModelReply(turn, round, response)).map { }
+
+    /** Whether the hooks let [call] run in [turn]. */
+    suspend fun toolBefore(
+        turn: TurnInfo,
+        call: ToolCallPart,
+        definition: ToolDefinition,
+        risk: ToolRisk,
+    ): Hooked<Unit> = hooks.fire(TurnPoints.TOOL_BEFORE, ToolCallCheck(turn, call, definition, risk)).map { }
+
+    suspend fun toolAfter(turn: TurnInfo, call: ToolCallPart, result: ToolResultEntry) {
+        hooks.fire(TurnPoints.TOOL_AFTER, ToolCallDone(turn, call, result))
+    }
 
     /** The text that [turn]'s chat is shown in place of the preview [text] of [segment], null for none. */
     suspend fun responsePreview(turn: TurnInfo, segment: Int, text: String): String? {
@@ -114,6 +158,11 @@ private fun <P : Any, T> Interception<P>.map(value: (P) -> T): Hooked<T> = when 
     is Interception.Aborted -> Hooked.Stopped(reply)
     else -> Hooked.Stopped(null)
 }
+
+/** Whether [source] is one that only Alexandrite writes. */
+private fun isReserved(source: String): Boolean = source.startsWith(RESERVED_PREFIX)
+
+private const val RESERVED_PREFIX = "alexandrite."
 
 /** The tools of [offered] that [kept] names. */
 private fun narrowed(turn: TurnInfo, offered: List<ToolDefinition>, kept: List<ToolDefinition>): List<ToolDefinition> {

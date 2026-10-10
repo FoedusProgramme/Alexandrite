@@ -11,6 +11,7 @@ internal object TextKeys {
     const val OUTPUT_LIMIT: String = "notice.output_limit"
     const val OUTPUT_LIMIT_UNANSWERED: String = "notice.output_limit_unanswered"
     const val REPLY_TOO_LONG: String = "notice.reply_too_long"
+    const val ROUND_LIMIT: String = "notice.round_limit"
     const val FAILED: String = "notice.failed"
 
     /** Takes `{command}`. */

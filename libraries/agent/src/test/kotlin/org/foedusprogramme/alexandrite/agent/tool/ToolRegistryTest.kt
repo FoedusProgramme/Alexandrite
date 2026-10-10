@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.testkit.RecordingTool
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import kotlin.test.Test
@@ -28,7 +29,9 @@ class ToolRegistryTest {
     private val config = """
         {
           "agents": {
-            "coder": {"tools": {"allow": ["fs.*", "notes.find"], "deny": ["fs.secret"]}},
+            "coder": {
+              "tools": {"allow": ["fs.*", "notes.find"], "deny": ["fs.secret"], "forMembers": ["fs.g*", "notes.*"]}
+            },
             "helper": {},
             "reviewer": {"tools": {"allow": []}}
           }
@@ -48,6 +51,20 @@ class ToolRegistryTest {
             assertSame(tools.first(), registry.tool("fs.read"))
             assertSame(tools.last(), registry.tool("exec.run"))
             assertNull(registry.tool("fs.missing"))
+        }
+    }
+
+    @Test
+    fun `a turn offers a member only what the agent lists for members, and a model that takes no tools nothing`() {
+        agentHarness(config) { tools.forEach(::tool) }.execute {
+            val registry = get<ToolRegistry>()
+            val model = ModelRef.parse("scripted/test-model")
+            fun offered(admin: Boolean, nativeTools: Boolean = true) =
+                registry.offered(AgentId("coder"), admin, model, nativeTools).map { it.definition.name }
+
+            assertEquals(listOf("fs.glob", "fs.read", "notes.find"), offered(admin = true))
+            assertEquals(listOf("fs.glob", "notes.find"), offered(admin = false))
+            assertEquals(emptyList(), offered(admin = true, nativeTools = false))
         }
     }
 

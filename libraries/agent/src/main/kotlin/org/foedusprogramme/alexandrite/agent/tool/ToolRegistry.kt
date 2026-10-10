@@ -7,13 +7,20 @@ import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 
 /** The contributed tools by name, and the ones each agent selects. */
 @Singleton
 internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory) : Lifecycle {
     private val tools: Map<String, Tool>
     private val selected: Map<AgentId, List<Tool>>
+    private val forMembers: Map<AgentId, List<ToolGlob>> =
+        directory.agents.associate { agent -> agent.id to agent.config.tools.forMembers.map(ToolGlob::of) }
+
+    /** The models already warned of for taking no tools. */
+    private val toolless = ConcurrentHashMap.newKeySet<ModelRef>()
 
     init {
         val named = sortedMapOf<String, Tool>()
@@ -43,6 +50,15 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory) : Life
 
     /** The tools [agent] selects that may be offered before the permission layer exists, sorted by name. */
     fun offered(agent: AgentId): List<Tool> = selected[agent].orEmpty().filter { it.definition.risk == OFFERED_RISK }
+
+    /** The tools a turn of [agent] offers [model]: all to an [admin], those of `tools.forMembers` to anyone else. */
+    fun offered(agent: AgentId, admin: Boolean, model: ModelRef, nativeTools: Boolean): List<Tool> {
+        val members = forMembers[agent].orEmpty()
+        val tools = offered(agent).filter { tool -> admin || members.any { it.matches(tool.definition.name) } }
+        if (nativeTools || tools.isEmpty()) return tools
+        if (toolless.add(model)) logger.warn("Model {} takes no tools, so its turns are offered none", model)
+        return emptyList()
+    }
 
     override suspend fun onStart() {
         for ((agent, tools) in selected) {

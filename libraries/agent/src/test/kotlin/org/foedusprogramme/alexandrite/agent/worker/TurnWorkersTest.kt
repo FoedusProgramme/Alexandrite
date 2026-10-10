@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.agent.turn.TurnCancelled
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
@@ -131,6 +132,52 @@ class TurnWorkersTest {
         assertEquals(TurnOutcome.Cancelled, anchor.ticket.outcome())
         assertEquals(listOf(anchor.turn, member.turn), bench.runner.started)
         assertFalse(member.ticket.ended)
+    }
+
+    @Test
+    fun `a running turn takes its principal's messages queued since it started, up to a change of state`() = runTest {
+        val bench = bench(perKey = 10)
+        val key = AgentChatKey.parse("coder@test:main:1")
+        val member = UserAddress.parse("test:main@member")
+        val running = bench.receive("test:main:1").turn
+        runCurrent()
+        val early = bench.receive("test:main:1")
+        bench.clock.now = bench.clock.now.plusSeconds(1)
+        val since = bench.clock.instant()
+        val other = bench.receive("test:main:1", user = "other")
+        val late = bench.receive("test:main:1")
+        val later = bench.receive("test:main:1")
+        bench.workers.enqueue(key, WorkerJob.Control {})
+        val behind = bench.receive("test:main:1")
+        val followUps = bench.runner.followUps.getValue(running)
+
+        val taken = followUps.take(member, since)
+
+        assertEquals(listOf(late.turn, later.turn), taken.map { it.plan.id })
+        assertEquals(emptyList(), followUps.take(member, since))
+        assertEquals(listOf(running, early.turn, other.turn, behind.turn), bench.phases().map { it.first })
+        taken.first().complete(TurnOutcome.Absorbed(running))
+        followUps.restore(taken.drop(1))
+        bench.runner.finish(running)
+        runCurrent()
+
+        assertEquals(listOf(running, later.turn), bench.runner.started)
+        assertEquals(TurnOutcome.Absorbed(running), late.ticket.outcome())
+    }
+
+    @Test
+    fun `follow-ups put back once the workers closed end as never started`() = runTest {
+        val bench = bench(perKey = 10)
+        val running = bench.receive("test:main:1").turn
+        runCurrent()
+        val followUp = bench.receive("test:main:1")
+        val followUps = bench.runner.followUps.getValue(running)
+        val taken = followUps.take(UserAddress.parse("test:main@member"), bench.clock.instant())
+
+        bench.workers.close()
+        followUps.restore(taken)
+
+        assertEquals(TurnOutcome.ShutDown(replayable = true), followUp.ticket.outcome())
     }
 
     @Test

@@ -10,15 +10,20 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.turn.FollowUp
+import org.foedusprogramme.alexandrite.agent.turn.FollowUps
 import org.foedusprogramme.alexandrite.agent.turn.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
 import org.foedusprogramme.alexandrite.agent.turn.TurnShutdown
+import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -100,6 +105,33 @@ internal class TurnWorkers(
                 created
             }
             worker.queue.addLast(job)
+        }
+    }
+
+    /**
+     * Takes the messages of [principal] queued at [key] since [since] off its queue, in arrival order, up to the first
+     * change of the key's state.
+     */
+    fun takeFollowUps(key: AgentChatKey, principal: UserAddress, since: Instant): List<WorkerJob.Turn> = lock.locked {
+        val queue = workers[key]?.queue ?: return@locked emptyList()
+        val taken = queue.asSequence()
+            .takeWhile { it is WorkerJob.Turn }
+            .filterIsInstance<WorkerJob.Turn>()
+            .filter { it.plan.isFollowUp(principal, since) }
+            .toList()
+        queue.removeAll { job -> taken.any { it === job } }
+        taken
+    }
+
+    /** Puts [jobs], which the turn running at [key] took and did not absorb, back at the front of its queue. */
+    fun restoreFollowUps(key: AgentChatKey, jobs: List<WorkerJob.Turn>) {
+        lock.locked {
+            val queue = workers[key]?.queue?.takeIf { open }
+            if (queue == null) {
+                jobs.forEach { it.ticket.complete(TurnOutcome.ShutDown(replayable = true)) }
+            } else {
+                jobs.asReversed().forEach(queue::addFirst)
+            }
         }
     }
 
@@ -214,7 +246,7 @@ internal class TurnWorkers(
                     current.cause?.let { throw it }
                     current.startedAt = clock.instant()
                 }
-                runner.run(turn.plan)
+                runner.run(turn.plan, QueuedFollowUps(turn.plan.key))
             }
         } catch (e: CancellationException) {
             if (currentCoroutineContext().isActive) {
@@ -255,6 +287,21 @@ internal class TurnWorkers(
         }
         val loaded = load(worker.key)
         lock.locked { worker.conversation = loaded }
+    }
+
+    /** The follow-ups queued at [key] for the turn running there. */
+    private inner class QueuedFollowUps(private val key: AgentChatKey) : FollowUps {
+        private val taken = HashMap<TurnId, WorkerJob.Turn>()
+
+        override fun take(principal: UserAddress, since: Instant): List<FollowUp> =
+            takeFollowUps(key, principal, since).map { job ->
+                taken[job.plan.id] = job
+                FollowUp(job.plan) { job.ticket.complete(it) }
+            }
+
+        override fun restore(followUps: List<FollowUp>) {
+            restoreFollowUps(key, followUps.mapNotNull { taken.remove(it.plan.id) })
+        }
     }
 
     private suspend fun load(key: AgentChatKey): ConversationId? = try {
@@ -298,6 +345,12 @@ private class Current(val job: WorkerJob) {
         child?.cancel(cause)
     }
 }
+
+/** Whether this turn answers a message that [principal] queued since [since]. */
+private fun TurnPlan.isFollowUp(principal: UserAddress, since: Instant): Boolean = kind == TurnKind.MESSAGE &&
+    input is TurnSource.FromMessage &&
+    actor?.address == principal &&
+    !queuedAt.isBefore(since)
 
 private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Instant?): TurnStatus {
     val turn = TurnInfo.builder(plan.id, plan.origin, conversation, plan.kind)

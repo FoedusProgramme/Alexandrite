@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.agent.provider
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.agent.turn.FollowUps
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
 import org.foedusprogramme.alexandrite.runtime.chat.standaloneChatStates
@@ -73,9 +74,9 @@ internal class WorkerBench(
     val workers = TurnWorkers(settings, lock, conversations, runner, clock).also { it.open() }
     val intakes = ChatIntakes(settings, lock, workers, router)
 
-    fun receive(chat: String, capacity: Capacity = Capacity.COUNTED): Admission {
+    fun receive(chat: String, capacity: Capacity = Capacity.COUNTED, user: String = "member"): Admission {
         val address = ChatAddress.parse(chat)
-        val message = testMessage("Hello", address, testUser(instance = address.instance))
+        val message = testMessage("Hello", address, testUser(user, instance = address.instance))
         return intakes.dispatch(newTurnId(clock.instant()), message, capacity, clock.instant())
     }
 
@@ -111,7 +112,11 @@ internal class FakeRunner : TurnRunner {
     /** What turns return once they are cancelled, where they throw otherwise. */
     val onCancel: MutableMap<TurnId, TurnOutcome> = ConcurrentHashMap()
 
-    override suspend fun run(plan: TurnPlan): TurnOutcome {
+    /** The follow-ups that each started turn may take. */
+    val followUps: MutableMap<TurnId, FollowUps> = ConcurrentHashMap()
+
+    override suspend fun run(plan: TurnPlan, followUps: FollowUps): TurnOutcome {
+        this.followUps[plan.id] = followUps
         started += plan.id
         val end = end(plan.id)
         if (plan.id in stubborn) return withContext(NonCancellable) { end.await() }
