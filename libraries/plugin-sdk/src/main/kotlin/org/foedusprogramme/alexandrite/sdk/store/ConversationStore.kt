@@ -52,8 +52,8 @@ public interface ConversationStore {
 
     /**
      * Records that [turn] started; throws [IllegalArgumentException] when the turn is recorded already or its
-     * conversation is unknown or belongs to another agent chat key, and [IllegalStateException] when the conversation
-     * is not [ConversationState.ACTIVE].
+     * conversation is unknown or belongs to a key other than [TurnInfo.key], and [IllegalStateException] when the
+     * conversation is not [ConversationState.ACTIVE].
      */
     public suspend fun startTurn(turn: TurnInfo)
 

@@ -43,7 +43,7 @@ internal class AgentTurnSubmitter(
         return when {
             commands.handler(command.invocation.name) != null -> lanes.submit(turn, command)
             carrier != null -> intakes.dispatch(turn, carrier, command.capacity, now)
-            else -> lanes.unknown(turn)
+            else -> lanes.unknown(turn, command.invocation)
         }
     }
 }

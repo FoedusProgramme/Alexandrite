@@ -98,12 +98,13 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
             }
             val lineage = turn.lineage
             execute(
-                "INSERT INTO turns (id, conversation, agent, chat_id, kind, actor, run_id, parent_turn, " +
-                    "parent_conversation, parent_call, root_turn, root_conversation, depth, started_at) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO turns (id, conversation, agent, chat_id, origin_chat_id, kind, actor, run_id, " +
+                    "parent_turn, parent_conversation, parent_call, root_turn, root_conversation, depth, started_at) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 turn.id.value,
                 turn.conversation.value,
                 turn.agent.value,
+                chatId(turn.key.chat),
                 chatId(turn.chat),
                 turn.kind.id,
                 turn.actor?.address?.toString(),
@@ -215,7 +216,8 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
     private fun Tx.turnOrNull(id: TurnId): TurnRecord? = queryOne("$TURNS WHERE t.id = ?", id.value) { turnRecord() }
 }
 
-private const val TURNS = "SELECT t.*, chats.address FROM turns t JOIN chats ON chats.id = t.chat_id"
+private const val TURNS = "SELECT t.*, chats.address, origin.address AS origin_address FROM turns t " +
+    "JOIN chats ON chats.id = t.chat_id JOIN chats origin ON origin.id = t.origin_chat_id"
 
 internal const val UNENDED_TURNS = "$TURNS WHERE t.ended_at IS NULL ORDER BY t.started_at, t.rowid"
 
@@ -226,6 +228,7 @@ private fun ResultSet.turnRecord(): TurnRecord = TurnRecord.builder(
     TurnKind.of(getString("kind")),
     instant("started_at"),
 )
+    .chat(ChatAddress.parse(getString("origin_address")))
     .actor(getString("actor")?.let(UserAddress::parse))
     .lineage(lineage())
     .endedAt(instantOrNull("ended_at"))

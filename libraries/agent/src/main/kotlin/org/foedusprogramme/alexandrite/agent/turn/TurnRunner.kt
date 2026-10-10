@@ -2,8 +2,6 @@ package org.foedusprogramme.alexandrite.agent.turn
 
 import kotlinx.coroutines.CancellationException
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
-import org.foedusprogramme.alexandrite.sdk.di.Binds
-import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 
 /** Runs the turns that the workers take from their queues. */
@@ -16,16 +14,13 @@ internal interface TurnRunner {
     suspend fun run(plan: TurnPlan): TurnOutcome
 }
 
-/** Placeholder until T2.5d builds the turn pipeline. */
-@Singleton
-@Binds(TurnRunner::class)
-internal class StubTurnRunner : TurnRunner {
-    override suspend fun run(plan: TurnPlan): TurnOutcome =
-        TurnOutcome.Failed("Turn ${plan.id} was not run: the turn pipeline arrives in T2.5d.")
-}
-
 /** Cancels a turn at the request of [by], or of the host when it is null. */
 internal class TurnCancelled(val by: ChatUser?) : CancellationException("The turn was cancelled.")
 
 /** Cuts a turn off because the agent is shutting down. */
 internal class TurnShutdown : CancellationException("The agent is shutting down.")
+
+/** The [TurnCancelled] or [TurnShutdown] that [error] comes from, null when it comes from neither. */
+internal fun turnCause(error: CancellationException): CancellationException? =
+    generateSequence<Throwable>(error) { it.cause }.filterIsInstance<CancellationException>()
+        .firstOrNull { it is TurnCancelled || it is TurnShutdown }

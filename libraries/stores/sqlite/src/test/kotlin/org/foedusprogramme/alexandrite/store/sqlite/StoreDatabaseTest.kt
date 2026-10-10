@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.store.sqlite
 
 import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -61,19 +62,26 @@ class StoreDatabaseTest {
 
     @Test
     fun `a store of version 1 gets the index of the turns that never ended`() {
-        val started = withStore(directory) { turn(conversations.current(main)).id }
-        connect(file).use {
-            it.runSql("DROP INDEX turns_unended")
-            it.runSql("PRAGMA user_version = 1")
-        }
+        storeWithTurn(version = 1)
 
         val unended = withStore(directory) { conversations.unendedTurns().map { it.id } }
 
-        assertEquals(listOf(started), unended)
+        assertEquals(listOf(TurnId("t1")), unended)
         connect(file).use {
-            assertEquals(2, it.userVersion())
+            assertEquals(STORE_MIGRATIONS.size, it.userVersion())
             assertContains(it.indexes("turns"), "turns_unended")
         }
+    }
+
+    @Test
+    fun `a store of version 2 records each turn's chat as the chat of its key`() {
+        storeWithTurn(version = 2)
+
+        val record = withStore(directory) { conversations.turn(TurnId("t1")) }
+
+        assertEquals(main, record?.key)
+        assertEquals(chat, record?.chat)
+        connect(file).use { assertEquals(STORE_MIGRATIONS.size, it.userVersion()) }
     }
 
     @Test
@@ -224,6 +232,26 @@ class StoreDatabaseTest {
 
         assertTrue(committed)
         assertEquals(setOf("x"), withStore(directory) { rows("SELECT address FROM chats").map { it.single() }.toSet() })
+    }
+
+    /** A store of schema [version] that holds the unended turn `t1` of [main]. */
+    private fun storeWithTurn(version: Int) {
+        val now = MutableClock().instant
+        openStore(file, STORE_MIGRATIONS.take(version), now).use { connection ->
+            connection.inTransaction(now) {
+                val chatId = chatId(chat)
+                execute(
+                    "INSERT INTO conversations (id, kind, agent, chat_id, state, created_at, depth) " +
+                        "VALUES ('c1', 'user_lane', 'main', ?, 'active', 0, 0)",
+                    chatId,
+                )
+                execute(
+                    "INSERT INTO turns (id, conversation, agent, chat_id, kind, depth, started_at) " +
+                        "VALUES ('t1', 'c1', 'main', ?, 'message', 0, 0)",
+                    chatId,
+                )
+            }
+        }
     }
 
     private fun java.sql.Connection.indexes(table: String): List<String> = createStatement().use { statement ->

@@ -17,6 +17,10 @@ internal val STORE_MIGRATIONS: List<Migration> = listOf(
     Migration("an index of the turns that never ended") {
         execute("CREATE INDEX turns_unended ON turns (started_at) WHERE ended_at IS NULL")
     },
+    Migration("the chat each turn came from") {
+        execute("ALTER TABLE turns ADD COLUMN origin_chat_id INTEGER REFERENCES chats (id)")
+        execute("UPDATE turns SET origin_chat_id = chat_id")
+    },
 )
 
 /** A connection to the store at [file], whose schema [steps] brought to their newest version. */

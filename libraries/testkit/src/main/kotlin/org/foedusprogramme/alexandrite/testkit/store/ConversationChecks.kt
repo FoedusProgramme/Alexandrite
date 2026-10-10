@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.testkit.store
 import kotlinx.coroutines.delay
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
@@ -231,6 +233,44 @@ internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
                 expectThrows<IllegalArgumentException>("Starting $case") { conversations.startTurn(refused) }
             }
             expectEqual(null, conversations.turn(TurnId("lost")), "a refused turn")
+        }
+    },
+    StoreCheck("a linked chat's turn runs in the conversation of its group's anchor and keeps its own chat") {
+        val member = testChat("member", instance = ChannelInstanceId(ChannelType("other"), "main"))
+        val actor = testUser(instance = member.instance)
+        val started = open {
+            val anchor = conversations.current(main)
+            val turn = TurnInfo.builder(TurnId("linked"), member, anchor.id, TurnKind.MESSAGE)
+                .agent(main.agent)
+                .key(main)
+                .actor(actor)
+                .build()
+
+            conversations.startTurn(turn)
+
+            expectThrows<IllegalArgumentException>("Starting a turn of the linked chat's own key there") {
+                conversations.startTurn(
+                    turn.rebuild {
+                        id(TurnId("unlinked"))
+                        key(null)
+                    },
+                )
+            }
+            conversations.turn(turn.id) ?: fail("The linked chat's turn is not recorded.")
+        }
+
+        open {
+            val record = conversations.turn(started.id) ?: fail("The linked chat's turn is not recorded.")
+            expectEqual(
+                TurnRecord.builder(started.id, started.conversation, main, TurnKind.MESSAGE, started.startedAt)
+                    .chat(member)
+                    .actor(actor.address)
+                    .build(),
+                record,
+                "the linked chat's turn",
+            )
+            expectEqual(listOf(record), conversations.unendedTurns(), "the turns that never ended")
+            expectEqual(listOf(chat), conversations.chats(main.agent), "the chats of the agent")
         }
     },
     StoreCheck("a conversation that is not active takes no turns") {

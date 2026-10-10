@@ -9,6 +9,7 @@ import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.testkit.assertTextsComplete
+import org.foedusprogramme.alexandrite.testkit.testTexts
 import org.junit.jupiter.api.io.TempDir
 import java.net.URLClassLoader
 import java.nio.file.Files
@@ -78,6 +79,16 @@ class AppTextsTest {
         val packs = AppTexts.packs(classLoader)
 
         for (plugin in packs.plugins) assertTextsComplete(plugin, packs, classLoader)
+    }
+
+    @Test
+    fun `the app's Chinese pack holds the agent's texts and gives its notices`() {
+        val classLoader = AppPlugin::class.java.classLoader
+        val packs = AppTexts.packs(classLoader)
+        val texts = testTexts("alexandrite-agent", english, packs, classLoader)
+
+        assertEquals(listOf(chinese), assertTextsComplete("alexandrite-agent", packs, classLoader))
+        assertEquals("没有 /help 这个命令。", texts.text("notice.unknown_command", chinese, "command" to "help"))
     }
 
     // The operator's files.

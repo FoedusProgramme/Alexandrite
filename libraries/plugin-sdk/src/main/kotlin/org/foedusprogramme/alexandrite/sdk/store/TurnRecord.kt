@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.sdk.store
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -16,6 +17,8 @@ public class TurnRecord private constructor(
     public val id: TurnId,
     public val conversation: ConversationId,
     public val key: AgentChatKey,
+    /** The chat the turn came from. */
+    public val chat: ChatAddress,
     public val kind: TurnKind,
     /** The address of the turn's principal, null when it has none. */
     public val actor: UserAddress?,
@@ -27,7 +30,9 @@ public class TurnRecord private constructor(
     /** Null while the turn runs. */
     public val end: TurnEndKind?,
 ) {
+    /** A builder of this record, whose chat follows its key unless it is another chat. */
     public fun toBuilder(): Builder = Builder(id, conversation, key, kind, startedAt)
+        .chat(chat.takeUnless { it == key.chat })
         .actor(actor)
         .lineage(lineage)
         .endedAt(endedAt)
@@ -40,6 +45,7 @@ public class TurnRecord private constructor(
         private var kind: TurnKind,
         private var startedAt: Instant,
     ) {
+        private var chat: ChatAddress? = null
         private var actor: UserAddress? = null
         private var lineage: TurnLineage? = null
         private var endedAt: Instant? = null
@@ -55,6 +61,9 @@ public class TurnRecord private constructor(
 
         public fun startedAt(startedAt: Instant): Builder = apply { this.startedAt = startedAt }
 
+        /** Null for the chat of the key. */
+        public fun chat(chat: ChatAddress?): Builder = apply { this.chat = chat }
+
         public fun actor(actor: UserAddress?): Builder = apply { this.actor = actor }
 
         public fun lineage(lineage: TurnLineage?): Builder = apply { this.lineage = lineage }
@@ -64,7 +73,7 @@ public class TurnRecord private constructor(
         public fun end(end: TurnEndKind?): Builder = apply { this.end = end }
 
         public fun build(): TurnRecord =
-            TurnRecord(id, conversation, key, kind, actor, lineage, startedAt, endedAt, end)
+            TurnRecord(id, conversation, key, chat ?: key.chat, kind, actor, lineage, startedAt, endedAt, end)
     }
 
     public companion object {

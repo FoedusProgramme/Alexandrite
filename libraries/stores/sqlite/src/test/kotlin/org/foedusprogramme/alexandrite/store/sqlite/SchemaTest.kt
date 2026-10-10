@@ -46,6 +46,7 @@ class SchemaTest {
                     "conversations.chat_id -> chats.id",
                     "current_conversations.chat_id -> chats.id",
                     "turns.chat_id -> chats.id",
+                    "turns.origin_chat_id -> chats.id",
                     "entries.message_chat_id -> chats.id",
                     "chat_states.chat_id -> chats.id",
                 ),

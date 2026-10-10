@@ -9,10 +9,12 @@ import org.foedusprogramme.alexandrite.agent.control.Choice
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.runtime.chat.standaloneChatStates
+import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.state
+import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
@@ -47,19 +49,22 @@ class AgentTurnSubmitterTest {
 
     private suspend fun outcome(admission: Admission): TurnOutcome = admission.ticket.outcome()
 
-    private fun notRun(admission: Admission) =
-        TurnOutcome.Failed("Turn ${admission.turn} was not run: the turn pipeline arrives in T2.5d.")
+    /** The text of the reply that [admission]'s turn ended with. */
+    private suspend fun answer(admission: Admission): String? =
+        ((outcome(admission) as TurnOutcome.Completed).reply?.parts?.single() as TextPart).text
+
+    private fun model(replies: Int) = ScriptedModel().apply { repeat(replies) { reply { text("Hi") } } }
 
     @Test
     fun `a message is taken by the chat's agent, and refused where no agent or no instance serves it`() {
         lateinit var submitter: TurnSubmitter
 
-        agentHarness(config(coder)) { channel().channel("quiet").model(ScriptedModel()) }.execute {
+        agentHarness(config(coder)) { channel().channel("quiet").model(model(1)) }.execute {
             submitter = get()
             val taken = channel().receive("Hello")
             val elsewhere = testMessage(chat = ChatAddress.parse("test:other:1"))
 
-            assertEquals(notRun(taken), outcome(taken))
+            assertEquals("Hi", answer(taken))
             assertEquals(Admission.Refused(RefusalReason.NO_AGENT), channel("quiet").receive("Hello"))
             assertEquals(Admission.Refused(RefusalReason.UNKNOWN_CHAT), submitter.submit(Submission.Message(elsewhere)))
         }
@@ -76,7 +81,7 @@ class AgentTurnSubmitterTest {
         val conversations = GatedConversations(store)
 
         agentHarness(config(coder, perKey = 2), store = null) {
-            channel().model(ScriptedModel()).plugin(StoreIndex(store, conversations))
+            channel().model(model(3)).plugin(StoreIndex(store, conversations))
         }.execute {
             val channel = channel()
             val taken = List(2) { channel.receive("Hello") }
@@ -85,7 +90,7 @@ class AgentTurnSubmitterTest {
             conversations.openAll()
 
             assertEquals(Admission.Refused(RefusalReason.QUEUE_FULL, 2), full)
-            assertEquals((taken + exempt).map(::notRun), (taken + exempt).map { outcome(it) })
+            assertEquals(List(3) { "Hi" }, (taken + exempt).map { answer(it) })
         }
     }
 
@@ -102,7 +107,7 @@ class AgentTurnSubmitterTest {
         """.trimIndent()
 
         agentHarness(config(agents), store = null) {
-            channel().model(ScriptedModel()).plugin(StoreIndex(store, conversations))
+            channel().model(model(3)).plugin(StoreIndex(store, conversations))
         }.execute {
             val channel = channel()
             val anchor = channel.receive("Hello", channel.chat("1"))
@@ -114,12 +119,12 @@ class AgentTurnSubmitterTest {
 
             conversations.open(alone)
 
-            assertEquals(notRun(unlinked), outcome(unlinked))
+            assertEquals("Hi", answer(unlinked))
             assertFalse(anchor.ticket.ended || member.ticket.ended)
             assertEquals(setOf(group, alone), conversations.asked.toSet())
             conversations.open(group)
-            assertEquals(listOf(notRun(anchor), notRun(member)), listOf(outcome(anchor), outcome(member)))
-            assertEquals(2, conversations.asked.size)
+            assertEquals(listOf("Hi", "Hi"), listOf(answer(anchor), answer(member)))
+            assertEquals(setOf(group, alone), conversations.asked.toSet())
         }
     }
 
@@ -137,7 +142,7 @@ class AgentTurnSubmitterTest {
         blocking { selected.set(ChatAddress.parse("test:main:1"), Choice(AgentId("coder"))) }
 
         agentHarness(config(agents), store = null) {
-            channel().model(ScriptedModel()).plugin(StoreIndex(store, conversations))
+            channel().model(model(3)).plugin(StoreIndex(store, conversations))
         }.execute {
             val channel = channel()
             val switched = channel.receive("Hello", channel.chat("1"))
@@ -153,7 +158,7 @@ class AgentTurnSubmitterTest {
     }
 
     @Test
-    fun `a command nobody claims is a message, and a claimed one is not run yet`() {
+    fun `a command nobody claims is a message or else a notice, and a claimed one is not run yet`() {
         val handled = CopyOnWriteArrayList<String>()
         val handler = object : CommandHandler {
             override val commands = listOf(CommandSpec.builder("new", "Starts a new conversation.").build())
@@ -163,7 +168,7 @@ class AgentTurnSubmitterTest {
             }
         }
 
-        agentHarness(config(coder)) { channel().model(ScriptedModel()).commandHandler(handler) }.execute {
+        agentHarness(config(coder)) { channel().model(model(1)).commandHandler(handler) }.execute {
             val channel = channel()
             val unclaimed = channel.receiveCommand("help")
             val claimed = channel.receiveCommand("NEW")
@@ -171,9 +176,12 @@ class AgentTurnSubmitterTest {
                 Submission.Command(testCommand("help", chat = channel.chat(), issuer = testUser(), trigger = null)),
             )
 
-            assertEquals(notRun(unclaimed), outcome(unclaimed))
+            assertEquals("Hi", answer(unclaimed))
             assertEquals(TurnOutcome.Failed("Command '/NEW' was not run: commands run from T2.5h."), outcome(claimed))
-            assertEquals(TurnOutcome.Completed(null), outcome(bare))
+            val answered = outcome(bare)
+            val notice = channel.sent.single()
+            assertEquals(TurnOutcome.Completed(null, mapOf(channel.chat() to notice.delivery)), answered)
+            assertEquals("There is no command /help." to MessageKind.NOTICE, notice.message.text to notice.message.kind)
             assertTrue(handled.isEmpty())
         }
     }

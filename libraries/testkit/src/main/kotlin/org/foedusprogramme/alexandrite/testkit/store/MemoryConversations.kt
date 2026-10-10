@@ -85,6 +85,7 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
                 "Conversation ${conversation.id} is ${conversation.state}, so it takes no new turns."
             }
             turns[turn.id] = TurnRecord.builder(turn.id, turn.conversation, turn.key, turn.kind, now)
+                .chat(turn.chat)
                 .actor(turn.actor?.address)
                 .lineage(turn.lineage)
                 .build()

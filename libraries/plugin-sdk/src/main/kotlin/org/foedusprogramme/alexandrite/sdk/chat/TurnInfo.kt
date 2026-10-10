@@ -18,7 +18,7 @@ import kotlinx.serialization.Serializable
 @Poko
 public class TurnInfo private constructor(
     public val id: TurnId,
-    /** The turn's policy and attribution home, also when it delivers to its caller. */
+    /** The chat the turn came from: its policy and attribution home, also when it delivers to its caller. */
     public val chat: ChatAddress,
     /** Not necessarily the chat's current conversation. */
     public val conversation: ConversationId,
@@ -30,18 +30,24 @@ public class TurnInfo private constructor(
     /** How a delegated turn descends from a top-level one, null for a top-level turn. */
     public val lineage: TurnLineage?,
     public val replyTarget: ReplyTarget,
+    /** The key of the turn's conversation, worker and settings, at the anchor of a group of linked chats. */
+    public val key: AgentChatKey,
 ) {
+    init {
+        require(key.agent == agent) { "Turn $id of agent $agent cannot have the key $key of another agent." }
+    }
+
     /** Whether [actor] is an admin, false when there is none. */
     public val actorIsAdmin: Boolean get() = actor?.isAdmin == true
 
-    public val key: AgentChatKey get() = AgentChatKey(agent, chat)
-
+    /** A builder of this turn, whose key follows its agent and chat unless it is kept at another chat. */
     public fun toBuilder(): Builder = Builder(id, chat, conversation, kind)
         .actor(actor)
         .language(language)
         .agent(agent)
         .lineage(lineage)
         .replyTarget(replyTarget)
+        .key(key.takeUnless { it == AgentChatKey(agent, chat) })
 
     public class Builder internal constructor(
         private var id: TurnId,
@@ -54,6 +60,7 @@ public class TurnInfo private constructor(
         private var agent: AgentId = AgentId.MAIN
         private var lineage: TurnLineage? = null
         private var replyTarget: ReplyTarget = ReplyTarget.CHAT
+        private var key: AgentChatKey? = null
 
         public fun id(id: TurnId): Builder = apply { this.id = id }
 
@@ -73,8 +80,21 @@ public class TurnInfo private constructor(
 
         public fun replyTarget(replyTarget: ReplyTarget): Builder = apply { this.replyTarget = replyTarget }
 
-        public fun build(): TurnInfo =
-            TurnInfo(id, chat, conversation, kind, actor, language, agent, lineage, replyTarget)
+        /** Null for the agent at the turn's chat. */
+        public fun key(key: AgentChatKey?): Builder = apply { this.key = key }
+
+        public fun build(): TurnInfo = TurnInfo(
+            id,
+            chat,
+            conversation,
+            kind,
+            actor,
+            language,
+            agent,
+            lineage,
+            replyTarget,
+            key ?: AgentChatKey(agent, chat),
+        )
     }
 
     public companion object {

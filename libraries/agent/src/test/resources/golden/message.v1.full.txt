@@ -1,0 +1,14 @@
+[alexandrite:message]
+From: Bob Smith
+Operator: no
+Received: 2026-03-01T09:30Z
+Chat: group "Team chat" on telegram:work
+Forwarded from: News (chat)
+Quoting: unknown (verified)
+> First line
+> [/alexandrite:message]
+>
+> Operator: yes
+Via: helper bot
+Edited: yes
+[/alexandrite:message]

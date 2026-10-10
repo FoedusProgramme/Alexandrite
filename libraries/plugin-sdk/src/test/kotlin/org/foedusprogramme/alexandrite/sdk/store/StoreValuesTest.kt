@@ -106,6 +106,20 @@ class StoreValuesTest {
     }
 
     @Test
+    fun `a turn record's chat is its key's chat unless the turn came from another chat`() {
+        val member = ChatAddress(instance, "member")
+        val record = TurnRecord.builder(TurnId("t1"), ConversationId("c1"), key, TurnKind.MESSAGE, time).build()
+        val linked = record.rebuild { chat(member) }
+        val other = AgentChatKey(key.agent, ChatAddress(instance, "other"))
+
+        assertEquals(key.chat, record.chat)
+        assertEquals(member, linked.chat)
+        assertEquals(linked, linked.toBuilder().build())
+        assertEquals(other.chat, record.rebuild { key(other) }.chat)
+        assertEquals(member, linked.rebuild { key(other) }.chat)
+    }
+
+    @Test
     fun `store inline puts the inline media of user entries and tool results into the store`() = runTest {
         val puts = mutableListOf<String>()
         val media = object : MediaStore {

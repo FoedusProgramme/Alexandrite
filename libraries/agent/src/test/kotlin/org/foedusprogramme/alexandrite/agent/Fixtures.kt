@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
@@ -34,6 +35,8 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
+import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.slf4j.LoggerFactory
@@ -148,14 +151,30 @@ class GatedConversations(private val store: MemoryStore = MemoryStore()) : Conve
         gates.computeIfAbsent(key) { CompletableDeferred<Unit>().also { if (allOpen) it.complete(Unit) } }
 }
 
-/** A plugin that binds the store ports of [store], with [conversations] in place of its own. */
-class StoreIndex(private val store: MemoryStore, private val conversations: ConversationStore) : PluginIndex {
+/** The transcripts of [store], which record how entries are read. */
+class CountingTranscripts(private val store: TranscriptStore) : TranscriptStore by store {
+    /** The reads of whole conversations and of their entries after an id, in order. */
+    val reads: MutableList<String> = CopyOnWriteArrayList()
+
+    override suspend fun entries(conversation: ConversationId): List<TranscriptEntry> =
+        store.entries(conversation).also { reads += "entries" }
+
+    override suspend fun entriesAfter(conversation: ConversationId, after: EntryId): List<TranscriptEntry> =
+        store.entriesAfter(conversation, after).also { reads += "entriesAfter $after" }
+}
+
+/** A plugin that binds the store ports of [store], with [conversations] and [transcripts] in place of its own. */
+class StoreIndex(
+    private val store: MemoryStore,
+    private val conversations: ConversationStore = store.conversations,
+    private val transcripts: TranscriptStore = store.transcripts,
+) : PluginIndex {
     override val info = PluginInfo(ID, ID, "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Plugin")
     override val configRoot = PluginIds.thirdPartyRoot(ID)
 
     override fun bindings(): List<Binding<*>> = listOf(
         instanceBinding(key<ConversationStore>(), conversations, ID, "conversations"),
-        instanceBinding(key<TranscriptStore>(), store.transcripts, ID, "transcripts"),
+        instanceBinding(key<TranscriptStore>(), transcripts, ID, "transcripts"),
         instanceBinding(key<MediaStore>(), store.media, ID, "media"),
         instanceBinding(key<ChatStateStore>(), store.chatStates, ID, "chat states"),
     )

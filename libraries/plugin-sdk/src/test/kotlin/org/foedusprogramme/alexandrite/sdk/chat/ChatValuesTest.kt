@@ -31,9 +31,18 @@ class ChatValuesTest {
     }
 
     @Test
-    fun `a turn's key is its agent at its chat`() {
+    fun `a turn's key is its agent at its chat unless it is kept at another chat`() {
+        val anchor = AgentChatKey(AgentId("coder"), ChatAddress(work, "-200"))
+        val linked = turn().agent(AgentId("coder")).key(anchor).build()
+
         assertEquals(AgentChatKey(AgentId.MAIN, chat), turn().build().key)
         assertEquals(AgentChatKey(AgentId("coder"), chat), turn().agent(AgentId("coder")).build().key)
+        assertEquals(anchor, linked.key)
+        assertEquals(chat, linked.chat)
+        assertEquals(linked, linked.toBuilder().build())
+        assertEquals(AgentChatKey(AgentId("helper"), chat), turn().build().rebuild { agent(AgentId("helper")) }.key)
+        assertEquals(anchor, linked.rebuild { chat(ChatAddress(work, "-300")) }.key)
+        assertFailsWith<IllegalArgumentException> { linked.rebuild { agent(AgentId("helper")) } }
     }
 
     @Test
@@ -63,7 +72,7 @@ class ChatValuesTest {
         )
         assertEquals(
             "TurnInfo(id=t1, chat=telegram:work:-100, conversation=c1, kind=message, actor=null, language=null, " +
-                "agent=main, lineage=null, replyTarget=chat)",
+                "agent=main, lineage=null, replyTarget=chat, key=main@telegram:work:-100)",
             turn().build().toString(),
         )
         assertFailsWith<IllegalArgumentException> {

@@ -304,6 +304,7 @@ private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Inst
         .actor(plan.actor)
         .agent(plan.key.agent)
         .replyTarget(plan.replyTarget)
+        .key(plan.key)
         .build()
     val phase = if (startedAt == null) TurnPhase.QUEUED else TurnPhase.RUNNING
     return TurnStatus.builder(turn, phase, plan.queuedAt).startedAt(startedAt).build()
