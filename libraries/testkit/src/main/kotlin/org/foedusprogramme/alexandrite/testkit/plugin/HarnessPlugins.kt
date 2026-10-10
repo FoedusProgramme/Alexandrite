@@ -26,6 +26,7 @@ import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
@@ -60,6 +61,7 @@ internal class DoublesPlugin(
     control: RecordingAgentControl?,
     store: MemoryStore?,
     chatStates: ChatStateStore?,
+    floor: HardFloor?,
 ) : HarnessPlugin(ID, "Test doubles") {
     private val bindings = buildList {
         if (models.isNotEmpty()) {
@@ -87,6 +89,7 @@ internal class DoublesPlugin(
             add(instanceBinding(key<MediaStore>(), it.media, ID, "MemoryStore.media"))
         }
         chatStates?.let { add(instanceBinding(key<ChatStateStore>(), it, ID, "MemoryStore.chatStates")) }
+        floor?.let { add(instanceBinding(key<HardFloor>(), it, ID, "HardFloor")) }
     }
 
     val empty: Boolean get() = bindings.isEmpty()

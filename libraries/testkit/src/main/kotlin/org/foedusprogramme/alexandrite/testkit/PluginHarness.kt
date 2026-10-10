@@ -24,6 +24,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.testkit.plugin.DoublesPlugin
@@ -187,6 +188,7 @@ public class PluginHarness private constructor(
         private var control: RecordingAgentControl? = null
         private var states: TestChatStates? = null
         private var store: MemoryStore? = null
+        private var floor: HardFloor? = null
 
         internal var temporaryRoot: () -> Path = { Files.createTempDirectory("alexandrite-harness-") }
 
@@ -281,6 +283,9 @@ public class PluginHarness private constructor(
         /** Binds every port of [store] as the runtime's store. */
         public fun store(store: MemoryStore): Builder = apply { this.store = store }
 
+        /** Binds [floor] as the runtime's HardFloor. */
+        public fun hardFloor(floor: HardFloor): Builder = apply { this.floor = floor }
+
         public fun build(): PluginHarness {
             val store = store
             val states = states
@@ -289,7 +294,7 @@ public class PluginHarness private constructor(
             }
             val chatStates = (store ?: states?.store)?.chatStates
             val doubles =
-                DoublesPlugin(models, tools, hooks, handlers, submitter, initiator, control, store, chatStates)
+                DoublesPlugin(models, tools, hooks, handlers, submitter, initiator, control, store, chatStates, floor)
             val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
             val all = configs + recording.associate { it.configRoot to it.config() }
             val tree = all.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->

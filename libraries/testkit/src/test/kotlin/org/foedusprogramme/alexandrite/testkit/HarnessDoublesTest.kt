@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
@@ -114,6 +115,13 @@ class HarnessDoublesTest {
         PluginHarness.builder(probe).turnInitiator(initiator).execute { get<TurnInitiator>("probe").initiate(turn) }
 
         assertEquals(listOf(RecordingTurnInitiator.Initiated("probe", turn)), initiator.initiated)
+    }
+
+    @Test
+    fun `a harness binds the hard floor it was given`() {
+        val floor = testHardFloor()
+
+        PluginHarness.builder(probe).hardFloor(floor).execute { assertSame(floor, get<HardFloor>()) }
     }
 
     @Test

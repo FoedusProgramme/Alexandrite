@@ -14,8 +14,10 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -54,6 +56,12 @@ class ValueTypesTest {
             ToolDefinition("fs.read", "Reads files", JsonObject(emptyMap())),
             "ToolDefinition(name=fs.read, description=Reads a file, parameters={}, risk=EXEC)",
         ),
+        Case(
+            { FloorCheck.Allowed(Path.of("/srv/notes.md")) },
+            FloorCheck.Allowed(Path.of("/srv/other.md")),
+            "Allowed(canonical=/srv/notes.md)",
+        ),
+        Case({ FloorCheck.Denied("SSH keys") }, FloorCheck.Denied("devices"), "Denied(reason=SSH keys)"),
         Case(
             { ToolResult("ok") },
             ToolResult("ok", isError = true),

@@ -33,6 +33,8 @@ class PublicApiTest {
         import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
         import org.foedusprogramme.alexandrite.sdk.model.*
         import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+        import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
+        import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
         import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
         import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
         import org.foedusprogramme.alexandrite.sdk.transcript.*
@@ -180,7 +182,14 @@ class PublicApiTest {
             tool.hold().release()
             val result = tool.execute(JsonObject(emptyMap()), testToolContext())
             val call: RecordingTool.Call = tool.awaitCalls(1).first()
-            return listOf(result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call)
+            val floor: HardFloor = testHardFloor(listOf(Path.of("/srv/secret")), Path.of("/home/user"))
+            val checked = when (val check = floor.check(Path.of("/srv/secret/key"))) {
+                is FloorCheck.Allowed -> check.canonical
+                is FloorCheck.Denied -> check.reason
+            }
+            return listOf(
+                result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
+            )
         }
 
         suspend fun harness(index: PluginIndex, other: PluginIndex, root: Path): List<Any> {
@@ -222,6 +231,7 @@ class PublicApiTest {
                 .agentControl(RecordingAgentControl())
                 .store(store)
                 .chatStates(TestChatStates(store))
+                .hardFloor(testHardFloor())
                 .build()
             val seen = mutableListOf<Any>()
             val block: suspend PluginHarness.Running.() -> Unit = {

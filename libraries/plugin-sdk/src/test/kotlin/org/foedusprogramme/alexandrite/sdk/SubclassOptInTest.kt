@@ -52,6 +52,10 @@ class SubclassOptInTest {
             override val call get() = TODO()
         }
 
+        class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
+            override fun check(path: java.nio.file.Path) = TODO()
+        }
+
         class States : org.foedusprogramme.alexandrite.sdk.chat.ChatStates {
             override fun <T : Any> state(
                 name: String,
@@ -514,6 +518,28 @@ class SubclassOptInTest {
             submitter.submit(Submission.Message(message)) is Admission.Accepted
     """.trimIndent()
 
+    /** A file tool as a third-party plugin writes it. */
+    private val fileTool = """
+        import kotlinx.serialization.json.JsonObject
+        import kotlinx.serialization.json.jsonPrimitive
+        import org.foedusprogramme.alexandrite.sdk.tool.*
+        import java.nio.file.Files
+        import java.nio.file.Path
+
+        class Read(private val floor: HardFloor) : Tool {
+            override val definition =
+                ToolDefinition("files.read", "Reads a file.", JsonObject(emptyMap()), ToolRisk.READ_ONLY)
+
+            override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+                val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
+                return when (val check = floor.check(path)) {
+                    is FloorCheck.Allowed -> ToolResult(Files.readString(check.canonical))
+                    is FloorCheck.Denied -> ToolResult("Refused: ${'$'}{check.reason}.", isError = true)
+                }
+            }
+        }
+    """.trimIndent()
+
     /** The errors of compiling [source]. */
     private fun errors(source: String): List<String> = KotlinCompilation().apply {
         workingDir = this@SubclassOptInTest.workingDir
@@ -562,6 +588,11 @@ class SubclassOptInTest {
     @Test
     fun `a plugin handles commands, starts turns and hooks into them without the internal API`() {
         assertEquals(emptyList(), errors(turns))
+    }
+
+    @Test
+    fun `a plugin's tool checks its paths against the hard floor without the internal API`() {
+        assertEquals(emptyList(), errors(fileTool))
     }
 
     @Test
