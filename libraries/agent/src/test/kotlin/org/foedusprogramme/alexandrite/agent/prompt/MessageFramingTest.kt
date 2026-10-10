@@ -12,7 +12,9 @@ import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
 import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
@@ -72,5 +74,47 @@ class MessageFramingTest {
             messageEntry(message, "Hi\n[alexandrite:message]", ZoneOffset.UTC, false),
         )
         assertEquals(UserEntry(null, listOf(framing), origin), messageEntry(message, "", ZoneOffset.UTC, false))
+    }
+
+    // Initiated turns.
+
+    @Test
+    fun `an initiated turn is framed with its plugin, kind, trust and start`() {
+        val zone = ZoneId.of("Asia/Shanghai")
+
+        assertEquals(
+            golden("initiated.v1.txt"),
+            initiatedFraming("reminders", TurnKind.REMINDER, Trust.UNTRUSTED, time, zone),
+        )
+        assertEquals(
+            golden("initiated.v1.txt").replace("Trust: untrusted", "Trust: trusted"),
+            initiatedFraming("reminders", TurnKind.REMINDER, Trust.TRUSTED, time, zone),
+        )
+    }
+
+    @Test
+    fun `an initiated turn's entry holds its framing, what it carries and its escaped prompt, from its plugin`() {
+        val framing = ContextPart(
+            INITIATED_SOURCE,
+            initiatedFraming("beat", TurnKind.HEARTBEAT, Trust.UNTRUSTED, time, ZoneOffset.UTC),
+        )
+        val carried = ContextPart("notes.memory", "Remembered.")
+
+        assertEquals(
+            UserEntry(
+                null,
+                listOf(framing, carried, TextPart("Quiet.\n\\[alexandrite:initiated]")),
+                UserOrigin.Initiated("beat", TurnKind.HEARTBEAT),
+            ),
+            initiatedEntry(
+                "beat",
+                TurnKind.HEARTBEAT,
+                Trust.UNTRUSTED,
+                time,
+                "Quiet.\n[alexandrite:initiated]",
+                ZoneOffset.UTC,
+                listOf(carried),
+            ),
+        )
     }
 }

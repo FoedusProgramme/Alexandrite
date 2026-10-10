@@ -248,21 +248,24 @@ internal class TurnWorkers(
         }
         val current = Current(job)
         worker.current = current
-        if (job is WorkerJob.Turn) current.child = launch(current, job)
+        if (job is WorkerJob.Turn) current.child = launch(worker, current, job)
         return current
     }
 
-    private fun launch(current: Current, turn: WorkerJob.Turn): Job {
-        val child = lock.launch(RunningTurn(turn.plan.key)) { execute(current, turn) }
+    private fun launch(worker: Worker, current: Current, turn: WorkerJob.Turn): Job {
+        val child = lock.launch(RunningTurn(turn.plan.key)) { execute(worker, current, turn) }
         child.invokeOnCompletion { error -> error?.let { turn.ticket.complete(interrupted(current, it)) } }
         return child
     }
 
-    private suspend fun execute(current: Current, turn: WorkerJob.Turn) {
+    private suspend fun execute(worker: Worker, current: Current, turn: WorkerJob.Turn) {
         val outcome = try {
             permits.withPermit {
+                val heartbeat = turn.plan.kind == TurnKind.HEARTBEAT && lock.locked { worker.heartbeatBase == null }
+                val base = if (heartbeat) loadHeartbeatBase(worker.key) else null
                 lock.locked {
                     current.cause?.let { throw it }
+                    base?.let { worker.heartbeatBase = it }
                     current.startedAt = clock.instant()
                 }
                 runner.run(turn.plan, QueuedFollowUps(turn.plan.key))
@@ -331,6 +334,15 @@ internal class TurnWorkers(
         logger.warn("Cannot read the current conversation of {}: {}", key, e.toString())
         null
     }
+
+    private suspend fun loadHeartbeatBase(key: AgentChatKey): ConversationId? = try {
+        store.heartbeatBase(key).id
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.warn("Cannot read the heartbeat base conversation of {}: {}", key, e.toString())
+        null
+    }
 }
 
 private class Worker(val key: AgentChatKey) {
@@ -341,13 +353,18 @@ private class Worker(val key: AgentChatKey) {
     /** The conversation the worker last read as current, null before then. */
     var conversation: ConversationId? = null
 
+    /** The conversation of the key's heartbeat turns, null until one of them starts. */
+    var heartbeatBase: ConversationId? = null
+
     fun statuses(chat: ChatAddress?): List<TurnStatus> {
-        val conversation = conversation ?: return emptyList()
         val running = current?.let { current -> current.turn?.let { it to current.startedAt } }
         val queued = queue.filterIsInstance<WorkerJob.Turn>().map { it to null }
         return (listOfNotNull(running) + queued)
             .filter { (turn, _) -> chat == null || turn.plan.origin == chat }
-            .map { (turn, startedAt) -> status(turn.plan, conversation, startedAt) }
+            .mapNotNull { (turn, startedAt) ->
+                val conversation = if (turn.plan.kind == TurnKind.HEARTBEAT) heartbeatBase else conversation
+                conversation?.let { status(turn.plan, it, startedAt) }
+            }
     }
 }
 

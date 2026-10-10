@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.delivery.ReplyStream
+import org.foedusprogramme.alexandrite.agent.delivery.Routes
 import org.foedusprogramme.alexandrite.agent.delivery.delivered
 import org.foedusprogramme.alexandrite.agent.delivery.notice
 import org.foedusprogramme.alexandrite.agent.delivery.replyMessage
@@ -35,6 +36,7 @@ import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
 import org.foedusprogramme.alexandrite.agent.prompt.PromptAssembler
 import org.foedusprogramme.alexandrite.agent.prompt.TurnContextPlan
+import org.foedusprogramme.alexandrite.agent.prompt.initiatedEntry
 import org.foedusprogramme.alexandrite.agent.prompt.messageEntry
 import org.foedusprogramme.alexandrite.agent.prompt.turnContextPlan
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
@@ -52,6 +54,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -67,6 +70,7 @@ import org.foedusprogramme.alexandrite.sdk.model.PromptSection
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.model.RequestIds
 import org.foedusprogramme.alexandrite.sdk.model.ToolChoice
+import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
@@ -113,6 +117,7 @@ internal class AgentTurnRunner(
     private val executor: ToolExecutor,
     private val hooks: TurnHooks,
     private val notices: Notices,
+    private val routes: Routes,
     private val clock: Clock,
 ) : TurnRunner {
     override suspend fun run(plan: TurnPlan, followUps: FollowUps): TurnOutcome {
@@ -151,7 +156,8 @@ internal class AgentTurnRunner(
         private var outcome: TurnOutcome? = null
 
         suspend fun execute(): TurnOutcome {
-            val message = plan.input.message
+            val input = plan.input
+            val message = input.message
             val turn = dequeue()
             if (!openReply(turn)) return TurnOutcome.Failed("Channel instance ${turn.chat.instance} is not open.")
             withContext(NonCancellable) {
@@ -166,12 +172,12 @@ internal class AgentTurnRunner(
             val options = requestOptions(agent, selected.info, reasoning)
             val offered = tools.offered(agent.id, turn.actorIsAdmin, selected.ref, selected.info.nativeTools)
             val definitions = hooks.turnStart(turn, message, offered.map { it.definition }).or { return stopped(it) }
-            val text = hooks.turnInput(turn, message, message.text).or { return stopped(it) }
+            val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
-            val opening = entry(turn, message, text, context.baked)
+            val opening = opening(turn, input, text, context.baked)
             val loaded = history.entries(turn.conversation)
             hooks.contextLoaded(turn, loaded)
-            val sections = hooks.promptSections(turn, prompt.sections(turn, message.chatInfo.kind))
+            val sections = hooks.promptSections(turn, prompt.sections(turn, message?.chatInfo?.kind))
             val parts = RequestParts(selected, options, loaded.filter(::isSent), sections, definitions, context)
             val kept = definitions.map { it.name }.toSet()
             return rounds(parts, opening, offered.associateBy { it.definition.name }.filterKeys { it in kept })
@@ -276,6 +282,24 @@ internal class AgentTurnRunner(
                 logger.debug("Turn {} of {} is tainted by untrusted turn context", turn.id, turn.key)
             }
             return context
+        }
+
+        /** The unstored opening entry of [turn] from [input], which reads [text], with the turn context [baked]. */
+        private suspend fun opening(
+            turn: TurnInfo,
+            input: TurnSource,
+            text: String,
+            baked: List<ContextPart>,
+        ): UserEntry = when (input) {
+            is TurnSource.FromMessage -> entry(turn, input.message, text, baked)
+
+            is TurnSource.FromInitiated -> {
+                if (input.trust == Trust.UNTRUSTED) {
+                    tainted = true
+                    logger.debug("Turn {} of {} is tainted by its untrusted prompt", turn.id, turn.key)
+                }
+                initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
+            }
         }
 
         /** The unstored entry of [message] in [turn], whose words read [text], with the turn context [baked]. */
@@ -408,7 +432,7 @@ internal class AgentTurnRunner(
         /** Takes the first of [taken] into the turn, or drops it with a notice where `turn.input` refuses it. */
         private suspend fun absorbFirst(turn: TurnInfo, taken: ArrayDeque<FollowUp>) {
             val followUp = taken.first()
-            val message = followUp.plan.input.message
+            val message = checkNotNull(followUp.plan.input.message)
             val input = hooks.turnInput(turn, message, message.text, followUp = true)
             val entry = (input as? Hooked.Proceed)?.let { entry(turn, message, it.value, emptyList()) }
             withContext(NonCancellable) {
@@ -450,7 +474,7 @@ internal class AgentTurnRunner(
                 val (kind, key) = after ?: (NoticeKind.BLANK_REPLY to TextKeys.BLANK_REPLY)
                 return ended(kind, notices.text(turn, key), TurnOutcome.Completed(null), TurnEndKind.COMPLETED)
             }
-            val deliveries = sink?.let { mapOf(turn.chat to deliver(it, turn, text)) }.orEmpty()
+            val deliveries = sink?.let { mapOf(turn.chat to deliver(it, turn, text)) } ?: route(turn, text)
             after?.let { (kind, key) -> notify(kind, notices.text(turn, key)) }
             return end(TurnOutcome.Completed(reply, deliveries), TurnEndKind.COMPLETED)
         }
@@ -460,6 +484,30 @@ internal class AgentTurnRunner(
             val delivery = show(sink, hooks.responseBefore(turn, reply, turn.chat))
             if (delivery is Delivery.NotDelivered && delivery.kind == DeliveryFailure.TOO_LONG) {
                 notify(NoticeKind.TOO_LONG, notices.text(turn, TextKeys.REPLY_TOO_LONG))
+            }
+            return delivery
+        }
+
+        /** Sends [text] to each destination of the turn's route. */
+        private suspend fun route(turn: TurnInfo, text: String): Map<ChatAddress, Delivery> =
+            routes.destinations(turn.agent, plan.route).associateWith { send(turn, text, it) }
+
+        /** Sends [text] to [destination] as the turn's reply. */
+        private suspend fun send(turn: TurnInfo, text: String, destination: ChatAddress): Delivery {
+            val channel = channels.channel(destination.instance)
+            val delivery = if (channel == null) {
+                Delivery.NotDelivered(
+                    DeliveryFailure.TRANSIENT,
+                    "Channel instance ${destination.instance} is not open.",
+                )
+            } else {
+                delivered {
+                    val reply = replyMessage(text, channel.capabilities(destination), null, turn.conversation)
+                    channel.send(destination, hooks.responseBefore(turn, reply, destination))
+                }
+            }
+            if (delivery is Delivery.NotDelivered) {
+                logger.warn("The reply of turn {} did not reach chat {}: {}", turn.id, destination, delivery)
             }
             return delivery
         }
@@ -601,9 +649,15 @@ private class RequestParts(
     val context: TurnContextPlan,
 )
 
-private val TurnSource.message: IncomingMessage
+/** The message that the turn answers, null for a turn that a plugin started. */
+private val TurnSource.message: IncomingMessage?
+    get() = (this as? TurnSource.FromMessage)?.message
+
+/** What the model reads of the turn's input before `turn.input` changes it. */
+private val TurnSource.text: String
     get() = when (this) {
-        is TurnSource.FromMessage -> message
+        is TurnSource.FromMessage -> message.text
+        is TurnSource.FromInitiated -> prompt
     }
 
 /** The tool calls of [entries] that none of them answers. */

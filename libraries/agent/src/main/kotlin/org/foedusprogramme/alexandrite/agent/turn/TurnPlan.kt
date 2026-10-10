@@ -8,6 +8,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.model.Trust
+import org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute
 import java.time.Instant
 
 /** A turn as its worker queues it. */
@@ -23,9 +25,14 @@ internal class TurnPlan(
     val replyTarget: ReplyTarget,
     val trigger: ChannelMessageRef?,
     val queuedAt: Instant,
+    /** Where the final reply of a turn that replies to its caller goes. */
+    val route: ReplyRoute = ReplyRoute.None,
 )
 
 /** What a turn answers. */
 internal sealed interface TurnSource {
     class FromMessage(val message: IncomingMessage) : TurnSource
+
+    /** The [prompt] that the plugin [plugin] started the turn with. */
+    class FromInitiated(val plugin: String, val prompt: String, val trust: Trust) : TurnSource
 }

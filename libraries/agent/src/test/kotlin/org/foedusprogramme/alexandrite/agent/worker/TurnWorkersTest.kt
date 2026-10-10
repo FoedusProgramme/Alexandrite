@@ -10,10 +10,15 @@ import org.foedusprogramme.alexandrite.agent.GatedConversations
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.logged
+import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
+import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
@@ -33,6 +38,14 @@ class TurnWorkersTest {
 
     private fun WorkerBench.phases(chat: String? = null): List<Pair<TurnId, TurnPhase>> =
         workers.statuses(chat?.let(ChatAddress::parse)).map { it.turn.id to it.phase }
+
+    private fun WorkerBench.heartbeat(key: AgentChatKey): TurnId {
+        val id = newTurnId(clock.instant())
+        val input = TurnSource.FromInitiated("beat", "Beat.", Trust.UNTRUSTED)
+        val plan =
+            TurnPlan(id, key, key.chat, TurnKind.HEARTBEAT, input, null, ReplyTarget.CALLER, null, clock.instant())
+        return workers.submit(key, WorkerJob.Turn(plan, AgentTicket(id) { false }, Capacity.COUNTED)).turn
+    }
 
     @Test
     fun `a key runs its turns one at a time in submit order`() = runTest {
@@ -264,6 +277,26 @@ class TurnWorkersTest {
         val status = bench.workers.statuses(null).single()
         assertEquals(store.conversations.current(key).id, status.turn.conversation)
         assertEquals(listOf("coder", "test:main:1"), listOf(status.turn.agent.value, status.turn.chat.toString()))
+    }
+
+    @Test
+    fun `heartbeats report the heartbeat base conversation, once the first of them has started`() = runTest {
+        val bench = bench(perKey = 3)
+        val key = AgentChatKey.parse("coder@test:main:1")
+        val running = bench.heartbeat(key)
+        val queued = bench.heartbeat(key)
+        val message = bench.receive("test:main:1").turn
+
+        assertEquals(emptyList(), bench.workers.statuses(null))
+        runCurrent()
+
+        val base = bench.store.conversations.heartbeatBase(key).id
+        val current = bench.store.conversations.current(key).id
+        assertEquals(
+            listOf(running to base, queued to base, message to current),
+            bench.workers.statuses(null).map { it.turn.id to it.turn.conversation },
+        )
+        assertTrue(base != current)
     }
 
     @Test
