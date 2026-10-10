@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotHttpApi
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotHttpPostReceiver
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotReverseWebSocket
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotSettings
+import org.foedusprogramme.alexandrite.channel.onebot.transport.envelopeResult
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 
@@ -72,9 +73,9 @@ internal class OneBotLink(private val config: OneBotConfig, private val instance
     internal suspend fun call(action: String, params: JsonObject): OneBotResult<JsonObject> = when {
         http != null -> http.call(action, params)
 
-        forward != null -> OneBotResult.Ok(forward.send(action, params))
+        forward != null -> envelopeResult(forward.send(action, params))
 
-        reverse != null -> OneBotResult.Ok(reverse.send(action, params))
+        reverse != null -> envelopeResult(reverse.send(action, params))
 
         else -> OneBotResult.Unreachable(
             OneBotFailure(

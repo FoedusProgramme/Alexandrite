@@ -143,7 +143,7 @@ internal class OneBotHttpPostReceiver(
                 return respond(client, OneBotReportRejection.MALFORMED)
             }
             val selfId = settings.selfId
-            val reported = request.headers[OneBotAuth.SELF_ID] ?: reportedInBody(request.body)
+            val reported = request.headers[OneBotAuth.SELF_ID.lowercase()] ?: reportedInBody(request.body)
             // An instance that serves one account takes no report that names none: the account is what binds the
             // report to this instance, so a missing one is as wrong as a different one. This is asked after the body
             // is read, so that a report that is no event at all is told apart from one of another account.
@@ -211,7 +211,9 @@ internal class OneBotHttpPostReceiver(
             if (colon <= 0) null else line.substring(0, colon).trim().lowercase() to line.substring(colon + 1).trim()
         }.toMap()
         val length = headers["content-length"]?.toIntOrNull() ?: 0
-        if (length < 0) return null
+        // The length is checked before it is used to allocate, so that a client cannot ask this listener for an
+        // array of the size it names. A declared body over the limit is read as none, which its caller refuses.
+        if (length < 0 || length > MAX_REPORT_BYTES) return null
         val bytes = ByteArray(length)
         var read = 0
         while (read < length) {

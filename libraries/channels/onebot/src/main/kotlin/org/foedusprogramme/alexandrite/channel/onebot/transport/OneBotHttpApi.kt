@@ -125,6 +125,45 @@ public class OneBotHttpApi(
     }
 }
 
+/**
+ * Classifies the answer of one call that came back over a socket, as a call over HTTP classifies its own.
+ *
+ * A socket carries the same envelope as an HTTP answer, and reading it as data made a `failed` answer an `Ok` whose
+ * data was the envelope, which a caller read as a delivery that happened. The status is what says whether a call
+ * succeeded, whichever transport carried it.
+ */
+internal fun envelopeResult(answer: JsonObject): OneBotResult<JsonObject> {
+    val status = answer.status()
+    val retcode = answer.retcode()
+    val echo = answer["echo"]?.takeUnless { it is JsonNull }
+    return when {
+        status == OneBotStatus.ASYNC -> OneBotResult.Async(
+            retcode = retcode ?: OneBotRetcode.ASYNC,
+            echo = echo,
+            raw = answer,
+        )
+
+        status == OneBotStatus.OK && (retcode == null || retcode == OneBotRetcode.OK) -> OneBotResult.Ok(
+            data = answer.data(),
+            echo = echo,
+            raw = answer,
+        )
+
+        status == null -> OneBotResult.Malformed(
+            "an answer over a socket names no status: ${answer.keys.sorted()}",
+            echo,
+            answer,
+        )
+
+        else -> OneBotResult.Failed(
+            retcode = retcode ?: OneBotRetcode.BAD_REQUEST,
+            message = answer.message(),
+            echo = echo,
+            raw = answer,
+        )
+    }
+}
+
 /** The `status` of this answer, null when it carries none. */
 internal fun JsonObject.status(): OneBotStatus? =
     (this["status"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }?.let(OneBotStatus::of)

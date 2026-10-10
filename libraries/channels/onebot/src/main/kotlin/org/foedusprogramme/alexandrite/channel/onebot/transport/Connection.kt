@@ -108,8 +108,8 @@ internal abstract class AbstractOneBotConnection(eventCapacity: Int) : OneBotCon
 
 /** The key a call is answered under, which an implementation returns as it is. */
 internal class Echo {
-    private var counter = 0L
+    private val counter = java.util.concurrent.atomic.AtomicLong()
 
     /** The `echo` of the next call. */
-    fun next(): String = "alexandrite-${++counter}"
+    fun next(): String = "alexandrite-${counter.incrementAndGet()}"
 }

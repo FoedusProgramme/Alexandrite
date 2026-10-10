@@ -73,11 +73,23 @@ class OneBotHttpPostReceiverTest {
 
     @Test
     fun `a report that names no account is refused when the instance names one`() {
-        val body = privateMessage().replace(",\"self_id\": 10001000", "").replace("\"self_id\": 10001000,", "")
-        val response = post(body, OneBotAuth.signature(secret, body), "/")
+        val body = privateMessage().replace("\"self_id\": 10001000,", "\"self_id\": 0,")
+        val response = postTo(receiver.port, body, OneBotAuth.signature(secret, body), "/", selfId = null)
 
         assertEquals(403, response.statusCode())
         assertEquals(0, receiver.reported())
+    }
+
+    @Test
+    fun `a report that names its account only in the header is taken`() {
+        // The header names of a request are folded to lower case when its head is read, so a lookup by the spelling
+        // of the standard finds nothing. This case would pass for the wrong reason if the header were ignored: the
+        // body below names the account the instance serves, so it is taken whichever of the two is read.
+        val body = privateMessage()
+        val response = post(body, OneBotAuth.signature(secret, body), "/")
+
+        assertEquals(204, response.statusCode())
+        assertEquals(1, receiver.reported())
     }
 
     @Test
