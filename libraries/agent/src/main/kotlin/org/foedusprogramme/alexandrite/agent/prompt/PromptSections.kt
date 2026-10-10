@@ -2,10 +2,13 @@ package org.foedusprogramme.alexandrite.agent.prompt
 
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
+import java.nio.file.Path
 
 internal const val BASE_SECTION: String = "alexandrite.base"
 
 internal const val LANGUAGE_SECTION: String = "chat.language"
+
+internal const val WORKSPACE_SECTION: String = "workspace"
 
 /** The id of the section of an agent's persona source [number], counted from 1. */
 internal fun instructionsSection(number: Int): String = "agent.instructions.$number"
@@ -44,3 +47,16 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
 
 internal fun languageSection(language: LanguageTag): PromptSection =
     PromptSection(LANGUAGE_SECTION, "Answer in $language unless the user writes in another language.", stable = true)
+
+/** Where an agent keeps its own files, at [workspace], and what its file tools refuse. */
+internal fun workspaceSection(workspace: Path): PromptSection = PromptSection(
+    WORKSPACE_SECTION,
+    listOf(
+        "# Workspace",
+        "Your workspace is the directory $workspace, where your own files belong. File tools resolve a relative " +
+            "path against it; give any other place as an absolute path.",
+        "Some places are protected, such as credential stores and Alexandrite's own configuration and data. File " +
+            "tools refuse them whatever the request; when one does, say so instead of looking for another way in.",
+    ).joinToString("\n\n"),
+    stable = true,
+)

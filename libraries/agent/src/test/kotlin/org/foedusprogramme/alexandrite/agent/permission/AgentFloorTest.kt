@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.runtime.StartStage
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -53,6 +54,20 @@ class AgentFloorTest {
             assertEquals(FloorCheck.Allowed(notes), floor.check(notes))
             assertEquals(FloorCheck.Allowed(helperNotes), floor.check(helperNotes))
             assertEquals(FloorCheck.Allowed(root.resolve("notes.md")), floor.check(root.resolve("notes.md")))
+        }
+    }
+
+    @Test
+    fun `the floor lets each agent alone read its own persona directory`() {
+        harness("""{"coder": {}, "helper": {}}""").execute {
+            val floor = get<HardFloor>()
+            val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
+            val denied = FloorCheck.Denied("Alexandrite's configuration")
+
+            assertEquals(FloorCheck.Allowed(persona), floor.check(persona, AgentId("coder")))
+            assertEquals(denied, floor.check(persona, AgentId("helper")))
+            assertEquals(denied, floor.check(persona))
+            assertEquals(denied, floor.check(configFile, AgentId("coder")))
         }
     }
 

@@ -61,6 +61,7 @@ internal fun runtimeBindings(
     val stateStore = key<ChatStateStore>()
     val initiation = key<TurnInitiation>()
     val memory by lazy { MemoryChatStateStore() }
+    val paths = RuntimeHostPaths(config)
     val bindings = listOf(
         binding(
             key<Hooks>(),
@@ -73,7 +74,7 @@ internal fun runtimeBindings(
             if (dispatcher.hasAsyncObservers) dispatcher else object : Hooks by dispatcher {}
         },
         instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
-        instanceBinding(key<HostPaths>(), RuntimeHostPaths(config), RUNTIME_PLUGIN, "HostPaths"),
+        instanceBinding(key<HostPaths>(), paths, RUNTIME_PLUGIN, "HostPaths"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
     ) + plugins.flatMap { plugin ->
@@ -82,7 +83,7 @@ internal fun runtimeBindings(
             instanceBinding(
                 key<PluginFiles>(plugin.id),
                 PluginDirectories(
-                    config.dataDir.resolve(PLUGINS_DIRECTORY).resolve(plugin.id),
+                    paths.pluginDataRoot.resolve(plugin.id),
                     config.cacheDir.resolve(PLUGINS_DIRECTORY).resolve(plugin.id),
                 ),
                 RUNTIME_PLUGIN,
@@ -140,6 +141,7 @@ private class PluginDirectories(private val data: Path, private val cache: Path)
 
 private class RuntimeHostPaths(config: RuntimeConfig) : HostPaths {
     override val dataRoot: Path = config.dataDir.absolute()
+    override val pluginDataRoot: Path = dataRoot.resolve(PLUGINS_DIRECTORY)
     override val cacheRoot: Path = config.cacheDir.absolute()
     override val configFile: Path? = config.configFile?.absolute()
     override val protected: List<Path> = config.protected.map { it.absolute() }.distinct()

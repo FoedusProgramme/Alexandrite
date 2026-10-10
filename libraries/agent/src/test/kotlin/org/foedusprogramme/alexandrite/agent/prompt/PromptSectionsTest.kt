@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.prompt
 
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -14,6 +15,14 @@ class PromptSectionsTest {
         assertEquals(
             PromptSection("alexandrite.base", golden("alexandrite.base.txt"), stable = true),
             baseSection("Coder"),
+        )
+    }
+
+    @Test
+    fun `the workspace section keeps its bytes`() {
+        assertEquals(
+            PromptSection("workspace", golden("workspace.txt"), stable = true),
+            workspaceSection(Path.of("/srv/alexandrite/workspaces/coder")),
         )
     }
 

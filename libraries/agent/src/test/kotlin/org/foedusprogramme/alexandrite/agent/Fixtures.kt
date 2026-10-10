@@ -209,6 +209,7 @@ internal fun agentDirectory(
 
 fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths = object : HostPaths {
     override val dataRoot = dataRoot
+    override val pluginDataRoot: Path = dataRoot.resolve("plugins")
     override val cacheRoot: Path = dataRoot.resolve("cache")
     override val configFile = configFile
     override val protected = emptyList<Path>()

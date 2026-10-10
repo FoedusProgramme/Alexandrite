@@ -15,8 +15,10 @@ import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
+import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
@@ -35,6 +37,12 @@ import org.foedusprogramme.alexandrite.sdk.turn.ToolCallCheck
 import org.foedusprogramme.alexandrite.testkit.RecordingTool
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import org.foedusprogramme.alexandrite.testkit.testTurn
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -46,6 +54,9 @@ import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ToolExecutorTest {
+    @TempDir
+    lateinit var directory: Path
+
     private val turn = testTurn()
     private val call = ToolCallPart(ToolCallId("call-1"), "fs.read", "{}")
 
@@ -57,8 +68,11 @@ class ToolExecutorTest {
         ToolResult("Late.")
     }
 
-    private fun executor(hooks: Hooks = PassingHooks(), gate: ToolGate = OpenToolGate()) =
-        ToolExecutor(TurnHooks(hooks), gate, settings("""{"shutdown": {"cancelJoinSeconds": 3}}"""))
+    private fun executor(
+        hooks: Hooks = PassingHooks(),
+        gate: ToolGate = OpenToolGate(),
+        workspaces: Workspaces = Workspaces(hostPaths(null), settings("{}")),
+    ) = ToolExecutor(TurnHooks(hooks), gate, settings("""{"shutdown": {"cancelJoinSeconds": 3}}"""), workspaces)
 
     private fun abandoned(after: String) =
         "WARN Tool fs.read still runs $after after its call call-1 in turn test-turn was cancelled: it is abandoned " +
@@ -206,6 +220,40 @@ class ToolExecutorTest {
         assertEquals("${turn.id} ${call.id}", result.text())
         assertFailsWith<IllegalStateException> { kept?.turn }
         assertFailsWith<IllegalStateException> { kept?.call }
+        assertFailsWith<IllegalStateException> { kept?.workspace }
+        assertFailsWith<IllegalStateException> { kept?.touched(Path.of("/srv")) }
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `a call's context creates its agent's workspace owner-only when the tool first asks for it`() = runTest {
+        val workspaces = Workspaces(hostPaths(null, directory), settings("""{"agents": {"main": {}}}"""))
+        val workspace = directory.resolve("workspaces/main")
+        var existed: Boolean? = null
+        val tool = recordingTool("fs.read") { _, context ->
+            existed = Files.exists(workspace)
+            ToolResult("${context.workspace}")
+        }
+
+        val result = executor(workspaces = workspaces).executed(tool).result
+
+        assertEquals(false, existed)
+        assertEquals("$workspace", result.text())
+        assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace)))
+        assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace.parent)))
+    }
+
+    @Test
+    fun `a call ends with the paths its tool touched, each once`() = runTest {
+        val tool = recordingTool("fs.read") { _, context ->
+            listOf("/srv/a", "/srv/b", "/srv/a").forEach { context.touched(Path.of(it)) }
+            assertEquals(null, context.workspace)
+            ToolResult("Read.")
+        }
+
+        val end = executor().executed(tool)
+
+        assertEquals(listOf(Path.of("/srv/a"), Path.of("/srv/b")), end.touched)
     }
 
     @Test

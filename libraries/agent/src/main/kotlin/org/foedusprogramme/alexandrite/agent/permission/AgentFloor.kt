@@ -1,13 +1,13 @@
 package org.foedusprogramme.alexandrite.agent.permission
 
-import org.foedusprogramme.alexandrite.agent.config.AgentConfig
-import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.internal.floor.DenyRoot
 import org.foedusprogramme.alexandrite.internal.floor.Floor
 import org.foedusprogramme.alexandrite.internal.floor.FloorDecision
 import org.foedusprogramme.alexandrite.internal.floor.Overlap
 import org.foedusprogramme.alexandrite.internal.floor.Placement
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -21,61 +21,95 @@ import java.nio.file.Path
 /** The hard floor of every tool. */
 @Singleton
 @Binds(HardFloor::class)
-internal class AgentFloor(paths: HostPaths, settings: AgentSettings) : HardFloor {
-    private val floor = hostFloor(paths, settings.agents, userHome())
+internal class AgentFloor(paths: HostPaths, workspaces: Workspaces) : HardFloor {
+    private val floor = hostFloor(paths, workspaces.paths, userHome())
 
-    override fun check(path: Path): FloorCheck = when (val decision = floor.check(path)) {
+    override fun check(path: Path, agent: AgentId?): FloorCheck = when (val decision = floor.check(path, agent)) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
         is FloorDecision.Denied -> FloorCheck.Denied(decision.kind)
     }
 }
 
+/** The floor of each agent, which lets that agent alone read its persona directory. */
+internal class HostFloor(
+    /** Null to refuse every path. */
+    private val shared: Floor?,
+    private val own: Map<AgentId, Floor>,
+) {
+    fun check(path: Path, agent: AgentId? = null): FloorDecision {
+        val floor = agent?.let(own::get) ?: shared ?: return FloorDecision.Denied(UNKNOWN_HOME)
+        return floor.check(path)
+    }
+}
+
 /**
- * The floor over the host's places in [paths] and the credential stores of [home], with each agent's workspace carved
- * out of the data root or the config directory that holds it.
+ * The floor over the host's places in [paths] and the credential stores of [home], with each of [workspaces] carved
+ * out of the data root or the config directory that holds it, and each agent's persona directory carved out for that
+ * agent alone.
  *
  * Throws a [ConfigException] for a workspace that is a protected place, holds one, or lies in one that keeps no
  * workspace.
  */
 internal fun hostFloor(
     paths: HostPaths,
-    agents: Map<String, AgentConfig>,
+    workspaces: Map<AgentId, Path>,
     home: Path?,
     canonicalizer: PathCanonicalizer = PathCanonicalizer(),
-): Floor {
-    val configuration = paths.configFile?.parent?.let { DenyRoot(it, "Alexandrite's configuration") }
+): HostFloor {
+    val directory = paths.configFile?.parent
+    val configuration = directory?.let { DenyRoot(it, "Alexandrite's configuration") }
     val data = DenyRoot(paths.dataRoot, "Alexandrite's data")
     val places = listOfNotNull(configuration) +
-        DenyRoot(paths.dataRoot.resolve(PLUGINS), "plugin data") +
+        DenyRoot(paths.pluginDataRoot, "plugin data") +
         data +
         DenyRoot(paths.cacheRoot, "Alexandrite's cache") +
         paths.protected.map { DenyRoot(it, "a place the host protects") }
-    val keepsWorkspaces = setOfNotNull(configuration, data)
+    val keepsCarveOuts = setOfNotNull(configuration, data)
     val plain = Floor(places, home, canonicalizer)
-    val workspaces = agents.mapValues { (id, config) -> workspace(id, config, paths) }
+    val personas = directory?.let { workspaces.keys.associateWith { id -> it.resolve(PERSONAS).resolve(id.value) } }
+        .orEmpty()
+    val personaPlaces = Floor(
+        personas.map { (id, persona) -> DenyRoot(persona, "the persona directory of agent '$id'") },
+        null,
+        canonicalizer,
+    )
     val carveOuts = mutableMapOf<DenyRoot, MutableList<Path>>()
     for ((id, workspace) in workspaces) {
         val overlaps = plain.overlaps(workspace)
-        overlaps.filter { it.placement != Placement.INSIDE || it.root !in keepsWorkspaces }
+        val collision = overlaps.filter { it.placement != Placement.INSIDE || it.root !in keepsCarveOuts }
             .minByOrNull { it.placement }
-            ?.let { throw ConfigException("agent.agents.$id.workspace", collision(workspace, it)) }
+            ?: personaPlaces.overlaps(workspace).filter { it.root != null }.minByOrNull { it.placement }
+        collision?.let { throw ConfigException("agent.agents.$id.workspace", collision(workspace, it)) }
         overlaps.forEach { carveOuts.getOrPut(checkNotNull(it.root)) { mutableListOf() }.add(workspace) }
     }
     warnShared(workspaces, canonicalizer)
-    return Floor(places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty()) }, home, canonicalizer)
-}
-
-/** Where agent [id] keeps its own files. */
-private fun workspace(id: String, config: AgentConfig, paths: HostPaths): Path {
-    val configured = config.workspace ?: return paths.dataRoot.resolve(WORKSPACES).resolve(id)
-    val path = Path.of(configured)
-    if (path.isAbsolute) return path.normalize()
-    val directory = paths.configFile?.parent ?: throw ConfigException(
-        "agent.agents.$id.workspace",
-        "the workspace '$configured' is relative, but the host read no config file to resolve it against: give an " +
-            "absolute path",
+    if (home == null) {
+        logger.error("The home directory is unknown: the hard floor refuses every path")
+        return HostFloor(null, emptyMap())
+    }
+    val inHome = configuration != null &&
+        plain.overlaps(home).any { it.root === configuration && it.placement != Placement.HOLDS }
+    if (inHome) {
+        logger.warn(
+            "The config file {} lies in {}, which is the home directory or holds it: the hard floor keeps the file " +
+                "tools out of all of it. Keep the config file in a directory of its own",
+            paths.configFile,
+            directory,
+        )
+    }
+    fun floor(extra: Map<DenyRoot, Path>) = Floor(
+        places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty() + listOfNotNull(extra[it])) },
+        home,
+        canonicalizer,
     )
-    return directory.resolve(path).normalize()
+    val own = personas.mapValues { (_, persona) ->
+        floor(
+            plain.overlaps(persona)
+                .filter { it.placement == Placement.INSIDE && it.root in keepsCarveOuts }
+                .associate { checkNotNull(it.root) to persona },
+        )
+    }
+    return HostFloor(floor(emptyMap()), own)
 }
 
 private fun collision(workspace: Path, overlap: Overlap): String {
@@ -87,7 +121,7 @@ private fun collision(workspace: Path, overlap: Overlap): String {
     return "the workspace $workspace $relation a protected place (${overlap.kind}): give the agent another directory"
 }
 
-private fun warnShared(workspaces: Map<String, Path>, canonicalizer: PathCanonicalizer) {
+private fun warnShared(workspaces: Map<AgentId, Path>, canonicalizer: PathCanonicalizer) {
     val agents = workspaces.entries.groupBy({ canonicalizer.canonicalize(it.value).real }, { it.key })
     for ((workspace, ids) in agents) {
         if (ids.size < 2) continue
@@ -99,17 +133,15 @@ private fun warnShared(workspaces: Map<String, Path>, canonicalizer: PathCanonic
     }
 }
 
-private fun userHome(): Path? {
-    val home = try {
-        System.getProperty("user.home")?.takeIf { it.isNotBlank() }?.let { Path.of(it) }?.takeIf { it.isAbsolute }
-    } catch (e: InvalidPathException) {
-        null
-    }
-    if (home == null) logger.warn("The home directory is unknown: the hard floor cannot protect its credential stores")
-    return home
+private fun userHome(): Path? = try {
+    System.getProperty("user.home")?.takeIf { it.isNotBlank() }?.let { Path.of(it) }?.takeIf { it.isAbsolute }
+} catch (e: InvalidPathException) {
+    null
 }
 
-private const val PLUGINS = "plugins"
-private const val WORKSPACES = "workspaces"
+/** Where the agents' persona directories lie in the config directory. */
+private const val PERSONAS = "agents"
+
+private const val UNKNOWN_HOME = "every path, as the home directory is unknown"
 
 private val logger = LoggerFactory.getLogger(AgentFloor::class.java)

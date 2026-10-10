@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.hook.Hooked
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -26,6 +27,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -41,11 +43,18 @@ internal class ToolCallEnd(
     val result: ToolResultEntry,
     /** What the hook that denied the call tells the chat, null for nothing. */
     val notice: String?,
+    /** The paths that the call reported as touched. */
+    val touched: List<Path> = emptyList(),
 )
 
 /** Runs the tool calls of a turn's responses. */
 @Singleton
-internal class ToolExecutor(private val hooks: TurnHooks, private val gate: ToolGate, settings: AgentSettings) {
+internal class ToolExecutor(
+    private val hooks: TurnHooks,
+    private val gate: ToolGate,
+    settings: AgentSettings,
+    private val workspaces: Workspaces,
+) {
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
 
@@ -61,11 +70,14 @@ internal class ToolExecutor(private val hooks: TurnHooks, private val gate: Tool
             val denied = textResult(call, "A hook denied the call.", ToolOutcome.NotRun(NotRunReason.HOOK_DENIED))
             return ToolCallEnd(denied, check.reply?.takeIf { it.isNotBlank() })
         }
-        val result = when (val admission = gate.admit(call, tool, turn)) {
-            is GateResult.Refused -> textResult(call, admission.text, admission.outcome)
-            GateResult.Admitted -> runTool(turn, call, tool, arguments, timeout)
+        return when (val admission = gate.admit(call, tool, turn)) {
+            is GateResult.Refused -> ToolCallEnd(textResult(call, admission.text, admission.outcome), null)
+
+            GateResult.Admitted -> {
+                val context = AgentToolContext(turn, call.id, workspaces)
+                ToolCallEnd(runTool(turn, call, tool, arguments, timeout, context), null, context.touchedPaths)
+            }
         }
-        return ToolCallEnd(result, null)
     }
 
     private suspend fun runTool(
@@ -74,8 +86,8 @@ internal class ToolExecutor(private val hooks: TurnHooks, private val gate: Tool
         tool: Tool,
         arguments: JsonObject,
         timeout: Duration,
+        context: AgentToolContext,
     ): ToolResultEntry {
-        val context = AgentToolContext(turn, call.id)
         try {
             val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async {
                 tool.execute(arguments, context)

@@ -3,10 +3,11 @@ package org.foedusprogramme.alexandrite.agent.permission
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.settings
-import org.foedusprogramme.alexandrite.internal.floor.Floor
+import org.foedusprogramme.alexandrite.agent.workspace.agentWorkspaces
 import org.foedusprogramme.alexandrite.internal.floor.FloorDecision
 import org.foedusprogramme.alexandrite.internal.path.NameCase
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.junit.jupiter.api.BeforeEach
@@ -36,25 +37,27 @@ class HostFloorTest {
 
     private fun paths(configFile: Path? = this.configFile, dataRoot: Path = data): HostPaths = object : HostPaths {
         override val dataRoot = dataRoot
+        override val pluginDataRoot: Path = dataRoot.resolve("plugins")
         override val cacheRoot: Path = dataRoot.resolve("cache")
         override val configFile = configFile
         override val protected = listOf(logs)
     }
 
-    private fun floor(agents: String = "{}", paths: HostPaths = paths(), home: Path? = this.home): Floor = hostFloor(
-        paths,
-        settings("""{"agents": $agents}""").agents,
-        home,
-        PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
-    )
+    private fun floor(agents: String = "{}", paths: HostPaths = paths(), home: Path? = this.home): HostFloor =
+        hostFloor(
+            paths,
+            agentWorkspaces(paths, settings("""{"agents": $agents}""").agents),
+            home,
+            PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
+        )
 
     private fun coder(workspace: Path) = """{"coder": {"workspace": ${JsonPrimitive(workspace.toString())}}}"""
 
-    private fun assertDenied(kind: String, path: Path, floor: Floor) =
-        assertEquals(FloorDecision.Denied(kind), floor.check(path), "$path")
+    private fun assertDenied(kind: String, path: Path, floor: HostFloor, agent: AgentId? = null) =
+        assertEquals(FloorDecision.Denied(kind), floor.check(path, agent), "$path for $agent")
 
-    private fun assertAllowed(path: Path, floor: Floor) =
-        assertEquals(FloorDecision.Allowed(path), floor.check(path), "$path")
+    private fun assertAllowed(path: Path, floor: HostFloor, agent: AgentId? = null) =
+        assertEquals(FloorDecision.Allowed(path), floor.check(path, agent), "$path for $agent")
 
     private fun assertCollides(workspace: Path, relation: String, paths: HostPaths = paths()) {
         val error = assertFailsWith<ConfigException> { floor(coder(workspace), paths) }
@@ -189,10 +192,96 @@ class HostFloorTest {
     }
 
     @Test
-    fun `without a home directory the floor protects no credential store`() {
-        val floor = floor(home = null)
+    fun `without a home directory the floor refuses every path, saying so once`() {
+        lateinit var floor: HostFloor
 
-        assertAllowed(home.resolve(".ssh/id_rsa"), floor)
-        assertDenied("devices", Path.of("/dev/null"), floor)
+        val lines = logged { floor = floor("""{"coder": {}}""", home = null) }
+
+        assertEquals(listOf("ERROR The home directory is unknown: the hard floor refuses every path"), lines)
+        for (agent in listOf(null, AgentId("coder"))) {
+            assertDenied(UNKNOWN_HOME, root.resolve("notes.txt"), floor, agent)
+            assertDenied(UNKNOWN_HOME, data.resolve("workspaces/coder/notes.md"), floor, agent)
+        }
+    }
+
+    @Test
+    fun `without a home directory a workspace that collides with a protected place is still a config error`() {
+        val error = assertFailsWith<ConfigException> { floor(coder(data.resolve("plugins/notes")), home = null) }
+
+        assertEquals(
+            "Invalid config at 'agent.agents.coder.workspace': the workspace ${data.resolve("plugins/notes")} lies " +
+                "in a protected place (plugin data): give the agent another directory",
+            error.message,
+        )
+    }
+
+    // Persona directories.
+
+    @Test
+    fun `an agent reads its own persona directory, which stays denied to every other agent and to no agent`() {
+        val personas = configFile.resolveSibling("agents")
+        Files.createDirectories(personas.resolve("coder"))
+        Files.createSymbolicLink(personas.resolve("coder/config.json"), configFile)
+        val coder = AgentId("coder")
+        val helper = AgentId("helper")
+
+        val floor = floor("""{"coder": {}, "helper": {}}""")
+
+        assertAllowed(personas.resolve("coder/PERSONA.md"), floor, coder)
+        assertAllowed(personas.resolve("coder"), floor, coder)
+        assertAllowed(personas.resolve("helper/PERSONA.md"), floor, helper)
+        assertDenied(CONFIGURATION, personas.resolve("coder/PERSONA.md"), floor, helper)
+        assertDenied(CONFIGURATION, personas.resolve("coder/PERSONA.md"), floor)
+        assertDenied(CONFIGURATION, personas.resolve("coder/../helper/PERSONA.md"), floor, coder)
+        assertDenied(CONFIGURATION, personas.resolve("coder/config.json"), floor, coder)
+        assertDenied(CONFIGURATION, personas.resolve("other/PERSONA.md"), floor, AgentId("other"))
+        assertDenied(CONFIGURATION, personas, floor, coder)
+        assertDenied(CONFIGURATION, configFile, floor, coder)
+        assertAllowed(data.resolve("workspaces/helper/notes.md"), floor, coder)
+    }
+
+    @Test
+    fun `a persona directory in a config directory inside the data root is carved out of both`() {
+        val floor = floor("""{"coder": {}}""", paths(configFile = data.resolve("alexandrite.json")))
+
+        assertAllowed(data.resolve("agents/coder/PERSONA.md"), floor, AgentId("coder"))
+        assertDenied(CONFIGURATION, data.resolve("agents/coder/PERSONA.md"), floor)
+    }
+
+    @Test
+    fun `a workspace that is, holds or lies in a persona directory is a config error`() {
+        val personas = configFile.resolveSibling("agents")
+
+        assertCollides(personas.resolve("coder"), "is a protected place (the persona directory of agent 'coder')")
+        assertCollides(
+            personas.resolve("coder/files"),
+            "lies in a protected place (the persona directory of agent 'coder')",
+        )
+        assertCollides(personas, "holds a protected place (the persona directory of agent 'coder')")
+    }
+
+    // The config directory and the home.
+
+    @Test
+    fun `a config file kept in the home directory or one of its ancestors is warned of`() {
+        val inHome = home.resolve("alexandrite.json")
+        val above = root.resolve("alexandrite.json")
+        val apart = home.resolve(".config/alexandrite/alexandrite.json")
+
+        val lines = listOf(inHome, above, apart).flatMap { file -> logged { floor(paths = paths(file)) } }
+
+        assertEquals(
+            listOf(home, root).map { directory ->
+                "WARN The config file ${directory.resolve("alexandrite.json")} lies in $directory, which is the home " +
+                    "directory or holds it: the hard floor keeps the file tools out of all of it. Keep the config " +
+                    "file in a directory of its own"
+            },
+            lines,
+        )
+    }
+
+    private companion object {
+        const val CONFIGURATION = "Alexandrite's configuration"
+        const val UNKNOWN_HOME = "every path, as the home directory is unknown"
     }
 }

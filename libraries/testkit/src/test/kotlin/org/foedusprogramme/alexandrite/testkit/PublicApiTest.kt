@@ -195,8 +195,11 @@ class PublicApiTest {
                 is FloorCheck.Allowed -> check.canonical
                 is FloorCheck.Denied -> check.reason
             }
+            val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"))
+            context.touched(Path.of("/srv/work/notes.md"))
             return listOf(
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
+                context.turn, context.call, context.workspace, context.touchedPaths,
             )
         }
 

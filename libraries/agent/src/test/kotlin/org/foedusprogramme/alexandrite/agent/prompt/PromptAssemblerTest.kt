@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
+import org.foedusprogramme.alexandrite.testkit.recordingTool
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -75,6 +76,29 @@ class PromptAssemblerTest {
             assertFailsWith<IllegalArgumentException> {
                 assembler.sections(testTurn { agent(AgentId("other")) }, ChatKind.DIRECT)
             }
+        }
+    }
+
+    @Test
+    fun `an agent that selects a tool is told of its workspace before the chat's language`() {
+        val config = """
+            {
+              "agents": {
+                "coder": {"workspace": "/srv/coder"},
+                "helper": {"tools": {"deny": ["fs.*"]}}
+              }
+            }
+        """.trimIndent()
+
+        agentHarness(config) { tool(recordingTool("fs.read")) }.execute {
+            val assembler = get<PromptAssembler>()
+            val coder = testTurn { agent(AgentId("coder")).language(LanguageTag("zh-CN")) }
+            val helper = testTurn { agent(AgentId("helper")) }
+
+            val sections = assembler.sections(coder, ChatKind.DIRECT)
+            assertEquals(listOf(BASE_SECTION, WORKSPACE_SECTION, LANGUAGE_SECTION), sections.map { it.id })
+            assertEquals(workspaceSection(Path.of("/srv/coder")), sections[1])
+            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, ChatKind.DIRECT).map { it.id })
         }
     }
 

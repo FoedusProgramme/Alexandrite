@@ -30,6 +30,7 @@ class SubclassOptInTest {
 
         class Paths : org.foedusprogramme.alexandrite.sdk.runtime.HostPaths {
             override val dataRoot get() = TODO()
+            override val pluginDataRoot get() = TODO()
             override val cacheRoot get() = TODO()
             override val configFile get() = TODO()
             override val protected get() = TODO()
@@ -50,10 +51,13 @@ class SubclassOptInTest {
         class Context : org.foedusprogramme.alexandrite.sdk.tool.ToolContext {
             override val turn get() = TODO()
             override val call get() = TODO()
+            override val workspace get() = TODO()
+            override fun touched(path: java.nio.file.Path) = TODO()
         }
 
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
-            override fun check(path: java.nio.file.Path) = TODO()
+            override fun check(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
+                TODO()
         }
 
         class States : org.foedusprogramme.alexandrite.sdk.chat.ChatStates {
@@ -568,13 +572,19 @@ class SubclassOptInTest {
                 ToolDefinition("files.read", "Reads a file.", JsonObject(emptyMap()), ToolRisk.READ_ONLY)
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-                val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
-                return when (val check = floor.check(path)) {
-                    is FloorCheck.Allowed -> ToolResult(Files.readString(check.canonical))
+                val given = Path.of(arguments.getValue("path").jsonPrimitive.content)
+                val path = if (given.isAbsolute) given else context.workspace?.resolve(given) ?: given
+                return when (val check = floor.check(path, context.turn.agent)) {
+                    is FloorCheck.Allowed -> {
+                        context.touched(check.canonical)
+                        ToolResult(Files.readString(check.canonical))
+                    }
                     is FloorCheck.Denied -> ToolResult("Refused: ${'$'}{check.reason}.", isError = true)
                 }
             }
         }
+
+        fun allowedToAll(floor: HardFloor, path: Path): Boolean = floor.check(path) is FloorCheck.Allowed
     """.trimIndent()
 
     /** A plugin that writes its own settings back into the config file. */

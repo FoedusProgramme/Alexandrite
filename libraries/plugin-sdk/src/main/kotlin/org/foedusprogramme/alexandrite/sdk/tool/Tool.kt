@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
+import java.nio.file.Path
 
 /** A function the model can call. */
 @ContributedSpi
@@ -39,6 +40,12 @@ public class ToolDefinition(
 public interface ToolContext {
     public val turn: TurnInfo
     public val call: ToolCallId
+
+    /** The directory where the turn's agent keeps its own files, null when it has none. */
+    public val workspace: Path?
+
+    /** Reports that the call read or listed [path]. */
+    public fun touched(path: Path)
 }
 
 /** What a tool call returns to the model. */

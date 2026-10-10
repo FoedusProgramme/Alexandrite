@@ -192,14 +192,21 @@ class GraphTest {
             .protect(Path.of("install"))
             .protect(dataDir.resolve("logs/."))
             .build()
-        val probe = probe("probe", "paths" to key<HostPaths>())
+        val probe = probe("probe", "paths" to key<HostPaths>(), "files" to key<PluginFiles>("probe"))
         val spec = RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe)))).build()
 
         lateinit var paths: HostPaths
+        lateinit var files: PluginFiles
 
-        spec.execute { paths = services.get(key<Probe>()).values.getValue("paths") as HostPaths }
+        spec.execute {
+            val values = services.get(key<Probe>()).values
+            paths = values.getValue("paths") as HostPaths
+            files = values.getValue("files") as PluginFiles
+        }
 
         assertEquals(dataDir.resolve("root"), paths.dataRoot)
+        assertEquals(dataDir.resolve("root/plugins"), paths.pluginDataRoot)
+        assertEquals(paths.pluginDataRoot.resolve("probe"), files.dataDir)
         assertEquals(dataDir.resolve("cache"), paths.cacheRoot)
         assertEquals(Path.of("alexandrite.json").toAbsolutePath(), paths.configFile)
         assertEquals(listOf(dataDir.resolve("logs"), Path.of("install").toAbsolutePath()), paths.protected)

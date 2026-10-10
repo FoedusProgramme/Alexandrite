@@ -9,6 +9,9 @@ public interface HostPaths {
     /** The runtime's data directory. */
     public val dataRoot: Path
 
+    /** The root of every plugin's data directory. */
+    public val pluginDataRoot: Path
+
     /** The root of every plugin's cache directory. */
     public val cacheRoot: Path
 
