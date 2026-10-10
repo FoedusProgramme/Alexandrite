@@ -161,9 +161,11 @@ public object OneBotMessages {
             // The data of the answer of a send is either the object that names the message or the message itself,
             // which is what an implementation that answers with the identifier alone sends.
             val data = (result.data as? JsonObject)?.get("data") as? JsonObject ?: result.data
+            // The `echo` of an answer is the key this client sent to match it to its call, not an id the
+            // implementation gave the message, so an answer that names no message is a delivery this version cannot
+            // name rather than one named after a correlation key.
             val id =
                 ((data as? JsonObject)?.get("message_id") as? JsonPrimitive)?.content
-                    ?: result.echo?.toString()
                     ?: "sent"
             Delivery.Delivered(listOf(ChannelMessageRef(chat, id)))
         }

@@ -39,6 +39,14 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
         override fun onOpen(connection: WebSocket, handshake: ClientHandshake) {
             when (val refusal = refusalOf(handshake)) {
                 null -> {
+                    // A peer that replaces the one being served takes over the calls of the connection it replaces,
+                    // and the frames of the peer that left are no longer read. Calls sent on that peer would
+                    // therefore wait for an answer that can never be read, so they are ended before it replaces it.
+                    socket?.let { left ->
+                        socket = null
+                        failWaiting(IllegalStateException("A newer peer took over the connection."))
+                        left.close(REPLACED_CODE, "a newer peer took over the connection")
+                    }
                     socket = connection
                     connected.complete(Unit)
                 }
@@ -196,6 +204,9 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
 
         /** The code a connection is closed under when this instance does not serve it. */
         const val REFUSAL_CODE = 1008
+
+        /** The code a connection is closed under when a newer peer takes over the instance. */
+        const val REPLACED_CODE = 1000
     }
 }
 

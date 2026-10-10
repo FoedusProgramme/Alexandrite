@@ -171,7 +171,9 @@ class OneBotHttpPostReceiverTest {
             writer.write("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 100000\r\n\r\n".toByteArray())
             writer.flush()
             runCatching {
-                repeat(20) {
+                // Sent for longer than the deadline, so that a listener without one would read it to the end and
+                // this case would fail rather than pass for the wrong reason.
+                repeat(120) {
                     Thread.sleep(100)
                     writer.write('x'.code)
                     writer.flush()
@@ -180,7 +182,7 @@ class OneBotHttpPostReceiverTest {
         }
 
         val elapsed = (System.nanoTime() - started) / 1_000_000
-        assertTrue(elapsed < 10_000, "the listener read a slow report for ${elapsed}ms")
+        assertTrue(elapsed < 8_000, "the listener read a slow report for ${elapsed}ms")
         assertEquals(0, receiver.reported())
     }
 

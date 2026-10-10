@@ -158,7 +158,7 @@ internal class OneBotHttpPostReceiver(
             // sending rather than lost to a connection that closed under it.
             val request = when (val outcome = read(input, deadline)) {
                 is ReadOutcome.TooLarge -> {
-                    drain(input, outcome.declaredBytes)
+                    drain(input, outcome.declaredBytes, deadline)
                     return respond(client, OneBotReportRejection.TOO_LARGE)
                 }
 
@@ -277,10 +277,13 @@ internal class OneBotHttpPostReceiver(
      * Reading nothing would answer a peer that is still sending, and reading it in one piece is what the limit
      * exists to prevent, so it is read in pieces small enough to be forgotten.
      */
-    private fun drain(input: BufferedInputStream, declaredBytes: Int) {
+    private fun drain(input: BufferedInputStream, declaredBytes: Int, deadline: Long) {
         val piece = ByteArray(DRAIN_PIECE_BYTES)
         var left = declaredBytes.toLong()
         while (left > 0) {
+            // An over-limit body is dropped under the same deadline as any other request, so a sender that drips it
+            // just faster than the idle timeout cannot hold a reader past the deadline.
+            if (System.nanoTime() > deadline) return
             val count = input.read(piece, 0, minOf(piece.size.toLong(), left).toInt())
             if (count < 0) return
             left -= count

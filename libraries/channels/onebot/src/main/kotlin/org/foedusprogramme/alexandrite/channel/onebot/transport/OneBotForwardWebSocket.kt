@@ -66,6 +66,10 @@ internal class OneBotForwardWebSocket(settings: OneBotSettings) : AbstractOneBot
     }
 
     override fun stop() {
+        // A call waiting for an answer is ended here rather than by the close, whose handler runs on a thread this is
+        // about to cancel: a caller would otherwise stay suspended until its own timeout, after `stop` has returned.
+        // The close comes after, so that nothing new is sent in between.
+        failPending(IllegalStateException("The connection to ${settings.endpoint} is closing."))
         runCatching { client?.close() }
         scope?.cancel()
         scope = null

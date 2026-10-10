@@ -72,17 +72,19 @@ public object OneBotAuth {
         return "$uri$separator$TOKEN_QUERY=${urlEncode(token.reveal())}"
     }
 
-    /** [text] with every value of [values] replaced, so that a message carries no token and no secret. */
+    /**
+     * [text] with every value of [values] replaced, so that a message carries no token and no secret.
+     *
+     * Every value that is not empty is replaced, whatever its length: an access token and a signing key have no
+     * minimum length, and a short one is no less a secret than a long one.
+     */
     public fun redact(text: String, values: Collection<Value>): String = values.asSequence()
         .map { it.reveal() }
-        .filter { it.length >= MIN_REDACTED }
+        .filter { it.isNotEmpty() }
         .sortedByDescending { it.length }
         .fold(text) { masked, secret -> masked.replace(secret, MASKED) }
 
     private const val MASKED = "***"
-
-    /** The shortest value [redact] replaces, so that a short token does not hide unrelated text. */
-    private const val MIN_REDACTED = 4
 
     private fun hmacSha1(key: ByteArray, message: ByteArray): String {
         val mac = Mac.getInstance("HmacSHA1")
