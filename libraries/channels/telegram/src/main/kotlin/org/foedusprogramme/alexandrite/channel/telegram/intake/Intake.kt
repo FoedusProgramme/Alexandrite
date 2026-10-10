@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
-import org.foedusprogramme.alexandrite.channel.telegram.reply.Notices
+import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
@@ -20,7 +20,7 @@ internal class Intake(
     private val session: BotSession,
     private val gate: AccessGate,
     private val admissions: Admissions,
-    private val notices: Notices,
+    private val outbox: Outbox,
 ) {
     private val reader by lazy { UpdateReader(instance.id, config.adminUserIds.toSet(), session.identity) }
 
@@ -34,16 +34,15 @@ internal class Intake(
         if (!gate.admit(chat, kind, message.chat.title, trigger, requester, reader.addressed(message))) {
             return Dispatch.DONE
         }
-        val group = kind != ChatKind.DIRECT
         return when (val inbound = reader.read(message)) {
             is Inbound.Ignored -> ignored(update, inbound.why)
 
             is Inbound.Unsupported -> {
-                admissions.unsupported(inbound.chat, inbound.trigger, group)
+                admissions.unsupported(inbound.chat, inbound.trigger)
                 Dispatch.DONE
             }
 
-            is Inbound.Message -> admissions.submit(Submission.Message(inbound.message), trigger, group)
+            is Inbound.Message -> admissions.submit(Submission.Message(inbound.message), trigger)
 
             is Inbound.Command -> command(inbound, kind, trigger)
         }
@@ -51,14 +50,13 @@ internal class Intake(
 
     private fun command(inbound: Inbound.Command, kind: ChatKind, trigger: ChannelMessageRef): Dispatch {
         val invocation = inbound.invocation
-        val group = kind != ChatKind.DIRECT
         val refusal = CommandRules.refusal(invocation, kind)
         if (refusal != null) {
-            notices.post(invocation.chat, group, trigger, refusal, "command" to invocation.name.lowercase(Locale.ROOT))
+            outbox.notify(invocation.chat, trigger, refusal, "command" to invocation.name.lowercase(Locale.ROOT))
             return Dispatch.DONE
         }
         val capacity = if (invocation.issuer.isAdmin) Capacity.EXEMPT else Capacity.COUNTED
-        return admissions.submit(Submission.Command(invocation, inbound.message, capacity), trigger, group)
+        return admissions.submit(Submission.Command(invocation, inbound.message, capacity), trigger)
     }
 
     private fun ignored(update: Update, why: String): Dispatch {

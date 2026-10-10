@@ -1,0 +1,7 @@
+😀 bold 𝒳 then italic 👩‍💻 and code 🧪.
+🇺🇳 link 🔗
+~~~~ entities
+bold 3+7 "bold 𝒳"
+italic 16+12 "italic 👩‍💻"
+code 33+7 "code 🧪"
+text_link 47+7 url=https://example.com/emoji "link 🔗"

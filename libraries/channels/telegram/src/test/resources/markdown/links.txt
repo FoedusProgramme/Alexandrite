@@ -1,0 +1,16 @@
+Docs, HTTP, user.
+[Mail](mailto:someone@example.com), [script](javascript:alert(1)), [relative](/docs).
+Wiki and titled.
+https://example.com/empty and nested [brackets] text and a ] bracket.
+[outer inner](https://outer.example.com)
+<https://example.com/autolink>
+~~~~ entities
+text_link 0+4 url=https://example.com/docs "Docs"
+text_link 6+4 url=http://example.com "HTTP"
+text_link 12+4 url=tg://user?id=123456789 "user"
+text_link 104+4 url=https://en.wikipedia.org/wiki/Kotlin_(programming_language) "Wiki"
+text_link 113+6 url=https://example.com "titled"
+text_link 121+25 url=https://example.com/empty "https://example.com/empty"
+text_link 151+22 url=https://example.com "nested [brackets] text"
+text_link 178+11 url=https://example.com "a ] bracket"
+text_link 198+5 url=https://inner.example.com "inner"

@@ -1,0 +1,9 @@
+| Name | Value |
+|------|------:|
+| `a`  | **1** |
+| b    | 2     |
+After the table.
+
+| Only a header | streamed so far |
+~~~~ entities
+pre 0+67 "| Name | Value |\n|------|------:|\n| `a`  | **1** |\n| b    | 2     |"

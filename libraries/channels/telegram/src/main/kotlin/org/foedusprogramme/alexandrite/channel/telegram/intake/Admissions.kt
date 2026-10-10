@@ -7,7 +7,7 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
-import org.foedusprogramme.alexandrite.channel.telegram.reply.Notices
+import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -44,7 +44,7 @@ internal enum class Dispatch {
 internal class Admissions(
     private val instance: ChannelInstance,
     private val submitter: TurnSubmitter,
-    private val notices: Notices,
+    private val outbox: Outbox,
     private val clock: Clock,
 ) : Lifecycle {
     private val queueFull = Throttle(Duration.ofMinutes(1))
@@ -56,22 +56,22 @@ internal class Admissions(
     private val watching = AtomicInteger()
     private val unfinished = ConcurrentLinkedQueue<Unfinished>()
 
-    /** Submits [submission], carried by [trigger] in a chat that is a [group] or not. */
-    fun submit(submission: Submission, trigger: ChannelMessageRef, group: Boolean): Dispatch {
+    /** Submits [submission], carried by [trigger]. */
+    fun submit(submission: Submission, trigger: ChannelMessageRef): Dispatch {
         val chat = submission.chat
         when (val admission = submitter.submit(submission)) {
-            is Admission.Accepted -> watch(admission.ticket, Unfinished(chat, trigger, group))
+            is Admission.Accepted -> watch(admission.ticket, Unfinished(chat, trigger))
 
             is Admission.Refused -> when (admission.reason) {
                 RefusalReason.SHUTTING_DOWN -> return Dispatch.CLOSING
 
                 RefusalReason.QUEUE_FULL -> if (queueFull.passes(chat)) {
-                    notices.post(chat, group, trigger, TextKeys.QUEUE_FULL, "capacity" to admission.queueCapacity)
+                    outbox.notify(chat, trigger, TextKeys.QUEUE_FULL, "capacity" to admission.queueCapacity)
                 }
 
                 RefusalReason.NO_AGENT -> {
                     if (warned.passes(chat)) logger.warn("No agent serves chat {}, so its messages go unanswered", chat)
-                    if (noAgent.passes(chat)) notices.post(chat, group, trigger, TextKeys.NO_AGENT)
+                    if (noAgent.passes(chat)) outbox.notify(chat, trigger, TextKeys.NO_AGENT)
                 }
 
                 RefusalReason.UNKNOWN_CHAT -> if (warned.passes(chat)) {
@@ -87,15 +87,15 @@ internal class Admissions(
     }
 
     /** Tells [chat] that its message [trigger] holds nothing the bot reads. */
-    fun unsupported(chat: ChatAddress, trigger: ChannelMessageRef, group: Boolean) {
-        if (unsupported.passes(chat)) notices.post(chat, group, trigger, TextKeys.UNSUPPORTED)
+    fun unsupported(chat: ChatAddress, trigger: ChannelMessageRef) {
+        if (unsupported.passes(chat)) outbox.notify(chat, trigger, TextKeys.UNSUPPORTED)
     }
 
     override suspend fun onDrain() {
         withTimeoutOrNull(WATCH_GRACE) { watchers.children.toList().joinAll() }
         while (true) {
             val cutOff = unfinished.poll() ?: break
-            notices.send(cutOff.chat, cutOff.group, cutOff.trigger, TextKeys.UNFINISHED)
+            outbox.notice(cutOff.chat, cutOff.trigger, TextKeys.UNFINISHED)
         }
     }
 
@@ -129,7 +129,7 @@ internal class Admissions(
         }
     }
 
-    private class Unfinished(val chat: ChatAddress, val trigger: ChannelMessageRef, val group: Boolean)
+    private class Unfinished(val chat: ChatAddress, val trigger: ChannelMessageRef)
 
     private companion object {
         const val MAX_WATCHED = 1024

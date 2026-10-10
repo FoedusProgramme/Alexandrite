@@ -2,14 +2,17 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import org.foedusprogramme.alexandrite.channel.telegram.PollingConfig
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
+import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
+import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
@@ -22,7 +25,10 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import kotlin.time.Duration
 
-/** A [BotApi] in memory whose calls answer what the test queued, a poll with nothing queued waiting for ever. */
+/**
+ * A [BotApi] in memory whose polls answer what the test queued, a poll with nothing queued waiting for ever, and which
+ * keeps the bot's messages.
+ */
 internal class MemoryBotApi : BotApi {
     val me = User(1234567890, isBot = true, firstName = "Alexandrite Test Bot", username = "alexandrite_test_bot")
 
@@ -42,6 +48,18 @@ internal class MemoryBotApi : BotApi {
 
     var webhook = ""
 
+    /** Each send, edit and chat action, in order. */
+    val sent = mutableListOf<SentCall>()
+
+    /** What each message of the bot reads, by chat and message id. */
+    val messages = HashMap<Pair<Long, Long>, String>()
+
+    /** How long each send and edit takes to answer. */
+    var latency: Duration = Duration.ZERO
+
+    private val failures = HashMap<String, ArrayDeque<BotApiException>>()
+    private var lastMessage = 100L
+
     override suspend fun getMe(): User = started("getMe") { me }
 
     override suspend fun getWebhookInfo(): WebhookInfo = started("getWebhookInfo") { WebhookInfo(webhook) }
@@ -53,11 +71,66 @@ internal class MemoryBotApi : BotApi {
         return next()
     }
 
-    override suspend fun sendMessage(request: SendMessage): Message = throw UnsupportedOperationException()
+    override suspend fun sendMessage(request: SendMessage): Message {
+        val reply = request.replyParameters?.messageId
+        val thread = request.messageThreadId
+        sent += SentCall("sendMessage", request.chatId, null, request.text, request.entities, reply, thread)
+            .also { it.previewDisabled = request.linkPreviewOptions?.isDisabled }
+        answer("sendMessage")
+        val id = ++lastMessage
+        messages[request.chatId to id] = request.text
+        return Message(id, date = 0, chat = Chat(request.chatId, "private"), text = request.text)
+    }
 
-    override suspend fun editMessageText(request: EditMessageText): Message = throw UnsupportedOperationException()
+    override suspend fun editMessageText(request: EditMessageText): Message {
+        val id = request.messageId
+        sent += SentCall("editMessageText", request.chatId, id, request.text, request.entities)
+            .also { it.previewDisabled = request.linkPreviewOptions?.isDisabled }
+        answer("editMessageText")
+        if (request.chatId to id !in messages) {
+            throw BotApiException(BotApiFailure.EDIT_TARGET_GONE, "editMessageText", "message to edit not found")
+        }
+        messages[request.chatId to id] = request.text
+        return Message(id, date = 0, chat = Chat(request.chatId, "private"), text = request.text)
+    }
 
-    override suspend fun sendChatAction(chat: Long, thread: Long?) = throw UnsupportedOperationException()
+    override suspend fun sendChatAction(chat: Long, thread: Long?) {
+        sent += SentCall("sendChatAction", chat, thread = thread)
+        failures["sendChatAction"]?.removeFirstOrNull()?.let { throw it }
+    }
+
+    /** Fails the next call of [method] with [failure]. */
+    fun fail(method: String, failure: BotApiFailure, retryAfter: Duration? = null, migrateTo: Long? = null) {
+        val exception = BotApiException(failure, method, "scripted", retryAfter, migrateTo)
+        failures.getOrPut(method) { ArrayDeque() } += exception
+    }
+
+    /** The calls of [method], or of every method. */
+    fun calls(method: String? = null): List<SentCall> = sent.filter { method == null || it.method == method }
+
+    private suspend fun answer(method: String) {
+        if (latency.isPositive()) delay(latency)
+        failures[method]?.removeFirstOrNull()?.let { throw it }
+    }
+
+    /** A send, edit or chat action made at [at] by [clock]. */
+    inner class SentCall(
+        val method: String,
+        val chat: Long,
+        val message: Long? = null,
+        val text: String? = null,
+        entities: List<MessageEntity>? = null,
+        val replyTo: Long? = null,
+        val thread: Long? = null,
+    ) {
+        val at: Long = clock()
+        val entities: List<String> = entities.orEmpty().map { "${it.type} ${it.offset}+${it.length}" }
+
+        /** Whether the call turned link previews off, null when it said nothing. */
+        var previewDisabled: Boolean? = null
+
+        override fun toString(): String = "$method at $at in $chat ${message ?: ""}: $text $entities"
+    }
 
     fun failPoll(failure: BotApiFailure, retryAfter: Duration? = null) {
         polls += { throw BotApiException(failure, "getUpdates", "scripted", retryAfter) }

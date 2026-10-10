@@ -1,0 +1,5 @@
+Here is the fix:
+fun main() {
+    println("half
+~~~~ entities
+pre 17+30 language=kotlin "fun main() {\n    println(\"half"

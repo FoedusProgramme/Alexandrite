@@ -1,0 +1,17 @@
+Run make build or a `tick` inside, *not italic* and [not](https://example.com).
+fun main() {
+    println("**not bold**")
+}
+plain tilde fence
+• A list item with code:
+./gradlew build
+text
+~~~~ entities
+code 4+10 "make build"
+code 18+15 "a `tick` inside"
+code 35+12 "*not italic*"
+code 52+26 "[not](https://example.com)"
+pre 80+42 language=kotlin "fun main() {\n    println(\"**not bold**\")\n}"
+pre 123+17 "plain tilde fence"
+pre 166+15 language=sh "./gradlew build"
+code 182+4 "text"

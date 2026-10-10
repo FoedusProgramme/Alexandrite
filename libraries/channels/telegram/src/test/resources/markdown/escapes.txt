@@ -1,0 +1,9 @@
+*not italic*, _not_, `not code`, [not a link](https://example.com), ~~not struck~~
+# Not a heading
+- Not a list item
+> Not a quote
+A backslash \ and one before a letter \d stays.
+The path /srv/repos/my_repo*1[2] and <tag> & more.
+Line ending with a backslash
+breaks.
+~~~~ entities

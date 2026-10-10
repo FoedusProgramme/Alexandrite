@@ -1,0 +1,20 @@
+Title
+Some text
+on two lines.
+
+Section
+• One
+• Two with style
+  • Nested
+• Star item
+• Plus item
+1. First
+2) Second
+———
+———
+Text after the rules.
+#hashtag is no heading
+~~~~ entities
+bold 0+5 "Title"
+bold 31+7 "Section"
+italic 56+5 "style"

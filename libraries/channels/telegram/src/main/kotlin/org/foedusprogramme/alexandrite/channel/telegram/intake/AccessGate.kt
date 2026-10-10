@@ -6,7 +6,7 @@ import org.foedusprogramme.alexandrite.channel.common.pairing.InstancePairing
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
 import org.foedusprogramme.alexandrite.channel.telegram.pairing.TelegramPairingDesk
-import org.foedusprogramme.alexandrite.channel.telegram.reply.Notices
+import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -24,7 +24,7 @@ internal class AccessGate(
     private val config: TelegramInstanceConfig,
     private val desk: TelegramPairingDesk,
     private val editor: ConfigEditor,
-    private val notices: Notices,
+    private val outbox: Outbox,
 ) : Lifecycle {
     private val dropped = object : LinkedHashMap<ChatAddress, Unit>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, Unit>) = size > LOGGED_CHATS
@@ -65,9 +65,8 @@ internal class AccessGate(
         logFirstDrop(chat.parent, kind, title, requester)
         if (!addressed || requester == null || requester.isBot) return false
         val code = pairing.request(chat, kind, title, requester) ?: return false
-        notices.post(
+        outbox.notify(
             chat,
-            kind != ChatKind.DIRECT,
             trigger,
             TextKeys.PAIRING_CODE,
             "code" to code.text,

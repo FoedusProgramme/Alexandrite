@@ -1,0 +1,14 @@
+Bold and bold, italic and italic, struck.
+snake_case_name stays, and so does file_name_here.
+Both at once and intrawordemphasis.
+2 * 3 * 4 is no emphasis, nor is a lone * or ~one tilde~ or ~~~three~~~.
+**Unclosed bold and *unclosed italic
+~~~~ entities
+bold 0+4 "Bold"
+bold 9+4 "bold"
+italic 15+6 "italic"
+italic 26+6 "italic"
+strikethrough 34+6 "struck"
+bold 93+12 "Both at once"
+italic 93+12 "Both at once"
+italic 115+4 "word"
