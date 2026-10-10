@@ -9,6 +9,7 @@ dependencies {
     implementation(project(":libraries:agent"))
     implementation(project(":libraries:tools"))
     implementation(project(":libraries:channels:telegram"))
+    implementation(project(":libraries:channels:onebot"))
     implementation(project(":libraries:providers:openai-compatible"))
     implementation(project(":libraries:providers:deepseek"))
     implementation(project(":libraries:providers:openrouter"))

@@ -5,5 +5,21 @@
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
     "plugins": []
+  },
+  "channels": {
+    "onebot": {
+      "enabled": false,
+      "settings": {
+        "eventQueueCapacity": 1024,
+        "rateLimitIntervalMillis": 500
+      },
+      "instances": {
+        "main": {
+          "transport": "ws_reverse",
+          "listenHost": "127.0.0.1",
+          "listenPort": 8080
+        }
+      }
+    }
   }
 }
