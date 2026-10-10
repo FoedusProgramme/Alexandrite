@@ -28,7 +28,7 @@ public enum class RuntimeProblemKind : ProblemKind {
     /** A plugin compiled against another API version of the SDK. */
     INCOMPATIBLE_SDK,
 
-    /** Config that cannot be read or decoded. */
+    /** Config that cannot be read, decoded or used. */
     INVALID_CONFIG,
 
     /** Config that belongs to no plugin. */

@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -153,7 +154,8 @@ public fun testReplyDraft(
     text: String = "Hello",
     kind: MessageKind = MessageKind.REPLY,
     message: OutboundMessage = OutboundMessage.builder(text, kind).conversation(turn.conversation).build(),
-): ReplyDraft = ReplyDraft(turn, message)
+    destination: ChatAddress = turn.chat,
+): ReplyDraft = ReplyDraft(turn, message, destination)
 
 /** By default, the stored user entry and reply of a turn that completed with that reply. */
 public fun testTurnCommitted(

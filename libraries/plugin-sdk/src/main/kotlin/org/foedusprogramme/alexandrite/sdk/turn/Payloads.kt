@@ -6,6 +6,7 @@ import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
@@ -92,7 +93,7 @@ public class TurnContext @InternalAlexandriteApi constructor(
     public operator fun plus(item: TurnContextItem): TurnContext = TurnContext(turn, text, items + item)
 }
 
-/** A turn's request to its model. */
+/** A turn's request to its model, whose history in round 0 may end with the turn's opening entry, not stored yet. */
 @Poko
 public class ModelCall @InternalAlexandriteApi constructor(
     override val turn: TurnInfo,
@@ -167,18 +168,20 @@ public class ReplyPreview @InternalAlexandriteApi constructor(
     public fun withText(text: String): ReplyPreview = ReplyPreview(turn, segment, text)
 }
 
-/** A turn's final reply on its way to its chats, which the transcript keeps as the model wrote it. */
+/** A turn's final reply on its way to one of its chats, which the transcript keeps as the model wrote it. */
 @Poko
 public class ReplyDraft @InternalAlexandriteApi constructor(
     override val turn: TurnInfo,
     public val message: OutboundMessage,
+    /** The chat this copy of the reply goes to. */
+    public val destination: ChatAddress,
 ) : TurnScoped {
     /** This draft with [message], which keeps the kind and the conversation of the draft's message. */
     public fun withMessage(message: OutboundMessage): ReplyDraft {
         require(message.kind == this.message.kind && message.conversation == this.message.conversation) {
             "A replaced reply keeps its kind ${this.message.kind} and conversation ${this.message.conversation}."
         }
-        return ReplyDraft(turn, message)
+        return ReplyDraft(turn, message, destination)
     }
 }
 

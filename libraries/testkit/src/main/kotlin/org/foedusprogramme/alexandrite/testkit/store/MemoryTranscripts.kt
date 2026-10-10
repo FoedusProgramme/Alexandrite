@@ -48,10 +48,18 @@ internal class MemoryTranscripts(private val data: MemoryData) : TranscriptStore
     override suspend fun entries(conversation: ConversationId): List<TranscriptEntry> =
         data.locked { entries.values.filter { it.record.conversation == conversation } }.map { it.read() }
 
+    override suspend fun entriesAfter(conversation: ConversationId, after: EntryId): List<TranscriptEntry> =
+        data.locked {
+            entries.values.filter { it.record.conversation == conversation && it.record.id.value > after.value }
+        }.map { it.read() }
+
     override suspend fun tail(conversation: ConversationId, count: Int): List<TranscriptEntry> {
         require(count >= 0) { "A tail has no negative length, was $count." }
         return entries(conversation).takeLast(count)
     }
+
+    override suspend fun turnEntries(turn: TurnId): List<TranscriptEntry> =
+        data.locked { entries.values.filter { it.record.turn == turn } }.map { it.read() }
 
     override suspend fun entry(id: EntryId): TranscriptEntry? = data.locked { entries[id.value] }?.read()
 

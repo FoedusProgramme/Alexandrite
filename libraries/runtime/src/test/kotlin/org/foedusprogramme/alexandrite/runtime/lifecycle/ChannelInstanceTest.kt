@@ -46,6 +46,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -397,6 +398,34 @@ class ChannelInstanceTest {
         assertEquals(listOf(DiProblemKind.CREATION_FAILED), error.problems.map { it.kind })
         assertContains(error.message!!, "Cannot create ${key<Channel>()} with Bot (plugin chan): ")
         assertEquals(listOf("create agent", "create work", "destroy work", "destroy agent"), events.all())
+    }
+
+    @Test
+    fun `a config problem that an instance finds when created or started is invalid config naming its container`() {
+        val token = { id: ChannelInstanceId ->
+            ConfigException("plugins.chan.instances.${id.name}.token", "the bot refuses the token")
+        }
+        val created = channels(Steps(construct = { if (it.id == home) throw token(it.id) })).startFailure()
+        val started = channels(Steps(start = { if (it.id == work) throw token(it.id) })).startFailure()
+
+        assertEquals(listOf(StartStage.GRAPH, StartStage.START), listOf(created.stage, started.stage))
+        assertEquals(
+            listOf(
+                Problem(
+                    RuntimeProblemKind.INVALID_CONFIG,
+                    "channel instance container 'chan:home': Invalid config at 'plugins.chan.instances.home.token': " +
+                        "the bot refuses the token",
+                    "chan",
+                ),
+                Problem(
+                    RuntimeProblemKind.INVALID_CONFIG,
+                    "channel instance container 'chan:work': Invalid config at 'plugins.chan.instances.work.token': " +
+                        "the bot refuses the token",
+                    "chan",
+                ),
+            ),
+            created.problems + started.problems,
+        )
     }
 
     @Test

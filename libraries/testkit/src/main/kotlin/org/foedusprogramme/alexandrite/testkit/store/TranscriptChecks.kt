@@ -57,6 +57,43 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
             expectEqual(stored, transcripts.entries(conversation), "the entries of the conversation")
         }
     },
+    StoreCheck("the entries of a turn are found by its id") {
+        open {
+            val conversation = conversations.current(main)
+            val first = startTurn(conversation)
+            val second = startTurn(conversation)
+            val early = transcripts.append(first.id, listOf(message("a"), message("b")))
+            val other = transcripts.append(second.id, listOf(message("c")))
+            val late = transcripts.append(first.id, listOf(message("d")))
+
+            expectEqual(early + late, transcripts.turnEntries(first.id), "the entries of the first turn")
+            expectEqual(other, transcripts.turnEntries(second.id), "the entries of the second turn")
+            expectEqual(emptyList(), transcripts.turnEntries(TurnId("missing")), "the entries of an unknown turn")
+        }
+    },
+    StoreCheck("the entries after an entry are those its conversation stored later") {
+        open {
+            val stored = append(message("a"), message("b"), message("c"))
+            val elsewhere = transcripts.append(startTurn(conversations.current(coder)).id, listOf(message("x")))
+            val conversation = stored.first().record?.conversation ?: fail("An entry came back without a record.")
+            val (a, b, c) = stored.map { it.record?.id ?: fail("An entry came back without a record.") }
+
+            expectEqual(stored.drop(1), transcripts.entriesAfter(conversation, a), "the entries after a")
+            transcripts.deleteMessage(ChannelMessageRef(chat, "m-b"))
+            expectEqual(stored.drop(2), transcripts.entriesAfter(conversation, b), "the entries after the deleted b")
+            expectEqual(emptyList(), transcripts.entriesAfter(conversation, c), "the entries after the last one")
+            expectEqual(
+                emptyList(),
+                transcripts.entriesAfter(conversation, elsewhere.single().record?.id ?: fail("No record.")),
+                "the entries after a later entry of another conversation",
+            )
+            expectEqual(
+                emptyList(),
+                transcripts.entriesAfter(ConversationId("missing"), a),
+                "after a in no conversation",
+            )
+        }
+    },
     StoreCheck("a reasoning seal is kept byte for byte") {
         val data = "\"\\\n\t\u0000\u001f é😺 ${"Zm9v".repeat(500)}=="
         val reply = AssistantEntry(

@@ -10,11 +10,20 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.state
+import org.foedusprogramme.alexandrite.sdk.hook.Hook
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
+import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
+import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
+import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
@@ -105,6 +114,37 @@ class HarnessDoublesTest {
         PluginHarness.builder(probe).turnInitiator(initiator).execute { get<TurnInitiator>("probe").initiate(turn) }
 
         assertEquals(listOf(RecordingTurnInitiator.Initiated("probe", turn)), initiator.initiated)
+    }
+
+    @Test
+    fun `a harness contributes the tools, hooks and command handlers it was given`() {
+        val seenPoint = ObserverPoint<String>("test.seen")
+        val seen = mutableListOf<String>()
+        val hook = object : ObserverHook<String> {
+            override val point = seenPoint
+
+            override suspend fun observe(payload: String) {
+                seen += payload
+            }
+        }
+        val handler = object : CommandHandler {
+            override val commands = listOf(CommandSpec.builder("ping", "Answers pong.").build())
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
+                context.reply("pong")
+            }
+        }
+        val read = recordingTool("fs.read")
+        val find = recordingTool("fs.find")
+
+        PluginHarness.builder(probe).tool(read).tool(find).hook(hook).commandHandler(handler).execute {
+            assertEquals(listOf(read, find), getAll<Tool>())
+            assertEquals(listOf<Hook>(hook), getAll<Hook>())
+            assertEquals(listOf(handler), getAll<CommandHandler>())
+            get<Hooks>().fire(seenPoint, "fired")
+        }
+
+        assertEquals(listOf("fired"), seen)
     }
 
     @Test

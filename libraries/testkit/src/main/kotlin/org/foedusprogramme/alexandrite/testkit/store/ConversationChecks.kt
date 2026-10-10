@@ -1,11 +1,13 @@
 package org.foedusprogramme.alexandrite.testkit.store
 
+import kotlinx.coroutines.delay
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
 import org.foedusprogramme.alexandrite.sdk.chat.rebuild
@@ -19,6 +21,7 @@ import org.foedusprogramme.alexandrite.testkit.StoreCheck
 import org.foedusprogramme.alexandrite.testkit.testChat
 import org.foedusprogramme.alexandrite.testkit.testUser
 import java.time.Instant
+import kotlin.time.Duration.Companion.milliseconds
 
 internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
     StoreCheck("the current conversation is created when first asked for and kept") {
@@ -228,6 +231,56 @@ internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
                 expectThrows<IllegalArgumentException>("Starting $case") { conversations.startTurn(refused) }
             }
             expectEqual(null, conversations.turn(TurnId("lost")), "a refused turn")
+        }
+    },
+    StoreCheck("a conversation that is not active takes no turns") {
+        open {
+            val old = conversations.current(main)
+            conversations.newConversation(main)
+            val turn = TurnInfo.builder(TurnId("late"), chat, old.id, TurnKind.MESSAGE).agent(main.agent).build()
+
+            expectThrows<IllegalStateException>("Starting a turn in a sealed conversation") {
+                conversations.startTurn(turn)
+            }
+            expectEqual(null, conversations.turn(turn.id), "the refused turn")
+            expectEqual(emptyList(), conversations.unendedTurns(), "the turns that never ended")
+        }
+    },
+    StoreCheck("the turns that never ended are listed oldest first, also after a restart") {
+        val started = open {
+            val first = startTurn(conversations.current(main))
+            delay(2.milliseconds)
+            val ended = startTurn(conversations.heartbeatBase(main), TurnKind.HEARTBEAT)
+            delay(2.milliseconds)
+            val last = startTurn(conversations.current(coder))
+            conversations.endTurn(ended.id, TurnEndKind.COMPLETED)
+            listOf(first, last).map { conversations.turn(it.id) ?: fail("Turn ${it.id} is not recorded.") }
+        }
+
+        open {
+            expectEqual(started, conversations.unendedTurns(), "the turns that never ended")
+            started.forEach { conversations.endTurn(it.id, TurnEndKind.SHUT_DOWN) }
+            expectEqual(emptyList(), conversations.unendedTurns(), "the turns that never ended once all ended")
+        }
+    },
+    StoreCheck("an agent's chats are those where it has a user-lane conversation") {
+        val thread = testChat(thread = "7")
+        val other = testChat("other")
+        open {
+            conversations.current(main)
+            conversations.newConversation(main)
+            conversations.newConversation(AgentChatKey(AgentId.MAIN, thread))
+            conversations.heartbeatBase(AgentChatKey(AgentId.MAIN, other))
+            val parent = startTurn(conversations.current(AgentChatKey(coder.agent, other)))
+            conversations.createDelegated(AgentChatKey(AgentId.MAIN, other), lineage(parent, "run-1"))
+        }
+
+        open {
+            val chats = conversations.chats(AgentId.MAIN)
+            expectEqual(setOf(chat, thread), chats.toSet(), "the chats of the main agent")
+            expectEqual(chats.distinct(), chats, "the chats of the main agent, each once")
+            expectEqual(listOf(other), conversations.chats(coder.agent), "the chats of another agent")
+            expectEqual(emptyList(), conversations.chats(AgentId("nobody")), "the chats of an agent without any")
         }
     },
     StoreCheck("kinds and ends of turns this version does not know are kept as they are") {

@@ -2,6 +2,8 @@ package org.foedusprogramme.alexandrite.sdk.store
 
 import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -45,9 +47,13 @@ public interface ConversationStore {
     /** The conversation [id], null when the store has none. */
     public suspend fun conversation(id: ConversationId): ConversationInfo?
 
+    /** The chats where [agent] has a [ConversationKind.USER_LANE] conversation, each once. */
+    public suspend fun chats(agent: AgentId): List<ChatAddress>
+
     /**
      * Records that [turn] started; throws [IllegalArgumentException] when the turn is recorded already or its
-     * conversation is unknown or belongs to another agent chat key.
+     * conversation is unknown or belongs to another agent chat key, and [IllegalStateException] when the conversation
+     * is not [ConversationState.ACTIVE].
      */
     public suspend fun startTurn(turn: TurnInfo)
 
@@ -56,6 +62,9 @@ public interface ConversationStore {
 
     /** The turn [id], null when the store has none. */
     public suspend fun turn(id: TurnId): TurnRecord?
+
+    /** The turns that started and never ended, oldest first. */
+    public suspend fun unendedTurns(): List<TurnRecord>
 }
 
 /** What [ConversationStore.newConversation] did. */

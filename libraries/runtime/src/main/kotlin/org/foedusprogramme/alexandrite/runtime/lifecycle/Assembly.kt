@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.config.ConfigResolution
 import org.foedusprogramme.alexandrite.runtime.config.EnabledPlugin
 import org.foedusprogramme.alexandrite.runtime.config.resolveConfig
+import org.foedusprogramme.alexandrite.runtime.configFailure
 import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
 import org.foedusprogramme.alexandrite.runtime.plugin.pluginProblems
@@ -174,7 +175,9 @@ internal class Assembly(
         Container.build(plugins + runtime)
     } catch (e: Exception) {
         interruption(e)?.let { throw it }
-        throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
+        val problems = (e as? DiException)?.problems.orEmpty()
+        configFailure(name, StartStage.GRAPH, e, problems.firstOrNull()?.plugin, null)?.let { throw it }
+        throw startFailure(name, StartStage.GRAPH, problems, e)
     }
 
     /** Validates the channel instance graph of each plugin that has one without creating anything. */
@@ -206,6 +209,8 @@ internal class Assembly(
                     container.child("${instance.id}", setOf(plugin.id), listOf(bound) + instance.bindings)
                 } catch (e: Exception) {
                     interruption(e)?.let { throw it }
+                    val label = "channel instance container '${instance.id}'"
+                    configFailure(name, StartStage.GRAPH, e, plugin.id, label)?.let { throw it }
                     throw startFailure(name, StartStage.GRAPH, (e as? DiException)?.problems.orEmpty(), e)
                 }
                 created(InstanceContainer(instance.id, plugin.id, child, scope, child.getAll(key<Channel>()).single()))

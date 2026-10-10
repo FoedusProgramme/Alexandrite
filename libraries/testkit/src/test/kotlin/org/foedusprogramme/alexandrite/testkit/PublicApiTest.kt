@@ -29,8 +29,10 @@ class PublicApiTest {
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
         import org.foedusprogramme.alexandrite.sdk.di.key
+        import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
         import org.foedusprogramme.alexandrite.sdk.model.*
         import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+        import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
         import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
         import org.foedusprogramme.alexandrite.sdk.transcript.*
         import org.foedusprogramme.alexandrite.sdk.turn.*
@@ -165,17 +167,40 @@ class PublicApiTest {
             testToolCallCheck(testTurn(), testToolDefinition(), "{}"),
             testToolCallDone(testTurn(), output = "done", outcome = ToolOutcome.Succeeded),
             testReplyPreview(testTurn(), 0, "Hel"),
-            testReplyDraft(testTurn(), "Hi", MessageKind.REPLY),
+            testReplyDraft(testTurn(), "Hi", MessageKind.REPLY, destination = testChat("other")),
             testTurnCommitted(testTurn(), usage = null),
             testConversationSealed(testTurn(), ConversationId("next")),
         )
 
+        suspend fun tools(): List<Any?> {
+            val tool: RecordingTool = recordingTool("notes.find", ToolRisk.READ_ONLY) { arguments, context ->
+                ToolResult("${'$'}{arguments.size} in ${'$'}{context.call}")
+            }
+            tool.hold().release()
+            val result = tool.execute(JsonObject(emptyMap()), testToolContext())
+            val call: RecordingTool.Call = tool.awaitCalls(1).first()
+            return listOf(result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call)
+        }
+
         suspend fun harness(index: PluginIndex, other: PluginIndex, root: Path): List<Any> {
             val model = ScriptedModel()
             val store = MemoryStore(java.time.Clock.systemUTC())
+            val hook = object : ObserverHook<TurnCommitted> {
+                override val point = TurnPoints.TURN_COMMITTED
+
+                override suspend fun observe(payload: TurnCommitted) {}
+            }
+            val handler = object : CommandHandler {
+                override val commands = listOf(CommandSpec.builder("ping", "Answers pong.").build())
+
+                override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {}
+            }
             val builder: PluginHarness.Builder = PluginHarness.builder(index)
             val harness = builder
                 .plugin(other)
+                .tool(recordingTool())
+                .hook(hook)
+                .commandHandler(handler)
                 .config("{}")
                 .config(JsonObject(emptyMap()))
                 .config(other, "{}")

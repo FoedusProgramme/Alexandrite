@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
+import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
@@ -124,6 +125,28 @@ class ExitCodeTest {
 
         assertEquals(StartStage.GRAPH, error.stage)
         assertEquals(1, exitCode(error))
+    }
+
+    @Test
+    fun `a config problem that a component finds when created or started exits 78`() {
+        val problem = ConfigException("plugins.a.endpoint", "no endpoint 'local'")
+        val created = binding(key<Int>(), "a", "Int") { throw problem }
+        val started = binding(key<Lifecycle>(), "a", "Starting") {
+            object : Lifecycle {
+                override suspend fun onStart() = throw problem
+            }
+        }
+
+        val errors = listOf(created, started).map { failed(spec(dataDir, TestIndex("a", listOf(it)))) }
+
+        assertEquals(listOf(StartStage.GRAPH, StartStage.START), errors.map { it.stage })
+        assertEquals(
+            List(2) {
+                listOf(RuntimeProblemKind.INVALID_CONFIG)
+            },
+            errors.map { e -> e.problems.map { it.kind } },
+        )
+        assertEquals(listOf(78, 78), errors.map(::exitCode))
     }
 
     @Test

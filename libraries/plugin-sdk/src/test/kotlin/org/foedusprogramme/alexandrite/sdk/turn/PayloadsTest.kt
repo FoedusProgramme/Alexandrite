@@ -114,13 +114,14 @@ class PayloadsTest {
     }
 
     @Test
-    fun `a replaced reply keeps its kind and conversation`() {
+    fun `a replaced reply keeps its kind, conversation and destination`() {
         val final = OutboundMessage.builder("Hello, Ada.", MessageKind.REPLY).conversation(ConversationId("c1")).build()
-        val draft = ReplyDraft(turn, final)
+        val draft = ReplyDraft(turn, final, chat)
 
         val redacted = draft.withMessage(final.rebuild { text("Hello.").markup(Markup.MARKDOWN) })
 
         assertEquals("Hello.", redacted.message.text)
+        assertEquals(chat, redacted.destination)
         assertFailsWith<IllegalArgumentException> { draft.withMessage(final.rebuild { kind(MessageKind.NOTICE) }) }
         assertFailsWith<IllegalArgumentException> { draft.withMessage(final.rebuild { conversation(null) }) }
     }

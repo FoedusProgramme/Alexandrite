@@ -21,6 +21,7 @@ import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
+import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
@@ -51,6 +52,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -201,6 +203,52 @@ class RuntimeTest {
             ),
             events.all(),
         )
+    }
+
+    @Test
+    fun `a config problem that a component finds when created fails the GRAPH stage as invalid config`() {
+        val model = ConfigException("agent.agents.coder.model", "no endpoint 'local'")
+        val plugins = core(
+            service("a", "core", events),
+            binding(key<Service>("b"), "core", "b", dependencies = emptyList()) { throw model },
+        )
+
+        val error = spec(plugins, dataDir).startFailure()
+
+        assertEquals(StartStage.GRAPH, error.stage)
+        assertEquals(
+            listOf(
+                Problem(
+                    RuntimeProblemKind.INVALID_CONFIG,
+                    "Invalid config at 'agent.agents.coder.model': no endpoint 'local'",
+                    "core",
+                ),
+            ),
+            error.problems,
+        )
+        assertSame(model, error.cause?.cause)
+        assertEquals(
+            "Cannot start runtime 'test': stage GRAPH failed (1 problem):\n" +
+                "- Invalid config at 'agent.agents.coder.model': no endpoint 'local'",
+            error.message,
+        )
+        assertEquals(listOf("create a", "destroy a"), events.all())
+    }
+
+    @Test
+    fun `a config problem that a component finds when started fails the START stage as invalid config`() {
+        val file = ConfigException("agent.agents.coder.instructionFiles", "agents/coder/PERSONA.md is missing")
+        val plugins = core(service("a", "core", events), service("b", "core", events, onStart = { throw file }))
+
+        val error = spec(plugins, dataDir).startFailure()
+
+        assertEquals(StartStage.START, error.stage)
+        assertEquals(
+            listOf(Problem(RuntimeProblemKind.INVALID_CONFIG, file.message!!, null)),
+            error.problems,
+        )
+        assertSame(file, error.cause)
+        assertEquals(listOf("create a", "create b", "start a", "start b", "stop a"), events.all().take(5))
     }
 
     @Test

@@ -10,7 +10,9 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 
-/** Takes the user input of channels, where submit order is turn order per chat. */
+/**
+ * Takes the user input of channels, where submit order is dispatch order per chat and turn order per agent and chat.
+ */
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface TurnSubmitter {
@@ -143,7 +145,10 @@ public interface TurnOutcome {
         override val replayable: Boolean get() = false
     }
 
-    /** The model answered with nothing, so the turn's input was taken back and the chat got a notice. */
+    /**
+     * The model answered with nothing usable (blank or refused), so the turn's input was taken back and the chat got a
+     * notice.
+     */
     @OptIn(InternalAlexandriteApi::class)
     public data object TakenBack : TurnOutcome {
         override val replayable: Boolean get() = false

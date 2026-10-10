@@ -110,6 +110,8 @@ class PayloadsTest {
 
         assertEquals("Hi!", draft.message.text)
         assertEquals(turn.conversation, draft.message.conversation)
+        assertEquals(turn.chat, draft.destination)
+        assertEquals(testChat("other"), testReplyDraft(destination = testChat("other")).destination)
         assertEquals(MessageKind.NOTICE, notice.message.kind)
         assertEquals("Hello", testReplyPreview().text)
         assertEquals(0, testReplyPreview().segment)

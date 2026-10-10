@@ -39,8 +39,14 @@ public interface TranscriptStore {
     /** The entries of [conversation] in the order they were stored. */
     public suspend fun entries(conversation: ConversationId): List<TranscriptEntry>
 
+    /** The entries of [conversation] whose ids are greater than [after], in the order they were stored. */
+    public suspend fun entriesAfter(conversation: ConversationId, after: EntryId): List<TranscriptEntry>
+
     /** The last [count] entries of [conversation] in the order they were stored. */
     public suspend fun tail(conversation: ConversationId, count: Int): List<TranscriptEntry>
+
+    /** The entries stored in the turn [turn], in the order they were stored. */
+    public suspend fun turnEntries(turn: TurnId): List<TranscriptEntry>
 
     /** The entry [id], null when the store has none. */
     public suspend fun entry(id: EntryId): TranscriptEntry?

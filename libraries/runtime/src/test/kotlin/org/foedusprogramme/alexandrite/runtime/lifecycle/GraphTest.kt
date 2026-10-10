@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.BotIndex
 import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.runtime.Probe
+import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Service
@@ -64,6 +65,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.junit.jupiter.api.io.TempDir
@@ -173,6 +175,42 @@ class GraphTest {
 
         runBlocking { hooks.fire(observed, "late") }
         assertEquals(listOf("observed early"), events.all())
+    }
+
+    @Test
+    fun `the runtime binds the host's paths, made absolute`() {
+        val config = RuntimeConfig.builder(dataDir.resolve("root/."))
+            .cacheDir(dataDir.resolve("cache"))
+            .configFile(Path.of("alexandrite.json"))
+            .protect(dataDir.resolve("logs"))
+            .protect(Path.of("install"))
+            .protect(dataDir.resolve("logs/."))
+            .build()
+        val probe = probe("probe", "paths" to key<HostPaths>())
+        val spec = RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe)))).build()
+
+        lateinit var paths: HostPaths
+
+        spec.execute { paths = services.get(key<Probe>()).values.getValue("paths") as HostPaths }
+
+        assertEquals(dataDir.resolve("root"), paths.dataRoot)
+        assertEquals(dataDir.resolve("cache"), paths.cacheRoot)
+        assertEquals(Path.of("alexandrite.json").toAbsolutePath(), paths.configFile)
+        assertEquals(listOf(dataDir.resolve("logs"), Path.of("install").toAbsolutePath()), paths.protected)
+    }
+
+    @Test
+    fun `a runtime without a config file binds paths without one`() {
+        val probe = probe("probe", "paths" to key<HostPaths>())
+        lateinit var paths: HostPaths
+
+        spec(explicit(TestIndex("probe", bindings = listOf(probe))), dataDir).execute {
+            paths = services.get(key<Probe>()).values.getValue("paths") as HostPaths
+        }
+
+        assertEquals(listOf(dataDir, dataDir.resolve("cache")), listOf(paths.dataRoot, paths.cacheRoot))
+        assertEquals(null, paths.configFile)
+        assertEquals(emptyList(), paths.protected)
     }
 
     @Test

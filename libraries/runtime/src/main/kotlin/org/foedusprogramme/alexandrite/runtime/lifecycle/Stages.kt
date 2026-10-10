@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.channel.InstanceDirectory
+import org.foedusprogramme.alexandrite.runtime.configFailure
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startStopped
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
@@ -190,7 +191,9 @@ internal class Stages(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw startFailure(name, next, cause = e, detail = instance?.let { "${it.label}: $e" })
+            val label = instance?.label
+            if (next == StartStage.START) configFailure(name, next, e, instance?.plugin, label)?.let { throw it }
+            throw startFailure(name, next, cause = e, detail = label?.let { "$it: $e" })
         }
         currentCoroutineContext().ensureActive()
     }

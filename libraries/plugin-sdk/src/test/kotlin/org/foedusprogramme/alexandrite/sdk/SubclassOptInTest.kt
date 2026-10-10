@@ -28,6 +28,13 @@ class SubclassOptInTest {
             override fun stop(request: org.foedusprogramme.alexandrite.sdk.runtime.StopRequest) = TODO()
         }
 
+        class Paths : org.foedusprogramme.alexandrite.sdk.runtime.HostPaths {
+            override val dataRoot get() = TODO()
+            override val cacheRoot get() = TODO()
+            override val configFile get() = TODO()
+            override val protected get() = TODO()
+        }
+
         class Firing : org.foedusprogramme.alexandrite.sdk.hook.Hooks {
             override suspend fun <P : Any> fire(
                 point: org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint<P>,
@@ -399,12 +406,14 @@ class SubclassOptInTest {
             override suspend fun createDelegated(key: AgentChatKey, lineage: TurnLineage, fork: ForkPoint?) =
                 info(key, ConversationKind.DELEGATED).toBuilder().lineage(lineage).fork(fork).build()
             override suspend fun conversation(id: ConversationId): ConversationInfo? = null
+            override suspend fun chats(agent: AgentId) = listOf(ChatAddress.parse("t:a:b"))
             override suspend fun startTurn(turn: TurnInfo) {}
             override suspend fun endTurn(id: TurnId, end: TurnEndKind) = end in TurnEndKind.entries
             override suspend fun turn(id: TurnId): TurnRecord? =
                 TurnRecord.builder(id, ConversationId("c"), AgentChatKey.parse("main@t:a:b"), TurnKind.of("x"), Instant.EPOCH)
                     .end(TurnEndKind.of("completed"))
                     .build()
+            override suspend fun unendedTurns() = listOfNotNull(turn(TurnId("t")))
 
             private fun info(key: AgentChatKey, kind: ConversationKind) =
                 ConversationInfo.builder(ConversationId("c"), kind, key, ConversationState.ACTIVE, Instant.EPOCH).build()
@@ -419,7 +428,10 @@ class SubclassOptInTest {
                 TranscriptCodec.decode("{\"type\":\"poll\"}"),
                 UnknownEntry(null, "poll", kotlinx.serialization.json.JsonObject(emptyMap())),
             )
+            override suspend fun entriesAfter(conversation: ConversationId, after: EntryId) =
+                entries(conversation).filter { (it.record?.id?.value ?: 0) > after.value }
             override suspend fun tail(conversation: ConversationId, count: Int) = entries(conversation).takeLast(count)
+            override suspend fun turnEntries(turn: TurnId) = emptyList<TranscriptEntry>()
             override suspend fun entry(id: EntryId): TranscriptEntry? = null
             override suspend fun entries(message: ChannelMessageRef) = emptyList<TranscriptEntry>()
             override suspend fun deleteMessage(message: ChannelMessageRef) = 0

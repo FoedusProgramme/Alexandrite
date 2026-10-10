@@ -51,19 +51,22 @@ class SqliteConversationStoreTest {
             database.transaction {
                 execute(
                     "INSERT INTO conversations (id, kind, agent, chat_id, state, created_at, depth) " +
-                        "SELECT 'future', 'archive', agent, chat_id, 'frozen', created_at, 0 FROM conversations " +
+                        "SELECT 'future', 'archive', agent, chat_id, 'active', created_at, 0 FROM conversations " +
                         "WHERE id = ?",
                     known.id.value,
                 )
             }
+            val turn = turn(conversations.conversation(ConversationId("future"))!!)
+            database.transaction { execute("UPDATE conversations SET state = 'frozen' WHERE id = 'future'") }
 
             val future = conversations.conversation(ConversationId("future"))!!
 
             assertEquals(ConversationKind.of("archive"), future.kind)
             assertEquals(ConversationState.of("frozen"), future.state)
-            val turn = turn(future)
-            val error = assertFailsWith<IllegalStateException> { transcripts.append(turn.id, listOf(message("x"))) }
-            assertEquals("Conversation future is frozen, so it takes no new entries.", error.message)
+            val append = assertFailsWith<IllegalStateException> { transcripts.append(turn.id, listOf(message("x"))) }
+            val start = assertFailsWith<IllegalStateException> { turn(future) }
+            assertEquals("Conversation future is frozen, so it takes no new entries.", append.message)
+            assertEquals("Conversation future is frozen, so it takes no new turns.", start.message)
         }
     }
 

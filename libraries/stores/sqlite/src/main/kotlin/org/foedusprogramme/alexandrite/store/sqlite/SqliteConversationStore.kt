@@ -75,6 +75,15 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
 
     override suspend fun conversation(id: ConversationId): ConversationInfo? = database.transaction { infoOrNull(id) }
 
+    override suspend fun chats(agent: AgentId): List<ChatAddress> = database.transaction {
+        query(
+            "SELECT address FROM chats WHERE id IN " +
+                "(SELECT chat_id FROM conversations WHERE agent = ? AND kind = ?) ORDER BY id",
+            agent.value,
+            ConversationKind.USER_LANE.id,
+        ) { ChatAddress.parse(getString(1)) }
+    }
+
     override suspend fun startTurn(turn: TurnInfo) {
         database.transaction {
             val conversation = requireNotNull(infoOrNull(turn.conversation)) {
@@ -84,6 +93,9 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
                 "Turn ${turn.id} of ${turn.key} cannot run in conversation ${conversation.id} of ${conversation.key}."
             }
             require(turnOrNull(turn.id) == null) { "Turn ${turn.id} is recorded already." }
+            check(conversation.state == ConversationState.ACTIVE) {
+                "Conversation ${conversation.id} is ${conversation.state}, so it takes no new turns."
+            }
             val lineage = turn.lineage
             execute(
                 "INSERT INTO turns (id, conversation, agent, chat_id, kind, actor, run_id, parent_turn, " +
@@ -117,6 +129,10 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
     }
 
     override suspend fun turn(id: TurnId): TurnRecord? = database.transaction { turnOrNull(id) }
+
+    override suspend fun unendedTurns(): List<TurnRecord> = database.transaction {
+        query(UNENDED_TURNS) { turnRecord() }
+    }
 
     private fun Tx.currentOf(key: AgentChatKey, kind: ConversationKind): ConversationInfo {
         val chat = chatId(key.chat)
@@ -196,24 +212,25 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
             .build()
     }
 
-    private fun Tx.turnOrNull(id: TurnId): TurnRecord? = queryOne(
-        "SELECT t.*, chats.address FROM turns t JOIN chats ON chats.id = t.chat_id WHERE t.id = ?",
-        id.value,
-    ) {
-        TurnRecord.builder(
-            TurnId(getString("id")),
-            ConversationId(getString("conversation")),
-            key(),
-            TurnKind.of(getString("kind")),
-            instant("started_at"),
-        )
-            .actor(getString("actor")?.let(UserAddress::parse))
-            .lineage(lineage())
-            .endedAt(instantOrNull("ended_at"))
-            .end(getString("outcome")?.let { TurnEndKind.of(it) })
-            .build()
-    }
+    private fun Tx.turnOrNull(id: TurnId): TurnRecord? = queryOne("$TURNS WHERE t.id = ?", id.value) { turnRecord() }
 }
+
+private const val TURNS = "SELECT t.*, chats.address FROM turns t JOIN chats ON chats.id = t.chat_id"
+
+internal const val UNENDED_TURNS = "$TURNS WHERE t.ended_at IS NULL ORDER BY t.started_at, t.rowid"
+
+private fun ResultSet.turnRecord(): TurnRecord = TurnRecord.builder(
+    TurnId(getString("id")),
+    ConversationId(getString("conversation")),
+    key(),
+    TurnKind.of(getString("kind")),
+    instant("started_at"),
+)
+    .actor(getString("actor")?.let(UserAddress::parse))
+    .lineage(lineage())
+    .endedAt(instantOrNull("ended_at"))
+    .end(getString("outcome")?.let { TurnEndKind.of(it) })
+    .build()
 
 private fun ResultSet.key(): AgentChatKey =
     AgentChatKey(AgentId(getString("agent")), ChatAddress.parse(getString("address")))

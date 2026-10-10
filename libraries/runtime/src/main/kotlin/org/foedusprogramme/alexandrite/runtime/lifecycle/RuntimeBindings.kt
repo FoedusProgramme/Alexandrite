@@ -22,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
@@ -67,6 +68,7 @@ internal fun runtimeBindings(
             if (dispatcher.hasAsyncObservers) dispatcher else object : Hooks by dispatcher {}
         },
         instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
+        instanceBinding(key<HostPaths>(), RuntimeHostPaths(config), RUNTIME_PLUGIN, "HostPaths"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
     ) + plugins.flatMap { plugin ->
@@ -118,3 +120,12 @@ private class PluginDirectories(private val data: Path, private val cache: Path)
     override val dataDir: Path get() = data.also(::createOwnerOnly)
     override val cacheDir: Path get() = cache.also(::createOwnerOnly)
 }
+
+private class RuntimeHostPaths(config: RuntimeConfig) : HostPaths {
+    override val dataRoot: Path = config.dataDir.absolute()
+    override val cacheRoot: Path = config.cacheDir.absolute()
+    override val configFile: Path? = config.configFile?.absolute()
+    override val protected: List<Path> = config.protected.map { it.absolute() }.distinct()
+}
+
+private fun Path.absolute(): Path = toAbsolutePath().normalize()

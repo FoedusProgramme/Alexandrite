@@ -29,6 +29,8 @@ private const val APP_ROOT = "app"
 
 private const val EXAMPLE_CONFIG = "config/alexandrite.example.json"
 
+private const val LIB_DIRECTORY = "lib"
+
 internal val alexandriteVersion: String by lazy {
     val stream = checkNotNull(object {}.javaClass.getResourceAsStream(VERSION_RESOURCE)) {
         "$VERSION_RESOURCE is missing from the classpath"
@@ -53,6 +55,7 @@ internal fun run(
     execute: suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination = { spec, block ->
         AlexandriteRuntime.runUntilSignal(spec, block)
     },
+    install: Path? = installDirectory(appLocation()),
 ): Int {
     fun located(options: Options): Locations? = try {
         locations(options, environment, osName, home)
@@ -82,7 +85,7 @@ internal fun run(
     }
     val locations = located(options) ?: return ExitCode.CONFIG
     return try {
-        host(locations, environment, err, execute)
+        host(locations, environment, err, execute, install)
     } catch (e: Exception) {
         logger.error("Unexpected error", e)
         err.println("alexandrite: unexpected error: $e")
@@ -95,13 +98,14 @@ private fun host(
     environment: Map<String, String>,
     err: PrintStream,
     execute: suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination,
+    install: Path?,
 ): Int {
     val source = try {
         ConfigFile.read(locations.configFile, environment)
     } catch (e: ConfigFileException.Missing) {
         err.println(
-            "alexandrite: ${e.message} Create it from the example at ${exampleConfig()}, or name another file " +
-                "with --config or ALEXANDRITE_CONFIG.",
+            "alexandrite: ${e.message} Create it from the example at ${exampleConfig(install)}, or name another " +
+                "file with --config or ALEXANDRITE_CONFIG.",
         )
         return ExitCode.CONFIG
     } catch (e: ConfigFileException) {
@@ -123,6 +127,8 @@ private fun host(
     val config = try {
         RuntimeConfig.builder(locations.dataDir)
             .cacheDir(locations.cacheDir)
+            .configFile(locations.configFile)
+            .apply { install?.let { protect(it) } }
             .zone(settings.zoneId)
             .shutdownGrace(settings.shutdownGraceSeconds.seconds)
             .startTimeout(settings.startTimeoutSeconds.seconds)
@@ -153,12 +159,19 @@ private fun host(
     }
 }
 
-private fun exampleConfig(): String {
-    val jar = try {
-        Path.of(AppPlugin::class.java.protectionDomain.codeSource.location.toURI())
-    } catch (e: Exception) {
-        null
-    }
-    val example = jar?.parent?.parent?.resolve(EXAMPLE_CONFIG)
+/** The directory of the distribution whose `lib` directory holds the jar [location], null when none does. */
+internal fun installDirectory(location: Path?): Path? {
+    val lib = location?.takeIf(Files::isRegularFile)?.parent ?: return null
+    return lib.parent?.takeIf { lib.fileName?.toString() == LIB_DIRECTORY }
+}
+
+private fun appLocation(): Path? = try {
+    Path.of(AppPlugin::class.java.protectionDomain.codeSource.location.toURI())
+} catch (e: Exception) {
+    null
+}
+
+private fun exampleConfig(install: Path?): String {
+    val example = install?.resolve(EXAMPLE_CONFIG)
     return if (example != null && Files.isRegularFile(example)) "$example" else "$EXAMPLE_CONFIG in the distribution"
 }

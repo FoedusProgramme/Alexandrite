@@ -123,8 +123,18 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** The turn failed. */
         public val FAILED: NoticeKind = NoticeKind("failed")
 
+        /** The model refused to answer. */
+        public val REFUSED: NoticeKind = NoticeKind("refused")
+
+        /** The runtime stopped while the turn ran. */
+        public val INTERRUPTED: NoticeKind = NoticeKind("interrupted")
+
+        /** The model's answer was cut off at its output limit. */
+        public val OUTPUT_LIMIT: NoticeKind = NoticeKind("output_limit")
+
         /** The values this version knows. */
-        public val entries: List<NoticeKind> = listOf(BLANK_REPLY, HOOK_ABORTED, FAILED)
+        public val entries: List<NoticeKind> =
+            listOf(BLANK_REPLY, HOOK_ABORTED, FAILED, REFUSED, INTERRUPTED, OUTPUT_LIMIT)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): NoticeKind = NoticeKind(id)

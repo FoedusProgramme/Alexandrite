@@ -15,6 +15,10 @@ public class RuntimeConfig private constructor(
     public val dataDir: Path,
     /** The root of the plugins' cache directories. */
     public val cacheDir: Path,
+    /** The config file the host read, null when it read none. */
+    public val configFile: Path?,
+    /** The places the host declares off-limits. */
+    public val protected: List<Path>,
     public val zone: ZoneId,
     public val shutdownGrace: Duration,
     /** How long the start stages may take. */
@@ -26,6 +30,8 @@ public class RuntimeConfig private constructor(
 ) {
     public class Builder internal constructor(private val dataDir: Path) {
         private var cacheDir: Path = dataDir.resolve("cache")
+        private var configFile: Path? = null
+        private val protected = mutableListOf<Path>()
         private var zone: ZoneId = ZoneId.systemDefault()
         private var shutdownGrace: Duration = 15.seconds
         private var startTimeout: Duration = 30.seconds
@@ -33,6 +39,11 @@ public class RuntimeConfig private constructor(
         private var dispatcher: CoroutineDispatcher = Dispatchers.Default
 
         public fun cacheDir(cacheDir: Path): Builder = apply { this.cacheDir = cacheDir }
+
+        public fun configFile(configFile: Path?): Builder = apply { this.configFile = configFile }
+
+        /** Declares [path] off-limits. */
+        public fun protect(path: Path): Builder = apply { protected.add(path) }
 
         public fun zone(zone: ZoneId): Builder = apply { this.zone = zone }
 
@@ -64,7 +75,17 @@ public class RuntimeConfig private constructor(
                 "The cache directory may not lie in the plugins' data, was '$cacheDir' for the data directory " +
                     "'$dataDir'."
             }
-            return RuntimeConfig(dataDir, cacheDir, zone, shutdownGrace, startTimeout, name, dispatcher)
+            return RuntimeConfig(
+                dataDir,
+                cacheDir,
+                configFile,
+                protected.toList(),
+                zone,
+                shutdownGrace,
+                startTimeout,
+                name,
+                dispatcher,
+            )
         }
     }
 

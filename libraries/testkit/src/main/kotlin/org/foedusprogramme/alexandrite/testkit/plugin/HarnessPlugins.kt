@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
@@ -25,7 +26,9 @@ import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
@@ -49,6 +52,9 @@ internal abstract class HarnessPlugin(id: String, name: String) : PluginIndex {
 /** The plugin `testkit`, which binds the doubles the harness was given. */
 internal class DoublesPlugin(
     models: List<ScriptedModel>,
+    tools: List<Tool>,
+    hooks: List<Hook>,
+    handlers: List<CommandHandler>,
     submitter: RecordingTurnSubmitter?,
     initiator: RecordingTurnInitiator?,
     control: RecordingAgentControl?,
@@ -61,6 +67,11 @@ internal class DoublesPlugin(
                 override val endpoints: List<ModelEndpoint> = models.toList()
             }
             add(instanceBinding(key<ModelProvider>(), provider, ID, "ScriptedModel provider", multi = true))
+        }
+        tools.forEach { add(instanceBinding(key<Tool>(), it, ID, "Tool ${it.definition.name}", multi = true)) }
+        hooks.forEach { add(instanceBinding(key<Hook>(), it, ID, "Hook ${it.javaClass.name}", multi = true)) }
+        handlers.forEach {
+            add(instanceBinding(key<CommandHandler>(), it, ID, "CommandHandler ${it.javaClass.name}", multi = true))
         }
         submitter?.let { add(instanceBinding(key<TurnSubmitter>(), it, ID, "RecordingTurnSubmitter")) }
         initiator?.let { recorder ->

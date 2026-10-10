@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.testkit.store
 
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -64,6 +66,12 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
 
     override suspend fun conversation(id: ConversationId): ConversationInfo? = data.locked { conversations[id] }
 
+    override suspend fun chats(agent: AgentId): List<ChatAddress> = data.locked {
+        conversations.values.filter { it.key.agent == agent && it.kind == ConversationKind.USER_LANE }
+            .map { it.key.chat }
+            .distinct()
+    }
+
     override suspend fun startTurn(turn: TurnInfo) {
         data.locked { now ->
             val conversation = requireNotNull(conversations[turn.conversation]) {
@@ -73,6 +81,9 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
                 "Turn ${turn.id} of ${turn.key} cannot run in conversation ${conversation.id} of ${conversation.key}."
             }
             require(turn.id !in turns) { "Turn ${turn.id} is recorded already." }
+            check(conversation.state == ConversationState.ACTIVE) {
+                "Conversation ${conversation.id} is ${conversation.state}, so it takes no new turns."
+            }
             turns[turn.id] = TurnRecord.builder(turn.id, turn.conversation, turn.key, turn.kind, now)
                 .actor(turn.actor?.address)
                 .lineage(turn.lineage)
@@ -87,6 +98,9 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
     }
 
     override suspend fun turn(id: TurnId): TurnRecord? = data.locked { turns[id] }
+
+    override suspend fun unendedTurns(): List<TurnRecord> =
+        data.locked { turns.values.filter { it.endedAt == null }.sortedBy { it.startedAt } }
 
     private fun MemoryData.currentOf(key: AgentChatKey, kind: ConversationKind, now: Instant): ConversationInfo {
         val id = current[key to kind] ?: insert(kind, key, null, null, now).id.also { current[key to kind] = it }

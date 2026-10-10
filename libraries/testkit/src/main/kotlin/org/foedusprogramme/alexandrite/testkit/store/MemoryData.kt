@@ -22,7 +22,7 @@ internal class MemoryData(private val clock: Clock) {
 
     val conversations = LinkedHashMap<ConversationId, ConversationInfo>()
     val current = HashMap<Pair<AgentChatKey, ConversationKind>, ConversationId>()
-    val turns = HashMap<TurnId, TurnRecord>()
+    val turns = LinkedHashMap<TurnId, TurnRecord>()
     val entries = sortedMapOf<Long, StoredEntry>()
     val media = HashMap<MediaId, StoredBytes>()
     var lastEntry = 0L

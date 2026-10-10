@@ -51,12 +51,21 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
         rows("WHERE conversation = ? ORDER BY id", conversation.value)
     }.map { it.entry() }
 
+    override suspend fun entriesAfter(conversation: ConversationId, after: EntryId): List<TranscriptEntry> =
+        database.transaction {
+            rows("WHERE conversation = ? AND id > ? ORDER BY id", conversation.value, after.value)
+        }.map { it.entry() }
+
     override suspend fun tail(conversation: ConversationId, count: Int): List<TranscriptEntry> {
         require(count >= 0) { "A tail has no negative length, was $count." }
         return database.transaction {
             rows("WHERE conversation = ? ORDER BY id DESC LIMIT ?", conversation.value, count)
         }.asReversed().map { it.entry() }
     }
+
+    override suspend fun turnEntries(turn: TurnId): List<TranscriptEntry> = database.transaction {
+        rows("WHERE turn = ? ORDER BY id", turn.value)
+    }.map { it.entry() }
 
     override suspend fun entry(id: EntryId): TranscriptEntry? =
         database.transaction { rows("WHERE id = ?", id.value) }.singleOrNull()?.entry()

@@ -21,7 +21,11 @@ public class ModelRequest private constructor(
     public val model: ModelRef,
     /** The system prompt, in order. */
     public val instructions: List<PromptSection>,
-    /** The entries the model reads, oldest first, with their media inline. */
+    /**
+     * The entries the model reads, oldest first, with their media inline.
+     *
+     * An entry without a record belongs to the current turn.
+     */
     public val history: List<TranscriptEntry>,
     /** The index in [history] of the current turn's first entry. */
     public val turnStart: Int,

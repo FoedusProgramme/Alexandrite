@@ -14,6 +14,9 @@ internal val STORE_MIGRATIONS: List<Migration> = listOf(
     Migration("chats, conversations, turns, entries, media and chat states") {
         SCHEMA_1.forEach { execute(it) }
     },
+    Migration("an index of the turns that never ended") {
+        execute("CREATE INDEX turns_unended ON turns (started_at) WHERE ended_at IS NULL")
+    },
 )
 
 /** A connection to the store at [file], whose schema [steps] brought to their newest version. */

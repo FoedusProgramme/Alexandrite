@@ -60,6 +60,31 @@ class StoreDatabaseTest {
     }
 
     @Test
+    fun `a store of version 1 gets the index of the turns that never ended`() {
+        val started = withStore(directory) { turn(conversations.current(main)).id }
+        connect(file).use {
+            it.runSql("DROP INDEX turns_unended")
+            it.runSql("PRAGMA user_version = 1")
+        }
+
+        val unended = withStore(directory) { conversations.unendedTurns().map { it.id } }
+
+        assertEquals(listOf(started), unended)
+        connect(file).use {
+            assertEquals(2, it.userVersion())
+            assertContains(it.indexes("turns"), "turns_unended")
+        }
+    }
+
+    @Test
+    fun `the turns that never ended are found through their index`() {
+        val plan = withStore(directory) { rows("EXPLAIN QUERY PLAN $UNENDED_TURNS").map { it.last() as String } }
+
+        assertTrue(plan.any { "USING INDEX turns_unended" in it }, "$plan")
+        assertTrue(plan.none { "TEMP B-TREE" in it }, "$plan")
+    }
+
+    @Test
     fun `opening a store again runs no step`() {
         openStore(file, steps, MutableClock().instant).close()
         val schema = connect(file).use { it.schema() }
@@ -199,6 +224,12 @@ class StoreDatabaseTest {
 
         assertTrue(committed)
         assertEquals(setOf("x"), withStore(directory) { rows("SELECT address FROM chats").map { it.single() }.toSet() })
+    }
+
+    private fun java.sql.Connection.indexes(table: String): List<String> = createStatement().use { statement ->
+        statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '$table'").use {
+            buildList { while (it.next()) add(it.getString(1)) }
+        }
     }
 
     private fun java.sql.Connection.schema(): List<String> = createStatement().use { statement ->

@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.io.TempDir
@@ -58,7 +59,9 @@ class MainTest {
         vararg args: String,
         environment: Map<String, String> = emptyMap(),
         execute: Execute = stopping(),
-    ): Int = run(args.toList(), environment, "Linux", home, PrintStream(out, true), PrintStream(err, true), execute)
+        install: Path? = null,
+    ): Int =
+        run(args.toList(), environment, "Linux", home, PrintStream(out, true), PrintStream(err, true), execute, install)
 
     private fun hostWith(json: String, execute: Execute = stopping()): Int =
         host("--config", "${config(json)}", "--data-dir", "$dataDir", execute = execute)
@@ -113,6 +116,50 @@ class MainTest {
 
         assertContains(stderr(), "Config file $missing does not exist. Create it from the example at ")
         assertContains(stderr(), "config/alexandrite.example.json")
+    }
+
+    @Test
+    fun `a missing config file names the example of the distribution the host runs from`() {
+        val install = Files.createDirectories(directory.resolve("dist"))
+        val example = Files.createDirectories(install.resolve("config")).resolve("alexandrite.example.json")
+        Files.writeString(example, "{}")
+
+        host("--config", "${directory.resolve("absent.json")}", "--data-dir", "$dataDir", install = install)
+
+        assertContains(stderr(), "Create it from the example at $example, or name another file")
+    }
+
+    @Test
+    fun `the install directory is the one whose lib directory holds the jar`() {
+        val jar = Files.createDirectories(directory.resolve("dist/lib")).resolve("alexandrite.jar")
+        Files.writeString(jar, "")
+        val elsewhere = Files.writeString(Files.createDirectories(directory.resolve("other")).resolve("a.jar"), "")
+
+        assertEquals(directory.resolve("dist"), installDirectory(jar))
+        assertEquals(null, installDirectory(directory.resolve("dist/lib")))
+        assertEquals(null, installDirectory(elsewhere))
+        assertEquals(null, installDirectory(null))
+    }
+
+    @Test
+    fun `the host hands its config file, its roots and its install directory to the runtime`() {
+        val file = config("{}")
+        val install = directory.resolve("dist")
+        var paths: HostPaths? = null
+
+        val code = host(
+            "--config",
+            "$file",
+            "--data-dir",
+            "$dataDir",
+            install = install,
+            execute = stopping { paths = services.resolver().get(key<HostPaths>()) },
+        )
+
+        assertEquals(0, code)
+        assertEquals(file.toAbsolutePath(), paths?.configFile)
+        assertEquals(listOf(dataDir, dataDir.resolve("cache")), listOf(paths?.dataRoot, paths?.cacheRoot))
+        assertEquals(listOf(install), paths?.protected)
     }
 
     @Test

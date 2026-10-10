@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime
 
+import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 
@@ -29,6 +30,20 @@ internal fun startFailure(
         "$head ($count):" + problems.joinToString("") { "\n- ${it.message}" }
     }
     return RuntimeStartException(message, stage, problems, null, cause)
+}
+
+/** A failure of [stage] for the [ConfigException] that [error] stems from, null when it stems from none. */
+internal fun configFailure(
+    runtime: String,
+    stage: StartStage,
+    error: Throwable,
+    plugin: String?,
+    container: String?,
+): RuntimeStartException? {
+    val config = generateSequence(error) { it.cause }.firstNotNullOfOrNull { it as? ConfigException } ?: return null
+    val message = config.message ?: "$config"
+    val problem = Problem(RuntimeProblemKind.INVALID_CONFIG, container?.let { "$it: $message" } ?: message, plugin)
+    return startFailure(runtime, stage, listOf(problem), error)
 }
 
 internal fun startStopped(

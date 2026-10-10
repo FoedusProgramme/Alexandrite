@@ -14,10 +14,13 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.testkit.plugin.DoublesPlugin
 import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelConfig
 import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelPlugin
@@ -159,6 +162,9 @@ public class PluginHarness private constructor(
         private var grace: Duration? = null
         private var inspectTermination = false
         private val models = mutableListOf<ScriptedModel>()
+        private val tools = mutableListOf<Tool>()
+        private val hooks = mutableListOf<Hook>()
+        private val handlers = mutableListOf<CommandHandler>()
         private val channels = LinkedHashMap<ChannelType, LinkedHashMap<String, RecordingChannelConfig>>()
         private var submitter: RecordingTurnSubmitter? = null
         private var initiator: RecordingTurnInitiator? = null
@@ -204,6 +210,15 @@ public class PluginHarness private constructor(
             models += model
         }
 
+        /** Contributes [tool] through the plugin `testkit`. */
+        public fun tool(tool: Tool): Builder = apply { tools += tool }
+
+        /** Contributes [hook] through the plugin `testkit`. */
+        public fun hook(hook: Hook): Builder = apply { hooks += hook }
+
+        /** Contributes [handler] through the plugin `testkit`. */
+        public fun commandHandler(handler: CommandHandler): Builder = apply { handlers += handler }
+
         /**
          * Configures the instance [name] of the recording channel [type], whose plugin is `<type>-channel`, with the
          * users [admins] as its admins and [partLength] characters per platform message.
@@ -242,7 +257,8 @@ public class PluginHarness private constructor(
                 "The harness binds one store, so its chat states must be TestChatStates(store) of its MemoryStore."
             }
             val chatStates = (store ?: states?.store)?.chatStates
-            val doubles = DoublesPlugin(models, submitter, initiator, control, store, chatStates)
+            val doubles =
+                DoublesPlugin(models, tools, hooks, handlers, submitter, initiator, control, store, chatStates)
             val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
             val all = configs + recording.associate { it.configRoot to it.config() }
             val tree = all.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->
