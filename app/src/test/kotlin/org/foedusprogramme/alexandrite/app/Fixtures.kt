@@ -1,5 +1,8 @@
 package org.foedusprogramme.alexandrite.app
 
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
@@ -20,7 +23,10 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.slf4j.LoggerFactory
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 
 class TestIndex(id: String, private val bindings: List<Binding<*>> = emptyList()) : PluginIndex {
     override val info = PluginInfo(id, id, "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Plugin")
@@ -72,4 +78,33 @@ class StopperIndex : PluginIndex {
             },
         )
     }
+}
+
+/** A plugin found by name through its descriptor, whose only texts are its resources. */
+class GreeterIndex : PluginIndex {
+    override val info =
+        PluginInfo("greeter", "Greeter", "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Greeter")
+    override val configRoot = PluginIds.thirdPartyRoot("greeter")
+
+    override fun configSections() = emptyList<ConfigSectionSpec<*>>()
+
+    override fun bindings() = emptyList<Binding<*>>()
+}
+
+fun logged(block: () -> Unit): List<String> {
+    val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app") as Logger
+    val appender = ListAppender<ILoggingEvent>().apply { start() }
+    logger.addAppender(appender)
+    try {
+        block()
+    } finally {
+        logger.detachAppender(appender)
+    }
+    return appender.list.map { "${it.level} ${it.formattedMessage}" }
+}
+
+/** Writes [text] to [file] in one step, so that nothing reads it half written. */
+fun replace(file: Path, text: String) {
+    val written = Files.writeString(Files.createTempFile(file.parent, "texts", ".tmp"), text)
+    Files.move(written, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
 }

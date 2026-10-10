@@ -1,10 +1,12 @@
 package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
@@ -35,7 +37,7 @@ class SpecTest {
             { RuntimeConfig.builder(dataDir).zone(ZONE).build() },
             RuntimeConfig.builder(dataDir).zone(ZONE).name("other").build(),
             "RuntimeConfig(dataDir=data, cacheDir=data${java.io.File.separator}cache, configFile=null, protected=[], " +
-                "zone=Asia/Shanghai, shutdownGrace=15s, startTimeout=30s, name=alexandrite, " +
+                "zone=Asia/Shanghai, language=en, shutdownGrace=15s, startTimeout=30s, name=alexandrite, " +
                 "dispatcher=Dispatchers.Default)",
         ),
         Case(
@@ -97,6 +99,8 @@ class SpecTest {
         assertNull(config.configFile)
         assertEquals(emptyList(), config.protected)
         assertEquals(ZoneId.systemDefault(), config.zone)
+        assertEquals(LanguageTag("en"), config.language)
+        assertEquals(TextCatalog.EMPTY, config.texts.value)
         assertEquals(15.seconds, config.shutdownGrace)
         assertEquals(30.seconds, config.startTimeout)
         assertEquals("alexandrite", config.name)
@@ -105,31 +109,38 @@ class SpecTest {
 
     @Test
     fun `a runtime config keeps what its builder sets`() {
+        val texts = MutableStateFlow(TextCatalog.EMPTY)
         val config = RuntimeConfig.builder(dataDir)
             .cacheDir(Path.of("cache"))
             .configFile(Path.of("alexandrite.json"))
             .protect(Path.of("logs"))
             .protect(Path.of("install"))
             .zone(ZONE)
+            .language(LanguageTag("zh-CN"))
+            .texts(texts)
             .shutdownGrace(Duration.ZERO)
             .startTimeout(5.milliseconds)
             .name("edge")
             .dispatcher(Dispatchers.IO)
             .build()
+        val catalog = TextCatalog.builder().text("notes", LanguageTag("zh-CN"), "saved", "已保存。").build()
 
+        assertSame(texts, config.texts)
+        assertEquals(catalog, RuntimeConfig.builder(dataDir).texts(catalog).build().texts.value)
         assertEquals(
             listOf(
                 Path.of("cache"),
                 Path.of("alexandrite.json"),
                 listOf(Path.of("logs"), Path.of("install")),
                 ZONE,
+                LanguageTag("zh-CN"),
                 Duration.ZERO,
                 5.milliseconds,
                 "edge",
                 Dispatchers.IO,
             ),
             with(config) {
-                listOf(cacheDir, configFile, protected, zone, shutdownGrace, startTimeout, name, dispatcher)
+                listOf(cacheDir, configFile, protected, zone, language, shutdownGrace, startTimeout, name, dispatcher)
             },
         )
     }

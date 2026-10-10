@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.app
 
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.ConfigFile
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
@@ -24,7 +25,7 @@ class ExampleConfigTest {
     fun `the example config holds the default host settings`() {
         val tree = ConfigFile.read(example, emptyMap()).tree("app")
 
-        assertEquals(setOf("zone", "shutdownGraceSeconds", "startTimeoutSeconds", "plugins"), tree?.keys)
+        assertEquals(setOf("zone", "language", "shutdownGraceSeconds", "startTimeoutSeconds", "plugins"), tree?.keys)
     }
 
     @Test
@@ -48,8 +49,8 @@ class ExampleConfigTest {
         assertFalse(Files.exists(directory.resolve("home")))
         val loaded = checkNotNull(settings)
         assertEquals(
-            listOf<Any>(ZoneId.systemDefault(), 15L, 30L, emptyList<String>()),
-            listOf(loaded.zoneId, loaded.shutdownGraceSeconds, loaded.startTimeoutSeconds, loaded.plugins),
+            listOf<Any>(ZoneId.systemDefault(), LanguageTag("en"), 15L, 30L, emptyList<String>()),
+            with(loaded) { listOf(zoneId, languageTag, shutdownGraceSeconds, startTimeoutSeconds, plugins) },
         )
     }
 }

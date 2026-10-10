@@ -1,15 +1,20 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Key
@@ -48,6 +53,8 @@ public class PluginHarness private constructor(
     private val configFile: Path?,
     private val offLimits: List<Path>,
     private val zone: ZoneId,
+    private val language: LanguageTag?,
+    private val texts: StateFlow<TextCatalog>?,
     private val shutdownGrace: Duration?,
     private val inspectTermination: Boolean,
     private val temporaryRoot: () -> Path,
@@ -84,6 +91,8 @@ public class PluginHarness private constructor(
     private suspend fun runIn(root: Path, block: suspend Running.() -> Unit): Termination {
         val settings = RuntimeConfig.builder(root).zone(zone).name("harness").configFile(configFile)
         offLimits.forEach(settings::protect)
+        language?.let(settings::language)
+        texts?.let(settings::texts)
         shutdownGrace?.let(settings::shutdownGrace)
         val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(pluginConfig).build()
         var running: Running? = null
@@ -164,6 +173,8 @@ public class PluginHarness private constructor(
         private var configFile: Path? = null
         private val offLimits = mutableListOf<Path>()
         private var zone: ZoneId = ZoneOffset.UTC
+        private var language: LanguageTag? = null
+        private var texts: StateFlow<TextCatalog>? = null
         private var grace: Duration? = null
         private var inspectTermination = false
         private val models = mutableListOf<ScriptedModel>()
@@ -209,6 +220,15 @@ public class PluginHarness private constructor(
 
         /** The runtime's zone, UTC unless set. */
         public fun zone(zone: ZoneId): Builder = apply { this.zone = zone }
+
+        /** The host's language of texts for people, `en` unless set. */
+        public fun language(language: LanguageTag): Builder = apply { this.language = language }
+
+        /** The texts the host gives the plugins in place of their own, none unless set. */
+        public fun texts(texts: TextCatalog): Builder = texts(MutableStateFlow(texts).asStateFlow())
+
+        /** The texts the host gives the plugins in place of their own, followed while a run runs. */
+        public fun texts(texts: StateFlow<TextCatalog>): Builder = apply { this.texts = texts }
 
         public fun shutdownGrace(shutdownGrace: Duration): Builder = apply { grace = shutdownGrace }
 
@@ -284,6 +304,8 @@ public class PluginHarness private constructor(
                 configFile,
                 offLimits.toList(),
                 zone,
+                language,
+                texts,
                 grace,
                 inspectTermination,
                 temporaryRoot,

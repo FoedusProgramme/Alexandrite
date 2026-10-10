@@ -1,5 +1,8 @@
 package org.foedusprogramme.alexandrite.runtime.lifecycle
 
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
@@ -12,6 +15,7 @@ import org.foedusprogramme.alexandrite.runtime.config.resolveConfig
 import org.foedusprogramme.alexandrite.runtime.configFailure
 import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
+import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
 import org.foedusprogramme.alexandrite.runtime.plugin.pluginProblems
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
@@ -46,6 +50,7 @@ internal class Assembly(
     private val redactor: Redactor,
     private val control: (plugin: String) -> RuntimeControl,
     private val scopes: PluginScopes,
+    private val texts: RuntimeTexts,
     private val context: CoroutineContext,
 ) {
     private val name = spec.config.name
@@ -159,12 +164,15 @@ internal class Assembly(
         val infos = enabled.map { it.member.plugin.info }
         val initiation = key<TurnInitiation>()
         val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
+        texts.install(spec.config.texts.value)
+        CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.config.texts.collect(texts::install) }
         val runtime = runtimeBindings(
             spec.config,
             infos,
             hookFailures,
             hookDecisions,
             unreadableStates,
+            texts,
             control,
             scopes,
             directory,

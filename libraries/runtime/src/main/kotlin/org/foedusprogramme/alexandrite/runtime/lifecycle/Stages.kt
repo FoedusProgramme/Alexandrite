@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.channel.InstanceDirectory
 import org.foedusprogramme.alexandrite.runtime.configFailure
+import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startStopped
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
@@ -45,13 +46,14 @@ internal class Stages(
     private val redactor: Redactor,
     control: (plugin: String) -> RuntimeControl,
     private val emit: (RuntimeEvent) -> Unit,
+    texts: RuntimeTexts,
     context: CoroutineContext,
     /** Measures the shutdown grace of an instance that [ChannelControl] stops. */
     private val timeSource: TimeSource,
 ) {
     private val name = spec.config.name
     private val scopes = PluginScopes(name, redactor, context)
-    private val assembly = Assembly(spec, redactor, control, scopes, context)
+    private val assembly = Assembly(spec, redactor, control, scopes, texts, context)
 
     @Volatile
     private var stage: StartStage = StartStage.DATA_DIR

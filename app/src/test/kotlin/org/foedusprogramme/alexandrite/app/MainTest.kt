@@ -1,24 +1,24 @@
 package org.foedusprogramme.alexandrite.app
 
-import ch.qos.logback.classic.Logger
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.io.TempDir
-import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -29,6 +29,9 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 private typealias Execute = suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination
 
@@ -60,8 +63,18 @@ class MainTest {
         environment: Map<String, String> = emptyMap(),
         execute: Execute = stopping(),
         install: Path? = null,
-    ): Int =
-        run(args.toList(), environment, "Linux", home, PrintStream(out, true), PrintStream(err, true), execute, install)
+        textsInterval: Duration = 2.seconds,
+    ): Int = run(
+        args.toList(),
+        environment,
+        "Linux",
+        home,
+        PrintStream(out, true),
+        PrintStream(err, true),
+        execute,
+        install,
+        textsInterval,
+    )
 
     private fun hostWith(json: String, execute: Execute = stopping()): Int =
         host("--config", "${config(json)}", "--data-dir", "$dataDir", execute = execute)
@@ -69,18 +82,6 @@ class MainTest {
     private fun stdout(): String = out.toString(Charsets.UTF_8)
 
     private fun stderr(): String = err.toString(Charsets.UTF_8)
-
-    private fun logged(block: () -> Unit): List<String> {
-        val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app") as Logger
-        val appender = ListAppender<ILoggingEvent>().apply { start() }
-        logger.addAppender(appender)
-        try {
-            block()
-        } finally {
-            logger.detachAppender(appender)
-        }
-        return appender.list.map { "${it.level} ${it.formattedMessage}" }
-    }
 
     @Test
     fun `--help prints the usage with this machine's defaults`() {
@@ -163,6 +164,52 @@ class MainTest {
     }
 
     @Test
+    fun `the host hands its language to the runtime in canonical form, en unless set`() {
+        val languages = mutableListOf<LanguageTag>()
+        val execute: Execute = { spec, block ->
+            languages += spec.config.language
+            stopping()(spec, block)
+        }
+
+        assertEquals(0, hostWith("""{"app": {"language": "zh_hant_tw"}}""", execute))
+        assertEquals(0, hostWith("{}", execute))
+
+        assertEquals(listOf(LanguageTag("zh-Hant-TW"), LanguageTag("en")), languages)
+    }
+
+    @Test
+    fun `the operator's texts take the place of the plugins' own and are read again when they change`() {
+        val file = config("""{"app": {"language": "zh-CN", "plugins": ["greeter"]}, "plugins": {"greeter": {}}}""")
+        val texts = Files.createDirectories(directory.resolve("i18n/greeter")).resolve("zh-CN.properties")
+        Files.writeString(texts, "greeting=你好，{name}！\n")
+        val seen = mutableListOf<String>()
+        val execute: Execute = { spec, block ->
+            AlexandriteRuntime.run(spec) {
+                coroutineScope {
+                    launch { block() }
+                    val greeter = services.resolver().get(key<Texts>("greeter"))
+                    fun greeting(language: LanguageTag?) = greeter.text("greeting", language, "name" to "Ada")
+                    seen += greeting(null)
+                    replace(texts, "greeting=嗨，{name}！\n")
+                    withTimeout(10.seconds) { while (greeting(null) == seen.last()) delay(10.milliseconds) }
+                    seen += listOf(greeting(null), greeting(LanguageTag("en")))
+                    stop(StopRequest.shutdown("requested by the test"))
+                }
+            }
+        }
+
+        val lines = logged {
+            val code =
+                host("--config", "$file", "--data-dir", "$dataDir", execute = execute, textsInterval = 20.milliseconds)
+
+            assertEquals(0, code)
+        }
+
+        assertEquals(listOf("你好，Ada！", "嗨，Ada！", "Hello, Ada!"), seen)
+        assertContains(lines, "INFO Texts reloaded from ${directory.resolve("i18n")}: greeter/zh-CN.properties")
+    }
+
+    @Test
     fun `the config file is found by the location rules`() {
         val file = config("""{"bogus": {}}""")
 
@@ -185,6 +232,7 @@ class MainTest {
     fun `invalid host settings exit 78`() {
         val cases = listOf(
             """{"app": {"zone": "Mars/Olympus"}}""" to "zone '***' is no time zone",
+            """{"app": {"language": "Mars/Olympus"}}""" to "language '***' is no BCP 47 language tag",
             """{"app": {"shutdownGraceSeconds": -1}}""" to "shutdownGraceSeconds may not be negative",
             """{"app": {"startTimeoutSeconds": 0}}""" to "startTimeoutSeconds must be positive",
             """{"app": {"plugins": ["Notes"]}}""" to "plugins holds '***', which is no plugin id",

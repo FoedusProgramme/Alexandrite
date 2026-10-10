@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookDispatcher
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
+import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
 import org.foedusprogramme.alexandrite.runtime.turn.PluginTurnInitiator
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -19,6 +20,7 @@ import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
@@ -45,6 +47,7 @@ internal fun runtimeBindings(
     hookFailures: HookFailureListener,
     hookDecisions: HookDecisionListener,
     unreadableStates: UnreadableStateListener,
+    texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
     scopes: PluginScopes,
     directory: ChannelDirectory,
@@ -111,6 +114,12 @@ internal fun runtimeBindings(
                 ),
                 managed = false,
             ) { r -> PluginTurnInitiator(plugin.id, if (initiated) r.lazy(initiation) else null) },
+            instanceBinding(
+                key<Texts>(plugin.id),
+                texts.of(plugin.id),
+                RUNTIME_PLUGIN,
+                "Texts of ${plugin.id}",
+            ),
         )
     }
     return PluginBindings(RUNTIME_PLUGIN, bindings)

@@ -32,7 +32,9 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.RuntimeState
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
+import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
 import org.foedusprogramme.alexandrite.runtime.startStopped
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
@@ -67,8 +69,12 @@ internal class RuntimeRun(
                 logger.error("{}: the runtime failed", name, redactor.error(error))
             },
     )
+    private val texts = RuntimeTexts(
+        spec.plugins.members.associate { it.id to it.index.classLoader() },
+        spec.config.language,
+    ) { plugin, problem -> logger.warn("{}: plugin {} {}", name, plugin, problem) }
     private val stages =
-        Stages(spec, redactor, { plugin -> Control(plugin) }, ::emit, scope.coroutineContext, timeSource)
+        Stages(spec, redactor, { plugin -> Control(plugin) }, ::emit, texts, scope.coroutineContext, timeSource)
     private val life = scope.launch(start = CoroutineStart.LAZY) { live() }
     private val handle by lazy { RuntimeServices(checkNotNull(stages.container), ::unavailable) }
 
@@ -324,3 +330,6 @@ private fun RuntimeStartException.plusTeardown(teardown: List<Problem>): Runtime
     return RuntimeStartException(message.orEmpty(), stage, problems + teardown, stopRequest, cause)
         .also { it.stackTrace = stackTrace }
 }
+
+/** The class loader of the plugin's own classes and resources. */
+private fun PluginIndex.classLoader(): ClassLoader = javaClass.classLoader ?: ClassLoader.getSystemClassLoader()

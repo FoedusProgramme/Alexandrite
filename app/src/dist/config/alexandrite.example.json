@@ -1,6 +1,7 @@
 {
   "app": {
     "zone": null,
+    "language": "en",
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
     "plugins": []

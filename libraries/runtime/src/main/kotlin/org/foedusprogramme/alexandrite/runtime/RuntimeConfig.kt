@@ -3,7 +3,11 @@ package org.foedusprogramme.alexandrite.runtime
 import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.foedusprogramme.alexandrite.runtime.lifecycle.PLUGINS_DIRECTORY
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import java.nio.file.Path
 import java.time.ZoneId
 import kotlin.time.Duration
@@ -20,6 +24,9 @@ public class RuntimeConfig private constructor(
     /** The places the host declares off-limits. */
     public val protected: List<Path>,
     public val zone: ZoneId,
+    /** The host's language of texts for people. */
+    public val language: LanguageTag,
+    texts: StateFlow<TextCatalog>,
     public val shutdownGrace: Duration,
     /** How long the start stages may take. */
     public val startTimeout: Duration,
@@ -28,11 +35,16 @@ public class RuntimeConfig private constructor(
     /** Runs the runtime's coroutines. */
     public val dispatcher: CoroutineDispatcher,
 ) {
+    /** Texts that take the place of the plugins' own, followed while the runtime runs. */
+    public val texts: StateFlow<TextCatalog> = texts
+
     public class Builder internal constructor(private val dataDir: Path) {
         private var cacheDir: Path = dataDir.resolve("cache")
         private var configFile: Path? = null
         private val protected = mutableListOf<Path>()
         private var zone: ZoneId = ZoneId.systemDefault()
+        private var language: LanguageTag = LanguageTag("en")
+        private var texts: StateFlow<TextCatalog> = NO_TEXTS
         private var shutdownGrace: Duration = 15.seconds
         private var startTimeout: Duration = 30.seconds
         private var name: String = "alexandrite"
@@ -46,6 +58,12 @@ public class RuntimeConfig private constructor(
         public fun protect(path: Path): Builder = apply { protected.add(path) }
 
         public fun zone(zone: ZoneId): Builder = apply { this.zone = zone }
+
+        public fun language(language: LanguageTag): Builder = apply { this.language = language }
+
+        public fun texts(texts: StateFlow<TextCatalog>): Builder = apply { this.texts = texts }
+
+        public fun texts(texts: TextCatalog): Builder = texts(MutableStateFlow(texts).asStateFlow())
 
         public fun shutdownGrace(shutdownGrace: Duration): Builder = apply {
             require(!shutdownGrace.isNegative()) { "The shutdown grace may not be negative, was $shutdownGrace." }
@@ -81,6 +99,8 @@ public class RuntimeConfig private constructor(
                 configFile,
                 protected.toList(),
                 zone,
+                language,
+                texts,
                 shutdownGrace,
                 startTimeout,
                 name,
@@ -93,3 +113,5 @@ public class RuntimeConfig private constructor(
         public fun builder(dataDir: Path): Builder = Builder(dataDir)
     }
 }
+
+private val NO_TEXTS: StateFlow<TextCatalog> = MutableStateFlow(TextCatalog.EMPTY).asStateFlow()

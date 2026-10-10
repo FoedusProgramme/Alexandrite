@@ -76,6 +76,14 @@ class SubclassOptInTest {
             override suspend fun reset(key: String) = TODO()
         }
 
+        class Localized : org.foedusprogramme.alexandrite.sdk.i18n.Texts {
+            override fun text(
+                key: String,
+                language: org.foedusprogramme.alexandrite.sdk.chat.LanguageTag?,
+                vararg args: Pair<String, Any?>,
+            ) = TODO()
+        }
+
         class Settings : org.foedusprogramme.alexandrite.sdk.chat.ChatSettings {
             override suspend fun language(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
         }
@@ -459,16 +467,21 @@ class SubclassOptInTest {
         import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
         import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
         import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
+        import org.foedusprogramme.alexandrite.sdk.i18n.Texts
         import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
         import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
         import org.foedusprogramme.alexandrite.sdk.turn.*
 
-        class Commands(private val control: AgentControl, private val initiator: TurnInitiator) : CommandHandler {
+        class Commands(
+            private val control: AgentControl,
+            private val initiator: TurnInitiator,
+            private val texts: Texts,
+        ) : CommandHandler {
             override val commands = listOf(CommandSpec.builder("new", "Starts a new conversation.").build())
 
             override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
                 if (!invocation.issuer.isAdmin) {
-                    context.reply("Only admins start new conversations.")
+                    context.reply(texts.text("new.admins_only", context.turn.language, "command" to invocation.name))
                     return
                 }
                 val conversation = control.newConversation(invocation.chat, invocation.issuer)

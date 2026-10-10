@@ -26,6 +26,7 @@ class PublicApiTest {
     private val sample = """
         import kotlinx.coroutines.flow.toList
         import kotlinx.serialization.json.JsonObject
+        import org.foedusprogramme.alexandrite.runtime.TextCatalog
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
         import org.foedusprogramme.alexandrite.sdk.di.key
@@ -209,6 +210,9 @@ class PublicApiTest {
                 .configFile(root.resolve("alexandrite.json"))
                 .protect(root.resolve("logs"))
                 .zone(ZoneOffset.UTC)
+                .language(LanguageTag("zh-CN"))
+                .texts(TextCatalog.EMPTY)
+                .texts(kotlinx.coroutines.flow.MutableStateFlow(TextCatalog.EMPTY))
                 .shutdownGrace(1.seconds)
                 .inspectTermination()
                 .model(model)
@@ -229,6 +233,13 @@ class PublicApiTest {
             }
             seen.addAll(listOf(store.conversations, store.transcripts, store.media, store.chatStates))
             return seen + harness.run(block)
+        }
+
+        fun texts(): List<Any> {
+            val catalog = TextCatalog.builder().text("greeter", LanguageTag("zh-CN"), "greeting", "你好").build()
+            val texts = testTexts("greeter", LanguageTag("en"), catalog, ClassLoader.getSystemClassLoader())
+            return assertTextsComplete("greeter") + assertTextsComplete("greeter", catalog, ClassLoader.getSystemClassLoader()) +
+                assertTextsComplete("greeter", ClassLoader.getSystemClassLoader()) + texts.text("greeting", null, "name" to 1)
         }
 
         suspend fun stores(backend: PluginIndex): List<String> {

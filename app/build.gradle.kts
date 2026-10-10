@@ -17,6 +17,7 @@ dependencies {
     implementation(project(":libraries:stores:sqlite"))
     runtimeOnly(libs.logback.classic)
 
+    testImplementation(project(":libraries:testkit"))
     testImplementation(project(":examples:notes"))
     testImplementation(libs.logback.classic)
 }
