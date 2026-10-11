@@ -4,6 +4,7 @@ import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import java.time.Instant
 
@@ -26,10 +27,32 @@ public interface PairingDesk {
     /** Drops the request of the chat that got [code]. */
     public suspend fun deny(code: String): PairingDecision
 
-    public fun paired(): List<ChatAddress>
+    public fun paired(): List<PairedChat>
 
     public suspend fun unpair(chat: ChatAddress): Unpairing
 }
+
+/** A paired chat. */
+@Poko
+public class PairedChat(
+    public val chat: ChatAddress,
+    /** Whether the config file declares the chat. */
+    public val declared: Boolean,
+    /** How the chat's request was approved, null when it was not. */
+    public val approval: PairingApproval?,
+)
+
+/** An approved request to be paired. */
+@Poko
+public class PairingApproval(
+    public val kind: ChatKind,
+    public val title: String?,
+    /** Who sent the message that got the code, null when the platform did not say. */
+    public val requester: ChatUser?,
+    public val approvedAt: Instant,
+    /** Who approved the code, null for the host. */
+    public val approvedBy: UserAddress?,
+)
 
 /** An unpaired chat's request to be paired. */
 @Poko
@@ -70,8 +93,8 @@ public sealed interface Unpairing {
 
     public data object NotPaired : Unpairing
 
-    /** Entries that name environment variables still pair the chat. */
-    public data object ByReference : Unpairing
+    /** The config file declares the chat. */
+    public data object Declared : Unpairing
 
     @Poko
     public class Failed(public val reason: String) : Unpairing

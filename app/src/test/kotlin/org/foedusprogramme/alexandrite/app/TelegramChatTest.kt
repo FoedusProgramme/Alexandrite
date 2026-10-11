@@ -1,16 +1,18 @@
 package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOT_MENTION
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.CODE
+import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.CODER
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.FAST_MODEL
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.GROUP
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -131,9 +133,12 @@ class TelegramChatTest {
         app.model
             .reply { text("Noted: the release is on Friday.") }
             .reply { text("On Friday.") }
-        var linkedChats: JsonArray? = null
+            .reply { text("Still on Friday.") }
+        val configFile = directory.toRealPath().resolve("config/alexandrite.json")
+        lateinit var config: String
 
-        app.run(app.builder(directory, paired = listOf(ADA, GROUP))) {
+        app.run(app.builder(directory, paired = listOf(ADA, GROUP), sqlite = true)) {
+            config = Files.readString(configFile)
             app.send(app.ada, app.adaChat, "/link")
             val offer = app.messages(app.adaChat, 1).single().text
             val code = checkNotNull(CODE.find(offer)) { offer }.value
@@ -146,24 +151,36 @@ class TelegramChatTest {
             app.message(app.group, "On Friday.")
             idle()
             assertEquals(asked, app.fake.botMessages(GROUP).last().replyTo)
-            linkedChats = readConfig().tree("agent.agents.coder")?.get("linkedChats") as? JsonArray
+        }
+        app.run(app.builder(directory, paired = listOf(ADA, GROUP), sqlite = true)) {
+            app.send(app.bob, app.group, "$BOT_MENTION and after the restart?")
+            app.message(app.group, "Still on Friday.")
+            idle()
+            assertEquals(
+                listOf(ChatLinkGroup(CODER, app.address(app.adaChat), listOf(app.address(app.group)))),
+                get<AgentControl>().links(),
+            )
         }
 
         assertContains(
             app.fake.botMessages(ADA).first().text,
             "To share the conversation of coder in this chat with another chat, an admin sends /link ",
         )
-        val (direct, group) = app.model.requests
-        assertEquals(direct.ids.conversation, group.ids.conversation)
+        val (direct, group, restarted) = app.model.requests
+        assertEquals(
+            setOf(direct.ids.conversation),
+            listOf(direct, group, restarted).map {
+                it.ids.conversation
+            }.toSet(),
+        )
         assertEquals(
             listOf("Remember: the release is on Friday.", "when is the release?"),
             group.history.filterIsInstance<UserEntry>().map { it.words },
         )
         assertEquals(
-            listOf("Noted: the release is on Friday.", "On Friday."),
+            listOf("Noted: the release is on Friday.", "Still on Friday."),
             listOf(app.fake.botMessages(ADA).last().text, app.fake.botMessages(GROUP).last().text),
         )
-        val pair = JsonArray(listOf(JsonPrimitive("telegram:work:$ADA"), JsonPrimitive("telegram:work:$GROUP")))
-        assertEquals(JsonArray(listOf(pair)), linkedChats)
+        assertEquals(config, Files.readString(configFile))
     }
 }

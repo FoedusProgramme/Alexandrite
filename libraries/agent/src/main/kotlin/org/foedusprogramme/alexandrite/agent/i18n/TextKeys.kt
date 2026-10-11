@@ -54,9 +54,6 @@ internal object TextKeys {
     /** Takes `{effort}` and `{efforts}`. */
     const val UNKNOWN_REASONING: String = "control.unknown_reasoning"
 
-    /** Takes `{reason}`. */
-    const val CONFIG_REFUSED: String = "control.config_refused"
-
     /** Takes `{chat}` and `{instance}`. */
     const val NOT_A_CHAT_OF: String = "control.not_a_chat_of"
 
@@ -71,7 +68,7 @@ internal object TextKeys {
     const val ANCHOR_WITH_MEMBERS: String = "control.anchor_with_members"
 
     /** Takes `{chat}`. */
-    const val LINK_BY_REFERENCE: String = "control.link_by_reference"
+    const val LINK_DECLARED: String = "control.link_declared"
 
     /** Takes `{folder}`. */
     const val FOLDER_NOT_ABSOLUTE: String = "control.folder_not_absolute"
@@ -83,7 +80,7 @@ internal object TextKeys {
     const val FOLDER_PROTECTED: String = "control.folder_protected"
 
     /** Takes `{folder}`. */
-    const val FOLDER_BY_REFERENCE: String = "control.folder_by_reference"
+    const val FOLDER_DECLARED: String = "control.folder_declared"
 
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {

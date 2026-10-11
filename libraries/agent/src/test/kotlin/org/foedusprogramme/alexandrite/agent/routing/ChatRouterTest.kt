@@ -19,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
+import org.foedusprogramme.alexandrite.testkit.testRecords
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,7 +60,7 @@ class ChatRouterTest {
     }
     private val states = standaloneChatStates("alexandrite-agent", store)
     private val directory = agentDirectory(settings(config), INSTANCES, listOf(provider(ScriptedModel())))
-    private val topology = ChatTopology(directory)
+    private val topology = ChatTopology(directory, testRecords())
     private val router = ChatRouter(channels(), directory, topology, SettingsStates(states))
 
     private fun channels() = object : ChannelDirectory {
@@ -208,15 +209,15 @@ class ChatRouterTest {
     fun `a change of a home chat or a group applies to the next resolution`() {
         val main = ChannelInstanceId.parse("test:main")
 
-        topology.apply(topology.homeChange(AgentId("helper"), main, ChatAddress.parse("test:main:5")))
-        topology.apply(topology.homeChange(AgentId("reviewer"), main, null))
-        topology.apply(
-            topology.linkChange(AgentId("coder"), ChatAddress.parse("test:solo:7"), ChatAddress.parse("test:main:9")),
-        )
+        blocking {
+            topology.setHome(AgentId("helper"), main, ChatAddress.parse("test:main:5"), null)
+            topology.setHome(AgentId("reviewer"), main, null, null)
+            topology.link(AgentId("coder"), ChatAddress.parse("test:solo:6"), ChatAddress.parse("test:main:9"), null)
+        }
 
         assertEquals("helper@test:main:5", resolve("test:main:5"))
         assertEquals("coder@test:main:1", resolve("test:main:1"))
-        assertEquals("coder@test:main:7", resolve("test:main:9"))
+        assertEquals("coder@test:solo:6", resolve("test:main:9"))
     }
 
     private companion object {

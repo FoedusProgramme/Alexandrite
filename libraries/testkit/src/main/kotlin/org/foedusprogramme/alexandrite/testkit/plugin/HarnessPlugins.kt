@@ -26,6 +26,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -91,6 +92,7 @@ internal class DoublesPlugin(
             add(instanceBinding(key<ConversationStore>(), it.conversations, ID, "MemoryStore.conversations"))
             add(instanceBinding(key<TranscriptStore>(), it.transcripts, ID, "MemoryStore.transcripts"))
             add(instanceBinding(key<MediaStore>(), it.media, ID, "MemoryStore.media"))
+            add(instanceBinding(key<RecordStore>(), it.records, ID, "MemoryStore.records"))
         }
         chatStates?.let { add(instanceBinding(key<ChatStateStore>(), it, ID, "MemoryStore.chatStates")) }
         floor?.let { add(instanceBinding(key<HardFloor>(), it, ID, "HardFloor")) }

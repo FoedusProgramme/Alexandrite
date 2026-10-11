@@ -4,8 +4,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
@@ -17,7 +15,6 @@ import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
-import org.foedusprogramme.alexandrite.agent.routing.LinkGroup
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
 import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
@@ -37,11 +34,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
-import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
-import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
-import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
-import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
-import org.foedusprogramme.alexandrite.sdk.config.setLiteral
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
@@ -54,18 +46,14 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.time.Clock
 import kotlin.time.Duration.Companion.seconds
 
-/**
- * The agent's control port and the chat settings it shows other plugins.
- *
- * Home chats, linked groups and trusted folders are written into the config file first and applied once the file took
- * them.
- */
+/** The agent's control port and the chat settings it shows other plugins. */
 @Singleton
 @Binds(AgentControl::class, ChatSettings::class)
 internal class AgentControlImpl(
@@ -79,16 +67,12 @@ internal class AgentControlImpl(
     private val lanes: CommandLanes,
     private val conversations: ConversationStore,
     private val endpoints: Endpoints,
-    private val editor: ConfigEditor,
     private val trust: FolderTrust,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val clock: Clock,
 ) : AgentControl,
     ChatSettings {
-    /** Held from checking a change of the home chats or linked groups until it is applied. */
-    private val writing = Mutex()
-
     override fun turns(chat: ChatAddress?): List<TurnStatus> =
         (workers.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
 
@@ -142,7 +126,7 @@ internal class AgentControlImpl(
             checkModel(update.model)
             checkReasoning(update.reasoning)
             if (changes.isNotEmpty()) checkWaiting()
-            update.home?.let { home -> writing.withLock { changeHome(agent, chat, home, by) } }
+            update.home?.let { home -> topology.setHome(agent, chat.instance, chat.takeIf { home }, by) }
             agent
         }
         if (update.agent != SettingChange.Keep) {
@@ -158,42 +142,14 @@ internal class AgentControlImpl(
     }
 
     override suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup {
-        val group = refusing(topology.key(agent, member)) {
-            writing.withLock {
-                val change = topology.linkChange(agent, anchor, member)
-                writeGroup(agent, anchor, change.before.group(agent, anchor)) { groups, group ->
-                    groups.firstOrNull { member in it.chats && it !== group }?.let { other ->
-                        throw Refused(TextKeys.LINKED_ALREADY, "member" to member, "anchor" to other.anchor)
-                    }
-                    when {
-                        group == null -> FileGroup(listOf("$anchor", "$member").map(ConfigLiteral::Text))
-                        member in group.chats -> group
-                        else -> FileGroup(group.elements + ConfigLiteral.Text("$member"))
-                    }
-                }
-                topology.apply(change)
-                checkNotNull(change.after.group(agent, member))
-            }
-        }
+        val group = refusing(topology.key(agent, member)) { topology.link(agent, anchor, member, by) }
         logger.info("Agent '{}' links {} into the group of {} by {}", agent, member, group.anchor, who(by))
         seal(AgentChatKey(agent, member), currentCoroutineContext()[RunningCommand]?.turn, by)
-        return linkGroup(agent, group)
+        return ChatLinkGroup(agent, group.anchor, group.members)
     }
 
     override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Boolean {
-        val unlinked = refusing(topology.key(agent, member)) {
-            writing.withLock {
-                val change = topology.unlinkChange(agent, member) ?: return@withLock false
-                writeGroup(agent, member, change.before.group(agent, member)) { _, group ->
-                    if (group != null && group.chats.first() == member) {
-                        throw Refused(TextKeys.ANCHOR_WITH_MEMBERS, "chat" to member)
-                    }
-                    group?.let { FileGroup(it.elements.filterIndexed { index, _ -> it.chats[index] != member }) }
-                }
-                topology.apply(change)
-                true
-            }
-        }
+        val unlinked = refusing(topology.key(agent, member)) { topology.unlink(agent, member) }
         if (!unlinked) return false
         logger.info("Agent '{}' unlinks {} by {}", agent, member, who(by))
         return true
@@ -201,7 +157,7 @@ internal class AgentControlImpl(
 
     override fun links(agent: AgentId?): List<ChatLinkGroup> {
         val agents = if (agent == null) directory.agents.map { it.id } else listOf(agent)
-        return agents.flatMap { id -> topology.groups(id).map { linkGroup(id, it) } }
+        return agents.flatMap { id -> topology.groups(id).map { ChatLinkGroup(id, it.anchor, it.members) } }
     }
 
     override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = refusing(null) { trust.trust(folder, by) }
@@ -209,7 +165,7 @@ internal class AgentControlImpl(
     override suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean =
         refusing(null) { trust.untrust(folder, by) }
 
-    override fun trustedFolders(): List<Path> = trust.folders()
+    override fun trustedFolders(): List<TrustedFolder> = trust.folders()
 
     override suspend fun language(chat: ChatAddress): LanguageTag? {
         val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
@@ -288,91 +244,6 @@ internal class AgentControlImpl(
         }
     }
 
-    /** Makes [chat] the home of [agent] on its instance, or leaves the instance without one unless [home]. */
-    private suspend fun changeHome(agent: AgentId, chat: ChatAddress, home: Boolean, by: ChatUser?) {
-        val instance = chat.instance
-        val change = topology.homeChange(agent, instance, chat.takeIf { home })
-        val before = change.before.home(agent, instance)
-        val after = change.after.home(agent, instance)
-        if (after == before) return
-        val path = "agents.$agent.channels.${attachmentKey(agent, instance)}.home"
-        write {
-            if (after == null) remove(path) else setLiteral(path, after.toString().removePrefix("$instance:"))
-        }
-        topology.apply(change)
-        logger.info(
-            "The home chat of agent '{}' on {} is changed from {} to {} by {}",
-            agent,
-            instance,
-            before,
-            after,
-            who(by),
-        )
-    }
-
-    /** The key of [instance] in the channels of [agent] as the config file writes it. */
-    private fun attachmentKey(agent: AgentId, instance: ChannelInstanceId): String =
-        checkNotNull(directory.agent(agent)).config.channels.keys.first {
-            ChannelInstanceId.parseOrNull(it) == instance
-        }
-
-    /**
-     * Writes the group of [agent] that holds [chat] in the config file as [change] makes it of the file's groups, and
-     * refuses when [chat] is in a [live] group that the file names only through an environment variable.
-     */
-    private suspend fun writeGroup(
-        agent: AgentId,
-        chat: ChatAddress,
-        live: LinkGroup?,
-        change: (groups: List<FileGroup>, group: FileGroup?) -> FileGroup?,
-    ) {
-        val path = "agents.$agent.linkedChats"
-        var before: FileGroup? = null
-        write {
-            val groups = (getLiteral(path) as? ConfigLiteral.Items)?.items.orEmpty()
-                .map { FileGroup((it as? ConfigLiteral.Items)?.items.orEmpty()) }
-            val index = groups.indexOfFirst { chat in it.chats }
-            if (index < 0 && live != null && groups.any { it.byReference }) {
-                throw Refused(TextKeys.LINK_BY_REFERENCE, "chat" to chat)
-            }
-            before = groups.getOrNull(index)
-            val after = change(groups, before)?.takeIf { it.elements.size > 1 }
-            val next = when {
-                index < 0 -> groups + listOfNotNull(after)
-                after == null -> groups.filterIndexed { position, _ -> position != index }
-                else -> groups.mapIndexed { position, group -> if (position == index) after else group }
-            }
-            if (next.map { it.elements } != groups.map { it.elements }) {
-                if (next.isEmpty()) {
-                    remove(path)
-                } else {
-                    setLiteral(path, ConfigLiteral.Items(next.map { ConfigLiteral.Items(it.elements) }))
-                }
-            }
-        }
-        if (before?.byReference != true && before?.chats.orEmpty() != live?.chats.orEmpty()) {
-            logger.warn(
-                "The linked chats of agent '{}' in the config file were edited by hand since the start: the change " +
-                    "is made to the file's group of {} as the file holds it, and the running groups follow the file " +
-                    "at the next start",
-                agent,
-                chat,
-            )
-        }
-    }
-
-    private suspend fun write(block: ConfigEdit.() -> Unit) {
-        try {
-            editor.edit(block)
-        } catch (e: ConfigEditException) {
-            logger.warn("The config file did not take a change of the home chats or linked chats: {}", e.message)
-            throw Refused(TextKeys.CONFIG_REFUSED, "reason" to e.refusal)
-        }
-    }
-
-    private fun linkGroup(agent: AgentId, group: LinkGroup): ChatLinkGroup =
-        ChatLinkGroup(agent, group.anchor, group.members)
-
     /** Seals the conversation at [key] once the turns queued there have ended. */
     private fun seal(key: AgentChatKey, command: TurnInfo?, by: ChatUser?) {
         val job = WorkerJob.Control { rotate(key, key.chat, command, by) }
@@ -438,19 +309,6 @@ internal class AgentControlImpl(
     private companion object {
         val LISTING_TIMEOUT = 5.seconds
     }
-}
-
-/** A linked group as the config file writes it. */
-private class FileGroup(val elements: List<ConfigLiteral>) {
-    /** The chat of each element, null for one that names an environment variable. */
-    val chats: List<ChatAddress?> = elements.map { (it as? ConfigLiteral.Text)?.text?.let(ChatAddress::parseOrNull) }
-
-    /** Whether an element names an environment variable. */
-    val byReference: Boolean get() = elements.any { it !is ConfigLiteral.Text }
-
-    /** The first chat, or the first element as the file writes it when that names an environment variable. */
-    val anchor: String
-        get() = chats.first()?.toString() ?: (elements.first() as? ConfigLiteral.Reference)?.written.orEmpty()
 }
 
 /** The changes of [update] to the settings kept per agent and chat, as a log shows them. */

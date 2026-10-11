@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import kotlin.reflect.KClass
 
@@ -30,6 +31,12 @@ internal fun duplicateStores(enabled: List<PluginSet.Member>, bindings: Map<Stri
 }
 
 private val STORE_PORTS: List<KClass<*>> =
-    listOf(ConversationStore::class, TranscriptStore::class, MediaStore::class, ChatStateStore::class)
+    listOf(
+        ConversationStore::class,
+        TranscriptStore::class,
+        MediaStore::class,
+        ChatStateStore::class,
+        RecordStore::class,
+    )
 
 private fun Binding<*>.binds(port: KClass<*>): Boolean = !multi && key.qualifier == null && key.type.classifier == port

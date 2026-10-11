@@ -13,7 +13,6 @@ import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
 import org.foedusprogramme.alexandrite.channel.telegram.intake.MemoryBotApi
-import org.foedusprogramme.alexandrite.channel.telegram.intake.NoEdits
 import org.foedusprogramme.alexandrite.channel.telegram.intake.RecordingControl
 import org.foedusprogramme.alexandrite.channel.telegram.intake.TestInstance
 import org.foedusprogramme.alexandrite.channel.telegram.pairing.TelegramPairingDesk
@@ -25,6 +24,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testTexts
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import java.time.Clock
@@ -49,7 +49,7 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
     val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
     private val session = BotSession(instance, config, api, TelegramBots(), control)
     val outbox = Outbox(instance, api, limiter, testTexts("alexandrite-channel-telegram"), null, session)
-    private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), null), NoEdits, outbox)
+    private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords(), null), outbox)
         .also { runBlocking { it.onStart() } }
     val channel = TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session))
 

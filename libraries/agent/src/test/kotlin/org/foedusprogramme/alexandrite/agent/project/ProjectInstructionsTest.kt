@@ -1,7 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.project
 
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
@@ -24,6 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
@@ -41,7 +41,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 
 class ProjectInstructionsTest {
     @TempDir
@@ -125,13 +124,9 @@ class ProjectInstructionsTest {
 
     private fun ToolResultEntry.text(): String = content.joinToString("") { (it as TextPart).text }
 
-    private fun PluginHarness.Running.trustedFolders(): JsonElement? = readConfig().tree("agent")?.get("trustedFolders")
-
-    /** Writes [list] as the trusted folders of the config file, laid out as it is. */
-    private fun layOut(list: String) {
-        val text = Files.readString(file)
-        Files.writeString(file, TRUSTED.replace(text, Regex.escapeReplacement("\"trustedFolders\": $list")))
-    }
+    /** The folders granted at runtime as `<folder> by <who>`. */
+    private suspend fun grants(): List<String> =
+        store.records.list("alexandrite-agent", "trusted_folders").map { "${it.key} by ${it.createdBy}" }
 
     // Trusted folders.
 
@@ -247,22 +242,26 @@ class ProjectInstructionsTest {
     // Trust at runtime.
 
     @Test
-    fun `a folder trusted at runtime is written into the config file and loads from the next touch on`() {
+    fun `a folder trusted at runtime is a record of who trusted it, loads from the next touch on and stays trusted`() {
         repository()
         repeat(2) { reads(main) }
         val admin = "Admin"
+        lateinit var config: String
 
         harness { writeConfigFile(file) }.execute {
+            config = Files.readString(file)
             val control = get<AgentControl>()
+            val by = channel().user("admin")
             ask()
 
-            val trusted = control.trustFolder(repository, channel().user("admin"))
+            val trusted = control.trustFolder(repository, by)
             val covered = control.trustFolder(repository.resolve("src"), null)
             ask()
 
             assertEquals(listOf(repository, repository), listOf(trusted, covered))
-            assertEquals(listOf(repository), control.trustedFolders())
-            assertEquals(JsonArray(listOf(JsonPrimitive("$repository"))), trustedFolders())
+            val grant = control.trustedFolders().single()
+            assertEquals(TrustedFolder(repository, false, grant.trustedAt, by), grant)
+            assertEquals(listOf("$repository by ${by.address}"), grants())
             val loaded = projects(stored())
             assertEquals(
                 listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), admin) },
@@ -275,12 +274,20 @@ class ProjectInstructionsTest {
             control.newConversation(channel().chat(), null)
             ask()
 
-            assertEquals(listOf(repository), control.trustedFolders())
             assertEquals(
-                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
+                listOf(repository to "Admin"),
+                control.trustedFolders().map {
+                    it.path to
+                        it.trustedBy?.displayName
+                },
+            )
+            assertEquals(
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), admin) },
                 projects(stored()).map { it.texts().first() },
             )
         }
+
+        assertEquals(config, Files.readString(file))
     }
 
     @Test
@@ -288,51 +295,62 @@ class ProjectInstructionsTest {
         repository()
         reads(main)
 
-        harness(trusted = listOf(repository)) { writeConfigFile(file) }.execute {
+        harness().execute {
             val control = get<AgentControl>()
+            control.trustFolder(repository, null)
 
             val untrusted = listOf(control.untrustFolder(repository, null), control.untrustFolder(repository, null))
             ask()
 
             assertEquals(listOf(true, false), untrusted)
             assertEquals(emptyList(), control.trustedFolders())
-            assertNull(trustedFolders())
+            assertEquals(emptyList(), grants())
             assertEquals(emptyList(), projects(stored()))
             assertEquals(listOf(NoticeKind.UNTRUSTED_FOLDER), stored().filterIsInstance<NoticeEntry>().map { it.kind })
         }
     }
 
     @Test
-    fun `a grant keeps the entries as the config file writes them, an env reference, a relative one and a hand edit`() {
+    fun `the folders in force are the config's and the granted ones, and only the config untrusts its own`() {
         assumeTrue(System.getenv("HOME") != null)
+        repository()
         val shared = root.resolve("shared").createDirectories()
-        val hand = root.resolve("hand").createDirectories()
         val other = root.resolve("other").createDirectories()
-        val written = "[\n    \"\${env:HOME}/$ABSENT\",\n    \"../shared\"\n  ]"
-        val handEdited = written.replace("\"../shared\"", "\"../shared\",  \"$hand\"")
-        harness { writeConfigFile(file) }.execute {}
-        layOut(written)
+        val declared = listOf(repository, "../shared", "\${env:HOME}/$ABSENT")
+        lateinit var config: String
 
-        harness { writeConfigFile(file) }.execute {
+        harness(trusted = declared) { writeConfigFile(file) }.execute {
+            config = Files.readString(file)
             val control = get<AgentControl>()
-            val started = control.trustedFolders()
-            layOut(handEdited)
-            val before = Files.readString(file)
+            val absent = control.trustedFolders().last().path
 
-            val trusted = listOf(
-                control.trustFolder(other, null),
-                control.trustFolder(hand.resolve("sub").createDirectories(), null),
+            val trusted = listOf(control.trustFolder(repository.resolve("src"), null), control.trustFolder(other, null))
+            val refused = listOf(repository, absent).map { folder ->
+                assertFailsWith<IllegalArgumentException> { control.untrustFolder(folder, null) }.message
+            }
+
+            assertEquals(listOf(repository, other), trusted)
+            assertEquals(
+                listOf(true, true, true, false),
+                control.trustedFolders().map { it.declared },
             )
+            assertEquals(listOf(repository, shared, absent, other), control.trustedFolders().map { it.path })
+            assertEquals(
+                listOf(repository, absent).map {
+                    "$it is declared in the config file: edit the config file to stop trusting it."
+                },
+                refused,
+            )
+            assertEquals(listOf("$other by null"), grants())
+        }
+        harness(trusted = declared) { writeConfigFile(file) }.execute {
+            val control = get<AgentControl>()
 
-            assertEquals(listOf(shared), started.drop(1))
-            assertEquals(listOf(other, hand), trusted)
-            assertEquals(started + listOf(other, hand), control.trustedFolders())
-            val grown = handEdited.replace("\"$hand\"", "\"$hand\",\n    \"$other\"")
-            assertEquals(before.replace(handEdited, grown), Files.readString(file))
+            assertEquals(listOf(true, true, true, false), control.trustedFolders().map { it.declared })
+            assertEquals(true, control.untrustFolder(other, null))
         }
-        harness { writeConfigFile(file) }.execute {
-            assertEquals(listOf(shared, hand, other), get<AgentControl>().trustedFolders().drop(1))
-        }
+
+        assertEquals(config, Files.readString(file))
     }
 
     @Test
@@ -340,55 +358,26 @@ class ProjectInstructionsTest {
         val odd = root.resolve("tpl-\${env:HOME}").createDirectories()
         val malformed = root.resolve("tpl-\${x}").createDirectories()
 
-        harness { writeConfigFile(file) }.execute {
+        harness().execute {
             val control = get<AgentControl>()
             val trusted = listOf(control.trustFolder(odd, null), control.trustFolder(malformed, null))
 
             assertEquals(listOf(odd, malformed), trusted)
-            assertEquals(JsonArray(listOf(JsonPrimitive("$odd"), JsonPrimitive("$malformed"))), trustedFolders())
         }
-        harness { writeConfigFile(file) }.execute {
+        harness().execute {
             val control = get<AgentControl>()
-            val trusted = control.trustedFolders()
+            val trusted = control.trustedFolders().map { it.path }
 
             val untrusted = control.untrustFolder(odd, null)
 
             assertEquals(listOf(odd, malformed), trusted)
             assertEquals(true, untrusted)
-            assertEquals(JsonArray(listOf(JsonPrimitive("$malformed"))), trustedFolders())
+            assertEquals(listOf("$malformed by null"), grants())
         }
     }
 
     @Test
-    fun `an untrust takes out the entries that name the folder and is refused when only an env reference can`() {
-        assumeTrue(System.getenv("HOME") != null)
-        repository()
-        val library = root.resolve("lib").createDirectories()
-        val written = "[\"$repository\", \"../lib\",\n    \"\${env:HOME}/$ABSENT\"]"
-        harness { writeConfigFile(file) }.execute {}
-        layOut(written)
-
-        harness { writeConfigFile(file) }.execute {
-            val control = get<AgentControl>()
-            val absent = control.trustedFolders().last()
-            val before = Files.readString(file)
-
-            val untrusted = listOf(control.untrustFolder(repository, null), control.untrustFolder(library, null))
-            val refused = assertFailsWith<IllegalArgumentException> { control.untrustFolder(absent, null) }.message
-
-            assertEquals(listOf(true, true), untrusted)
-            assertEquals(
-                "$absent is trusted by an entry of the config file that names an environment variable: edit the " +
-                    "config file to stop trusting it.",
-                refused,
-            )
-            assertEquals(listOf(absent), control.trustedFolders())
-            assertEquals(before.replace(written, "[\"\${env:HOME}/$ABSENT\"]"), Files.readString(file))
-        }
-    }
-
-    @Test
-    fun `relative, missing and protected folders are refused, and so is a change the config file refuses`() {
+    fun `relative, missing and protected folders are refused, and a grant needs no config file it could write`() {
         repository()
         val secret = root.resolve("secret").createDirectories()
 
@@ -404,10 +393,11 @@ class ProjectInstructionsTest {
                 refused { control.trustFolder(main, null) },
                 refused { control.trustFolder(secret.resolve("keys"), null) },
             )
+            val untouched = control.trustedFolders()
             val permissions = Files.getPosixFilePermissions(file)
             Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("r--r--r--"))
-            val readOnly = try {
-                refused { control.trustFolder(repository, null) }
+            val trusted = try {
+                control.trustFolder(repository, null)
             } finally {
                 Files.setPosixFilePermissions(file, permissions)
             }
@@ -423,9 +413,20 @@ class ProjectInstructionsTest {
                 ),
                 messages,
             )
-            assertEquals("The config file did not take the change (read_only), so nothing changed.", readOnly)
-            assertEquals(emptyList(), control.trustedFolders())
-            assertEquals(JsonArray(emptyList()), trustedFolders())
+            assertEquals(emptyList(), untouched)
+            assertEquals(repository, trusted)
+            assertEquals(listOf(repository), control.trustedFolders().map { it.path })
+        }
+    }
+
+    @Test
+    fun `a grant of a folder that the floor protects since is ignored at the start`() {
+        repository()
+        harness().execute { get<AgentControl>().trustFolder(repository, null) }
+
+        harness { protect(repository) }.execute {
+            assertEquals(emptyList(), get<AgentControl>().trustedFolders())
+            assertEquals(listOf("$repository by null"), grants())
         }
     }
 
@@ -551,7 +552,7 @@ class ProjectInstructionsTest {
 
             assertEquals(emptyList(), before)
             assertEquals(repository, trusted)
-            assertEquals(listOf(root, repository), control.trustedFolders())
+            assertEquals(listOf(root, repository), control.trustedFolders().map { it.path })
             assertEquals(
                 listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
                 projects(stored()).map { it.texts().first() },
@@ -591,7 +592,5 @@ class ProjectInstructionsTest {
     private companion object {
         /** A folder in the home directory that the tests never create. */
         const val ABSENT = "alexandrite-test-absent-folder"
-
-        val TRUSTED = Regex("\"trustedFolders\":\\s*\\[[^\\]]*]")
     }
 }

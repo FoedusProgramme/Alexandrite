@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.commands.trust
 
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.commands.ADMIN
+import org.foedusprogramme.alexandrite.commands.TestClock
 import org.foedusprogramme.alexandrite.commands.answer
 import org.foedusprogramme.alexandrite.commands.commandTexts
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
@@ -15,7 +16,7 @@ import kotlin.test.assertEquals
 
 class TrustCommandsTest {
     private val control = RecordingAgentControl()
-    private val commands = TrustCommands(control, commandTexts())
+    private val commands = TrustCommands(control, commandTexts(), TestClock())
 
     @Test
     fun `trust lists the trusted folders and trusts the folder it is given`() = runTest {
@@ -30,13 +31,27 @@ class TrustCommandsTest {
             commands.answer(trust("'/srv/my repo'")),
         )
         assertEquals(
-            "Trusted folders, each with the folders below it:\n- /srv/repo\n- /srv/my repo",
+            "Trusted folders, each with the folders below it:\n- /srv/repo (trusted by Admin on 2026-01-01)\n" +
+                "- /srv/my repo (trusted by Admin on 2026-01-01)",
             commands.answer(trust()),
         )
         assertEquals(
             listOf("/srv/repo", "/srv/repo/src", "/srv/my repo").map { Call.TrustFolder(Path.of(it), ADMIN) },
             control.calls,
         )
+    }
+
+    @Test
+    fun `the list tells the folders the config file declares from those trusted by the host`() = runTest {
+        control.declareFolder(Path.of("/srv/config"))
+        control.trustFolder(Path.of("/srv/host"), null)
+
+        assertEquals(
+            "Trusted folders, each with the folders below it:\n- /srv/config (declared in the config file)\n" +
+                "- /srv/host (trusted by the host on 2026-01-01)",
+            commands.answer(trust()),
+        )
+        assertEquals("/srv/config is declared in the config file.", commands.answer(untrust("/srv/config")))
     }
 
     @Test
@@ -71,7 +86,7 @@ class TrustCommandsTest {
             )
         }
 
-        val reply = TrustCommands(refusing, commandTexts()).answer(trust("/srv/data"))
+        val reply = TrustCommands(refusing, commandTexts(), TestClock()).answer(trust("/srv/data"))
 
         assertEquals("/srv/data is a protected place (the data directory), so it cannot be trusted.", reply)
     }

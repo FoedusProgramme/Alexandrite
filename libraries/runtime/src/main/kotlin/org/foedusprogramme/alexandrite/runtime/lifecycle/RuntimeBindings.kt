@@ -9,6 +9,9 @@ import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookDispatcher
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
 import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
+import org.foedusprogramme.alexandrite.runtime.store.MemoryRecordStore
+import org.foedusprogramme.alexandrite.runtime.store.PluginRecords
+import org.foedusprogramme.alexandrite.runtime.store.UnreadableRecordListener
 import org.foedusprogramme.alexandrite.runtime.turn.PluginTurnInitiator
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -29,6 +32,8 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
+import org.foedusprogramme.alexandrite.sdk.store.Records
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
 import java.io.IOException
@@ -50,6 +55,7 @@ internal fun runtimeBindings(
     hookFailures: HookFailureListener,
     hookDecisions: HookDecisionListener,
     unreadableStates: UnreadableStateListener,
+    unreadableRecords: UnreadableRecordListener,
     texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
     editors: (plugin: String) -> ConfigEditor,
@@ -61,8 +67,11 @@ internal fun runtimeBindings(
 ): PluginBindings {
     val hooks = key<Hook>()
     val stateStore = key<ChatStateStore>()
+    val recordStore = key<RecordStore>()
     val initiation = key<TurnInitiation>()
+    val clock = Clock.system(config.zone)
     val memory by lazy { MemoryChatStateStore() }
+    val memoryRecords by lazy { MemoryRecordStore(clock) }
     val paths = RuntimeHostPaths(config)
     val bindings = listOf(
         binding(
@@ -75,7 +84,7 @@ internal fun runtimeBindings(
                 HookDispatcher(r.getAll(hooks), hookFailures, asyncContext = context, decisions = hookDecisions)
             if (dispatcher.hasAsyncObservers) dispatcher else object : Hooks by dispatcher {}
         },
-        instanceBinding(key<Clock>(), Clock.system(config.zone), RUNTIME_PLUGIN, "Clock"),
+        instanceBinding(key<Clock>(), clock, RUNTIME_PLUGIN, "Clock"),
         instanceBinding(key<HostPaths>(), paths, RUNTIME_PLUGIN, "HostPaths"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
@@ -110,6 +119,13 @@ internal fun runtimeBindings(
                 dependencies = listOf(Dependency(stateStore, DependencyKind.OPTIONAL, "store")),
                 managed = false,
             ) { r -> PluginChatStates(plugin.id, r.getOrNull(stateStore) ?: memory, unreadableStates) },
+            binding(
+                key<Records>(plugin.id),
+                RUNTIME_PLUGIN,
+                "Records of ${plugin.id}",
+                dependencies = listOf(Dependency(recordStore, DependencyKind.OPTIONAL, "store")),
+                managed = false,
+            ) { r -> PluginRecords(plugin.id, r.getOrNull(recordStore) ?: memoryRecords, unreadableRecords) },
             binding(
                 key<TurnInitiator>(plugin.id),
                 RUNTIME_PLUGIN,

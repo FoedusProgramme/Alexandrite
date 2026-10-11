@@ -34,6 +34,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.testMessage
+import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testUser
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -71,7 +72,8 @@ internal class WorkerBench(
         """.trimIndent(),
     )
     private val directory = agentDirectory(settings, INSTANCES, listOf(provider(ScriptedModel())))
-    private val router = ChatRouter(channels(), directory, ChatTopology(directory), SettingsStates(states))
+    private val router =
+        ChatRouter(channels(), directory, ChatTopology(directory, testRecords()), SettingsStates(states))
     val lock = SubmitLock(pluginScope(scope))
     val workers = TurnWorkers(settings, lock, conversations, runner, clock).also { it.open() }
     val intakes = ChatIntakes(settings, lock, workers, router)

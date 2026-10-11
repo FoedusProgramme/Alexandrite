@@ -1,7 +1,5 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
-import kotlinx.serialization.json.JsonPrimitive
-import org.foedusprogramme.alexandrite.channel.common.pairing.ConfigPairedChats
 import org.foedusprogramme.alexandrite.channel.common.pairing.InstancePairing
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
@@ -12,7 +10,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
-import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.slf4j.LoggerFactory
@@ -23,7 +20,6 @@ internal class AccessGate(
     private val instance: ChannelInstance,
     private val config: TelegramInstanceConfig,
     private val desk: TelegramPairingDesk,
-    private val editor: ConfigEditor,
     private val outbox: Outbox,
 ) : Lifecycle {
     private val dropped = object : LinkedHashMap<ChatAddress, Unit>(16, 0.75f, true) {
@@ -34,16 +30,7 @@ internal class AccessGate(
     private var pairing: InstancePairing? = null
 
     override suspend fun onStart() {
-        val id = instance.id
-        val configured = config.allowedChats.map { ChatAddress(id, "$it") }
-        val store = ConfigPairedChats(
-            editor,
-            "instances.${id.name}.allowedChats",
-            configured,
-            entryOf = { JsonPrimitive(it.chat.toLong()) },
-            chatOf = { text -> text.toLongOrNull()?.let { ChatAddress(id, "$it") } },
-        )
-        pairing = desk.open(id, configured, store)
+        pairing = desk.open(instance.id, config.allowedChats.map { ChatAddress(instance.id, "$it") })
     }
 
     override fun onStop() {

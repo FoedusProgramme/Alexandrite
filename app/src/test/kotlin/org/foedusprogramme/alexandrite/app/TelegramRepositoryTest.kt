@@ -2,7 +2,6 @@ package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
@@ -22,7 +21,10 @@ import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
+import java.time.LocalDate
+import java.time.ZoneOffset
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
@@ -39,6 +41,7 @@ class TelegramRepositoryTest {
 
     private val repository: Path get() = directory.toRealPath().resolve("repo")
     private val readme: Path get() = repository.resolve("README.md")
+    private val configFile: Path get() = directory.toRealPath().resolve("config/alexandrite.json")
     private val greeter: Path get() = repository.resolve("src/main/kotlin/Greeter.kt")
 
     @AfterTest
@@ -186,9 +189,11 @@ class TelegramRepositoryTest {
             .reply { text("The project is called Greeter.") }
             .reply { toolCall("fs.read", arguments("path" to readme)) }
             .reply { text("Greeter greets.") }
-        var trusted: JsonArray? = null
+        lateinit var config: String
+        var listed = ""
 
-        app.run(app.builder(directory)) {
+        app.run(app.builder(directory, sqlite = true)) {
+            config = Files.readString(configFile)
             app.send(app.ada, app.adaChat, "What is this project?")
             app.message(app.adaChat, "The project is called Greeter.")
             app.send(app.ada, app.adaChat, "/trust $repository")
@@ -196,7 +201,10 @@ class TelegramRepositoryTest {
             app.send(app.ada, app.adaChat, "What does it do?")
             app.message(app.adaChat, "Greeter greets.")
             idle()
-            trusted = readConfig().tree("agent")?.get("trustedFolders") as? JsonArray
+        }
+        app.run(app.builder(directory, sqlite = true)) {
+            app.send(app.ada, app.adaChat, "/trust")
+            listed = app.messages(app.adaChat, 5).last().text
         }
 
         assertEquals(
@@ -208,9 +216,16 @@ class TelegramRepositoryTest {
                 "$repository is trusted, and so are the folders below it.",
                 "Greeter greets.",
             ),
-            app.fake.botMessages(ADA).map { it.text },
+            app.fake.botMessages(ADA).map { it.text }.take(4),
         )
-        assertEquals(JsonArray(listOf(JsonPrimitive("$repository"))), trusted)
+        val today = LocalDate.now(ZoneOffset.UTC)
+        assertContains(
+            setOf(today, today.minusDays(1)).map {
+                "Trusted folders, each with the folders below it:\n- $repository (trusted by Ada Lovelace on $it)"
+            },
+            listed,
+        )
+        assertEquals(config, Files.readString(configFile))
         val requests = app.model.requests
         assertEquals(4, requests.size)
         assertEquals(emptyList(), requests[1].history.filter { it.isProject() })

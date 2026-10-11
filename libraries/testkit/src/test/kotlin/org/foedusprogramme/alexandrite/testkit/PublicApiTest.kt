@@ -35,6 +35,7 @@ class PublicApiTest {
         import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
         import org.foedusprogramme.alexandrite.sdk.model.*
         import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+        import org.foedusprogramme.alexandrite.sdk.store.collection
         import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
         import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
         import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -166,6 +167,10 @@ class PublicApiTest {
                 control.agents(TEST_INSTANCE), control.language(testChat()),
                 states.of("probe"),
                 testChatStates("probe"),
+                TestRecords(MemoryStore().records).of("probe"),
+                testRecords("probe").collection<String>("notes").list(),
+                control.trustedFolders().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
+                control.declareFolder(Path.of("/srv/config")),
                 testToolContext(testDelegatedTurn(testTurn(), RunId("r"), ToolCallId("c")) { }, ToolCallId("c")),
                 testMessage("hi", testChat(), testUser("ada", true, TEST_INSTANCE), "m1") { }, TEST_TIME,
             )
@@ -264,7 +269,7 @@ class PublicApiTest {
                 seen.addAll(getAll(key<ModelProvider>()))
                 stop()
             }
-            seen.addAll(listOf(store.conversations, store.transcripts, store.media, store.chatStates))
+            seen.addAll(listOf(store.conversations, store.transcripts, store.media, store.chatStates, store.records))
             return seen + harness.run(block)
         }
 

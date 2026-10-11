@@ -62,6 +62,7 @@ internal class TestStore(directory: Path, val clock: MutableClock) {
     val media = SqliteMediaStore(database, TestFiles(directory))
     val transcripts = SqliteTranscriptStore(database, media)
     val chatStates = SqliteChatStateStore(database)
+    val records = SqliteRecordStore(database)
     private val turns = AtomicInteger()
 
     suspend fun start() {

@@ -2,16 +2,16 @@ package org.foedusprogramme.alexandrite.channel.telegram
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairedChat
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairingRequest
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.ADA
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.BOB
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.GROUP
+import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeChat
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeUser
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.ConfigFile
@@ -37,6 +37,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
+import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.testTurn
@@ -58,6 +59,7 @@ class TelegramPairingTest {
 
     private val telegram = TelegramHarness()
     private val fake = telegram.fake
+    private val store = MemoryStore()
     private val file: Path get() = directory.resolve("alexandrite.json")
 
     @AfterTest
@@ -65,18 +67,39 @@ class TelegramPairingTest {
         telegram.close()
     }
 
+    /** The harness of the instance `work` over [store], whose config file declares the chats [allowed] paired. */
+    private fun builder(allowed: String = "[$ADA]", harness: TelegramHarness = telegram): PluginHarness.Builder =
+        harness.builder("work" to harness.instance(allowed = allowed)).writeConfigFile(file).store(store)
+
     private fun PluginHarness.Running.desk(): PairingDesk = getAll<PairingDesk>().single()
 
-    private fun PluginHarness.Running.allowedChats(): JsonArray? =
-        readConfig().tree("channels.telegram.instances.work")?.get("allowedChats") as? JsonArray
-
     private fun code(text: String): String = checkNotNull(CODE.find(text)) { "No code in: $text" }.value
+
+    /** Has [user] send [text] to the bot in [chat], and approves the code the chat gets. */
+    private suspend fun PluginHarness.Running.pair(
+        user: FakeUser,
+        chat: FakeChat,
+        text: String = "Hello?",
+        harness: TelegramHarness = telegram,
+    ): PairingRequest {
+        harness.fake.send(user, chat, text)
+        val offer = harness.fake.await { botMessages(chat.id).singleOrNull() }
+        val request = desk().pending().single { it.chat == harness.address(chat.id) }
+        assertEquals(code(offer.text), request.code)
+        assertIs<PairingDecision.Approved>(desk().approve(request.code))
+        return request
+    }
+
+    /** The approvals kept as `<chat> by <who>`. */
+    private suspend fun approvals(): List<String> =
+        store.records.list(PLUGIN, "pairings").map { "${it.key} by ${it.createdBy}" }
 
     @Test
     fun `a direct chat that is not paired gets its code once, and is paired at once when the code is approved`() {
         val lines = runBlocking {
             logged {
-                telegram.run(telegram.builder("work" to telegram.instance(allowed = "[]")).writeConfigFile(file)) {
+                telegram.run(builder(allowed = "[]")) {
+                    val config = Files.readString(file)
                     fake.send(telegram.bob, telegram.bobChat, "Hello?")
                     val offer = fake.await { botMessages(BOB).singleOrNull() }
                     fake.send(telegram.bob, telegram.bobChat, "Anyone?")
@@ -96,8 +119,21 @@ class TelegramPairingTest {
                     fake.send(telegram.bob, telegram.bobChat, "Now?")
                     val message = assertIs<Submission.Message>(telegram.submitted(1).single()).message
                     assertEquals("Now?", message.text)
-                    assertEquals(JsonArray(listOf(JsonPrimitive(BOB))), allowedChats())
-                    assertEquals(listOf(telegram.address(BOB)), desk().paired())
+                    val paired = desk().paired().single()
+                    val approval = checkNotNull(paired.approval)
+                    assertEquals(
+                        listOf(telegram.address(BOB), false, ChatKind.DIRECT, null, request.requester, null),
+                        listOf(
+                            paired.chat,
+                            paired.declared,
+                            approval.kind,
+                            approval.title,
+                            approval.requester,
+                            approval.approvedBy,
+                        ),
+                    )
+                    assertEquals(listOf("telegram:work:$BOB by null"), approvals())
+                    assertEquals(config, Files.readString(file))
                 }
             }
         }
@@ -113,8 +149,31 @@ class TelegramPairingTest {
     }
 
     @Test
+    fun `an approval survives a restart as a record, and the config file is untouched`() {
+        lateinit var config: String
+
+        telegram.run(builder()) {
+            config = Files.readString(file)
+            pair(telegram.bob, telegram.bobChat)
+        }
+        telegram.run(builder()) {
+            fake.send(telegram.bob, telegram.bobChat, "Back again")
+            val message = assertIs<Submission.Message>(telegram.submitted(1).single()).message
+
+            assertEquals("Back again", message.text)
+            assertEquals(
+                listOf(telegram.address(ADA) to true, telegram.address(BOB) to false),
+                desk().paired().map { it.chat to it.declared },
+            )
+        }
+
+        assertEquals(1, fake.botMessages(BOB).size)
+        assertEquals(config, Files.readString(file))
+    }
+
+    @Test
     fun `a group that is not paired gets a code only when it addresses the bot, and a denied code pairs nothing`() {
-        telegram.run(telegram.builder("work" to telegram.instance(allowed = "[$ADA]")).writeConfigFile(file)) {
+        telegram.run(builder()) {
             fake.send(telegram.bob, telegram.group, "Lunch at noon?")
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot are you there?")
             val offer = fake.await { botMessages(GROUP).singleOrNull() }
@@ -132,24 +191,28 @@ class TelegramPairingTest {
             assertEquals(listOf(offer), fake.botMessages(GROUP))
             assertEquals(emptyList(), desk().pending())
             assertEquals(emptyList(), telegram.submitter.submissions)
-            assertEquals(JsonArray(listOf(JsonPrimitive(ADA))), allowedChats())
+            assertEquals(listOf(PairedChat(telegram.address(ADA), true, null)), desk().paired())
+            assertEquals(emptyList(), approvals())
         }
     }
 
     @Test
-    fun `an unpaired chat no longer reaches the agent and leaves the config file`() {
-        telegram.run(telegram.builder().writeConfigFile(file)) {
+    fun `an unpaired chat no longer reaches the agent, and a chat the config declares is unpaired only there`() {
+        telegram.run(builder()) {
+            pair(telegram.bob, telegram.bobChat)
             fake.send(telegram.bob, telegram.bobChat, "one")
             telegram.submitted(1)
 
             assertEquals(Unpairing.Unpaired, desk().unpair(telegram.address(BOB)))
             fake.send(telegram.bob, telegram.bobChat, "two")
-            fake.await { botMessages(BOB).singleOrNull() }
-            telegram.consumed(2)
+            telegram.consumed(3)
 
             assertEquals(1, telegram.submitter.submissions.size)
-            assertEquals(JsonArray(listOf(JsonPrimitive(ADA), JsonPrimitive(GROUP))), allowedChats())
             assertEquals(Unpairing.NotPaired, desk().unpair(telegram.address(BOB)))
+            assertEquals(Unpairing.Declared, desk().unpair(telegram.address(ADA)))
+            fake.send(telegram.ada, telegram.adaChat, "still here")
+            telegram.submitted(2)
+            assertEquals(emptyList(), approvals())
         }
     }
 
@@ -158,9 +221,10 @@ class TelegramPairingTest {
         val forbidden = Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "the chat is not paired")
         val notice = OutboundMessage.builder("Still there?", MessageKind.NOTICE).build()
 
-        telegram.run(telegram.builder().writeConfigFile(file)) {
+        telegram.run(builder()) {
             val channel = checkNotNull(get<ChannelDirectory>().channel(WORK))
             val chat = telegram.address(BOB)
+            pair(telegram.bob, telegram.bobChat)
             assertTrue(channel.capabilities(chat).proactive)
 
             assertEquals(Unpairing.Unpaired, desk().unpair(chat))
@@ -171,7 +235,7 @@ class TelegramPairingTest {
             assertIs<Delivery.Delivered>(channel.send(telegram.address(ADA), notice))
         }
 
-        assertEquals(emptyList(), fake.botMessages(BOB))
+        assertEquals(1, fake.botMessages(BOB).size)
         assertEquals(emptyList(), fake.calls("sendChatAction").filter { it.params["chat_id"] == JsonPrimitive(BOB) })
     }
 
@@ -179,12 +243,14 @@ class TelegramPairingTest {
     fun `unpairing a chat that is still a home chat or linked is warned of`() {
         val lines = runBlocking {
             logged {
-                telegram.run(telegram.builder().writeConfigFile(file)) {
+                telegram.run(builder()) {
+                    pair(telegram.bob, telegram.group, "@alexandrite_test_bot hi")
+                    pair(telegram.bob, telegram.bobChat)
                     val group = telegram.address(GROUP)
                     telegram.control.updateSettings(group, ChatSettingsUpdate.builder().home().build(), null)
                     telegram.control.link(AgentId.MAIN, group, telegram.address(BOB, 3), null)
 
-                    for (chat in listOf(GROUP, BOB, ADA)) {
+                    for (chat in listOf(GROUP, BOB)) {
                         assertEquals(Unpairing.Unpaired, desk().unpair(telegram.address(chat)))
                     }
                 }
@@ -206,29 +272,29 @@ class TelegramPairingTest {
     @Test
     fun `a chat unpaired while its message waited is not asked to send it again`() {
         TelegramHarness(outcome = null).use { open ->
-            open.run(open.builder().writeConfigFile(file)) {
+            open.run(builder(harness = open)) {
+                pair(open.bob, open.bobChat, harness = open)
                 open.fake.send(open.bob, open.bobChat, "one")
                 open.submitted(1)
                 assertEquals(Unpairing.Unpaired, desk().unpair(open.address(BOB)))
                 open.submitter.tickets.single().complete(TurnOutcome.ShutDown(replayable = true))
             }
 
-            assertEquals(emptyList(), open.fake.botMessages(BOB))
+            assertEquals(1, open.fake.botMessages(BOB).size)
         }
     }
 
     @Test
-    fun `an approval keeps the entries of the file that name environment variables`() {
+    fun `a chat named through an environment variable is declared, and an approval leaves the file alone`() {
         val carol = FakeUser(1003, "Carol")
         val carolChat = fake.direct(carol)
         val submitter = RecordingTurnSubmitter(TurnOutcome.Completed(null))
         val environment = mapOf("TELEGRAM_TOKEN" to fake.token, "BOB_CHAT" to "$BOB")
-        Files.writeString(
-            file,
+        val written =
             """{"channels": {"telegram": {"instances": {"work": {"botToken": "${'$'}{env:TELEGRAM_TOKEN}", """ +
                 """"apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], """ +
-                """"allowedChats": ["${'$'}{env:BOB_CHAT}", $ADA], "polling": {"timeoutSeconds": 1}}}}}}""",
-        )
+                """"allowedChats": ["${'$'}{env:BOB_CHAT}", $ADA], "polling": {"timeoutSeconds": 1}}}}}}"""
+        Files.writeString(file, written)
         val config = RuntimeConfig.builder(directory.resolve("data")).configFile(file).environment(environment).build()
         val plugins = PluginSet.of(AlexandriteChannelTelegramIndex()) + SubmitterIndex(submitter)
         val spec = RuntimeSpec.builder(config, plugins).pluginConfig(ConfigFile.read(file, environment)).build()
@@ -243,7 +309,7 @@ class TelegramPairingTest {
                     val code = code(fake.await { botMessages(carolChat.id).singleOrNull() }.text)
 
                     assertIs<PairingDecision.Approved>(desk.approve(code))
-                    assertEquals(Unpairing.ByReference, desk.unpair(telegram.address(BOB)))
+                    assertEquals(Unpairing.Declared, desk.unpair(telegram.address(BOB)))
                     fake.send(carol, carolChat, "Now?")
                     fake.send(telegram.bob, telegram.bobChat, "Still here")
                     withTimeout(10.seconds) { submitter.awaitSubmissions(3) }
@@ -251,13 +317,7 @@ class TelegramPairingTest {
             }
         }
 
-        val work = Json.parseToJsonElement(Files.readString(file)).jsonObject["channels"]?.jsonObject
-            ?.get("telegram")?.jsonObject?.get("instances")?.jsonObject?.get("work")?.jsonObject
-        assertEquals(
-            JsonArray(listOf(JsonPrimitive("${'$'}{env:BOB_CHAT}"), JsonPrimitive(ADA), JsonPrimitive(1003))),
-            work?.get("allowedChats"),
-        )
-        assertEquals(JsonPrimitive("${'$'}{env:TELEGRAM_TOKEN}"), work?.get("botToken"))
+        assertEquals(written, Files.readString(file))
         assertEquals(
             listOf("Paired through the environment", "Now?", "Still here"),
             submitter.submissions.map { (it as Submission.Message).message.text },

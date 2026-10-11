@@ -6,6 +6,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairedChat
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairingApproval
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesks
@@ -43,8 +45,15 @@ fun request(
     return PairingRequest(chat(id), kind, title, requester, code, issued, issued.plusSeconds(600))
 }
 
+/** The chat [id], which the config file declares paired. */
+fun declared(id: String): PairedChat = PairedChat(chat(id), true, null)
+
+/** The chat of [request], paired at [NOW] by [by]. */
+fun approved(request: PairingRequest, by: UserAddress? = null): PairedChat =
+    PairedChat(request.chat, false, PairingApproval(request.kind, request.title, request.requester, NOW, by))
+
 /** A desk that holds [requests] and pairs [paired], recording what it is asked. */
-class FakeDesk(vararg requests: PairingRequest, paired: List<ChatAddress> = emptyList()) : PairingDesk {
+class FakeDesk(vararg requests: PairingRequest, paired: List<PairedChat> = emptyList()) : PairingDesk {
     val requests = requests.toMutableList()
     val paired = paired.toMutableList()
     val calls = CopyOnWriteArrayList<String>()
@@ -67,7 +76,7 @@ class FakeDesk(vararg requests: PairingRequest, paired: List<ChatAddress> = empt
         decision?.let { return it }
         val request = requests.find { it.code == code } ?: return PairingDecision.Unknown
         requests -= request
-        paired += request.chat
+        paired += approved(request)
         return PairingDecision.Approved(request)
     }
 
@@ -79,12 +88,12 @@ class FakeDesk(vararg requests: PairingRequest, paired: List<ChatAddress> = empt
         return PairingDecision.Denied(request)
     }
 
-    override fun paired(): List<ChatAddress> = paired.toList()
+    override fun paired(): List<PairedChat> = paired.toList()
 
     override suspend fun unpair(chat: ChatAddress): Unpairing {
         calls += "unpair $chat"
         unpairing?.let { return it }
-        return if (paired.remove(chat)) Unpairing.Unpaired else Unpairing.NotPaired
+        return if (paired.removeIf { it.chat == chat }) Unpairing.Unpaired else Unpairing.NotPaired
     }
 }
 

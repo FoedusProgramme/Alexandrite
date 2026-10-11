@@ -4,8 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOB
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOT_MENTION
@@ -24,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -57,12 +56,13 @@ class TelegramAccessTest {
     }
 
     @Test
-    fun `a chat that is not paired gets a code and no answer until the operator pairs it from the command line`() {
-        app.model.reply { text("Hello, Bob.") }
+    fun `an unpaired chat gets a code and no answer until the operator pairs it, and stays paired in SQLite`() {
+        app.model.reply { text("Hello, Bob.") }.reply { text("Still here.") }
         var paired = 0 to ""
-        var allowed: JsonArray? = null
+        lateinit var config: String
 
-        app.run(app.builder(directory, paired = listOf(ADA))) {
+        app.run(app.builder(directory, paired = listOf(ADA), sqlite = true)) {
+            config = Files.readString(configFile())
             app.send(app.bob, app.bobChat, "Hello?")
             val offer = app.messages(app.bobChat, 1).single().text
             val code = checkNotNull(CODE.find(offer)) { offer }.value
@@ -79,7 +79,15 @@ class TelegramAccessTest {
             app.send(app.bob, app.bobChat, "Hello again?")
             app.message(app.bobChat, "Hello, Bob.")
             idle()
-            allowed = readConfig().tree("channels.telegram.instances.work")?.get("allowedChats") as? JsonArray
+        }
+        app.run(app.builder(directory, paired = listOf(ADA), sqlite = true)) {
+            app.send(app.bob, app.bobChat, "Are you still there?")
+            app.message(app.bobChat, "Still here.")
+            idle()
+            assertEquals(
+                listOf(app.address(app.adaChat) to true, app.address(app.bobChat) to false),
+                getAll<PairingDesk>().single().paired().map { it.chat to it.declared },
+            )
         }
 
         assertContains(
@@ -87,10 +95,12 @@ class TelegramAccessTest {
             "This chat is not paired with this bot yet. To pair it, give the bot's operator the code ",
         )
         assertEquals(0 to "Paired telegram:work:$BOB (direct, from Bob @bob_test, telegram:work@$BOB).\n", paired)
-        assertEquals("Hello again?", app.model.requests.single().asked)
-        assertEquals(2, app.fake.botMessages(BOB).size)
-        assertEquals(JsonArray(listOf(JsonPrimitive(ADA), JsonPrimitive(BOB))), allowed)
+        assertEquals(listOf("Hello again?", "Are you still there?"), app.model.requests.map { it.asked })
+        assertEquals(3, app.fake.botMessages(BOB).size)
+        assertEquals(config, Files.readString(configFile()))
     }
+
+    private fun configFile(): Path = directory.toRealPath().resolve("config/alexandrite.json")
 
     @Test
     fun `a paired group is answered only when it mentions the bot, and a member's admin-only command stays there`() {

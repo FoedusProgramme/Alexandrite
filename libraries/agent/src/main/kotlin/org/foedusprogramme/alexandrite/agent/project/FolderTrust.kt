@@ -2,51 +2,57 @@ package org.foedusprogramme.alexandrite.agent.project
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
-import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
-import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
-import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
+import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
+import org.foedusprogramme.alexandrite.sdk.store.Records
+import org.foedusprogramme.alexandrite.sdk.store.StoredRecord
+import org.foedusprogramme.alexandrite.sdk.store.collection
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
-/** A folder whose project instructions load, with those below it outside the repositories nested in it. */
-internal class TrustedFolder(
-    /** Canonical. */
-    val path: Path,
-    /** Who trusted the folder at runtime, null for the config. */
-    val by: ChatUser?,
-)
-
 /**
- * The trusted folders of the config and those trusted at runtime, read without suspending.
+ * The trusted folders that the config declares and those granted at runtime, read without suspending.
  *
- * A change is written into the config file before it applies, and one that breaks a rule throws [Refused].
+ * A change that breaks a rule throws [Refused].
  */
 @Singleton
-internal class FolderTrust(
-    settings: AgentSettings,
-    private val paths: HostPaths,
-    private val floor: HardFloor,
-    private val editor: ConfigEditor,
-) {
+internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private val floor: HardFloor, records: Records) :
+    Lifecycle {
+    private val grants = records.collection<FolderGrant>(COLLECTION)
+
     /** Held from checking a change until it is applied. */
     private val writing = Mutex()
 
-    @Volatile
-    private var folders: List<TrustedFolder> = configured(settings.trustedFolders, paths, floor)
+    private val declared: List<Path> = configured(settings.trustedFolders, paths, floor).distinct()
 
-    /** The trusted folders, each once, in the order they were trusted. */
-    fun folders(): List<Path> = folders.map { it.path }.distinct()
+    @Volatile
+    private var folders: List<TrustedFolder> = declared.map { TrustedFolder(it, true, null, null) }
+
+    override suspend fun onStart() {
+        val granted = grants.list().mapNotNull(::granted).associateBy { it.path }
+        writing.withLock {
+            folders = declared.map { path ->
+                granted[path]?.let { TrustedFolder(path, true, it.trustedAt, it.trustedBy) }
+                    ?: TrustedFolder(path, true, null, null)
+            } + granted.values.filter { it.path !in declared }
+        }
+    }
+
+    /** The trusted folders, the declared ones first. */
+    fun folders(): List<TrustedFolder> = folders
 
     /** The trusted folder nearest to [folder] (canonical) that is it or holds it, null when none does. */
     fun covering(folder: Path): TrustedFolder? =
@@ -64,40 +70,23 @@ internal class FolderTrust(
                 throw Refused(TextKeys.FOLDER_PROTECTED, "folder" to folder, "reason" to check.reason)
         }
         if (!Files.isDirectory(canonical)) throw Refused(TextKeys.FOLDER_MISSING, "folder" to folder)
-        val cover = writing.withLock {
+        writing.withLock {
             covering(canonical)?.let { return it.path }
-            var found: Path? = null
-            edit { entries ->
-                found = entries.mapNotNull(::folderOf).filter { covers(it, canonical) }.maxByOrNull { it.nameCount }
-                if (found == null) entries + ConfigLiteral.Text("$canonical") else entries
-            }
-            folders = folders + (found?.let { TrustedFolder(it, null) } ?: TrustedFolder(canonical, by))
-            found
+            val grant = grants.put("$canonical", FolderGrant(by?.let(::Granter)), by?.address)
+            folders = folders + TrustedFolder(canonical, false, grant.createdAt, by)
         }
-        if (cover == null) {
-            logger.info("Folder {} is trusted by {}", canonical, who(by))
-            return canonical
-        }
-        logger.warn("Folder {} is covered by {}, which the config file trusts since a hand edit", canonical, cover)
-        return cover
+        logger.info("Folder {} is trusted by {}", canonical, who(by))
+        return canonical
     }
 
     /** Stops trusting [folder] for [by], false when it is not a trusted folder itself. */
     suspend fun untrust(folder: Path, by: ChatUser?): Boolean {
         val canonical = (check(folder) as? FloorCheck.Allowed)?.canonical ?: return false
         writing.withLock {
-            val configured = folders.any { it.path == canonical && it.by == null }
-            var removed = false
-            edit { entries ->
-                val left = entries.filter { folderOf(it) != canonical }
-                removed = left.size < entries.size
-                if (!removed && configured && entries.any { folderOf(it) == null }) {
-                    throw Refused(TextKeys.FOLDER_BY_REFERENCE, "folder" to canonical)
-                }
-                left
-            }
-            if (!removed && !isTrusted(canonical)) return false
-            folders = folders.filter { it.path != canonical }
+            val trusted = folders.firstOrNull { it.path == canonical } ?: return false
+            if (trusted.declared) throw Refused(TextKeys.FOLDER_DECLARED, "folder" to canonical)
+            grants.remove("$canonical")
+            folders = folders - trusted
         }
         logger.info("Folder {} is no longer trusted, by {}", canonical, who(by))
         return true
@@ -108,25 +97,39 @@ internal class FolderTrust(
         return floor.check(folder)
     }
 
-    /** Writes the entries that [change] makes of the config file's entries as the file holds them. */
-    private suspend fun edit(change: (List<ConfigLiteral>) -> List<ConfigLiteral>) {
-        try {
-            editor.edit {
-                val entries = (getLiteral(KEY) as? ConfigLiteral.Items)?.items.orEmpty()
-                val after = change(entries)
-                if (after != entries) if (after.isEmpty()) remove(KEY) else setLiteral(KEY, ConfigLiteral.Items(after))
-            }
-        } catch (e: ConfigEditException) {
-            logger.warn("The config file did not take a change of the trusted folders: {}", e.message)
-            throw Refused(TextKeys.CONFIG_REFUSED, "reason" to e.refusal)
+    /** The folder that [grant] trusts, null when the floor now refuses it. */
+    private fun granted(grant: StoredRecord<FolderGrant>): TrustedFolder? {
+        val path = try {
+            Path.of(grant.key).takeIf { it.isAbsolute }
+        } catch (e: InvalidPathException) {
+            null
         }
+        val check = path?.let(floor::check)
+        if (check !is FloorCheck.Allowed) {
+            val reason = (check as? FloorCheck.Denied)?.reason ?: "no absolute path"
+            logger.warn("The grant of folder {} is ignored: {}", grant.key, reason)
+            return null
+        }
+        return TrustedFolder(check.canonical, false, grant.createdAt, grant.value.by?.user())
     }
+}
 
-    /** The canonical folder of the config file's [entry], null when it names an environment variable. */
-    private fun folderOf(entry: ConfigLiteral): Path? {
-        val path = (entry as? ConfigLiteral.Text)?.let { absolute(it.text, paths) } ?: return null
-        return (floor.check(path) as? FloorCheck.Allowed)?.canonical ?: path
-    }
+/** A folder trusted at runtime. */
+@Serializable
+private class FolderGrant(val by: Granter? = null)
+
+/** Who trusted a folder, as their channel saw them then. */
+@Serializable
+private class Granter(
+    val address: UserAddress,
+    val name: String,
+    val username: String? = null,
+    val bot: Boolean = false,
+    val admin: Boolean = false,
+) {
+    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isAdmin)
+
+    fun user(): ChatUser = ChatUser(address, name, username, bot, admin)
 }
 
 /**
@@ -134,22 +137,21 @@ internal class FolderTrust(
  *
  * Throws a [ConfigException] for a folder that [floor] refuses.
  */
-private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor): List<TrustedFolder> =
-    entries.map { entry ->
-        val path = absolute(entry, paths) ?: throw ConfigException(
-            "agent.$KEY",
-            "the trusted folder '$entry' is relative, but the host read no config file to resolve it against: " +
-                "give an absolute path",
-        )
-        when (val check = floor.check(path)) {
-            is FloorCheck.Allowed -> TrustedFolder(check.canonical, null)
+private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor): List<Path> = entries.map { entry ->
+    val path = absolute(entry, paths) ?: throw ConfigException(
+        "agent.$KEY",
+        "the trusted folder '$entry' is relative, but the host read no config file to resolve it against: " +
+            "give an absolute path",
+    )
+    when (val check = floor.check(path)) {
+        is FloorCheck.Allowed -> check.canonical
 
-            is FloorCheck.Denied -> throw ConfigException(
-                "agent.$KEY",
-                "the trusted folder $path is a protected place (${check.reason}), which no file tool reaches",
-            )
-        }
+        is FloorCheck.Denied -> throw ConfigException(
+            "agent.$KEY",
+            "the trusted folder $path is a protected place (${check.reason}), which no file tool reaches",
+        )
     }
+}
 
 /** Whether [folder] is [trusted] or lies in it outside every repository nested in it. */
 private fun covers(trusted: Path, folder: Path): Boolean = folder.startsWith(trusted) &&
@@ -168,5 +170,7 @@ private fun absolute(entry: String, paths: HostPaths): Path? {
 private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 
 private const val KEY = "trustedFolders"
+
+private const val COLLECTION = "trusted_folders"
 
 private val logger = LoggerFactory.getLogger(FolderTrust::class.java)

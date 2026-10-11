@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import java.nio.file.Path
@@ -37,7 +38,7 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
     private val homes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
     private val groups = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
-    private val trusted = mutableListOf<Path>()
+    private val trusted = mutableListOf<TrustedFolder>()
     private var conversations = 0
 
     /** The running and queued turns that [turns] lists and the cancels find. */
@@ -54,6 +55,11 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         defaults: AgentDefaults = AgentDefaults(),
     ) {
         synchronized(lock) { profiles[agent] = Profile(name, description, defaults) }
+    }
+
+    /** Lists [folder] as a trusted folder that the config file declares. */
+    public fun declareFolder(folder: Path) {
+        synchronized(lock) { trusted += TrustedFolder(folder.normalize(), true, null, null) }
     }
 
     override fun turns(chat: ChatAddress?): List<TurnStatus> = statuses.filter { chat == null || it.turn.chat == chat }
@@ -158,20 +164,26 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         groups.filterKeys { agent == null || it == agent }.values.flatten()
     }
 
-    /** Trusts [folder], normalized, unless a trusted folder covers it, and refuses a relative path. */
+    /**
+     * Trusts [folder], normalized, at [TEST_TIME] unless a trusted folder covers it, and refuses a relative path.
+     */
     override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = synchronized(lock) {
         recorded += Call.TrustFolder(folder, by)
         require(folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
         val normalized = folder.normalize()
-        trusted.firstOrNull { normalized.startsWith(it) } ?: normalized.also(trusted::add)
+        trusted.firstOrNull { normalized.startsWith(it.path) }?.path
+            ?: normalized.also { trusted += TrustedFolder(it, false, TEST_TIME, by) }
     }
 
+    /** Stops trusting [folder] and refuses one that the config file declares. */
     override suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean = synchronized(lock) {
         recorded += Call.UntrustFolder(folder, by)
-        trusted.remove(folder.normalize())
+        val found = trusted.firstOrNull { it.path == folder.normalize() } ?: return@synchronized false
+        require(!found.declared) { "$folder is declared in the config file." }
+        trusted.remove(found)
     }
 
-    override fun trustedFolders(): List<Path> = synchronized(lock) { trusted.toList() }
+    override fun trustedFolders(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
 
     private fun snapshot(chat: ChatAddress): ChatSettingsSnapshot {
         val chosen = selected[chat]

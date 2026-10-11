@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.testkit
 
 import org.foedusprogramme.alexandrite.runtime.chat.MemoryChatStateStore
+import org.foedusprogramme.alexandrite.runtime.store.MemoryRecordStore
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.testkit.store.MemoryConversations
 import org.foedusprogramme.alexandrite.testkit.store.MemoryData
@@ -22,4 +24,6 @@ public class MemoryStore(clock: Clock = Clock.systemUTC()) {
     public val media: MediaStore = MemoryMedia(data)
 
     public val chatStates: ChatStateStore = MemoryChatStateStore()
+
+    public val records: RecordStore = MemoryRecordStore(clock)
 }

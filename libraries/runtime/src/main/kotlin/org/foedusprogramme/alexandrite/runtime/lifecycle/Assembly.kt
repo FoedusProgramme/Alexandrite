@@ -20,6 +20,7 @@ import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
 import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
 import org.foedusprogramme.alexandrite.runtime.plugin.pluginProblems
 import org.foedusprogramme.alexandrite.runtime.startFailure
+import org.foedusprogramme.alexandrite.runtime.store.UnreadableRecordListener
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -75,6 +76,17 @@ internal class Assembly(
             state,
             plugin,
             key,
+            redactor.error(error),
+        )
+    }
+
+    private val unreadableRecords = UnreadableRecordListener { plugin, collection, key, error ->
+        logger.warn(
+            "{}: record '{}' of collection '{}' of plugin {} cannot be read and counts as absent",
+            name,
+            key,
+            collection,
+            plugin,
             redactor.error(error),
         )
     }
@@ -176,6 +188,7 @@ internal class Assembly(
             hookFailures,
             hookDecisions,
             unreadableStates,
+            unreadableRecords,
             texts,
             control,
             editors::getValue,

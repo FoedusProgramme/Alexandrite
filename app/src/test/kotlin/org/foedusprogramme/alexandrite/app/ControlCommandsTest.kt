@@ -4,13 +4,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.app.control.ControlRequest
 import org.foedusprogramme.alexandrite.app.control.FakeDesk
-import org.foedusprogramme.alexandrite.app.control.chat
+import org.foedusprogramme.alexandrite.app.control.WORK
+import org.foedusprogramme.alexandrite.app.control.approved
+import org.foedusprogramme.alexandrite.app.control.declared
 import org.foedusprogramme.alexandrite.app.control.request
 import org.foedusprogramme.alexandrite.app.control.served
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -25,7 +28,15 @@ class ControlCommandsTest {
 
     private val bob = request("42", "BBBB-BBBB", minutes = 2)
     private val group = request("-100", "GGGG-GGGG", minutes = 5, kind = ChatKind.GROUP, title = "Back\u001B[2Jend")
-    private val desk = FakeDesk(bob, group, paired = listOf(chat("7")))
+    private val desk = FakeDesk(
+        bob,
+        group,
+        paired = listOf(
+            declared("7"),
+            approved(request("9", "NNNN-NNNN", requester = null)),
+            approved(request("-200", "MMMM-MMMM", kind = ChatKind.GROUP, title = "Ops"), UserAddress(WORK, "1")),
+        ),
+    )
 
     /** The exit code, standard output and standard error of [request] while [desks] serve. */
     private fun printed(request: ControlRequest, vararg desks: PairingDesk = arrayOf(desk)): Printed {
@@ -52,7 +63,10 @@ class ControlCommandsTest {
                     "  GGGG-GGGG  $GROUP, expires 08:05:00\n" +
                     "  BBBB-BBBB  $BOB, expires 08:08:00\n" +
                     "Paired:\n" +
-                    "  chat:work:7\n",
+                    "  chat:work:7 (declared in the config file)\n" +
+                    "  chat:work:9 (direct, from an unknown sender), approved 2026-10-11 08:00 by the host\n" +
+                    "  chat:work:-200 (group \"Ops\", from User -200 @user-200, chat:work@-200), approved " +
+                    "2026-10-11 08:00 by chat:work@1\n",
                 "",
             ),
             printed(ControlRequest.ListPairings),
@@ -87,9 +101,9 @@ class ControlCommandsTest {
     fun `a chat is unpaired, or the reason why not is printed`() {
         assertEquals(Triple(0, "Unpaired chat:work:7.\n", ""), printed(ControlRequest.Unpair("chat:work:7")))
         assertEquals(refused("chat:work:7 is not paired."), printed(ControlRequest.Unpair("chat:work:7")))
-        desk.unpairing = Unpairing.ByReference
+        desk.unpairing = Unpairing.Declared
         assertEquals(
-            refused("chat:work:7 stays paired: config entries that name environment variables still pair it."),
+            refused("chat:work:7 stays paired: the config file declares it, so edit the file to unpair it."),
             printed(ControlRequest.Unpair("chat:work:7")),
         )
         desk.unpairing = Unpairing.Failed("The file is read-only")

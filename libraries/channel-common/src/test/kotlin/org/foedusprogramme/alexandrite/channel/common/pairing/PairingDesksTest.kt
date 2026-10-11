@@ -1,10 +1,12 @@
 package org.foedusprogramme.alexandrite.channel.common.pairing
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.testkit.testRecords
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -15,10 +17,10 @@ class PairingDesksTest {
     private val clock = TestClock()
     private val chat = ChannelInstanceId(ChannelType("chat"), "work")
     private val mail = ChannelInstanceId(ChannelType("mail"), "work")
-    private val first = Recorded(Pairings(clock))
-    private val second = Recorded(Pairings(clock))
-    private val chatPairing = first.pairings.open(chat, listOf(ChatAddress(chat, "7")), MemoryStore())
-    private val mailPairing = second.pairings.open(mail, emptyList(), MemoryStore())
+    private val first = Recorded(Pairings(clock, testRecords("chat-channel")))
+    private val second = Recorded(Pairings(clock, testRecords("mail-channel")))
+    private val chatPairing = runBlocking { first.pairings.open(chat, listOf(ChatAddress(chat, "7"))) }
+    private val mailPairing = runBlocking { second.pairings.open(mail, emptyList()) }
     private val desks = PairingDesks(listOf(first, second))
 
     @Test
@@ -36,7 +38,7 @@ class PairingDesksTest {
         assertEquals(listOf("holds", "holds", "approve"), first.calls)
         assertEquals(listOf("holds", "deny"), second.calls)
         assertTrue(chatPairing.isPaired(bob))
-        assertEquals(listOf(ChatAddress(chat, "7"), bob), desks.paired())
+        assertEquals(listOf(ChatAddress(chat, "7"), bob), desks.paired().map { it.chat })
     }
 
     @Test
@@ -50,11 +52,15 @@ class PairingDesksTest {
 
     @Test
     fun `a chat is unpaired by the desk that pairs it`() = runTest {
-        assertEquals(Unpairing.Unpaired, desks.unpair(ChatAddress(chat, "7", "3")))
+        val carol = ChatAddress(mail, "43")
+        desks.approve(assertNotNull(mailPairing.request(carol, ChatKind.DIRECT, null, null)).text)
 
-        assertEquals(Unpairing.NotPaired, desks.unpair(ChatAddress(chat, "7")))
-        assertEquals(listOf("unpair", "unpair"), first.calls)
-        assertEquals(listOf("unpair"), second.calls)
+        assertEquals(Unpairing.Unpaired, desks.unpair(ChatAddress(mail, "43", "3")))
+
+        assertEquals(Unpairing.NotPaired, desks.unpair(carol))
+        assertEquals(Unpairing.Declared, desks.unpair(ChatAddress(chat, "7")))
+        assertEquals(listOf("holds", "unpair", "unpair", "unpair"), first.calls)
+        assertEquals(listOf("holds", "approve", "unpair", "unpair"), second.calls)
     }
 
     /** [pairings] recording which of its decisions are asked for. */

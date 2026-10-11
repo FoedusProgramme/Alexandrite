@@ -84,6 +84,24 @@ class SubclassOptInTest {
             override suspend fun reset(key: String) = TODO()
         }
 
+        class Kept : org.foedusprogramme.alexandrite.sdk.store.Records {
+            override fun <T : Any> collection(
+                name: String,
+                serializer: kotlinx.serialization.KSerializer<T>,
+            ): org.foedusprogramme.alexandrite.sdk.store.RecordCollection<T> = TODO()
+        }
+
+        class Collection : org.foedusprogramme.alexandrite.sdk.store.RecordCollection<Int> {
+            override suspend fun get(key: String) = TODO()
+            override suspend fun put(
+                key: String,
+                value: Int,
+                by: org.foedusprogramme.alexandrite.sdk.chat.UserAddress?,
+            ) = TODO()
+            override suspend fun remove(key: String) = TODO()
+            override suspend fun list() = TODO()
+        }
+
         class Localized : org.foedusprogramme.alexandrite.sdk.i18n.Texts {
             override fun text(
                 key: String,
@@ -527,6 +545,15 @@ class SubclassOptInTest {
         class States : ChatStateStore {
             override suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String? = null
             override suspend fun write(plugin: String, name: String, agent: AgentId?, chat: ChatAddress, json: String?) {}
+        }
+
+        @Singleton @Binds(RecordStore::class)
+        class Kept : RecordStore {
+            override suspend fun get(plugin: String, collection: String, key: String): StoredRecord<String>? = null
+            override suspend fun put(plugin: String, collection: String, key: String, json: String, by: UserAddress?) =
+                StoredRecord(key, json, Instant.EPOCH, by, Instant.EPOCH, by)
+            override suspend fun remove(plugin: String, collection: String, key: String) = false
+            override suspend fun list(plugin: String, collection: String) = emptyList<StoredRecord<String>>()
         }
 
         suspend fun inline(media: MediaStore, entry: TranscriptEntry) = media.storeInline(entry)

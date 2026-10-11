@@ -14,13 +14,18 @@ import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
 
 /** `/trust` and `/untrust`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class TrustCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+internal class TrustCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
+    CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST))
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
@@ -62,10 +67,31 @@ internal class TrustCommands(private val control: AgentControl, private val text
         val text = if (folders.isEmpty()) {
             replies.text(TextKeys.TRUST_NONE)
         } else {
-            replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders))
+            replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders.map { described(it, replies) }))
         }
         context.reply(text)
     }
+
+    /** [folder] with where its trust comes from. */
+    private fun described(folder: TrustedFolder, replies: Replies): String {
+        val at = folder.trustedAt
+        val by = folder.trustedBy
+        return when {
+            folder.declared || at == null -> replies.text(TextKeys.TRUST_DECLARED, "folder" to folder.path)
+
+            by == null ->
+                replies.text(TextKeys.TRUST_GRANTED_BY_HOST, "folder" to folder.path, "date" to dateOf(at))
+
+            else -> replies.text(
+                TextKeys.TRUST_GRANTED,
+                "folder" to folder.path,
+                "user" to by.displayName,
+                "date" to dateOf(at),
+            )
+        }
+    }
+
+    private fun dateOf(instant: Instant): LocalDate = LocalDate.ofInstant(instant, clock.zone)
 
     /** The absolute folder [text] names, null once the reply says why it names none. */
     private suspend fun folder(command: String, text: String, context: CommandContext, replies: Replies): Path? {

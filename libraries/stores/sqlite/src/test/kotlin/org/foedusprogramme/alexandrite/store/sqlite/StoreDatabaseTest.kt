@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -59,6 +60,7 @@ class StoreDatabaseTest {
                     "media",
                     "entry_media",
                     "chat_states",
+                    "records",
                 ),
                 it.tables(),
             )
@@ -87,6 +89,24 @@ class StoreDatabaseTest {
         assertEquals(main, record?.key)
         assertEquals(chat, record?.chat)
         connect(file).use { assertEquals(STORE_MIGRATIONS.size, it.userVersion()) }
+    }
+
+    @Test
+    fun `a store of version 3 keeps its data and gets the plugins' records`() {
+        storeWithTurn(version = 3)
+
+        val (conversation, record) = withStore(directory) {
+            conversations.conversation(ConversationId("c1"))?.key to
+                records.put("notes", "grants", "k", "1", member.address)
+        }
+
+        assertEquals(main, conversation)
+        assertEquals(member.address, record.createdBy)
+        connect(file).use {
+            assertEquals(4, STORE_MIGRATIONS.size)
+            assertEquals(STORE_MIGRATIONS.size, it.userVersion())
+            assertContains(it.tables(), "records")
+        }
     }
 
     @Test

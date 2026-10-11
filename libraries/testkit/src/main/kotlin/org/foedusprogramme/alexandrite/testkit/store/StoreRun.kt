@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.testUser
@@ -22,7 +23,7 @@ internal class StoreRun(private val harness: () -> PluginHarness.Builder, privat
     suspend fun <T> open(block: suspend Ports.() -> T): T {
         val results = mutableListOf<T>()
         harness().dataRoot(root).build().run {
-            results += Ports(get(), get(), get(), get(), turns).block()
+            results += Ports(get(), get(), get(), get(), get(), turns).block()
         }
         return results.single()
     }
@@ -34,6 +35,7 @@ internal class Ports(
     val transcripts: TranscriptStore,
     val media: MediaStore,
     val chatStates: ChatStateStore,
+    val records: RecordStore,
     private val turns: AtomicInteger,
 ) {
     /** Records a new turn of [kind] in [conversation], whose actor is a member unless it is a heartbeat. */

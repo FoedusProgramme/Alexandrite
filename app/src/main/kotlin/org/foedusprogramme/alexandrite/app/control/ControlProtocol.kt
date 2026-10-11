@@ -53,7 +53,7 @@ internal sealed interface ControlReply {
 
     @Serializable
     @SerialName("pairings")
-    class Pairings(val requests: List<RequestView>, val paired: List<String>) : ControlReply
+    class Pairings(val requests: List<RequestView>, val paired: List<PairedView>) : ControlReply
 
     @Serializable
     @SerialName("approved")
@@ -84,10 +84,10 @@ internal sealed interface ControlReply {
     @SerialName("not_paired")
     class NotPaired(val chat: String) : ControlReply
 
-    /** Config entries that name environment variables still pair the chat. */
+    /** The config file declares the chat. */
     @Serializable
-    @SerialName("paired_by_reference")
-    class PairedByReference(val chat: String) : ControlReply
+    @SerialName("declared")
+    class Declared(val chat: String) : ControlReply
 
     @Serializable
     @SerialName("unpair_failed")
@@ -118,6 +118,21 @@ internal class RequestView(
 
 @Serializable
 internal class RequesterView(val user: String, val name: String, val username: String? = null)
+
+/** A paired chat. */
+@Serializable
+internal class PairedView(val chat: String, val declared: Boolean = false, val approval: ApprovalView? = null)
+
+@Serializable
+internal class ApprovalView(
+    val kind: String,
+    val title: String? = null,
+    val requester: RequesterView? = null,
+    @Serializable(with = InstantText::class)
+    val approvedAt: Instant,
+    /** Null for the host. */
+    val approvedBy: String? = null,
+)
 
 /** A line that breaks the control protocol. */
 internal class ControlProtocolException(override val message: String, cause: Throwable? = null) :

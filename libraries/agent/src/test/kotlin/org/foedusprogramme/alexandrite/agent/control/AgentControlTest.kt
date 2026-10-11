@@ -297,10 +297,6 @@ class AgentControlTest {
                 refused { agent(helper).reasoning(ReasoningEffort.of("extreme")) },
             )
             assertEquals("test:main:home is the home chat of agent 'helper'.", refused(home) { agent(coder).home() })
-            assertEquals(
-                "The config file did not take the change (no_file), so nothing changed.",
-                refused { agent(helper).home() },
-            )
 
             assertEquals(snapshot(coder, AgentSource.DEFAULT), control.settings(channel.chat()))
             assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, control.settings(home))

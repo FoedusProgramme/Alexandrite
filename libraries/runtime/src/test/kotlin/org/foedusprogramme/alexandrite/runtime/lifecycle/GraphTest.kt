@@ -34,6 +34,7 @@ import org.foedusprogramme.alexandrite.runtime.service
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.startVirtually
+import org.foedusprogramme.alexandrite.runtime.store.MemoryRecordStore
 import org.foedusprogramme.alexandrite.runtime.virtual
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -69,6 +70,9 @@ import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
+import org.foedusprogramme.alexandrite.sdk.store.Records
+import org.foedusprogramme.alexandrite.sdk.store.collection
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -323,6 +327,38 @@ class GraphTest {
             mapOf("probe language null $CHAT" to "\"zh-CN\"", "probe language main $CHAT" to "\"fr\""),
             rows,
         )
+    }
+
+    @Test
+    fun `each plugin gets records of its own, kept in memory when no store is bound`() {
+        val probe = probe("probe", "mine" to key<Records>("probe"), "theirs" to key<Records>("other"))
+
+        spec(explicit(TestIndex("probe", bindings = listOf(probe)), TestIndex("other")), dataDir).execute {
+            val values = services.get(key<Probe>()).values
+            val mine = (values.getValue("mine") as Records).collection<Int>("counters")
+            val theirs = (values.getValue("theirs") as Records).collection<Int>("counters")
+
+            mine.put("a", 3, null)
+
+            assertEquals(listOf("a" to 3), mine.list().map { it.key to it.value })
+            assertEquals(null, theirs.get("a"))
+        }
+    }
+
+    @Test
+    fun `records are kept in the bound store`() {
+        val store = MemoryRecordStore()
+        val plugins = explicit(
+            TestIndex("probe", bindings = listOf(probe("probe", "records" to key<Records>("probe")))),
+            TestIndex("store", bindings = listOf(instanceBinding(key<RecordStore>(), store, "store", "Store"))),
+        )
+
+        spec(plugins, dataDir).execute {
+            val records = services.get(key<Probe>()).values.getValue("records") as Records
+            records.collection<LanguageTag>("languages").put("ada", LanguageTag("zh-CN"), null)
+        }
+
+        assertEquals("\"zh-CN\"", runBlocking { store.get("probe", "languages", "ada") }?.value)
     }
 
     @Test

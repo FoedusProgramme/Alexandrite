@@ -71,6 +71,9 @@ internal object TextKeys {
 
     const val TRUST_LIST: String = "trust.list"
     const val TRUST_NONE: String = "trust.none"
+    const val TRUST_DECLARED: String = "trust.declared"
+    const val TRUST_GRANTED: String = "trust.granted"
+    const val TRUST_GRANTED_BY_HOST: String = "trust.granted_by_host"
     const val TRUST_RELATIVE: String = "trust.relative"
     const val TRUST_DONE: String = "trust.done"
     const val UNTRUST_DONE: String = "untrust.done"

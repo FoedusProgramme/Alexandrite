@@ -162,7 +162,8 @@ internal class ProjectInstructions(floor: HardFloor, private val trust: FolderTr
                     claimed.loaded.remove(file.canonical)
                     continue
                 }
-                val entry = projectEntry(file.canonical, trusted.by, checkNotNull(instructions))
+                val by = trusted.trustedBy.takeUnless { trusted.declared }
+                val entry = projectEntry(file.canonical, by, checkNotNull(instructions))
                 logger.info(
                     "Turn {} of {} loads the project instructions {} of the trusted folder {}",
                     turn.id,

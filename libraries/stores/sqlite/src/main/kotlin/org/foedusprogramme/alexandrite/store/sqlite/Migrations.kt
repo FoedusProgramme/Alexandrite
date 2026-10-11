@@ -21,6 +21,23 @@ internal val STORE_MIGRATIONS: List<Migration> = listOf(
         execute("ALTER TABLE turns ADD COLUMN origin_chat_id INTEGER REFERENCES chats (id)")
         execute("UPDATE turns SET origin_chat_id = chat_id")
     },
+    Migration("the plugins' records") {
+        execute(
+            """
+            CREATE TABLE records (
+                plugin TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                record_key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                created_by TEXT,
+                updated_at INTEGER NOT NULL,
+                updated_by TEXT,
+                UNIQUE (plugin, collection, record_key)
+            )
+            """,
+        )
+    },
 )
 
 /** A connection to the store at [file], whose schema [steps] brought to their newest version. */

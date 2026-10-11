@@ -21,8 +21,7 @@ import java.time.Instant
 /**
  * The agent's control primitives, which check no permissions and record who asked as `by`.
  *
- * A change that breaks a rule, or that the config file does not take, throws [IllegalArgumentException] with a message
- * for the user and changes nothing.
+ * A change that breaks a rule throws [IllegalArgumentException] with a message for the user and changes nothing.
  */
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
@@ -86,8 +85,20 @@ public interface AgentControl {
     public suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean
 
     /** The trusted folders, each covering the folders below it. */
-    public fun trustedFolders(): List<Path>
+    public fun trustedFolders(): List<TrustedFolder>
 }
+
+/** A trusted folder. */
+@Poko
+public class TrustedFolder(
+    public val path: Path,
+    /** Whether the config file declares the folder. */
+    public val declared: Boolean,
+    /** When the folder was trusted at runtime, null when it was not. */
+    public val trustedAt: Instant?,
+    /** Who trusted the folder at runtime, null for the host or when nobody did. */
+    public val trustedBy: ChatUser?,
+)
 
 /** Chats whose messages to [agent] continue one conversation, kept at [anchor]. */
 @Poko

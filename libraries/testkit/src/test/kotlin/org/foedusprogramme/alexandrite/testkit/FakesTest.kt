@@ -21,6 +21,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
 import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.store.collection
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
@@ -31,6 +32,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
@@ -386,19 +388,25 @@ class FakesTest {
         val control = RecordingAgentControl()
         val admin = testUser("ada", isAdmin = true)
         val repository = Path.of("/srv/repo")
+        val declared = Path.of("/srv/config")
+        control.declareFolder(declared)
 
         val trusted = blocking {
             listOf(control.trustFolder(repository, admin), control.trustFolder(Path.of("/srv/repo/sub/../lib"), null))
         }
 
         assertEquals(listOf(repository, repository), trusted)
-        assertEquals(listOf(repository), control.trustedFolders())
+        assertEquals(
+            listOf(TrustedFolder(declared, true, null, null), TrustedFolder(repository, false, TEST_TIME, admin)),
+            control.trustedFolders(),
+        )
         assertFailsWith<IllegalArgumentException> { blocking { control.trustFolder(Path.of("repo"), null) } }
+        assertFailsWith<IllegalArgumentException> { blocking { control.untrustFolder(declared, null) } }
         assertEquals(
             listOf(false, true, false),
             blocking { listOf(Path.of("/srv"), repository, repository).map { control.untrustFolder(it, null) } },
         )
-        assertEquals(emptyList(), control.trustedFolders())
+        assertEquals(listOf(declared), control.trustedFolders().map { it.path })
         assertEquals(RecordingAgentControl.Call.TrustFolder(repository, admin), control.calls.first())
     }
 
@@ -437,6 +445,24 @@ class FakesTest {
 
         assertEquals("zh", blocking { language.get(main) })
         assertEquals("en", blocking { language.get(coder) })
+    }
+
+    // Records.
+
+    @Test
+    fun `test records behave as the runtime's and outlive the plugins that use them`() {
+        val records = TestRecords()
+        val admin = testUser("ada", isAdmin = true).address
+        val grants = records.of("agent").collection<String>("grants")
+
+        val stored = blocking { grants.put("/srv/repo", "repo", admin) }
+
+        assertSame(records.of("agent"), records.of("agent"))
+        assertEquals(listOf(stored), blocking { records.of("agent").collection<String>("grants").list() })
+        assertEquals(admin, blocking { records.store.get("agent", "grants", "/srv/repo") }?.createdBy)
+        assertNull(blocking { records.of("other").collection<String>("grants").get("/srv/repo") })
+        assertNull(blocking { testRecords("agent").collection<String>("grants").get("/srv/repo") })
+        assertFailsWith<IllegalArgumentException> { records.of().collection<Int>("Not A Name") }
     }
 
     @Test

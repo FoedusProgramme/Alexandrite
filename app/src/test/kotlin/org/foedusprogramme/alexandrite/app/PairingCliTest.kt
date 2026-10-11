@@ -4,11 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeUser
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
@@ -57,23 +52,9 @@ class PairingCliTest {
         return Printed(code, out.toString(Charsets.UTF_8), err.toString(Charsets.UTF_8))
     }
 
-    private fun allowedChats(): JsonElement? = Json.parseToJsonElement(Files.readString(configFile)).jsonObject
-        .let { it["channels"]?.jsonObject?.get("telegram")?.jsonObject?.get("instances")?.jsonObject }
-        ?.get("work")?.jsonObject?.get("allowedChats")
-
-    @Test
-    fun `an operator pairs a waiting chat from the command line, and unpairs it`() {
-        Files.writeString(
-            configFile,
-            """{"channels": {"telegram": {"instances": {"work": {"botToken": "${fake.token}", """ +
-                """"apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], "allowedChats": [$ADA], """ +
-                """"polling": {"timeoutSeconds": 1}}}}}}""",
-        )
-        val printed = mutableListOf<Printed>()
-        val allowed = mutableListOf<JsonElement?>()
-        var offered = ""
+    /** Runs the app on [configFile] and [dataDir], with its SQLite store, until [block] has run beside it. */
+    private fun app(block: suspend () -> Unit) {
         val err = ByteArrayOutputStream()
-
         val code = run(
             listOf("--config", "$configFile", "--data-dir", "$dataDir"),
             emptyMap(),
@@ -81,48 +62,80 @@ class PairingCliTest {
             home,
             PrintStream(ByteArrayOutputStream(), true),
             PrintStream(err, true),
-            execute = { spec, block ->
+            execute = { spec, main ->
                 AlexandriteRuntime.run(spec) {
                     coroutineScope {
-                        launch { block() }
+                        launch { main() }
                         withContext(Dispatchers.IO) {
                             awaitControlSocket(dataDir.resolve("control.sock"))
-                            fake.send(bob, bobChat, "Hello?")
-                            val offer = fake.await { botMessages(BOB).singleOrNull() }.text
-                            offered = checkNotNull(CODE.find(offer)) { offer }.value
-                            printed += cli("pairings")
-                            printed += cli("pair", offered.lowercase())
-                            allowed += allowedChats()
-                            printed += cli("pairings")
-                            printed += cli("unpair", "telegram:work:$BOB")
-                            allowed += allowedChats()
-                            printed += cli("pair", offered)
+                            block()
                         }
                         stop(StopRequest.shutdown("requested by the test"))
                     }
                 }
             },
         )
-
         assertEquals(0, code, err.toString(Charsets.UTF_8))
-        val (listed, paired, relisted, unpaired, spent) = printed
+    }
+
+    @Test
+    fun `an operator pairs a waiting chat from the command line, and the pairing outlives the app in its store`() {
+        val config = """{"channels": {"telegram": {"instances": {"work": {"botToken": "${fake.token}", """ +
+            """"apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], "allowedChats": [$ADA], """ +
+            """"polling": {"timeoutSeconds": 1}}}}}}"""
+        Files.writeString(configFile, config)
+        val printed = mutableListOf<Printed>()
+        var offered = ""
+
+        app {
+            fake.send(bob, bobChat, "Hello?")
+            val offer = fake.await { botMessages(BOB).singleOrNull() }.text
+            offered = checkNotNull(CODE.find(offer)) { offer }.value
+            printed += cli("pairings")
+            printed += cli("pair", offered.lowercase())
+            printed += cli("unpair", "telegram:work:$ADA")
+        }
+        app {
+            printed += cli("pairings")
+            printed += cli("unpair", "telegram:work:$BOB")
+            printed += cli("pair", offered)
+            printed += cli("pairings")
+        }
+
+        val (listed, paired, declared, relisted, unpaired) = printed
+        val (spent, emptied) = printed.drop(5)
         val described = "telegram:work:$BOB (direct, from Bob @bob_test, telegram:work@$BOB)"
         val listing = Regex(
             "Waiting to be paired:\n  $offered  ${Regex.escape(described)}, expires \\d\\d:\\d\\d:\\d\\d\n" +
-                "Paired:\n  telegram:work:$ADA\n",
+                "Paired:\n  telegram:work:$ADA \\(declared in the config file\\)\n",
         )
         assertTrue(listing.matches(listed.out), listed.out)
         assertEquals(Printed(0, "Paired $described.\n", ""), paired)
         assertEquals(
-            Printed(0, "No chat waits to be paired.\nPaired:\n  telegram:work:$ADA\n  telegram:work:$BOB\n", ""),
-            relisted,
+            Printed(
+                1,
+                "",
+                "alexandrite: telegram:work:$ADA stays paired: the config file declares it, so edit the file to " +
+                    "unpair it.\n",
+            ),
+            declared,
         )
+        val approved = Regex(
+            "No chat waits to be paired.\nPaired:\n  telegram:work:$ADA \\(declared in the config file\\)\n" +
+                "  ${Regex.escape(described)}, approved \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d by the host\n",
+        )
+        assertTrue(approved.matches(relisted.out), relisted.out)
         assertEquals(Printed(0, "Unpaired telegram:work:$BOB.\n", ""), unpaired)
         assertEquals(1, spent.code, spent.err)
-        assertEquals<List<JsonElement?>>(
-            listOf(JsonArray(listOf(JsonPrimitive(ADA), JsonPrimitive(BOB))), JsonArray(listOf(JsonPrimitive(ADA)))),
-            allowed,
+        assertEquals(
+            Printed(
+                0,
+                "No chat waits to be paired.\nPaired:\n  telegram:work:$ADA (declared in the config file)\n",
+                "",
+            ),
+            emptied,
         )
+        assertEquals(config, Files.readString(configFile))
         assertFalse(Files.exists(dataDir.resolve("control.sock")))
         val stopped = cli("pairings")
         assertEquals(ExitCode.UNAVAILABLE, stopped.code)

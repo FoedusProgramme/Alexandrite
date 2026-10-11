@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.app.control
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.Test
@@ -16,8 +17,13 @@ class ControlAnswersTest {
     private val bob = request("42", "BBBB-BBBB", minutes = 2)
     private val group = request("-100", "GGGG-GGGG", minutes = 5, kind = ChatKind.GROUP, title = "Backend")
     private val carol = request("43", "CCCC-CCCC", minutes = 1, requester = null)
-    private val first = FakeDesk(bob, paired = listOf(chat("7")))
-    private val second = FakeDesk(group, carol, paired = listOf(chat("8"), chat("9")))
+    private val first = FakeDesk(bob, paired = listOf(declared("7")))
+    private val second =
+        FakeDesk(
+            group,
+            carol,
+            paired = listOf(declared("8"), approved(request("9", "NNNN-NNNN"), UserAddress(WORK, "1"))),
+        )
 
     // Pairings.
 
@@ -27,7 +33,21 @@ class ControlAnswersTest {
             val pairings = assertIs<ControlReply.Pairings>(ask(socket, ControlRequest.ListPairings))
 
             assertEquals(listOf("GGGG-GGGG", "BBBB-BBBB", "CCCC-CCCC"), pairings.requests.map { it.code })
-            assertEquals(listOf("chat:work:7", "chat:work:8", "chat:work:9"), pairings.paired)
+            assertEquals(listOf("chat:work:7", "chat:work:8", "chat:work:9"), pairings.paired.map { it.chat })
+            assertEquals(listOf(true, true, false), pairings.paired.map { it.declared })
+            val approval = checkNotNull(pairings.paired.last().approval)
+            assertEquals(
+                listOf("direct", null, "chat:work@9", "User 9", "user9", NOW, "chat:work@1"),
+                listOf(
+                    approval.kind,
+                    approval.title,
+                    approval.requester?.user,
+                    approval.requester?.name,
+                    approval.requester?.username,
+                    approval.approvedAt,
+                    approval.approvedBy,
+                ),
+            )
             val view = pairings.requests.first()
             assertEquals(
                 listOf("chat:work:-100", "group", "Backend", "chat:work@-100", "User -100", "user-100"),
@@ -53,7 +73,7 @@ class ControlAnswersTest {
                 listOf("holds CCCC-CCCC", "approve CCCC-CCCC", "holds GGGG-GGGG", "deny GGGG-GGGG"),
                 second.calls,
             )
-            assertEquals(listOf(chat("8"), chat("9"), chat("43")), second.paired)
+            assertEquals(listOf(chat("8"), chat("9"), chat("43")), second.paired.map { it.chat })
         }
     }
 
@@ -94,17 +114,17 @@ class ControlAnswersTest {
             assertEquals("chat:work:9", assertIs<ControlReply.Unpaired>(unpaired).chat)
             assertEquals(listOf("unpair chat:work:9"), first.calls)
             assertEquals(listOf("unpair chat:work:9"), second.calls)
-            assertEquals(listOf(chat("8")), second.paired)
+            assertEquals(listOf(chat("8")), second.paired.map { it.chat })
             val again = ask(socket, ControlRequest.Unpair("chat:work:9"))
             assertEquals("chat:work:9", assertIs<ControlReply.NotPaired>(again).chat)
         }
     }
 
     @Test
-    fun `an unpairing that a reference keeps or that fails is reported`() {
+    fun `an unpairing that the config file keeps or that fails is reported`() {
         served(directory, first) { socket ->
-            first.unpairing = Unpairing.ByReference
-            assertIs<ControlReply.PairedByReference>(ask(socket, ControlRequest.Unpair("chat:work:7")))
+            first.unpairing = Unpairing.Declared
+            assertIs<ControlReply.Declared>(ask(socket, ControlRequest.Unpair("chat:work:7")))
 
             first.unpairing = Unpairing.Failed("The file is read-only.")
             val failed = assertIs<ControlReply.UnpairFailed>(ask(socket, ControlRequest.Unpair("chat:work:7")))

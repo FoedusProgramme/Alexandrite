@@ -8,7 +8,7 @@ public class PairingDesks(public val all: List<PairingDesk>) {
     /** The requests of every desk, oldest first. */
     public fun pending(): List<PairingRequest> = all.flatMap { it.pending() }.sortedBy { it.issuedAt }
 
-    public fun paired(): List<ChatAddress> = all.flatMap { it.paired() }
+    public fun paired(): List<PairedChat> = all.flatMap { it.paired() }
 
     public suspend fun approve(code: String): PairingDecision = holding(code)?.approve(code) ?: unheld(code)
 

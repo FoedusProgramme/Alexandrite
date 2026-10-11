@@ -3,7 +3,9 @@ package org.foedusprogramme.alexandrite.app
 import org.foedusprogramme.alexandrite.app.control.ControlReply
 import org.foedusprogramme.alexandrite.app.control.ControlRequest
 import org.foedusprogramme.alexandrite.app.control.NoDaemonException
+import org.foedusprogramme.alexandrite.app.control.PairedView
 import org.foedusprogramme.alexandrite.app.control.RequestView
+import org.foedusprogramme.alexandrite.app.control.RequesterView
 import org.foedusprogramme.alexandrite.app.control.askDaemon
 import org.foedusprogramme.alexandrite.app.control.controlSocket
 import java.io.IOException
@@ -30,6 +32,7 @@ internal fun control(
         return ExitCode.FAILURE
     }
     val time = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(zone)
+    val day = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone)
     fun done(text: String): Int {
         out.println(text)
         return ExitCode.OK
@@ -41,7 +44,7 @@ internal fun control(
     return when (reply) {
         is ControlReply.Pong -> done("Alexandrite ${shown(reply.version)} is running.")
 
-        is ControlReply.Pairings -> done(pairings(reply, time))
+        is ControlReply.Pairings -> done(pairings(reply, time, day))
 
         is ControlReply.Approved -> done("Paired ${described(reply.request)}.")
 
@@ -62,8 +65,8 @@ internal fun control(
 
         is ControlReply.NotPaired -> refused("${shown(reply.chat)} is not paired.")
 
-        is ControlReply.PairedByReference -> refused(
-            "${shown(reply.chat)} stays paired: config entries that name environment variables still pair it.",
+        is ControlReply.Declared -> refused(
+            "${shown(reply.chat)} stays paired: the config file declares it, so edit the file to unpair it.",
         )
 
         is ControlReply.UnpairFailed ->
@@ -75,29 +78,44 @@ internal fun control(
     }
 }
 
-private fun pairings(reply: ControlReply.Pairings, time: DateTimeFormatter): String = buildString {
-    if (reply.requests.isEmpty()) {
-        appendLine("No chat waits to be paired.")
-    } else {
-        appendLine("Waiting to be paired:")
-        for (request in reply.requests) {
-            appendLine("  ${request.code}  ${described(request)}, expires ${time.format(request.expiresAt)}")
+private fun pairings(reply: ControlReply.Pairings, time: DateTimeFormatter, day: DateTimeFormatter): String =
+    buildString {
+        if (reply.requests.isEmpty()) {
+            appendLine("No chat waits to be paired.")
+        } else {
+            appendLine("Waiting to be paired:")
+            for (request in reply.requests) {
+                appendLine("  ${request.code}  ${described(request)}, expires ${time.format(request.expiresAt)}")
+            }
+        }
+        if (reply.paired.isEmpty()) {
+            append("No chat is paired.")
+        } else {
+            append("Paired:")
+            for (paired in reply.paired) append("\n  ").append(described(paired, day))
         }
     }
-    if (reply.paired.isEmpty()) {
-        append("No chat is paired.")
-    } else {
-        append("Paired:")
-        for (chat in reply.paired) append("\n  ${shown(chat)}")
+
+/** The paired chat [paired] and how it was paired. */
+private fun described(paired: PairedView, day: DateTimeFormatter): String {
+    val approval = paired.approval
+    return when {
+        paired.declared || approval == null -> "${shown(paired.chat)} (declared in the config file)"
+
+        else -> "${shown(paired.chat)} (${chatOf(approval.kind, approval.title, approval.requester)}), approved " +
+            "${day.format(approval.approvedAt)} by ${approval.approvedBy?.let(::shown) ?: "the host"}"
     }
 }
 
 /** The chat of [request], its kind and title, and who asked. */
-private fun described(request: RequestView): String = buildString {
-    append(shown(request.chat)).append(" (").append(shown(request.kind))
-    request.title?.let { append(" \"").append(shown(it)).append('"') }
+private fun described(request: RequestView): String =
+    "${shown(request.chat)} (${chatOf(request.kind, request.title, request.requester)})"
+
+/** A chat's [kind] and [title], and [requester]. */
+private fun chatOf(kind: String, title: String?, requester: RequesterView?): String = buildString {
+    append(shown(kind))
+    title?.let { append(" \"").append(shown(it)).append('"') }
     append(", from ")
-    val requester = request.requester
     if (requester == null) {
         append("an unknown sender")
     } else {
@@ -105,7 +123,6 @@ private fun described(request: RequestView): String = buildString {
         requester.username?.let { append(" @").append(shown(it)) }
         append(", ").append(shown(requester.user))
     }
-    append(')')
 }
 
 private fun codeOf(request: ControlRequest): String = when (request) {

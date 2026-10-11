@@ -9,7 +9,10 @@ import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
+import org.foedusprogramme.alexandrite.sdk.store.Records
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.store.collection
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryRecord
 import org.junit.jupiter.api.DynamicTest
@@ -71,11 +74,14 @@ class MemoryStoreTest {
             assertSame(store.transcripts, get<TranscriptStore>())
             assertSame(store.media, get<MediaStore>())
             assertSame(store.chatStates, get<ChatStateStore>())
+            assertSame(store.records, get<RecordStore>())
             get<ChatStates>("probe").state("mode", "plain").set(chat, "rich")
+            get<Records>("probe").collection<String>("modes").put("$chat", "rich", null)
         }
 
         assertEquals("rich", blocking { states.of("probe").state("mode", "plain").get(chat) })
         assertEquals("\"rich\"", blocking { store.chatStates.read("probe", "mode", null, chat) })
+        assertEquals("\"rich\"", blocking { store.records.get("probe", "modes", "$chat") }?.value)
     }
 
     @Test

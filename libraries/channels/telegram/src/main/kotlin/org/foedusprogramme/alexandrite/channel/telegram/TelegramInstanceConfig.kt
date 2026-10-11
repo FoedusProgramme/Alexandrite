@@ -15,7 +15,7 @@ internal class TelegramInstanceConfig(
     val botToken: Secret,
     /** The Telegram user ids of this bot's operators. */
     val adminUserIds: List<Long> = emptyList(),
-    /** The paired chats. */
+    /** The chats paired beside those whose codes were approved. */
     val allowedChats: List<Long> = emptyList(),
     val apiBaseUrl: String = "https://api.telegram.org",
     val polling: PollingConfig = PollingConfig(),

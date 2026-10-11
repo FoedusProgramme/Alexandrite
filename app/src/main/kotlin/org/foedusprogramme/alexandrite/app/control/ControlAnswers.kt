@@ -1,11 +1,13 @@
 package org.foedusprogramme.alexandrite.app.control
 
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairedChat
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesks
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingRequest
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 
@@ -20,7 +22,7 @@ internal class ControlAnswers(private val version: String, private val desks: ()
         ControlRequest.Ping -> ControlReply.Pong(version)
 
         ControlRequest.ListPairings -> withDesks { desks ->
-            ControlReply.Pairings(desks.pending().map(::view), desks.paired().map { "$it" })
+            ControlReply.Pairings(desks.pending().map(::view), desks.paired().map(::view))
         }
 
         is ControlRequest.Approve -> withDesks { desks -> decided(desks.approve(request.code)) }
@@ -37,7 +39,7 @@ internal class ControlAnswers(private val version: String, private val desks: ()
             when (val unpairing = desks.unpair(chat)) {
                 Unpairing.NotPaired -> ControlReply.NotPaired("$chat")
                 Unpairing.Unpaired -> ControlReply.Unpaired("$chat")
-                Unpairing.ByReference -> ControlReply.PairedByReference("$chat")
+                Unpairing.Declared -> ControlReply.Declared("$chat")
                 is Unpairing.Failed -> ControlReply.UnpairFailed("$chat", unpairing.reason)
             }
         }
@@ -61,7 +63,23 @@ private fun view(request: PairingRequest): RequestView = RequestView(
     "${request.chat}",
     request.kind.id,
     request.title,
-    request.requester?.let { RequesterView("${it.address}", it.displayName, it.username) },
+    request.requester?.let(::view),
     request.code,
     request.expiresAt,
 )
+
+private fun view(paired: PairedChat): PairedView = PairedView(
+    "${paired.chat}",
+    paired.declared,
+    paired.approval?.let { approval ->
+        ApprovalView(
+            approval.kind.id,
+            approval.title,
+            approval.requester?.let(::view),
+            approval.approvedAt,
+            approval.approvedBy?.toString(),
+        )
+    },
+)
+
+private fun view(user: ChatUser): RequesterView = RequesterView("${user.address}", user.displayName, user.username)
