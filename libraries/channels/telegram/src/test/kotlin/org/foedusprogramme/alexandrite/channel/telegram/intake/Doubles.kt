@@ -6,11 +6,14 @@ import kotlinx.coroutines.delay
 import org.foedusprogramme.alexandrite.channel.telegram.PollingConfig
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
+import org.foedusprogramme.alexandrite.channel.telegram.api.AnswerCallbackQuery
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
+import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageReplyMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
+import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
@@ -54,6 +57,12 @@ internal class MemoryBotApi : BotApi {
     /** What each message of the bot reads, by chat and message id. */
     val messages = HashMap<Pair<Long, Long>, String>()
 
+    /** The inline keyboard of each message of the bot that has one, by chat and message id. */
+    val keyboards = HashMap<Pair<Long, Long>, InlineKeyboardMarkup>()
+
+    /** The answers to button presses, in order. */
+    val answers = mutableListOf<AnswerCallbackQuery>()
+
     /** How long each send and edit takes to answer. */
     var latency: Duration = Duration.ZERO
 
@@ -79,6 +88,7 @@ internal class MemoryBotApi : BotApi {
         answer("sendMessage")
         val id = ++lastMessage
         messages[request.chatId to id] = request.text
+        request.replyMarkup?.let { keyboards[request.chatId to id] = it }
         return Message(id, date = 0, chat = Chat(request.chatId, "private"), text = request.text)
     }
 
@@ -91,7 +101,23 @@ internal class MemoryBotApi : BotApi {
             throw BotApiException(BotApiFailure.EDIT_TARGET_GONE, "editMessageText", "message to edit not found")
         }
         messages[request.chatId to id] = request.text
+        keyboards -= request.chatId to id
         return Message(id, date = 0, chat = Chat(request.chatId, "private"), text = request.text)
+    }
+
+    override suspend fun editMessageReplyMarkup(request: EditMessageReplyMarkup) {
+        sent += SentCall("editMessageReplyMarkup", request.chatId, request.messageId)
+        answer("editMessageReplyMarkup")
+        val key = request.chatId to request.messageId
+        if (key !in messages) {
+            throw BotApiException(BotApiFailure.EDIT_TARGET_GONE, "editMessageReplyMarkup", "message to edit not found")
+        }
+        request.replyMarkup?.let { keyboards[key] = it } ?: keyboards.remove(key)
+    }
+
+    override suspend fun answerCallbackQuery(request: AnswerCallbackQuery) {
+        answers += request
+        failures["answerCallbackQuery"]?.removeFirstOrNull()?.let { throw it }
     }
 
     override suspend fun sendChatAction(chat: Long, thread: Long?) {

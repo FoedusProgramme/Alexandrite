@@ -7,7 +7,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
+import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
+import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
+import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageReplyMarkup
+import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
 import org.foedusprogramme.alexandrite.channel.telegram.api.HttpBotApi
+import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardButton
+import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.configOf
@@ -105,6 +111,26 @@ class FakeBotApiTest {
         assertEquals(listOf("/status", "/status@ALEXANDRITE_TEST_BOT", "Nice", "Hello in private"), received)
         assertEquals(false, api.getMe().canReadAllGroupMessages)
     }
+
+    @Test
+    fun `a message keeps its keyboard until an edit leaves it out, and a press needs a button the test saw`() =
+        runBlocking {
+            val (fake, api) = fake()
+            val chat = fake.direct(ada)
+            val keyboard = InlineKeyboardMarkup(listOf(listOf(InlineKeyboardButton("Allow", "apv:1:a"))))
+            val sent = api.sendMessage(SendMessage(chat.id, "Allow?", replyMarkup = keyboard)).messageId
+            val asked = fake.botMessage(chat.id, sent)!!
+
+            api.editMessageText(EditMessageText(chat.id, sent, "Allow? Allowed."))
+            val notModified = runCatching { api.editMessageReplyMarkup(EditMessageReplyMarkup(chat.id, sent)) }
+            val late = fake.press(grace, asked, "Allow")
+
+            assertEquals(listOf(listOf("Allow")), asked.buttons.map { row -> row.map { it.text } })
+            assertEquals(emptyList(), fake.botMessage(chat.id, sent)!!.buttons)
+            assertEquals(BotApiFailure.NOT_MODIFIED, (notModified.exceptionOrNull() as BotApiException).failure)
+            assertEquals(late, api.drain().single().callbackQuery?.id)
+            assertTrue(runCatching { fake.press(grace, fake.botMessage(chat.id, sent)!!, "Allow") }.isFailure)
+        }
 
     @Test
     fun `await returns what the probe finds once the fake gets there`() = runBlocking {

@@ -12,7 +12,19 @@ internal interface FollowUps {
 
     /** Puts [followUps], taken and not absorbed, back at the front of the queue. */
     fun restore(followUps: List<FollowUp>)
+
+    /** Whether [take] would return a message now. */
+    fun queued(principal: UserAddress, chat: ChatAddress, since: Instant): Boolean
+
+    /** Returns once [take] would return a message. */
+    suspend fun await(principal: UserAddress, chat: ChatAddress, since: Instant)
 }
 
 /** A queued message that a running turn took, whose own turn ends with what [complete] is given. */
 internal class FollowUp(val plan: TurnPlan, val complete: (TurnOutcome) -> Unit)
+
+/** The permit that lets a turn run beside the others, which it gives up while it waits for a person. */
+internal interface TurnPermit {
+    /** Runs [block] without the permit, and takes it again before returning unless the turn was cancelled. */
+    suspend fun <T> released(block: suspend () -> T): T
+}

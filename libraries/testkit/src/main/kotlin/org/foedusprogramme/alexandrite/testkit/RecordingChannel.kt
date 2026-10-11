@@ -1,11 +1,15 @@
 package org.foedusprogramme.alexandrite.testkit
 
 import dev.drewhamilton.poko.Poko
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.update
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
@@ -29,8 +33,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
 
 /**
- * A channel of the instance [instance] that records what the agent shows and sends, and submits what a test receives
- * through [submitter].
+ * A channel of the instance [instance] that records what the agent shows and sends, answers approval requests as the
+ * test scripts, and submits what a test receives through [submitter].
  *
  * A call that breaks the rules of [Channel] or [ReplySink] throws an [IllegalStateException], and stops and fails the
  * [PluginHarness] run that holds the channel. Once its instance stops, it ignores previews and answers each delivery
@@ -53,6 +57,12 @@ public class RecordingChannel(
     private val violationList = mutableListOf<String>()
     private var sentParts = 0
     private var inbound = 0
+    private val approvalAnswers = ArrayDeque<ApprovalAnswer>()
+    private var approvalHold: CompletableDeferred<Unit>? = null
+
+    /** The answer of each approval request that no scripted answer is left for. */
+    @Volatile
+    public var defaultApproval: ApprovalAnswer = NO_APPROVER
 
     @Volatile
     internal var stopped: Boolean = false
@@ -74,6 +84,10 @@ public class RecordingChannel(
     public val sent: List<Event.Sent> get() = events.filterIsInstance<Event.Sent>()
 
     public val violations: List<String> get() = synchronized(lock) { violationList.toList() }
+
+    /** The approval requests the agent made, in order. */
+    public val approvals: List<ApprovalRequest>
+        get() = events.filterIsInstance<Event.ApprovalAsked>().map { it.request }
 
     /** The reply opened for [turn]. */
     public fun reply(turn: TurnId): RecordedReply =
@@ -101,6 +115,31 @@ public class RecordingChannel(
     public fun scriptDeliveries(vararg deliveries: Delivery, chat: ChatAddress? = null) {
         synchronized(lock) { this.deliveries.getOrPut(chat) { ArrayDeque() }.addAll(deliveries) }
     }
+
+    /** Answers the next approval requests with [answers], in order, once each is let through. */
+    public fun scriptApprovals(vararg answers: ApprovalAnswer) {
+        synchronized(lock) { approvalAnswers.addAll(answers) }
+    }
+
+    /** Makes the approval requests from now on wait for [releaseApprovals] before they take their answers. */
+    public fun holdApprovals() {
+        synchronized(lock) { if (approvalHold == null) approvalHold = CompletableDeferred() }
+    }
+
+    /** Lets the waiting approval requests and every later one take their answers. */
+    public fun releaseApprovals() {
+        synchronized(lock) {
+            approvalHold?.complete(Unit)
+            approvalHold = null
+        }
+    }
+
+    /** Suspends until the agent made [count] approval requests, and returns them. */
+    public suspend fun awaitApprovals(count: Int): List<ApprovalRequest> =
+        log.mapNotNull { events -> events.filterIsInstance<Event.ApprovalAsked>().takeIf { it.size >= count } }
+            .first()
+            .take(count)
+            .map { it.request }
 
     public fun chat(chat: String = "chat", thread: String? = null): ChatAddress = ChatAddress(instance, chat, thread)
 
@@ -184,6 +223,26 @@ public class RecordingChannel(
         val delivery = if (stopped) STOPPED else delivery(chat, message, replying = false)
         record(Event.Sent(chat, message, delivery))
         delivery
+    }
+
+    /** Records [request] and answers it once approvals are not held, with the next scripted answer or the default. */
+    override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer {
+        val hold = synchronized(lock) {
+            checkChat(request.turn.chat, "an approval request")
+            record(Event.ApprovalAsked(request))
+            approvalHold
+        }
+        try {
+            hold?.await()
+        } catch (e: CancellationException) {
+            synchronized(lock) { record(Event.ApprovalWithdrawn(request.id)) }
+            throw e
+        }
+        return synchronized(lock) {
+            val answer = approvalAnswers.removeFirstOrNull() ?: defaultApproval
+            record(Event.ApprovalAnswered(request.id, answer))
+            answer
+        }
     }
 
     internal fun <T> read(block: () -> T): T = synchronized(lock, block)
@@ -317,6 +376,17 @@ public class RecordingChannel(
         /** A submission the test made through the channel. */
         @Poko
         public class Received(public val submission: Submission) : Event
+
+        @Poko
+        public class ApprovalAsked(public val request: ApprovalRequest) : Event
+
+        /** The request [id] got [answer]. */
+        @Poko
+        public class ApprovalAnswered(public val id: String, public val answer: ApprovalAnswer) : Event
+
+        /** The agent withdrew the request [id] before it was answered. */
+        @Poko
+        public class ApprovalWithdrawn(public val id: String) : Event
     }
 
     public companion object {
@@ -324,6 +394,9 @@ public class RecordingChannel(
 
         /** The delivery of every reply and message once the instance stopped. */
         public val STOPPED: Delivery = Delivery.NotDelivered(DeliveryFailure.TRANSIENT)
+
+        /** What an approval request gets when the test scripted no answer. */
+        public val NO_APPROVER: ApprovalAnswer = ApprovalAnswer.Unavailable("no approver answers in this test")
 
         /** Streaming with the final message in place of the previews, proactive, and in plain text or Markdown. */
         public val DEFAULT_CAPABILITIES: ChannelCapabilities = ChannelCapabilities.builder()

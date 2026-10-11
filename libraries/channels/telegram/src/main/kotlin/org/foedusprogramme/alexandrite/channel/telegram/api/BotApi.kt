@@ -16,6 +16,10 @@ internal interface BotApi {
 
     suspend fun editMessageText(request: EditMessageText): Message
 
+    suspend fun editMessageReplyMarkup(request: EditMessageReplyMarkup)
+
+    suspend fun answerCallbackQuery(request: AnswerCallbackQuery)
+
     /** Shows that the bot is typing in [chat], or in its topic [thread]. */
     suspend fun sendChatAction(chat: Long, thread: Long?)
 }

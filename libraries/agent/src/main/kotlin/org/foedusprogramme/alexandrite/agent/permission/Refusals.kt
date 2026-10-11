@@ -4,6 +4,20 @@ import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 
 /** What the model reads of the calls that the permission layer refuses. */
 internal object Refusals {
+    const val DENIED_BY_ADMIN: String = "[alexandrite:denied by=admin] Not run: an administrator denied this call. " +
+        "Do not retry it or an equivalent call; tell the user and go on without it."
+
+    const val EXPIRED: String = "[alexandrite:expired] Not run: nobody answered the approval in time. Do not retry " +
+        "it now; if the user still wants it, they will say so."
+
+    const val DECLINED: String = "[alexandrite:declined] Not run: instead of answering the approval, the user sent " +
+        "the message that follows. Do what it says."
+
+    const val CANCELLED: String = "[alexandrite:cancelled] Not run: the turn was cancelled before this call ran."
+
+    const val INTERRUPTED: String =
+        "[alexandrite:interrupted] Not run: Alexandrite stopped while this call waited for approval."
+
     fun planMode(tool: String): String =
         "[alexandrite:plan_mode] Not run: this chat is in plan mode. Describe what you would do with \"$tool\" (the " +
             "exact call and why) instead of doing it. Do not retry."

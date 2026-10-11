@@ -2,6 +2,8 @@ package org.foedusprogramme.alexandrite.app
 
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOB
+import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.WAIT
+import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -13,6 +15,7 @@ import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class TelegramPermissionTest {
     @TempDir
@@ -52,6 +55,76 @@ class TelegramPermissionTest {
     }
 
     @Test
+    fun `an admin's gated call waits for their press in the chat, then runs, and the turn answers`() {
+        app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
+        lateinit var asked: FakeBotMessage
+
+        app.run(app.builder(directory).tool(write)) {
+            app.send(app.ada, app.adaChat, "Note that I need milk.")
+            asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            val before = write.calls.size
+            app.fake.press(app.ada, asked, "Allow")
+            app.message(app.adaChat, "Noted.")
+            app.fake.await(WAIT) { botMessage(ADA, asked.id)?.takeIf { it.buttons.isEmpty() } }
+            idle()
+
+            assertEquals(0, before)
+        }
+
+        assertEquals(listOf(listOf("Allow", "Deny")), asked.buttons.map { row -> row.map { it.text } })
+        assertTrue(asked.text.startsWith("Approval needed (#"), asked.text)
+        assertTrue(
+            asked.text.endsWith("Tool: notes.write (workspace_write)\nArguments:\n\n{\"text\":\"Buy milk.\"}"),
+            asked.text,
+        )
+        assertEquals(1, write.calls.size)
+        val answered = app.fake.botMessage(ADA, asked.id)!!.text
+        assertEquals("Allowed by Ada Lovelace (@ada_test).", answered.substringAfterLast("\n"))
+    }
+
+    @Test
+    fun `an admin's denial keeps the call from running, and the model reads that an admin denied it`() {
+        app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("I did not note it.") }
+
+        app.run(app.builder(directory).tool(write)) {
+            app.send(app.ada, app.adaChat, "Note that I need milk.")
+            val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            app.fake.press(app.ada, asked, "Deny")
+            app.message(app.adaChat, "I did not note it.")
+            idle()
+        }
+
+        val result = app.model.requests.last().history.last() as ToolResultEntry
+        val id = Regex("#([a-z0-9]+)").find(app.fake.botMessages(ADA).first().text)!!.groupValues[1]
+        assertEquals(ToolOutcome.NotRun(NotRunReason.DENIED, id), result.outcome)
+        assertEquals(
+            "[alexandrite:denied by=admin] Not run: an administrator denied this call. Do not retry it or an " +
+                "equivalent call; tell the user and go on without it.",
+            (result.content.single() as TextPart).text,
+        )
+        assertEquals(emptyList(), write.calls)
+    }
+
+    @Test
+    fun `a member's gated call is asked about in the admin's direct chat, where the admin allows it`() {
+        app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
+
+        app.run(app.builder(directory).tool(write).config(MEMBER_TOOLS)) {
+            app.send(app.bob, app.bobChat, "Note that I need milk.")
+            val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            app.fake.press(app.ada, asked, "Allow")
+            app.message(app.bobChat, "Noted.")
+            idle()
+
+            assertTrue("\nRequested by: Bob (@bob_test)\nWhy: a member's call\n" in asked.text, asked.text)
+            assertTrue("\nChat: telegram:work:$BOB\n" in asked.text, asked.text)
+        }
+
+        assertEquals(1, write.calls.size)
+        assertEquals(listOf("Noted."), app.fake.botMessages(BOB).map { it.text })
+    }
+
+    @Test
     fun `a member sees the mode but cannot set it, and an admin's bypass shows in the settings`() {
         app.run(app.builder(directory)) {
             app.send(app.bob, app.bobChat, "/mode")
@@ -72,5 +145,21 @@ class TelegramPermissionTest {
         val (set, settings) = app.fake.botMessages(ADA).map { it.text }
         assertEquals("The permission mode of this chat is now bypass for 2 h, then ask.", set)
         assertEquals("Permission mode: bypass (set in this chat) for 2 h more", settings.lines()[5])
+    }
+
+    private companion object {
+        val MEMBER_TOOLS = """
+            {
+              "previewIntervalMillis": 0,
+              "agents": {
+                "coder": {
+                  "name": "Coder",
+                  "model": "scripted/test-model",
+                  "channels": {"telegram:work": {}},
+                  "tools": {"forMembers": ["notes.write"]}
+                }
+              }
+            }
+        """.trimIndent()
     }
 }

@@ -5,6 +5,8 @@ import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
+import org.foedusprogramme.alexandrite.agent.permission.AwaitingCalls
+import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
@@ -17,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.store.TurnRecord
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeKind
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -29,6 +32,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
+import org.foedusprogramme.alexandrite.testkit.TestRecords
 import org.foedusprogramme.alexandrite.testkit.testUser
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -93,6 +97,40 @@ class RecoveryTest {
         assertEquals(emptyList(), second)
         assertEquals(entries, blocking { entries(turn) })
         assertEquals(ended, blocking { record(turn) })
+    }
+
+    @Test
+    fun `a call that waited for an approver is answered as interrupted, and the records of waiting calls go`() {
+        val conversation = blocking { store.conversations.current(key).id }
+        val turn = blocking { seed("t-1", conversation, listOf(message("Write both."), calls("a", "b"))) }
+        val awaiting = AwaitingCalls(TestRecords(store).of("alexandrite-agent"))
+        blocking {
+            awaiting.put(turn, ToolCallId("b"), "k3x9")
+            awaiting.put(TurnId("t-gone"), ToolCallId("c"), "m4y2")
+        }
+
+        val lines = recovered()
+
+        val interrupted = ToolResultEntry(
+            null,
+            ToolCallId("b"),
+            "fs.read",
+            listOf(TextPart(Refusals.INTERRUPTED)),
+            ToolOutcome.NotRun(NotRunReason.INTERRUPTED, "k3x9"),
+        )
+        assertEquals(
+            listOf(message("Write both."), calls("a", "b"), cancelled("a"), interrupted, notice),
+            blocking { entries(turn) },
+        )
+        assertEquals(
+            listOf(
+                endedLine("t-1", 1),
+                "INFO Turn t-1 of $key never ended while 1 call(s) waited for an approver: they are answered as " +
+                    "interrupted",
+            ),
+            lines,
+        )
+        assertEquals(emptyMap(), blocking { awaiting.all() })
     }
 
     @Test

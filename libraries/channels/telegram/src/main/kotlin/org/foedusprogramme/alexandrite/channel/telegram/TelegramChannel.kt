@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
 import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
@@ -7,6 +8,8 @@ import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.channel.telegram.reply.TelegramReply
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Typing
 import org.foedusprogramme.alexandrite.channel.telegram.reply.targetOf
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
@@ -32,6 +35,7 @@ internal class TelegramChannel(
     private val gate: AccessGate,
     private val outbox: Outbox,
     private val typing: Typing,
+    private val approvals: ApprovalDesk,
 ) : Channel,
     Lifecycle {
     private val replies: MutableSet<TelegramReply> = ConcurrentHashMap.newKeySet()
@@ -66,6 +70,15 @@ internal class TelegramChannel(
         stopped -> STOPPED
         !gate.isPaired(chat) -> NOT_PAIRED
         else -> outbox.send(chat, message)
+    }
+
+    override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer = when {
+        stopped -> ApprovalAnswer.Unavailable("the bot is stopping")
+
+        request.turn.chat.instance != instance.id ->
+            ApprovalAnswer.Unavailable("the chat ${request.turn.chat} belongs to another channel instance")
+
+        else -> approvals.ask(request)
     }
 
     override fun onStop() {

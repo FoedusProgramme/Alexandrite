@@ -62,6 +62,19 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
     override suspend fun editMessageText(request: EditMessageText): Message =
         call("editMessageText", JSON.encodeToString(EditMessageText.serializer(), request), Message.serializer())
 
+    override suspend fun editMessageReplyMarkup(request: EditMessageReplyMarkup) {
+        val body = JSON.encodeToString(EditMessageReplyMarkup.serializer(), request)
+        call("editMessageReplyMarkup", body, JsonElement.serializer())
+    }
+
+    override suspend fun answerCallbackQuery(request: AnswerCallbackQuery) {
+        call(
+            "answerCallbackQuery",
+            JSON.encodeToString(AnswerCallbackQuery.serializer(), request),
+            Boolean.serializer(),
+        )
+    }
+
     override suspend fun sendChatAction(chat: Long, thread: Long?) {
         val body = JSON.encodeToString(SendChatAction.serializer(), SendChatAction(chat, thread, "typing"))
         call("sendChatAction", body, Boolean.serializer())
@@ -135,7 +148,7 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
 
         val HEADERS = mapOf("content-type" to "application/json", "accept" to "application/json")
         const val NO_PARAMETERS = "{}"
-        val UPDATES = listOf("message")
+        val UPDATES = listOf("message", "callback_query")
         val UPDATE_LIST = ListSerializer(JsonElement.serializer())
         val ENVELOPE: KSerializer<Envelope<JsonElement>> = Envelope.serializer(JsonElement.serializer())
         val JSON = Json {

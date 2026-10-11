@@ -53,6 +53,9 @@ public class FakeBotApi(
     private val lastMessageIds = HashMap<Long, Long>()
     private val updates = ArrayDeque<JsonObject>()
     private var lastUpdateId = 0L
+    private var lastQueryId = 0L
+    private val openQueries = HashSet<String>()
+    private val answered = mutableListOf<FakeAnswer>()
     private var confirmed = 0L
     private val polledOffsets = mutableListOf<Long?>()
     private val received = mutableListOf<FakeCall>()
@@ -151,6 +154,34 @@ public class FakeBotApi(
         if (!chat.isGroup || canReadAllGroupMessages || passesPrivacy(text, found, target)) queueUpdate(message)
         message
     }
+
+    /**
+     * Has [from] press the button [button] of the bot's [message] as it read when the test took it, and returns the
+     * id of the callback query that the bot receives.
+     */
+    public fun press(from: FakeUser, message: FakeBotMessage, button: String): String = lock.withLock {
+        val pressed = requireNotNull(message.buttons.flatten().firstOrNull { it.text == button }) {
+            "Message ${message.id} in chat ${message.chat} has no button '$button'."
+        }
+        val current = messages.getValue(message.chat to message.id)
+        val id = "query-${++lastQueryId}"
+        openQueries += id
+        updates += buildJsonObject {
+            put("update_id", ++lastUpdateId)
+            putJsonObject("callback_query") {
+                put("id", id)
+                put("from", from.json())
+                put("message", current)
+                put("chat_instance", "instance-${message.chat}")
+                put("data", pressed.data)
+            }
+        }
+        changed.signalAll()
+        id
+    }
+
+    /** What the bot answered to the button presses, in order. */
+    public val answers: List<FakeAnswer> get() = lock.withLock { answered.toList() }
 
     /** Queues an update of [message] as given, which gets a message id and a date when it has none. */
     public fun queue(message: JsonObject): JsonObject = lock.withLock {
@@ -316,6 +347,8 @@ public class FakeBotApi(
             method == "getUpdates" -> 200 to ok(getUpdates(params))
             method == "sendMessage" -> sendMessage(params)
             method == "editMessageText" -> editMessageText(params)
+            method == "editMessageReplyMarkup" -> editMessageReplyMarkup(params)
+            method == "answerCallbackQuery" -> answerCallbackQuery(params)
             method == "sendChatAction" -> sendChatAction(params)
             else -> 404 to error(404, "Not Found")
         }
@@ -366,6 +399,8 @@ public class FakeBotApi(
         if (reply != null && target == null && reply["allow_sending_without_reply"]?.boolean() != true) {
             return 400 to error(400, "Bad Request: message to be replied not found")
         }
+        val markup = params["reply_markup"] as? JsonObject
+        val buttons = buttons(markup) ?: return 400 to error(400, BAD_MARKUP)
         val id = nextMessageId(chat.id)
         val message = buildJsonObject {
             put("message_id", id)
@@ -381,9 +416,11 @@ public class FakeBotApi(
             }
             put("text", text)
             if (entities.isNotEmpty()) put("entities", entities)
+            if (buttons.isNotEmpty()) put("reply_markup", markup!!)
         }
         messages[chat.id to id] = message
-        sent[chat.id to id] = FakeBotMessage(chat.id, id, text, entities, 0, target?.long("message_id"), thread)
+        val replyTo = target?.long("message_id")
+        sent[chat.id to id] = FakeBotMessage(chat.id, id, text, entities, 0, replyTo, thread, buttons)
         changed.signalAll()
         200 to ok(message)
     }
@@ -396,16 +433,72 @@ public class FakeBotApi(
         val text = params.string("text").orEmpty()
         val entities = params["entities"] as? JsonArray ?: JsonArray(emptyList())
         textProblem(text, entities)?.let { return 400 to error(400, it) }
-        if (text == current.text && entities == current.entities) return 400 to error(400, NOT_MODIFIED)
+        val markup = params["reply_markup"] as? JsonObject
+        val buttons = buttons(markup) ?: return 400 to error(400, BAD_MARKUP)
+        if (text == current.text && entities == current.entities && buttons == current.buttons) {
+            return 400 to error(400, NOT_MODIFIED)
+        }
         val edited = JsonObject(
-            message - "entities" + mapOf("text" to JsonPrimitive(text), "edit_date" to JsonPrimitive(now())) +
-                listOfNotNull(("entities" to entities).takeIf { entities.isNotEmpty() }),
+            message - "entities" - "reply_markup" +
+                mapOf("text" to JsonPrimitive(text), "edit_date" to JsonPrimitive(now())) +
+                listOfNotNull(
+                    ("entities" to entities).takeIf { entities.isNotEmpty() },
+                    markup?.let { "reply_markup" to it }.takeIf { buttons.isNotEmpty() },
+                ),
         )
         messages[key] = edited
         val edits = current.edits + 1
-        sent[key] = FakeBotMessage(chat.id, current.id, text, entities, edits, current.replyTo, current.thread)
+        sent[key] = FakeBotMessage(chat.id, current.id, text, entities, edits, current.replyTo, current.thread, buttons)
         changed.signalAll()
         200 to ok(edited)
+    }
+
+    private fun editMessageReplyMarkup(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val chat = params.long("chat_id")?.let(chats::get) ?: return 400 to error(400, CHAT_NOT_FOUND)
+        val key = chat.id to (params.long("message_id") ?: -1L)
+        val message = messages[key] ?: return 400 to error(400, "Bad Request: message to edit not found")
+        val current = sent[key] ?: return 400 to error(400, "Bad Request: message can't be edited")
+        val markup = params["reply_markup"] as? JsonObject
+        val buttons = buttons(markup) ?: return 400 to error(400, BAD_MARKUP)
+        if (buttons == current.buttons) return 400 to error(400, NOT_MODIFIED)
+        val edited = JsonObject(
+            message - "reply_markup" + mapOf("edit_date" to JsonPrimitive(now())) +
+                listOfNotNull(markup?.let { "reply_markup" to it }.takeIf { buttons.isNotEmpty() }),
+        )
+        messages[key] = edited
+        sent[key] = FakeBotMessage(
+            chat.id,
+            current.id,
+            current.text,
+            current.entities,
+            current.edits + 1,
+            current.replyTo,
+            current.thread,
+            buttons,
+        )
+        changed.signalAll()
+        200 to ok(edited)
+    }
+
+    private fun answerCallbackQuery(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val query = params.string("callback_query_id")
+        if (query == null || !openQueries.remove(query)) {
+            return 400 to error(400, QUERY_INVALID)
+        }
+        answered += FakeAnswer(query, params.string("text"))
+        changed.signalAll()
+        200 to ok(JsonPrimitive(true))
+    }
+
+    /** The rows of the inline keyboard [markup] holds, empty for none and null when it does not read. */
+    private fun buttons(markup: JsonObject?): List<List<FakeButton>>? {
+        val rows = markup?.get("inline_keyboard") ?: return emptyList()
+        return (rows as? JsonArray)?.map { row ->
+            (row as? JsonArray)?.map { button ->
+                val fields = button as? JsonObject ?: return null
+                FakeButton(fields.string("text") ?: return null, fields.string("callback_data") ?: return null)
+            } ?: return null
+        }?.filter { it.isNotEmpty() }
     }
 
     private fun sendChatAction(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
@@ -462,6 +555,9 @@ public class FakeBotApi(
         const val THREAD_NOT_FOUND = "Bad Request: message thread not found"
         const val NOT_MODIFIED = "Bad Request: message is not modified: specified new message content and reply " +
             "markup are exactly the same as a current content and reply markup of the message"
+        const val BAD_MARKUP = "Bad Request: can't parse reply keyboard markup JSON object"
+        const val QUERY_INVALID =
+            "Bad Request: query is too old and response timeout expired or query ID is invalid"
         val PATH = Regex("/bot([^/]*)/([A-Za-z]+)")
         val JSON_HEADERS = mapOf("content-type" to "application/json")
 

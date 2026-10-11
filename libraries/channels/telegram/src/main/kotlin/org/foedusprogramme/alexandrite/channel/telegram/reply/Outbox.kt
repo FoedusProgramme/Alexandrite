@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
+import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.LinkPreviewOptions
 import org.foedusprogramme.alexandrite.channel.telegram.api.ReplyParameters
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
@@ -82,11 +83,16 @@ internal class Outbox(
     suspend fun <T> previewPaced(target: Target, call: suspend () -> T): T =
         limiter.preview(target.chat, target.group, call)
 
-    /** Sends [text] to [target] without pacing, quoting [replyTo], and returns the new message's id. */
-    suspend fun sendText(target: Target, text: FormattedText, replyTo: Long?): Long = withFallback(target, text) {
+    /** Sends [text] to [target] without pacing, quoting [replyTo], under [keyboard], and returns the message's id. */
+    suspend fun sendText(
+        target: Target,
+        text: FormattedText,
+        replyTo: Long?,
+        keyboard: InlineKeyboardMarkup? = null,
+    ): Long = withFallback(target, text) {
         val reply = replyTo?.let { ReplyParameters(it, allowSendingWithoutReply = true) }
-        api.sendMessage(SendMessage(target.chat, it.text, target.thread, it.wireEntities(), NO_PREVIEW, reply))
-            .messageId
+        val request = SendMessage(target.chat, it.text, target.thread, it.wireEntities(), NO_PREVIEW, reply, keyboard)
+        api.sendMessage(request).messageId
     }
 
     /** Has the message [message] of [target] read [text], without pacing. */

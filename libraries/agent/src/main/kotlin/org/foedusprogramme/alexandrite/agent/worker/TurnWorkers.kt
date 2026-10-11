@@ -3,12 +3,15 @@ package org.foedusprogramme.alexandrite.agent.worker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
@@ -16,6 +19,7 @@ import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.turn.FollowUp
 import org.foedusprogramme.alexandrite.agent.turn.FollowUps
+import org.foedusprogramme.alexandrite.agent.turn.TurnPermit
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
 import org.foedusprogramme.alexandrite.agent.turn.TurnSource
@@ -129,6 +133,7 @@ internal class TurnWorkers(
                 created
             }
             worker.queue.addLast(job)
+            if (job is WorkerJob.Turn) worker.arrivals.update { it + 1 }
         }
     }
 
@@ -143,13 +148,19 @@ internal class TurnWorkers(
         since: Instant,
     ): List<WorkerJob.Turn> = lock.locked {
         val queue = workers[key]?.queue ?: return@locked emptyList()
-        val taken = queue.asSequence()
-            .takeWhile { it is WorkerJob.Turn }
-            .filterIsInstance<WorkerJob.Turn>()
-            .filter { it.plan.isFollowUp(principal, chat, since) }
-            .toList()
+        val taken = queue.followUps(principal, chat, since).toList()
         queue.removeAll { job -> taken.any { it === job } }
         taken
+    }
+
+    /** Whether [takeFollowUps] would return a message now. */
+    fun hasFollowUp(key: AgentChatKey, principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =
+        lock.locked { workers[key]?.queue?.followUps(principal, chat, since)?.any() == true }
+
+    /** Returns once [takeFollowUps] would return a message. */
+    suspend fun awaitFollowUp(key: AgentChatKey, principal: UserAddress, chat: ChatAddress, since: Instant) {
+        val arrivals = lock.locked { workers[key]?.arrivals } ?: awaitCancellation()
+        arrivals.first { hasFollowUp(key, principal, chat, since) }
     }
 
     /** Puts [jobs], which the turn running at [key] took and did not absorb, back at the front of its queue. */
@@ -160,6 +171,7 @@ internal class TurnWorkers(
                 jobs.forEach { it.ticket.complete(TurnOutcome.ShutDown(replayable = true)) }
             } else {
                 jobs.asReversed().forEach(queue::addFirst)
+                workers[key]?.arrivals?.update { it + 1 }
             }
         }
     }
@@ -283,13 +295,15 @@ internal class TurnWorkers(
     }
 
     private suspend fun execute(worker: Worker, current: Current, turn: WorkerJob.Turn) {
+        val permit = Permit()
         val outcome = try {
-            permits.withPermit {
+            permit.take()
+            try {
                 lock.locked {
                     current.cause?.let { throw it }
                     current.startedAt = clock.instant()
                 }
-                runner.run(turn.plan, QueuedFollowUps(turn.plan.key)) { conversation ->
+                runner.run(turn.plan, QueuedFollowUps(turn.plan.key), permit) { conversation ->
                     lock.locked {
                         current.conversation = conversation
                         if (turn.plan.kind == TurnKind.HEARTBEAT) {
@@ -299,6 +313,8 @@ internal class TurnWorkers(
                         }
                     }
                 }
+            } finally {
+                permit.give()
             }
         } catch (e: Throwable) {
             if (e is VirtualMachineError) throw e
@@ -372,6 +388,43 @@ internal class TurnWorkers(
         override fun restore(followUps: List<FollowUp>) {
             restoreFollowUps(key, followUps.mapNotNull { taken.remove(it.plan.id) })
         }
+
+        override fun queued(principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =
+            hasFollowUp(key, principal, chat, since)
+
+        override suspend fun await(principal: UserAddress, chat: ChatAddress, since: Instant) {
+            awaitFollowUp(key, principal, chat, since)
+        }
+    }
+
+    /** The permit of one turn, which it holds while it runs and gives up while it waits for a person. */
+    private inner class Permit : TurnPermit {
+        private var held = false
+
+        /** How many of the turn's calls wait without the permit. */
+        private var away = 0
+
+        suspend fun take() {
+            permits.acquire()
+            synchronized(this) { held = true }
+        }
+
+        fun give() {
+            synchronized(this) {
+                if (!held) return
+                held = false
+            }
+            permits.release()
+        }
+
+        override suspend fun <T> released(block: suspend () -> T): T {
+            if (synchronized(this) { away++ == 0 }) give()
+            try {
+                return block()
+            } finally {
+                if (synchronized(this) { --away == 0 } && currentCoroutineContext().isActive) take()
+            }
+        }
     }
 
     /** The current conversation of [key], or its heartbeat base when [heartbeat], null when it cannot be read. */
@@ -387,6 +440,10 @@ internal class TurnWorkers(
 
 private class Worker(val key: AgentChatKey) {
     val queue = ArrayDeque<WorkerJob>()
+
+    /** The number of turns queued so far. */
+    val arrivals = MutableStateFlow(0L)
+
     var current: Current? = null
     var loop: Job? = null
 
@@ -428,6 +485,12 @@ private class Current(val job: WorkerJob) {
         child?.cancel(cause)
     }
 }
+
+/** The follow-ups of [principal] in [chat] queued since [since], up to the first change of the key's state. */
+private fun ArrayDeque<WorkerJob>.followUps(principal: UserAddress, chat: ChatAddress, since: Instant) = asSequence()
+    .takeWhile { it is WorkerJob.Turn }
+    .filterIsInstance<WorkerJob.Turn>()
+    .filter { it.plan.isFollowUp(principal, chat, since) }
 
 /** Whether this turn answers a message that [principal] sent in [chat] and queued since [since]. */
 private fun TurnPlan.isFollowUp(principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =

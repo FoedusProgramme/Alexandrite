@@ -99,6 +99,13 @@ class PublicApiTest {
             sink.complete(OutboundMessage.builder("Hello", MessageKind.REPLY).build())
             channel.send(channel.chat(), OutboundMessage.builder("Note", MessageKind.NOTICE).build())
             val recorded: RecordedReply = channel.awaitReply(TurnId("test-turn")).awaitEnd()
+            channel.defaultApproval = RecordingChannel.NO_APPROVER
+            channel.scriptApprovals(ApprovalAnswer.Expired)
+            channel.holdApprovals()
+            channel.releaseApprovals()
+            val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test", null)
+            val answer: ApprovalAnswer = channel.askApproval(request)
+            val approvals: List<ApprovalRequest> = channel.awaitApprovals(1) + channel.approvals
             val preview: RecordedReply.Preview = recorded.previews.first()
             val event = channel.awaitEvent { it is RecordingChannel.Event.Completed }
             val described = when (event) {
@@ -108,10 +115,14 @@ class PublicApiTest {
                 is RecordingChannel.Event.Abandoned -> listOf(event.turn, event.end)
                 is RecordingChannel.Event.Sent -> listOf(event.chat, event.message, event.delivery)
                 is RecordingChannel.Event.Received -> event.submission
+                is RecordingChannel.Event.ApprovalAsked -> event.request
+                is RecordingChannel.Event.ApprovalAnswered -> listOf(event.id, event.answer)
+                is RecordingChannel.Event.ApprovalWithdrawn -> event.id
                 else -> null
             }
             return listOf(
-                command, admissions, described, preview.segment, preview.text, recorded.request, recorded.turn,
+                command, admissions, described, answer, approvals, preview.segment, preview.text, recorded.request,
+                recorded.turn,
                 recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,
                 recorded.ended,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,

@@ -2,7 +2,10 @@ package org.foedusprogramme.alexandrite.testkit
 
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
@@ -18,6 +21,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
@@ -280,7 +284,68 @@ class RecordingChannelTest {
         assertViolation("a question for the parts needed for other:main:chat, a chat of another instance.") {
             channel.partsNeeded(foreign, "x", Markup.PLAIN)
         }
+        assertViolation("an approval request for other:main:chat, a chat of another instance.") {
+            channel.askApproval(approval("a1", testTurn(chat = foreign)))
+        }
     }
+
+    // Approvals.
+
+    @Test
+    fun `approval requests take the scripted answers in order, then the default one, and are recorded`() {
+        val ada = channel.user("ada")
+        channel.scriptApprovals(ApprovalAnswer.Allowed(ada, always = true), ApprovalAnswer.Denied(ada))
+
+        val answers = blocking { listOf("a1", "a2", "a3").map { channel.askApproval(approval(it)) } }
+        channel.defaultApproval = ApprovalAnswer.Expired
+        val later = blocking { channel.askApproval(approval("a4")) }
+
+        assertEquals(
+            listOf(ApprovalAnswer.Allowed(ada, true), ApprovalAnswer.Denied(ada), RecordingChannel.NO_APPROVER),
+            answers,
+        )
+        assertEquals(ApprovalAnswer.Expired, later)
+        assertEquals(listOf("a1", "a2", "a3", "a4"), channel.approvals.map { it.id })
+        assertEquals(
+            listOf(
+                RecordingChannel.Event.ApprovalAsked(approval("a1")),
+                RecordingChannel.Event.ApprovalAnswered("a1", ApprovalAnswer.Allowed(ada, true)),
+            ),
+            channel.events.take(2),
+        )
+    }
+
+    @Test
+    fun `held approval requests take their answers once released, and a withdrawn one is recorded as such`() {
+        val ada = channel.user("ada")
+        channel.scriptApprovals(ApprovalAnswer.Allowed(ada))
+        channel.holdApprovals()
+
+        val (answer, events) = blocking {
+            coroutineScope {
+                val withdrawn = async { channel.askApproval(approval("a1")) }
+                val waiting = async { channel.askApproval(approval("a2")) }
+                assertEquals(listOf("a1", "a2"), channel.awaitApprovals(2).map { it.id })
+                withdrawn.cancelAndJoin()
+                channel.releaseApprovals()
+                waiting.await() to channel.events
+            }
+        }
+
+        assertEquals(ApprovalAnswer.Allowed(ada), answer)
+        assertEquals(
+            listOf(
+                RecordingChannel.Event.ApprovalAsked(approval("a1")),
+                RecordingChannel.Event.ApprovalAsked(approval("a2")),
+                RecordingChannel.Event.ApprovalWithdrawn("a1"),
+                RecordingChannel.Event.ApprovalAnswered("a2", ApprovalAnswer.Allowed(ada)),
+            ),
+            events,
+        )
+    }
+
+    private fun approval(id: String, turn: TurnInfo = this.turn) =
+        ApprovalRequest(id, turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test", null)
 
     @Test
     fun `a stopped instance takes the agent's calls, ignores previews and delivers nothing`() {

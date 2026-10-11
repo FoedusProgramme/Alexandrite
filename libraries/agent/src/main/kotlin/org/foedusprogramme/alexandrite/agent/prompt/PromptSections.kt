@@ -49,7 +49,10 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
             "[alexandrite:plan_mode] (the chat is in plan mode: describe the exact call you would make and why " +
             "instead of making it), [alexandrite:denied by=policy] (refused: do not retry it or an equivalent call, " +
             "and tell the user) or [alexandrite:blocked_floor] (a protected place that no approval opens: do not " +
-            "look for another way in).",
+            "look for another way in). A call that waited for an approval may also return " +
+            "[alexandrite:denied by=admin] (an administrator refused it: do not retry it), [alexandrite:expired] " +
+            "(nobody answered in time: do not retry it now) or [alexandrite:declined] (the user wrote instead of " +
+            "answering: do what their message says).",
         "# Replies",
         "Write your replies in Markdown.",
     ).joinToString("\n\n"),

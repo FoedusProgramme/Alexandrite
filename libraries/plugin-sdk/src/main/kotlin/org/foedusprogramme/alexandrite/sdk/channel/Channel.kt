@@ -21,6 +21,14 @@ public interface Channel {
 
     /** Sends [message] to [chat] outside any turn's reply. */
     public suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery
+
+    /**
+     * Asks an approver about [request] and waits for the answer, within the channel's own limit.
+     *
+     * The agent withdraws a request by cancelling the call: the channel then marks it withdrawn and rethrows.
+     */
+    public suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer =
+        ApprovalAnswer.Unavailable("this channel cannot ask for approvals")
 }
 
 /** The reply of one turn, which delivers until the channel instance stops and then takes calls without delivering. */

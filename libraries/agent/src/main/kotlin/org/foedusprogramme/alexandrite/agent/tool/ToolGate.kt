@@ -26,6 +26,7 @@ internal class GateCall(
     val taint: TurnTaint,
     /** Where the tool reviews the call. */
     val context: ToolContext,
+    val calls: TurnCalls,
 )
 
 /** What a [ToolGate] decided. */

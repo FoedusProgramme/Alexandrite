@@ -1,0 +1,372 @@
+package org.foedusprogramme.alexandrite.channel.telegram.approval
+
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.foedusprogramme.alexandrite.channel.telegram.TelegramBots
+import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
+import org.foedusprogramme.alexandrite.channel.telegram.WORK
+import org.foedusprogramme.alexandrite.channel.telegram.api.CallbackQuery
+import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
+import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
+import org.foedusprogramme.alexandrite.channel.telegram.api.Message
+import org.foedusprogramme.alexandrite.channel.telegram.api.User
+import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
+import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
+import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
+import org.foedusprogramme.alexandrite.channel.telegram.intake.ChatTitles
+import org.foedusprogramme.alexandrite.channel.telegram.intake.MemoryBotApi
+import org.foedusprogramme.alexandrite.channel.telegram.intake.RecordingControl
+import org.foedusprogramme.alexandrite.channel.telegram.intake.TestInstance
+import org.foedusprogramme.alexandrite.channel.telegram.pairing.TelegramPairingDesk
+import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
+import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
+import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.testkit.testRecords
+import org.foedusprogramme.alexandrite.testkit.testTexts
+import org.foedusprogramme.alexandrite.testkit.testTurn
+import java.nio.file.Path
+import java.time.Clock
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class ApprovalDeskTest {
+    private val ada = user(ADA, "Ada", admin = true)
+    private val grace = user(GRACE, "Grace", admin = true)
+    private val bob = user(BOB, "Bob", admin = false)
+
+    /** The desk of a bot whose admins are Ada, whose direct chat is paired, and Grace, whose is not. */
+    private inner class Desk(test: TestScope, admins: List<Long> = listOf(ADA, GRACE)) {
+        val api = MemoryBotApi()
+        private val instance = TestInstance(test.backgroundScope)
+        private val config = TelegramInstanceConfig(
+            Secret(FAKE_BOT_TOKEN),
+            adminUserIds = admins,
+            allowedChats = listOf(ADA, BOB, GROUP),
+        )
+        private val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
+        private val texts = testTexts("alexandrite-channel-telegram")
+        private val session = BotSession(instance, config, api, TelegramBots(), RecordingControl())
+        private val outbox = Outbox(instance, api, limiter, texts, null, session)
+        private val gate = AccessGate(
+            instance,
+            config,
+            TelegramPairingDesk(Clock.systemUTC(), testRecords()),
+            outbox,
+            null,
+        )
+            .also { runBlocking { it.onStart() } }
+        val titles = ChatTitles()
+        val desk = ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, titles)
+
+        /** The bot's messages in [chat] as they read now, with their keyboards. */
+        fun shown(chat: Long): List<String> =
+            api.messages.filterKeys { it.first == chat }.toSortedMap(compareBy { it.second })
+                .map { (key, text) -> text + api.keyboards[key]?.let { " " + buttons(it) }.orEmpty() }
+
+        /** Has [user] press the button [data] under the message [message] of [chat]. */
+        fun press(user: ChatUser, data: String, chat: Long = ADA, message: Long = 101) {
+            val from = User(user.address.user.toLong(), firstName = user.displayName)
+            desk.press(
+                CallbackQuery(
+                    "q-$data-${user.address.user}",
+                    from,
+                    Message(message, date = 0, chat = Chat(chat, "private")),
+                    data,
+                ),
+                user,
+            )
+        }
+
+        /** The toasts of the answered presses, in order. */
+        fun toasts(): List<String?> = api.answers.map { it.text }
+    }
+
+    private fun TestScope.asking(desk: Desk, request: ApprovalRequest): Deferred<ApprovalAnswer> =
+        backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { desk.desk.ask(request) }
+
+    private fun request(
+        turn: TurnInfo = turnOf(ada, ADA),
+        preview: ReviewPreview? = null,
+        always: RuleSubject? = null,
+        id: String = "k3x9",
+    ) = ApprovalRequest(
+        id,
+        turn,
+        "fs.write",
+        ToolRisk.WORKSPACE_WRITE,
+        """{"path":"notes.md"}""",
+        preview,
+        "the chat is in ask mode",
+        always,
+    )
+
+    // Where requests go.
+
+    @Test
+    fun `an admin's own turn is asked about in its chat, a direct chat or a group`() = runTest {
+        val desk = Desk(this)
+
+        asking(desk, request(turnOf(ada, ADA), id = "in-dm"))
+        asking(desk, request(turnOf(ada, GROUP), id = "in-group"))
+        advanceTimeBy(5.seconds)
+
+        assertEquals(listOf(listOf("apv:in-dm:a", "apv:in-dm:d")), callbacks(desk, ADA))
+        assertEquals(listOf(listOf("apv:in-group:a", "apv:in-group:d")), callbacks(desk, GROUP))
+        assertEquals(setOf(ADA, GROUP), desk.api.messages.keys.map { it.first }.toSet())
+    }
+
+    @Test
+    fun `a member's or a heartbeat's turn is asked about in each admin's paired direct chat`() = runTest {
+        val desk = Desk(this)
+
+        asking(desk, request(turnOf(bob, GROUP), id = "member"))
+        asking(desk, request(testTurn(TurnKind.HEARTBEAT, ChatAddress(WORK, "$GROUP")), id = "beat"))
+        advanceTimeBy(5.seconds)
+
+        assertEquals(listOf(ADA), desk.api.messages.keys.map { it.first }.distinct())
+        assertEquals(listOf("apv:member:a", "apv:beat:a"), callbacks(desk, ADA).map { it.first() })
+        val member = desk.shown(ADA).first()
+        assertTrue("Requested by: Bob" in member, member)
+        assertTrue("Requested by: nobody: the agent started this turn itself" in desk.shown(ADA)[1])
+    }
+
+    @Test
+    fun `a request that no admin can see is answered that no administrator can be reached`() = runTest {
+        val desk = Desk(this, admins = listOf(GRACE))
+
+        val answer = desk.desk.ask(request(turnOf(bob, BOB)))
+
+        assertEquals(ApprovalAnswer.Unavailable("no administrator can be reached"), answer)
+        assertEquals(emptyList(), desk.api.sent)
+    }
+
+    // The message.
+
+    @Test
+    fun `a request shows who asks where, why and what, with its preview as code under the buttons`() = runTest {
+        val desk = Desk(this)
+        desk.titles.note(ChatAddress(WORK, "$GROUP"), "Backend")
+        val command = ReviewPreview.Command(
+            listOf("./gradlew", "test", "--tests", "My Test"),
+            Path.of("/srv/repo"),
+            Path.of("/srv/repo/gradlew"),
+            opaque = true,
+        )
+        val always = RuleSubject("command.exec", listOf("./gradlew", "test"), "./gradlew test")
+
+        asking(desk, request(turnOf(ada, GROUP), command, always))
+        advanceTimeBy(5.seconds)
+
+        val text = desk.api.messages.getValue(GROUP to 101L)
+        assertEquals(
+            """
+            Approval needed (#k3x9)
+            Agent: main
+            Chat: Backend (telegram:work:$GROUP)
+            Requested by: Ada
+            Why: the chat is in ask mode
+            Tool: fs.write (workspace_write)
+            Directory: /srv/repo
+            Program: /srv/repo/gradlew
+            Opaque: Alexandrite cannot see what this program runs.
+
+            ./gradlew test --tests 'My Test'
+            """.trimIndent(),
+            text,
+        )
+        val sent = desk.api.calls("sendMessage").single()
+        val code = text.indexOf("./gradlew test")
+        assertEquals(listOf("bold 0+23", "pre $code+${text.length - code}"), sent.entities)
+        assertEquals(
+            listOf(
+                listOf("Allow" to "apv:k3x9:a", "Deny" to "apv:k3x9:d"),
+                listOf("Always allow ./gradlew test" to "apv:k3x9:A"),
+            ),
+            desk.api.keyboards.getValue(GROUP to 101L).inlineKeyboard.map { row ->
+                row.map { it.text to it.callbackData }
+            },
+        )
+    }
+
+    @Test
+    fun `the names and titles that Telegram gives are escaped like the rest of the request`() = runTest {
+        val desk = Desk(this)
+        desk.titles.note(ChatAddress(WORK, "$GROUP"), "Back\u202Eend")
+        val sender = ChatUser(UserAddress(WORK, "$BOB"), "Bo\u200Bb", "bob\u2066x", isBot = false, isAdmin = false)
+
+        asking(desk, request(turnOf(sender, GROUP)))
+        advanceTimeBy(5.seconds)
+
+        val text = desk.shown(ADA).single()
+        assertTrue("\nChat: Back\\u202Eend (telegram:work:$GROUP)\n" in text, text)
+        assertTrue("\nRequested by: Bo\\u200Bb (@bob\\u2066x)\n" in text, text)
+    }
+
+    @Test
+    fun `a request without a preview shows its arguments, and a long one goes out in parts with the buttons last`() =
+        runTest {
+            val desk = Desk(this)
+            val diff = ReviewPreview.Diff(
+                Path.of("/srv/notes.md"),
+                (1..200).joinToString("\n") {
+                    "+line $it of the new file"
+                },
+            )
+
+            asking(desk, request())
+            asking(desk, request(preview = diff, id = "long"))
+            advanceTimeBy(10.seconds)
+
+            val (short, first, second) = desk.shown(ADA)
+            assertTrue(short.endsWith("Arguments:\n\n{\"path\":\"notes.md\"} [Allow|Deny]"), short)
+            assertTrue(first.startsWith("Approval needed (#long)"), first)
+            assertTrue("File: /srv/notes.md\n\n+line 1 of the new file" in first, first)
+            assertTrue(!first.endsWith("]"), first)
+            assertTrue(second.startsWith("(2/2)\n+line "), second)
+            assertTrue(second.endsWith("+line 200 of the new file [Allow|Deny]"), second)
+            assertEquals(
+                diff.unified,
+                (first.substringAfter("\n\n") + "\n" + second.substringAfter("\n")).removeSuffix(" [Allow|Deny]"),
+            )
+        }
+
+    @Test
+    fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {
+        val desk = Desk(this)
+        val text = ReviewPreview.Text("x".repeat(4 * 4096))
+
+        assertEquals(ApprovalAnswer.Unavailable("too large to review"), desk.desk.ask(request(preview = text)))
+        assertEquals(emptyList(), desk.api.sent)
+    }
+
+    // Answers.
+
+    @Test
+    fun `only an admin's press answers, the first one wins, and the message then shows who answered`() = runTest {
+        val desk = Desk(this)
+        val answer = asking(desk, request(turnOf(ada, GROUP)))
+        advanceTimeBy(5.seconds)
+
+        desk.press(bob, "apv:k3x9:a", GROUP)
+        runCurrent()
+        val pendingAfterBob = answer.isActive
+        desk.press(ada, "apv:k3x9:d", GROUP)
+        desk.press(grace, "apv:k3x9:a", GROUP)
+        advanceTimeBy(5.seconds)
+
+        assertTrue(pendingAfterBob)
+        assertEquals(ApprovalAnswer.Denied(ada), answer.await())
+        assertEquals(
+            listOf("Only an admin of this bot can answer.", null, "This request no longer waits for an answer."),
+            desk.toasts(),
+        )
+        assertTrue(
+            desk.shown(
+                GROUP,
+            ).single().endsWith(
+                "ask mode\nTool: fs.write (workspace_write)\nArguments:\n\n{\"path\":\"notes.md\"}\n\nDenied by Ada.",
+            ),
+        )
+    }
+
+    @Test
+    fun `always allow answers for good where the request offers it, and the message names the rule`() = runTest {
+        val desk = Desk(this)
+        val always = RuleSubject("fs.write", emptyList(), "fs.write")
+        val offered = asking(desk, request(always = always))
+        val plain = asking(desk, request(id = "plain"))
+        advanceTimeBy(5.seconds)
+
+        desk.press(ada, "apv:k3x9:A", message = 101)
+        desk.press(ada, "apv:plain:A", message = 102)
+        advanceTimeBy(5.seconds)
+
+        assertEquals(ApprovalAnswer.Allowed(ada, always = true), offered.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, always = false), plain.await())
+        assertEquals(
+            listOf("Allowed by Ada, from now on also fs.write.", "Allowed by Ada."),
+            desk.shown(ADA).map { it.substringAfterLast("\n") },
+        )
+    }
+
+    @Test
+    fun `a request nobody answers expires after the configured minutes and loses its buttons`() = runTest {
+        val desk = Desk(this)
+        val answer = asking(desk, request())
+
+        advanceTimeBy(9.minutes + 59.seconds)
+        val before = answer.isActive
+        advanceTimeBy(2.seconds)
+        advanceUntilIdle()
+
+        assertTrue(before)
+        assertEquals(ApprovalAnswer.Expired, answer.await())
+        assertEquals(
+            "Nobody answered in time, so the call did not run.",
+            desk.shown(ADA).single().substringAfterLast("\n"),
+        )
+        assertEquals(emptyMap(), desk.api.keyboards)
+        desk.press(ada, "apv:k3x9:a")
+        runCurrent()
+        assertEquals(listOf("This request no longer waits for an answer."), desk.toasts())
+    }
+
+    @Test
+    fun `a withdrawn request is marked withdrawn and loses its buttons`() = runTest {
+        val desk = Desk(this)
+        val answer = asking(desk, request())
+        advanceTimeBy(5.seconds)
+
+        answer.cancel()
+        advanceTimeBy(5.seconds)
+
+        assertEquals(
+            "Withdrawn: the call no longer waits for an answer.",
+            desk.shown(ADA).single().substringAfterLast("\n"),
+        )
+        assertEquals(emptyMap(), desk.api.keyboards)
+    }
+
+    private fun callbacks(desk: Desk, chat: Long): List<List<String>> =
+        desk.api.keyboards.filterKeys { it.first == chat }.toSortedMap(compareBy { it.second }).values
+            .map { keyboard -> keyboard.inlineKeyboard.flatten().map { it.callbackData } }
+
+    private fun buttons(keyboard: InlineKeyboardMarkup): String =
+        keyboard.inlineKeyboard.flatten().joinToString("|", "[", "]") { it.text }
+
+    private fun turnOf(actor: ChatUser, chat: Long): TurnInfo = testTurn(chat = ChatAddress(WORK, "$chat")) {
+        actor(actor)
+    }
+
+    private fun user(id: Long, name: String, admin: Boolean) =
+        ChatUser(UserAddress(WORK, "$id"), name, null, isBot = false, isAdmin = admin)
+
+    private companion object {
+        const val ADA = 1001L
+        const val BOB = 1002L
+        const val GRACE = 1003L
+        const val GROUP = -1001234500000L
+    }
+}

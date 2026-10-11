@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.hostPaths
@@ -97,8 +98,10 @@ class ToolExecutorTest {
         return checkNotNull(ended) to lines
     }
 
-    private suspend fun ToolExecutor.executed(tool: Tool, timeout: Duration = 120.seconds): ToolCallEnd =
-        execute(turn, call, mapOf(tool.definition.name to tool), timeout, setOf(tool.definition.name), taint)
+    private suspend fun ToolExecutor.executed(tool: Tool, timeout: Duration = 120.seconds): ToolCallEnd {
+        val name = tool.definition.name
+        return execute(turn, call, mapOf(name to tool), timeout, setOf(name), taint, DirectCalls)
+    }
 
     private fun ToolResultEntry.text(): String = content.joinToString("") { (it as TextPart).text }
 

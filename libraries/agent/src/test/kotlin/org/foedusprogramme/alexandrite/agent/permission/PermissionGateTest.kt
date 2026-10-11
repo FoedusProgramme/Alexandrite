@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
@@ -17,6 +18,7 @@ import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.GateResult
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -31,6 +33,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
+import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
@@ -93,7 +96,8 @@ class PermissionGateTest {
     ): GateResult {
         val taint = TurnTaint(turn.id, turn.key).apply { if (tainted) mark("a test") }
         val call = ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}")
-        return admit(GateCall(turn, call, tool, JsonObject(emptyMap()), 5.seconds, taint, testToolContext(turn)))
+        val context = testToolContext(turn)
+        return admit(GateCall(turn, call, tool, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls))
     }
 
     /** How [result] ended, in the words of the gate table. */
@@ -260,22 +264,6 @@ class PermissionGateTest {
 
         assertEquals(listOf("ask", "mode"), listOf(opaque, visible).map { outcome(gate.admit(it)) })
     }
-
-    @Test
-    fun `the placeholder approvals refuse every call they are asked about, since no approver can be reached`() =
-        runTest {
-            val exec = recordingTool("command.exec", ToolRisk.EXEC)
-            val part = ToolCallPart(ToolCallId("call-1"), "command.exec", "{}")
-            val taint = TurnTaint(member.id, member.key)
-            val gated = GateCall(member, part, exec, JsonObject(emptyMap()), 5.seconds, taint, testToolContext(member))
-            val call = CheckedCall(gated, CallReview(), ToolRisk.EXEC, null)
-
-            assertEquals(
-                ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY) to "[alexandrite:denied by=policy] Not run: no " +
-                    "approver can be reached. Do not retry this or an equivalent call; tell the user.",
-                refused(NoApprovals().ask(call, "a member's call")),
-            )
-        }
 
     // The judge and the rules.
 
@@ -571,4 +559,8 @@ private class ScriptedRules : CallRules {
         allowChecks++
         return allowed
     }
+
+    override suspend fun grantable(call: CheckedCall): RuleSubject? = null
+
+    override suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser) = error("Nothing is granted.")
 }

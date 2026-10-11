@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.permission
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.turn.Interceptor
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
@@ -103,18 +104,21 @@ class PermissionTurnsTest {
     }
 
     @Test
-    fun `a member's gated call asks an approver even in the operator's bypass, and none can be reached yet`() {
+    fun `a member's gated call asks an approver even in the operator's bypass`() {
         model.reply { toolCall("fs.write") }.reply { text("Not written.") }
 
         harness(""", "tools": {"forMembers": ["fs.write"]}""").execute {
             setMode(PermissionMode.BYPASS)
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
             ask(user = "member").ticket.outcome()
 
+            val request = channel().approvals.single()
+            assertEquals("a member's call", request.reason)
             assertEquals(
-                ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY) to "[alexandrite:denied by=policy] Not run: no " +
-                    "approver can be reached. Do not retry this or an equivalent call; tell the user.",
+                ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_ADMIN,
                 results().single().let { it.outcome to it.text() },
             )
+            assertEquals(emptyList(), write.calls)
         }
     }
 

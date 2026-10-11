@@ -21,6 +21,8 @@ internal class TelegramInstanceConfig(
     val apiBaseUrl: String = "https://api.telegram.org",
     val polling: PollingConfig = PollingConfig(),
     val streaming: StreamingConfig = StreamingConfig(),
+    /** How long an approval request waits for an admin's answer. */
+    val approvalMinutes: Int = 10,
 ) {
     init {
         val token = botToken.reveal()
@@ -38,6 +40,7 @@ internal class TelegramInstanceConfig(
         require(isHttpUrl(apiBaseUrl)) {
             "apiBaseUrl must be an http or https URL without user info, query or fragment"
         }
+        require(approvalMinutes in 1..MAX_APPROVAL_MINUTES) { "approvalMinutes must lie between 1 and 1440" }
     }
 
     /** [apiBaseUrl] without a trailing `/`. */
@@ -84,6 +87,8 @@ internal fun configPath(instance: ChannelInstanceId, key: String? = null): Strin
 private val TOKEN = Regex("[0-9]+:[A-Za-z0-9_-]{30,}")
 
 private const val MAX_INTERVAL = 60_000L
+
+private const val MAX_APPROVAL_MINUTES = 1440
 
 private fun isHttpUrl(text: String): Boolean = try {
     val uri = URI(text)

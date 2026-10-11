@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
@@ -19,6 +20,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
@@ -207,6 +209,15 @@ internal fun agentDirectory(
         override fun channel(instance: ChannelInstanceId): Channel? = null
     }
     return AgentDirectory(settings, channels, Endpoints(providers, settings, TestClock()))
+}
+
+/** The calls of a turn that holds no permit and takes no follow-ups, so that each approval is asked at once. */
+internal object DirectCalls : TurnCalls {
+    override fun starting(call: ToolCallId) = Unit
+
+    override fun followedUp(): Boolean = false
+
+    override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T = ask()
 }
 
 fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths = object : HostPaths {

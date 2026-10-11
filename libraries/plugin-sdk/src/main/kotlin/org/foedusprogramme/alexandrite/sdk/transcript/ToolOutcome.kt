@@ -34,7 +34,7 @@ public interface ToolOutcome {
     @Poko
     public class NotRun(
         public val reason: NotRunReason,
-        /** The id of the approval the call is waiting for or was refused by, null when there is none. */
+        /** The id of the approval request that the call waited for, null when there is none. */
         public val approval: String? = null,
     ) : ToolOutcome {
         override val isError: Boolean get() = true
@@ -92,7 +92,7 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The user wrote a message instead of answering. */
         public val DECLINED: NotRunReason = NotRunReason("declined")
 
-        /** The turn was cancelled while the call waited for an approver. */
+        /** The turn was cancelled before the call ran. */
         public val CANCELLED: NotRunReason = NotRunReason("cancelled")
 
         /** The agent stopped while the call waited for an approver. */

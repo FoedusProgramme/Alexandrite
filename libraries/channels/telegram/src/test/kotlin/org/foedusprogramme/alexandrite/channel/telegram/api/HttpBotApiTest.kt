@@ -141,6 +141,49 @@ class HttpBotApiTest {
     }
 
     @Test
+    fun `a keyboard goes with a message, a press comes back as a callback query, and the bot answers it`() =
+        runBlocking {
+            val keyboard = InlineKeyboardMarkup(
+                listOf(listOf(InlineKeyboardButton("Allow", "apv:k3x9:a"), InlineKeyboardButton("Deny", "apv:k3x9:d"))),
+            )
+            val sent = api.sendMessage(SendMessage(direct.id, "Allow?", replyMarkup = keyboard))
+            val query = fake.press(ada, fake.botMessage(direct.id, sent.messageId)!!, "Deny")
+
+            val press = api.getUpdates(null, 100, 0).single().callbackQuery!!
+            api.answerCallbackQuery(AnswerCallbackQuery(press.id, "Too late."))
+            api.editMessageReplyMarkup(EditMessageReplyMarkup(direct.id, sent.messageId))
+
+            assertEquals(
+                buildJsonObject {
+                    put(
+                        "inline_keyboard",
+                        buildJsonArray {
+                            add(
+                                buildJsonArray {
+                                    add(button("Allow", "apv:k3x9:a"))
+                                    add(button("Deny", "apv:k3x9:d"))
+                                },
+                            )
+                        },
+                    )
+                },
+                fake.calls("sendMessage").single().params["reply_markup"],
+            )
+            assertEquals(listOf(query, "42", "apv:k3x9:d"), listOf(press.id, "${press.from.id}", press.data))
+            assertEquals(sent.messageId, press.message?.messageId)
+            assertEquals(query to "Too late.", fake.answers.single().let { it.query to it.text })
+            assertEquals(emptyList(), fake.botMessage(direct.id, sent.messageId)!!.buttons)
+            assertEquals(
+                buildJsonObject {
+                    put("chat_id", direct.id)
+                    put("message_id", sent.messageId)
+                },
+                fake.calls("editMessageReplyMarkup").single().params,
+            )
+            assertEquals(BAD_REQUEST, failure { answerCallbackQuery(AnswerCallbackQuery(press.id)) }.failure)
+        }
+
+    @Test
     fun `sendChatAction shows typing in a topic`() = runBlocking {
         val forum = fake.group(-1001, "Forum", forum = true)
         val topic = fake.topic(forum, "Builds", ada)
@@ -188,7 +231,13 @@ class HttpBotApiTest {
             buildJsonObject {
                 put("limit", 100)
                 put("timeout", 0)
-                put("allowed_updates", buildJsonArray { add(JsonPrimitive("message")) })
+                put(
+                    "allowed_updates",
+                    buildJsonArray {
+                        add(JsonPrimitive("message"))
+                        add(JsonPrimitive("callback_query"))
+                    },
+                )
             },
             params,
         )
@@ -427,6 +476,11 @@ class HttpBotApiTest {
         put("type", type)
         put("offset", offset)
         put("length", length)
+    }
+
+    private fun button(text: String, data: String) = buildJsonObject {
+        put("text", text)
+        put("callback_data", data)
     }
 
     private fun JsonObject.id(): Long = getValue("message_id").jsonPrimitive.long

@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.turn.FollowUps
+import org.foedusprogramme.alexandrite.agent.turn.TurnPermit
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
 import org.foedusprogramme.alexandrite.runtime.chat.standaloneChatStates
@@ -120,10 +121,19 @@ internal class FakeRunner : TurnRunner {
     /** The follow-ups that each started turn may take. */
     val followUps: MutableMap<TurnId, FollowUps> = ConcurrentHashMap()
 
+    /** The permit of each started turn. */
+    val permits: MutableMap<TurnId, TurnPermit> = ConcurrentHashMap()
+
     private val resolved = ConcurrentHashMap<TurnId, (ConversationId) -> Unit>()
 
-    override suspend fun run(plan: TurnPlan, followUps: FollowUps, resolved: (ConversationId) -> Unit): TurnOutcome {
+    override suspend fun run(
+        plan: TurnPlan,
+        followUps: FollowUps,
+        permit: TurnPermit,
+        resolved: (ConversationId) -> Unit,
+    ): TurnOutcome {
         this.followUps[plan.id] = followUps
+        permits[plan.id] = permit
         this.resolved[plan.id] = resolved
         started += plan.id
         val end = end(plan.id)

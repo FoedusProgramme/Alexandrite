@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.agent.worker
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -184,6 +186,83 @@ class TurnWorkersTest {
 
         assertEquals(listOf(running, later.turn), bench.runner.started)
         assertEquals(TurnOutcome.Absorbed(running), late.ticket.outcome())
+    }
+
+    @Test
+    fun `a running turn learns of a follow-up of its principal once one is queued`() = runTest {
+        val bench = bench(perKey = 10)
+        val member = UserAddress.parse("test:main@member")
+        val chat = ChatAddress.parse("test:main:1")
+        val running = bench.receive("test:main:1").turn
+        runCurrent()
+        val followUps = bench.runner.followUps.getValue(running)
+        val since = bench.clock.instant()
+        var arrived = false
+
+        launch {
+            followUps.await(member, chat, since)
+            arrived = true
+        }
+        bench.receive("test:main:1", user = "other")
+        runCurrent()
+        val before = arrived to followUps.queued(member, chat, since)
+        bench.receive("test:main:1")
+        runCurrent()
+
+        assertEquals(false to false, before)
+        assertEquals(true to true, arrived to followUps.queued(member, chat, since))
+    }
+
+    @Test
+    fun `a turn that gives up its permit lets another key's turn run, and waits for it again before it goes on`() =
+        runTest {
+            val bench = bench(maxConcurrentTurns = 1, perKey = 5)
+            val waiting = bench.receive("test:main:1").turn
+            val other = bench.receive("test:main:2").turn
+            runCurrent()
+            val answer = CompletableDeferred<Unit>()
+            var resumed = false
+
+            launch {
+                bench.runner.permits.getValue(waiting).released { answer.await() }
+                resumed = true
+            }
+            runCurrent()
+            val meanwhile = bench.runner.started.toList()
+            answer.complete(Unit)
+            runCurrent()
+            val beforeOtherEnds = resumed
+            bench.runner.finish(other)
+            runCurrent()
+
+            assertEquals(listOf(waiting, other), meanwhile)
+            assertEquals(false to true, beforeOtherEnds to resumed)
+            val third = bench.receive("test:main:3").turn
+            runCurrent()
+            assertEquals(listOf(waiting, other), bench.runner.started)
+            bench.runner.finish(waiting)
+            runCurrent()
+            assertEquals(listOf(waiting, other, third), bench.runner.started)
+        }
+
+    @Test
+    fun `a wait without the permit that is cancelled does not take the permit back`() = runTest {
+        val bench = bench(maxConcurrentTurns = 1, perKey = 5)
+        val waiting = bench.receive("test:main:1").turn
+        runCurrent()
+        val wait = launch { bench.runner.permits.getValue(waiting).released { awaitCancellation() } }
+        val other = bench.receive("test:main:2").turn
+        runCurrent()
+
+        wait.cancel()
+        bench.runner.finish(waiting)
+        val third = bench.receive("test:main:3").turn
+        runCurrent()
+
+        assertEquals(listOf(waiting, other), bench.runner.started)
+        bench.runner.finish(other)
+        runCurrent()
+        assertEquals(listOf(waiting, other, third), bench.runner.started)
     }
 
     @Test

@@ -77,8 +77,24 @@ public class FakeBotMessage internal constructor(
     public val replyTo: Long?,
     /** Its forum topic. */
     public val thread: Long?,
+    /** The rows of its inline keyboard, empty when it has none. */
+    public val buttons: List<List<FakeButton>> = emptyList(),
 ) {
-    override fun toString(): String = "#$id in $chat: $text"
+    override fun toString(): String = "#$id in $chat: $text" + if (buttons.isEmpty()) "" else " $buttons"
+}
+
+/** A button of an inline keyboard, which sends [data] back to the bot when pressed. */
+public class FakeButton internal constructor(public val text: String, public val data: String) {
+    override fun equals(other: Any?): Boolean = other is FakeButton && other.text == text && other.data == data
+
+    override fun hashCode(): Int = 31 * text.hashCode() + data.hashCode()
+
+    override fun toString(): String = "[$text]"
+}
+
+/** What the bot answered to the button press [query], with [text] shown to the presser, null for nothing. */
+public class FakeAnswer internal constructor(public val query: String, public val text: String?) {
+    override fun toString(): String = "$query: $text"
 }
 
 /** The `bot_command` and `mention` entities that Telegram finds in [text]. */

@@ -62,6 +62,8 @@ class SubclassOptInTest {
 
         class Preview : org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 
+        class Answer : org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
+
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
             override fun checkRead(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
                 TODO()
@@ -451,6 +453,14 @@ class SubclassOptInTest {
             is org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview.Text -> 2
             ELSE
         }
+
+        fun answer(answer: org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer): Int = when (answer) {
+            is org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer.Allowed -> 0
+            is org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer.Denied -> 1
+            org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer.Expired -> 2
+            is org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer.Unavailable -> 3
+            ELSE
+        }
     """.trimIndent()
 
     /** A channel as a third-party plugin writes it. */
@@ -478,6 +488,16 @@ class SubclassOptInTest {
             override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
                 if (message.kind == MessageKind.REPLY) Delivery.Delivered(emptyList())
                 else Delivery.NotDelivered(DeliveryFailure.UNSUPPORTED, "notices are not shown")
+            override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer {
+                println("Allow " + request.tool + " " + request.arguments + "? (y/n)")
+                val operator = request.turn.actor ?: return ApprovalAnswer.Unavailable("nobody sits at the console")
+                return when (readlnOrNull()) {
+                    "y" -> ApprovalAnswer.Allowed(operator, always = request.always != null)
+                    "n" -> ApprovalAnswer.Denied(operator)
+                    null -> ApprovalAnswer.Expired
+                    else -> ApprovalAnswer.Unavailable("the answer was neither y nor n")
+                }
+            }
         }
 
         object Silent : ReplySink {

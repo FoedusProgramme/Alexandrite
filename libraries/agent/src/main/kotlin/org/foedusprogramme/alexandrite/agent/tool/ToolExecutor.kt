@@ -54,7 +54,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
 
     /**
      * How [call] in [turn] ends, where the turn offers [tools], may call those named in [callable], a tool may run
-     * for [timeout] and untrusted content marks [taint].
+     * for [timeout], untrusted content marks [taint] and the turn does its part through [calls].
      */
     suspend fun execute(
         turn: TurnInfo,
@@ -63,6 +63,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         timeout: Duration,
         callable: Set<String>,
         taint: TurnTaint,
+        calls: TurnCalls,
     ): ToolCallEnd {
         val tool = tools[call.name]
             ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL)
@@ -73,7 +74,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS)
         val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint)
         val admission = try {
-            gate.admit(GateCall(turn, call, tool, arguments, timeout, taint, reviewing))
+            gate.admit(GateCall(turn, call, tool, arguments, timeout, taint, reviewing, calls))
         } finally {
             reviewing.close()
         }
@@ -81,6 +82,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
             is GateResult.Refused -> ToolCallEnd(textResult(call, admission.text, admission.outcome), admission.notice)
 
             is GateResult.Admitted -> {
+                calls.starting(call.id)
                 val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint)
                 ToolCallEnd(runTool(turn, call, tool, arguments, timeout, context), null, context.touchedPaths)
             }

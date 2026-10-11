@@ -2,10 +2,13 @@ package org.foedusprogramme.alexandrite.agent.turn
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -36,6 +39,7 @@ import org.foedusprogramme.alexandrite.agent.model.collectResponse
 import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
+import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.project.InstructionBudget
 import org.foedusprogramme.alexandrite.agent.project.LoadedFile
@@ -51,6 +55,7 @@ import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.tool.CANCELLED_RESULT
 import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
+import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
 import org.foedusprogramme.alexandrite.agent.tool.textResult
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -65,8 +70,10 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
@@ -105,6 +112,7 @@ import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.seconds
 
 /** Runs each turn that a worker takes through the turn pipeline. */
@@ -131,8 +139,13 @@ internal class AgentTurnRunner(
     private val routes: Routes,
     private val clock: Clock,
 ) : TurnRunner {
-    override suspend fun run(plan: TurnPlan, followUps: FollowUps, resolved: (ConversationId) -> Unit): TurnOutcome {
-        val run = Run(plan, followUps, resolved)
+    override suspend fun run(
+        plan: TurnPlan,
+        followUps: FollowUps,
+        permit: TurnPermit,
+        resolved: (ConversationId) -> Unit,
+    ): TurnOutcome {
+        val run = Run(plan, followUps, permit, resolved)
         return try {
             run.execute()
         } catch (e: Throwable) {
@@ -149,6 +162,7 @@ internal class AgentTurnRunner(
     private inner class Run(
         private val plan: TurnPlan,
         private val followUps: FollowUps,
+        private val permit: TurnPermit,
         private val resolved: (ConversationId) -> Unit,
     ) {
         private val startedAt = clock.instant()
@@ -162,6 +176,10 @@ internal class AgentTurnRunner(
         private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes)
         private var recorded = false
         private val taint = TurnTaint(plan.id, plan.key)
+        private val tracked = Calls()
+
+        /** Whose messages the turn takes as follow-ups, null when it takes none. */
+        private val principal: UserAddress? = plan.actor?.address?.takeIf { plan.kind == TurnKind.MESSAGE }
 
         /** Whether the sink got its final message. */
         private var replied = false
@@ -203,7 +221,7 @@ internal class AgentTurnRunner(
         suspend fun cutOff(cause: CancellationException): TurnOutcome {
             outcome?.let { return it }
             val cancelled = cause is TurnCancelled
-            answerOpenCalls()
+            answerOpenCalls { call -> cutOffResult(call, shutdown = !cancelled) }
             sink?.takeUnless { replied }?.let { sink ->
                 attempt("abandon its reply") { sink.abandon(if (cancelled) ReplyEnd.CANCELLED else ReplyEnd.SHUTDOWN) }
             }
@@ -425,7 +443,8 @@ internal class AgentTurnRunner(
                     for (call in calls) {
                         launch {
                             slots.withPermit {
-                                val end = executor.execute(turn, call, tools.offered, timeout, tools.callable, taint)
+                                val end =
+                                    executor.execute(turn, call, tools.offered, timeout, tools.callable, taint, tracked)
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
                                 untrusted += found.untrusted
@@ -472,7 +491,7 @@ internal class AgentTurnRunner(
 
         /** Absorbs the messages that the turn's principal queued since the turn started. */
         private suspend fun absorbFollowUps(turn: TurnInfo) {
-            val principal = plan.actor?.address?.takeIf { plan.kind == TurnKind.MESSAGE } ?: return
+            val principal = principal ?: return
             val taken = ArrayDeque(followUps.take(principal, plan.origin, startedAt))
             try {
                 while (taken.isNotEmpty()) absorbFirst(turn, taken)
@@ -507,12 +526,25 @@ internal class AgentTurnRunner(
             }
         }
 
-        /** Answers each call that the turn stored without a result as cancelled. */
-        private suspend fun answerOpenCalls() {
+        /** Answers each call that the turn stored without a result with [result], as cancelled unless given. */
+        private suspend fun answerOpenCalls(
+            result: (ToolCallPart) -> ToolResultEntry = { textResult(it, CANCELLED_RESULT, ToolOutcome.Cancelled) },
+        ) {
             val open = openCalls(appending.withLock { stored.toList() })
             if (open.isEmpty()) return
-            attempt("store the results of its open calls") {
-                append(*open.map { textResult(it, CANCELLED_RESULT, ToolOutcome.Cancelled) }.toTypedArray())
+            attempt("store the results of its open calls") { append(*open.map(result).toTypedArray()) }
+        }
+
+        /** The result of [call] that the turn's end cut off, at a [shutdown] or a cancel. */
+        private fun cutOffResult(call: ToolCallPart, shutdown: Boolean): ToolResultEntry {
+            val request = tracked.waiting[call.id]
+            return when {
+                call.id in tracked.started -> textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
+
+                shutdown && request != null ->
+                    textResult(call, Refusals.INTERRUPTED, ToolOutcome.NotRun(NotRunReason.INTERRUPTED, request))
+
+                else -> textResult(call, Refusals.CANCELLED, ToolOutcome.NotRun(NotRunReason.CANCELLED, request))
             }
         }
 
@@ -684,6 +716,52 @@ internal class AgentTurnRunner(
                 logger.warn("The {} of turn {} did not reach chat {}: {}", message.kind, plan.id, plan.origin, delivery)
             }
             return delivery
+        }
+
+        /** The calls of the turn whose tools started, and those that wait for an approver. */
+        private inner class Calls : TurnCalls {
+            val started: MutableSet<ToolCallId> = ConcurrentHashMap.newKeySet()
+
+            /** The approval request that each call waits for, or waited for when the turn's end cut the wait off. */
+            val waiting = ConcurrentHashMap<ToolCallId, String>()
+
+            /** Lets one call of the turn ask at a time. */
+            private val asking = Mutex()
+
+            override fun starting(call: ToolCallId) {
+                started += call
+            }
+
+            override fun followedUp(): Boolean = principal?.let { followUps.queued(it, plan.origin, startedAt) } == true
+
+            override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T? =
+                asking.withLock {
+                    if (followedUp()) return@withLock null
+                    val writer = principal
+                    waiting[call] = request
+                    try {
+                        permit.released { if (writer == null) ask() else answerOrFollowUp(writer, ask) }
+                    } finally {
+                        if (currentCoroutineContext().isActive) waiting -= call
+                    }
+                }
+
+            /** What [ask] returns, or null once [principal] queued a follow-up first. */
+            private suspend fun <T : Any> answerOrFollowUp(principal: UserAddress, ask: suspend () -> T): T? =
+                coroutineScope {
+                    val answer = async { ask() }
+                    val written = async { followUps.await(principal, plan.origin, startedAt) }
+                    select<T?> {
+                        answer.onAwait {
+                            written.cancel()
+                            it
+                        }
+                        written.onAwait {
+                            answer.cancel()
+                            null
+                        }
+                    }
+                }
         }
 
         private suspend fun attempt(what: String, block: suspend () -> Unit) {

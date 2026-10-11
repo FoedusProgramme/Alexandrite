@@ -9,9 +9,11 @@ import org.foedusprogramme.alexandrite.channel.telegram.TelegramBots
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramChannel
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
+import org.foedusprogramme.alexandrite.channel.telegram.intake.ChatTitles
 import org.foedusprogramme.alexandrite.channel.telegram.intake.MemoryBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.intake.RecordingControl
 import org.foedusprogramme.alexandrite.channel.telegram.intake.TestInstance
@@ -48,10 +50,13 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
     )
     val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
     private val session = BotSession(instance, config, api, TelegramBots(), control)
-    val outbox = Outbox(instance, api, limiter, testTexts("alexandrite-channel-telegram"), null, session)
+    private val texts = testTexts("alexandrite-channel-telegram")
+    val outbox = Outbox(instance, api, limiter, texts, null, session)
     private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
         .also { runBlocking { it.onStart() } }
-    val channel = TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session))
+    private val approvals =
+        ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles())
+    val channel = TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session), approvals)
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */
     suspend fun open(chat: Long = DIRECT, trigger: String? = "41", thread: Long? = null): ReplySink {

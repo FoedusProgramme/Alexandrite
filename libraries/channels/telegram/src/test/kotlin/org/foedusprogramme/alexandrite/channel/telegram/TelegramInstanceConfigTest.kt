@@ -34,6 +34,7 @@ class TelegramInstanceConfigTest {
         assertEquals(listOf(25, 100, 30), config.polling.run { listOf(timeoutSeconds, limit, retryMaxSeconds) })
         assertTrue(config.streaming.enabled)
         assertEquals(listOf(1000L, 3000L), config.streaming.run { listOf(editIntervalMillis, groupEditIntervalMillis) })
+        assertEquals(10, config.approvalMinutes)
         assertFalse(FAKE_BOT_TOKEN in config.toString())
         assertFalse(FAKE_BOT_TOKEN in config.botToken.toString())
     }
@@ -97,7 +98,7 @@ class TelegramInstanceConfigTest {
     }
 
     @Test
-    fun `polling and streaming values outside their ranges are refused`() {
+    fun `polling, streaming and approval values outside their ranges are refused`() {
         val refused = mapOf(
             """"polling": {"timeoutSeconds": -1}""" to "polling.timeoutSeconds",
             """"polling": {"timeoutSeconds": 51}""" to "polling.timeoutSeconds",
@@ -108,9 +109,11 @@ class TelegramInstanceConfigTest {
             """"streaming": {"editIntervalMillis": -1}""" to "streaming.editIntervalMillis",
             """"streaming": {"editIntervalMillis": 60001}""" to "streaming.editIntervalMillis",
             """"streaming": {"groupEditIntervalMillis": 60001}""" to "streaming.groupEditIntervalMillis",
+            """"approvalMinutes": 0""" to "approvalMinutes",
+            """"approvalMinutes": 1441""" to "approvalMinutes",
         )
         for ((json, key) in refused) {
-            val message = refusal(withToken(json), "60001", "301", "101", "51")
+            val message = refusal(withToken(json), "60001", "301", "101", "51", "1441")
             assertTrue("$key must lie between" in message, message)
         }
 
@@ -122,7 +125,11 @@ class TelegramInstanceConfigTest {
         )
         assertEquals(listOf(0, 1, 300), edges.polling.run { listOf(timeoutSeconds, limit, retryMaxSeconds) })
         assertEquals(listOf(0L, 60000L), edges.streaming.run { listOf(editIntervalMillis, groupEditIntervalMillis) })
-        val longest = decode(withToken(""""polling": {"timeoutSeconds": 50, "limit": 100}"""))
+        val longest = decode(withToken(""""polling": {"timeoutSeconds": 50, "limit": 100}, "approvalMinutes": 1440"""))
         assertEquals(listOf(50, 100), longest.polling.run { listOf(timeoutSeconds, limit) })
+        assertEquals(
+            1440 to 1,
+            longest.approvalMinutes to decode(withToken(""""approvalMinutes": 1""")).approvalMinutes,
+        )
     }
 }

@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.channel
 
+import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
@@ -11,7 +12,11 @@ import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
+import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import java.time.Instant
 import kotlin.test.Test
@@ -162,6 +167,43 @@ class ChannelValuesTest {
             Delivery.NotDelivered(DeliveryFailure.TRANSIENT, retryAfter = (-1).seconds)
         }
     }
+
+    // Approvals.
+
+    @Test
+    fun `an approval request has a short id of letters, digits, hyphens and underscores, and a tool name`() {
+        fun request(id: String, tool: String = "fs.write") =
+            ApprovalRequest(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", null, "a member's call", null)
+
+        assertEquals("a-Z_09", request("a-Z_09").id)
+        assertEquals(32, request("x".repeat(32)).id.length)
+        for (id in listOf("", "x".repeat(33), "apv:1", "a b", "a\u202Eb")) {
+            assertFailsWith<IllegalArgumentException>(id) { request(id) }
+        }
+        assertFailsWith<IllegalArgumentException> { request("k3x9", tool = "fs-write") }
+    }
+
+    @Test
+    fun `a channel that does not ask for approvals answers that it cannot`() {
+        val channel = object : Channel {
+            override suspend fun capabilities(chat: ChatAddress) = ChannelCapabilities.builder().build()
+
+            override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = 1
+
+            override suspend fun openReply(request: ReplyRequest): ReplySink = error("Not opened.")
+
+            override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = error("Not sent.")
+        }
+        val request = ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x", null)
+
+        assertEquals(
+            ApprovalAnswer.Unavailable("this channel cannot ask for approvals"),
+            runBlocking { channel.askApproval(request) },
+        )
+    }
+
+    private val testTurn: TurnInfo
+        get() = TurnInfo.builder(TurnId("t-1"), chat, ConversationId("c-1"), TurnKind.MESSAGE).actor(sender).build()
 
     private fun DeliveryFailure.Companion.entries(): List<DeliveryFailure> = listOf(
         FORBIDDEN,

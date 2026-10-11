@@ -23,7 +23,21 @@ internal class ResponseParameters(
 )
 
 @Serializable
-internal class Update(@SerialName("update_id") val updateId: Long, val message: Message? = null)
+internal class Update(
+    @SerialName("update_id") val updateId: Long,
+    val message: Message? = null,
+    @SerialName("callback_query") val callbackQuery: CallbackQuery? = null,
+)
+
+/** A press of an inline keyboard button. */
+@Serializable
+internal class CallbackQuery(
+    val id: String,
+    val from: User,
+    /** The message whose button was pressed, null when it is too old. */
+    val message: Message? = null,
+    val data: String? = null,
+)
 
 /** A message, its media and other content kept only as present or absent. */
 @Serializable
@@ -147,6 +161,30 @@ internal class SendMessage(
     val entities: List<MessageEntity>? = null,
     @SerialName("link_preview_options") val linkPreviewOptions: LinkPreviewOptions? = null,
     @SerialName("reply_parameters") val replyParameters: ReplyParameters? = null,
+    @SerialName("reply_markup") val replyMarkup: InlineKeyboardMarkup? = null,
+)
+
+@Serializable
+internal class InlineKeyboardMarkup(
+    @SerialName("inline_keyboard") val inlineKeyboard: List<List<InlineKeyboardButton>>,
+)
+
+@Serializable
+internal class InlineKeyboardButton(val text: String, @SerialName("callback_data") val callbackData: String)
+
+/** Replaces the inline keyboard of a message, or removes it when [replyMarkup] is null. */
+@Serializable
+internal class EditMessageReplyMarkup(
+    @SerialName("chat_id") val chatId: Long,
+    @SerialName("message_id") val messageId: Long,
+    @SerialName("reply_markup") val replyMarkup: InlineKeyboardMarkup? = null,
+)
+
+@Serializable
+internal class AnswerCallbackQuery(
+    @SerialName("callback_query_id") val callbackQueryId: String,
+    /** Shown to the presser for a moment, nothing when null. */
+    val text: String? = null,
 )
 
 @Serializable

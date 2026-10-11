@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
@@ -10,7 +11,10 @@ import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.slf4j.LoggerFactory
 
-/** Takes one update through the access gate, the reader, the command rules and the admissions. */
+/**
+ * Takes one update through the access gate, the reader, the command rules and the admissions, or a button press to the
+ * approval desk.
+ */
 @ChannelInstanceScoped
 internal class Intake(
     private val instance: ChannelInstance,
@@ -19,11 +23,17 @@ internal class Intake(
     private val gate: AccessGate,
     private val rules: CommandRules,
     private val admissions: Admissions,
+    private val approvals: ApprovalDesk,
+    private val titles: ChatTitles,
 ) {
     private val reader by lazy { UpdateReader(instance.id, config.adminUserIds.toSet(), session.identity) }
 
     /** Dispatches [update] without waiting for the network. */
     fun dispatch(update: Update): Dispatch {
+        update.callbackQuery?.let { query ->
+            approvals.press(query, reader.user(query.from))
+            return Dispatch.DONE
+        }
         val message = update.message ?: return ignored(update, "it holds no message")
         val chat = reader.chatOf(message)
         val kind = reader.kindOf(message.chat)
@@ -32,6 +42,7 @@ internal class Intake(
         if (!gate.admit(chat, kind, message.chat.title, trigger, requester, reader.addressed(message))) {
             return Dispatch.DONE
         }
+        titles.note(chat, message.chat.title)
         return when (val inbound = reader.read(message)) {
             is Inbound.Ignored -> ignored(update, inbound.why)
 
