@@ -24,6 +24,8 @@ internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: 
 
     val mode: PermissionMode? = config.permission.mode?.let(PermissionMode::of)
 
+    val judgeModel: ModelRef? = config.permission.judge?.let(ModelRef::parse) ?: model
+
     val linkedChats: List<List<ChatAddress>> = config.linkedChats.map { group -> group.map(ChatAddress::parse) }
 }
 
@@ -56,13 +58,15 @@ internal class AgentDirectory(settings: AgentSettings, channels: ChannelDirector
 
 private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirectory, endpoints: Endpoints): Agent {
     val path = "agent.agents.$id"
-    val model = config.model?.let(ModelRef::parse)
-    if (model != null && endpoints.endpoint(model.endpoint) == null) {
-        val known = endpoints.ids.joinToString().ifEmpty { "none" }
-        throw ConfigException(
-            "$path.model",
-            "no model provider contributes the endpoint '${model.endpoint}'. Endpoints: $known.",
-        )
+    for ((key, text) in listOf("model" to config.model, "permission.judge" to config.permission.judge)) {
+        val model = text?.let(ModelRef::parse) ?: continue
+        if (endpoints.endpoint(model.endpoint) == null) {
+            val known = endpoints.ids.joinToString().ifEmpty { "none" }
+            throw ConfigException(
+                "$path.$key",
+                "no model provider contributes the endpoint '${model.endpoint}'. Endpoints: $known.",
+            )
+        }
     }
     val attachments = config.channels.mapNotNull { (key, attachment) ->
         val instance = ChannelInstanceId.parse(key)

@@ -217,6 +217,8 @@ internal object DirectCalls : TurnCalls {
 
     override fun followedUp(): Boolean = false
 
+    override fun ownWords(): List<String> = emptyList()
+
     override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T = ask()
 }
 

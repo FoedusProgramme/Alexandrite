@@ -10,6 +10,9 @@ internal interface TurnCalls {
     /** Whether the turn's principal sent a message that joins the turn at its next tool boundary. */
     fun followedUp(): Boolean
 
+    /** The texts that the turn's principal wrote itself in the turn so far, message by message. */
+    fun ownWords(): List<String>
+
     /**
      * What [ask] returns for [call], which waits for the approval request [request] without the turn's permit, or null
      * once the turn's principal sends a message that joins the turn.

@@ -34,6 +34,7 @@ internal class ChannelApprovals(
     private val channels: ChannelDirectory,
     private val rules: CallRules,
     private val awaiting: AwaitingCalls,
+    private val judge: Judge,
 ) : Approvals {
     private val random = SecureRandom()
 
@@ -108,6 +109,7 @@ internal class ChannelApprovals(
                 val always = grantable?.takeIf { answer.always }
                 logged(request, "is allowed by ${answer.by.address}" + if (always != null) " for good" else "")
                 always?.let { rules.grant(call, it, answer.by) }
+                judge.allowedByAdmin(request.turn.key, request.tool)
                 GateResult.Admitted(Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot))
             }
 

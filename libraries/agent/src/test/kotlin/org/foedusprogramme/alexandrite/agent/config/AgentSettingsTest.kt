@@ -162,6 +162,19 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `a judge that is no model reference or a judge timeout that is not positive fails the start`() {
+        assertConfigFails(
+            agents(""""coder": {"permission": {"judge": "haiku"}}"""),
+            "agents.coder.permission.judge is no model reference: write <endpoint>/<model>, such as " +
+                "\"anthropic/claude-haiku-5-5\"",
+        )
+        assertConfigFails(
+            agents(""""coder": {"permission": {"judgeTimeoutSeconds": 0}}"""),
+            "agents.coder.permission.judgeTimeoutSeconds must be positive",
+        )
+    }
+
+    @Test
     fun `a number out of its range fails the start`() {
         val cases = mapOf(
             """{"maxConcurrentTurns": 0}""" to "maxConcurrentTurns must be positive",

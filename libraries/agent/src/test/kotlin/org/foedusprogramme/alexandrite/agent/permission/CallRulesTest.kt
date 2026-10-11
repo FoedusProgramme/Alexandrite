@@ -81,7 +81,7 @@ class CallRulesTest {
         val rules = AgentCallRules(directory, registry, records, store.conversations, states, clock)
         val approvals = OfferingApprovals(rules)
         val gate =
-            PermissionGate(TurnHooks(Proceeding), registry, rules, AskingJudge(), approvals, states, directory, clock)
+            PermissionGate(TurnHooks(Proceeding), registry, rules, UnsureJudge, approvals, states, directory, clock)
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */
         suspend fun decide(tool: Tool, review: CallReview, turn: TurnInfo, tainted: Boolean = false): String {
@@ -495,3 +495,10 @@ class CallRulesTest {
 }
 
 private fun JsonElement?.content(): String = (this as JsonPrimitive).content
+
+/** A judge that leaves every call to a person. */
+private object UnsureJudge : Judge {
+    override suspend fun judge(call: CheckedCall): Verdict = Verdict.Ask("unsure")
+
+    override fun allowedByAdmin(key: AgentChatKey, tool: String) = Unit
+}

@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.GateResult
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -601,6 +602,8 @@ private class RecordingJudge : Judge {
         calls += call
         return verdict
     }
+
+    override fun allowedByAdmin(key: AgentChatKey, tool: String) = Unit
 }
 
 /** Approvals that record why they were asked and refuse with [ASKED]. */

@@ -70,6 +70,11 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     checkRules("$path.permission.allow", agent.permission.allow)
     checkRules("$path.permission.deny", agent.permission.deny)
+    require(agent.permission.judge == null || ModelRef.parseOrNull(agent.permission.judge) != null) {
+        "$path.permission.judge is no model reference: write <endpoint>/<model>, such as " +
+            "\"anthropic/claude-haiku-5-5\""
+    }
+    require(agent.permission.judgeTimeoutSeconds > 0) { "$path.permission.judgeTimeoutSeconds must be positive" }
     require(agent.maxOutputTokens == null || agent.maxOutputTokens > 0) { "$path.maxOutputTokens must be positive" }
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {
         "$path.temperature must be a number of at least 0"

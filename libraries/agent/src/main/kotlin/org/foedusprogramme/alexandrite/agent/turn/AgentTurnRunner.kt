@@ -115,6 +115,7 @@ import java.time.Clock
 import java.time.Duration
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration.Companion.seconds
 
 /** Runs each turn that a worker takes through the turn pipeline. */
@@ -530,6 +531,7 @@ internal class AgentTurnRunner(
                     if (entry != null) {
                         markUntrusted(message)
                         append(entry)
+                        wordsOf(message)?.let(tracked.words::add)
                         followUp.complete(TurnOutcome.Absorbed(turn.id))
                         val absorbed = followUp.plan.id
                         logger.debug("Turn {} of {} absorbs turn {} as a follow-up", turn.id, turn.key, absorbed)
@@ -745,6 +747,8 @@ internal class AgentTurnRunner(
             /** The approval request that each call waits for, or waited for when the turn's end cut the wait off. */
             val waiting = ConcurrentHashMap<ToolCallId, String>()
 
+            val words: MutableList<String> = CopyOnWriteArrayList(listOfNotNull(plan.input.message?.let(::wordsOf)))
+
             /** Lets one call of the turn ask at a time. */
             private val asking = Mutex()
 
@@ -753,6 +757,8 @@ internal class AgentTurnRunner(
             }
 
             override fun followedUp(): Boolean = principal?.let { followUps.queued(it, plan.origin, startedAt) } == true
+
+            override fun ownWords(): List<String> = words.toList()
 
             override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T? =
                 asking.withLock {
@@ -820,6 +826,10 @@ private val TurnSource.text: String
         is TurnSource.FromMessage -> message.text
         is TurnSource.FromInitiated -> prompt
     }
+
+/** The words that the sender of [message] wrote themselves, null when it holds none of theirs. */
+private fun wordsOf(message: IncomingMessage): String? =
+    message.text.takeIf { message.forwarded == null && it.isNotBlank() }
 
 /** The tool calls of [entries] that none of them answers. */
 internal fun openCalls(entries: List<TranscriptEntry>): List<ToolCallPart> {

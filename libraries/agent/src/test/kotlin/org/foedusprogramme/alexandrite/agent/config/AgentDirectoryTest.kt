@@ -141,6 +141,37 @@ class AgentDirectoryTest {
     }
 
     @Test
+    fun `a judge of an endpoint that no provider contributes fails the start`() {
+        val config = """{"agents": {"reviewer": {"permission": {"judge": "local/llama"}}}}"""
+
+        agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
+            StartStage.GRAPH,
+            "Invalid config at 'agent.agents.reviewer.permission.judge': no model provider contributes the endpoint " +
+                "'local'. Endpoints: scripted.",
+        )
+    }
+
+    @Test
+    fun `the judge's model is the agent's own unless its permission section names one`() {
+        val config = """
+            {
+              "agents": {
+                "coder": {"model": "scripted/test-model"},
+                "reviewer": {"model": "scripted/test-model", "permission": {"judge": "side/small"}},
+                "loner": {}
+              }
+            }
+        """.trimIndent()
+        lateinit var judges: List<String?>
+
+        agentHarness(config) { model(ScriptedModel()).model(ScriptedModel(EndpointId("side"))) }.execute {
+            judges = get<AgentDirectory>().agents.map { it.judgeModel?.toString() }
+        }
+
+        assertEquals(listOf("scripted/test-model", "side/small", null), judges)
+    }
+
+    @Test
     fun `two endpoints with one id fail the start`() {
         val first = provider(ScriptedModel(EndpointId("local")))
         val second = provider(ScriptedModel(EndpointId("local")))

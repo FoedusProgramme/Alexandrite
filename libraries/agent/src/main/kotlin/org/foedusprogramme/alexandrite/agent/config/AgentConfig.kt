@@ -66,6 +66,9 @@ internal class PermissionConfig(
     val allow: List<String> = emptyList(),
     /** The calls that never run, written like [allow]. */
     val deny: List<String> = emptyList(),
+    /** `<endpoint>/<model>` of the judge in auto mode, the agent's model when null. */
+    val judge: String? = null,
+    val judgeTimeoutSeconds: Int = 20,
 )
 
 /** A persona file, written as its path or as `{"file": …, "when": […]}`. */
