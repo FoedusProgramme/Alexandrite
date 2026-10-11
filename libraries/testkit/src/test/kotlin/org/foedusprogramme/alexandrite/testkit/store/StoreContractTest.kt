@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.testkit.store
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -143,10 +146,12 @@ private class FlawedStore(private val flaw: StoreFlaw?, private val pretty: Bool
             ) {
                 return delegate.put(plugin(plugin), collection, key(key), layout(json), by)
             }
-            return withContext(Dispatchers.IO) {
+            val stored = withContext(NonCancellable + Dispatchers.IO) {
                 Thread.sleep(COMMIT_MILLIS)
                 delegate.put(plugin, collection, key, json, by)
             }
+            currentCoroutineContext().ensureActive()
+            return stored
         }
 
         override suspend fun remove(plugin: String, collection: String, key: String): Boolean =
