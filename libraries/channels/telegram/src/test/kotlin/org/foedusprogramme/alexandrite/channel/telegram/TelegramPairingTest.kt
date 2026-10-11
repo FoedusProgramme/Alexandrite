@@ -26,6 +26,9 @@ import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -209,7 +212,7 @@ class TelegramPairingTest {
 
             assertEquals(1, telegram.submitter.submissions.size)
             assertEquals(Unpairing.NotPaired, desk().unpair(telegram.address(BOB)))
-            assertEquals(Unpairing.Declared, desk().unpair(telegram.address(ADA)))
+            assertEquals(Unpairing.Declared(approvalRemoved = false), desk().unpair(telegram.address(ADA)))
             fake.send(telegram.ada, telegram.adaChat, "still here")
             telegram.submitted(2)
             assertEquals(emptyList(), approvals())
@@ -240,32 +243,27 @@ class TelegramPairingTest {
     }
 
     @Test
-    fun `unpairing a chat that is still a home chat or linked is warned of`() {
-        val lines = runBlocking {
-            logged {
-                telegram.run(builder()) {
-                    pair(telegram.bob, telegram.group, "@alexandrite_test_bot hi")
-                    pair(telegram.bob, telegram.bobChat)
-                    val group = telegram.address(GROUP)
-                    telegram.control.updateSettings(group, ChatSettingsUpdate.builder().home().build(), null)
-                    telegram.control.link(AgentId.MAIN, group, telegram.address(BOB, 3), null)
-
-                    for (chat in listOf(GROUP, BOB)) {
-                        assertEquals(Unpairing.Unpaired, desk().unpair(telegram.address(chat)))
-                    }
-                }
+    fun `a home chat or linked chat that is not paired is warned of once at start`() {
+        val elsewhere = ChatAddress(ChannelInstanceId(ChannelType("telegram"), "home"), "7")
+        runBlocking {
+            val home = ChatSettingsUpdate.builder().home().build()
+            telegram.control.updateSettings(telegram.address(GROUP, 5), home, null)
+            for (member in listOf(telegram.address(BOB), telegram.address(GROUP), elsewhere)) {
+                telegram.control.link(AgentId.MAIN, telegram.address(ADA), member, null)
             }
         }
 
-        val warnings = lines.filter { it.startsWith("WARN") && "is unpaired" in it }
+        val lines = runBlocking { logged { telegram.run(builder()) {} } }
+
+        val hint = "but not paired, so the bot sends it nothing: add %s to channels.telegram.instances.work." +
+            "allowedChats, or approve the code it is offered when it addresses the bot with `alexandrite pair <code>`"
         assertEquals(
             listOf(
-                "WARN Chat telegram:work:$GROUP is unpaired but still the home chat of agent main and linked at " +
-                    "agent main: the bot sends it nothing until it is paired again",
-                "WARN Chat telegram:work:$BOB is unpaired but still linked at agent main: the bot sends it nothing " +
-                    "until it is paired again",
+                "WARN Chat telegram:work:$GROUP is the home chat of agent main and linked at agent main " +
+                    hint.format(GROUP),
+                "WARN Chat telegram:work:$BOB is linked at agent main ${hint.format(BOB)}",
             ),
-            warnings,
+            lines.filter { it.startsWith("WARN") && "not paired" in it },
         )
     }
 
@@ -309,7 +307,7 @@ class TelegramPairingTest {
                     val code = code(fake.await { botMessages(carolChat.id).singleOrNull() }.text)
 
                     assertIs<PairingDecision.Approved>(desk.approve(code, null))
-                    assertEquals(Unpairing.Declared, desk.unpair(telegram.address(BOB)))
+                    assertEquals(Unpairing.Declared(approvalRemoved = false), desk.unpair(telegram.address(BOB)))
                     fake.send(carol, carolChat, "Now?")
                     fake.send(telegram.bob, telegram.bobChat, "Still here")
                     withTimeout(10.seconds) { submitter.awaitSubmissions(3) }

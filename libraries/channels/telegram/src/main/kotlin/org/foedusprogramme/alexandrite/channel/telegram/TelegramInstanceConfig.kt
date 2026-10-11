@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
 import kotlinx.serialization.Serializable
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
@@ -75,6 +76,10 @@ internal class StreamingConfig(
         }
     }
 }
+
+/** The config path of [key] in the config of [instance], of the instance itself when [key] is null. */
+internal fun configPath(instance: ChannelInstanceId, key: String? = null): String =
+    listOfNotNull("channels.telegram.instances.${instance.name}", key).joinToString(".")
 
 private val TOKEN = Regex("[0-9]+:[A-Za-z0-9_-]{30,}")
 

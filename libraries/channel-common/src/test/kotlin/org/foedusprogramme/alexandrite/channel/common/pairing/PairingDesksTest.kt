@@ -59,7 +59,7 @@ class PairingDesksTest {
         assertEquals(Unpairing.Unpaired, desks.unpair(ChatAddress(mail, "43", "3")))
 
         assertEquals(Unpairing.NotPaired, desks.unpair(carol))
-        assertEquals(Unpairing.Declared, desks.unpair(ChatAddress(chat, "7")))
+        assertEquals(Unpairing.Declared(approvalRemoved = false), desks.unpair(ChatAddress(chat, "7")))
         assertEquals(listOf("holds", "unpair", "unpair", "unpair"), first.calls)
         assertEquals(listOf("holds", "approve", "unpair", "unpair"), second.calls)
     }

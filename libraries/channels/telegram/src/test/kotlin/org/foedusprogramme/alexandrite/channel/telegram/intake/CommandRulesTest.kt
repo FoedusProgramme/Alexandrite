@@ -95,16 +95,24 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `a direct chat linked with a group is ruled as the group`() = runTest {
-        val group = testChat("-100")
-        val linked = testChat("42")
-        control.link(AgentId.MAIN, group, linked, testUser("ada", isAdmin = true))
+    fun `a direct chat linked with a group is ruled as the group for what changes their shared conversation`() =
+        runTest {
+            val group = testChat("-100")
+            val linked = testChat("42")
+            control.link(AgentId.MAIN, group, linked, testUser("ada", isAdmin = true))
 
-        for (chat in listOf(linked, testChat("42", "7"))) {
-            assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refusals("new", "", ChatKind.DIRECT, chat))
-            assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refusals("language", "en", ChatKind.DIRECT, chat))
-            assertEquals(null to null, refusals("settings", "", ChatKind.DIRECT, chat))
+            for (chat in listOf(linked, testChat("42", "7"))) {
+                for ((command, arguments) in listOf("new" to "", "reasoning" to "high", "language" to "en")) {
+                    val refused = refusals(command, arguments, ChatKind.DIRECT, chat)
+                    assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refused, "/$command $arguments")
+                }
+                for ((command, arguments) in listOf("cancel" to "", "agent" to "coder", "agent" to "reset")) {
+                    val refused = refusals(command, arguments, ChatKind.DIRECT, chat)
+                    assertEquals(null to null, refused, "/$command $arguments")
+                }
+                assertEquals(null to null, refusals("settings", "", ChatKind.DIRECT, chat))
+                assertEquals(null to null, refusals("language", "", ChatKind.DIRECT, chat))
+            }
+            assertEquals(null to null, refusals("new", "", ChatKind.DIRECT, testChat("43")))
         }
-        assertEquals(null to null, refusals("new", "", ChatKind.DIRECT, testChat("43")))
-    }
 }

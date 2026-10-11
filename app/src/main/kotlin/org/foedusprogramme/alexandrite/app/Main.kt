@@ -17,8 +17,10 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.decodeSection
 import org.foedusprogramme.alexandrite.runtime.get
+import org.foedusprogramme.alexandrite.runtime.getOrNull
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.io.PrintStream
@@ -180,7 +182,7 @@ private fun host(
                 logger.info("Alexandrite {} is ready", alexandriteVersion)
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
-                    val answers = ControlAnswers(alexandriteVersion) {
+                    val answers = ControlAnswers(alexandriteVersion, { services.getOrNull<AgentControl>() }) {
                         PairingDesks(services.get<ContributedDesks>().all)
                     }
                     launch { serveControl(locations.dataDir, answers::answer) }

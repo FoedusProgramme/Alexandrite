@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.common.pairing
 
 import dev.drewhamilton.poko.Poko
+import org.foedusprogramme.alexandrite.channel.common.InternalChannelCommonApi
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
@@ -27,8 +28,10 @@ public interface PairingDesk {
     /** Drops the request of the chat that got [code], denied by [by], null for the host. */
     public suspend fun deny(code: String, by: ChatUser?): PairingDecision
 
-    public fun paired(): List<PairedChat>
+    /** The paired chats, and the approved chats of channel instances that do not run. */
+    public suspend fun paired(): List<PairedChat>
 
+    /** Removes the approval of [chat] whenever it has one, then tells whether the config file still pairs it. */
     public suspend fun unpair(chat: ChatAddress): Unpairing
 }
 
@@ -40,6 +43,8 @@ public class PairedChat(
     public val declared: Boolean,
     /** How the chat's request was approved, null when it was not. */
     public val approval: PairingApproval?,
+    /** Whether the chat's channel instance runs. */
+    public val instanceRunning: Boolean = true,
 )
 
 /** An approved request to be paired. */
@@ -69,33 +74,48 @@ public class PairingRequest(
 )
 
 /** What a [PairingDesk] made of a code. */
-public sealed interface PairingDecision {
+@SubclassOptInRequired(InternalChannelCommonApi::class)
+public interface PairingDecision {
+    @OptIn(InternalChannelCommonApi::class)
     @Poko
     public class Approved(public val request: PairingRequest) : PairingDecision
 
+    @OptIn(InternalChannelCommonApi::class)
     @Poko
     public class Denied(public val request: PairingRequest) : PairingDecision
 
     /** The chat could not be kept as paired, and its request now holds a new code. */
+    @OptIn(InternalChannelCommonApi::class)
     @Poko
     public class Failed(public val request: PairingRequest, public val reason: String) : PairingDecision
 
     /** No request holds the code. */
+    @OptIn(InternalChannelCommonApi::class)
     public data object Unknown : PairingDecision
 
     /** Input that holds no code. */
+    @OptIn(InternalChannelCommonApi::class)
     public data object Malformed : PairingDecision
 }
 
 /** What [PairingDesk.unpair] did. */
-public sealed interface Unpairing {
+@SubclassOptInRequired(InternalChannelCommonApi::class)
+public interface Unpairing {
+    @OptIn(InternalChannelCommonApi::class)
     public data object Unpaired : Unpairing
 
+    @OptIn(InternalChannelCommonApi::class)
     public data object NotPaired : Unpairing
 
-    /** The config file declares the chat. */
-    public data object Declared : Unpairing
+    /** The config file declares the chat, which stays paired. */
+    @OptIn(InternalChannelCommonApi::class)
+    @Poko
+    public class Declared(
+        /** Whether the chat's approval was removed. */
+        public val approvalRemoved: Boolean,
+    ) : Unpairing
 
+    @OptIn(InternalChannelCommonApi::class)
     @Poko
     public class Failed(public val reason: String) : Unpairing
 }

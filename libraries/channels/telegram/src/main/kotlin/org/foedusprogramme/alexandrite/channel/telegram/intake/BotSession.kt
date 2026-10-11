@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
+import org.foedusprogramme.alexandrite.channel.telegram.configPath
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
@@ -122,8 +123,7 @@ internal class BotSession(
         }
     }
 
-    private fun path(key: String?): String =
-        listOfNotNull("channels.telegram.instances.${instance.id.name}", key).joinToString(".")
+    private fun path(key: String?): String = configPath(instance.id, key)
 
     private companion object {
         const val TRIES = 3

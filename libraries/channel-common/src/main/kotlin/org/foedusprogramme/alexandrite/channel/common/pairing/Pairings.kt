@@ -14,7 +14,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.store.Records
 import org.foedusprogramme.alexandrite.sdk.store.StoredRecord
 import org.foedusprogramme.alexandrite.sdk.store.collection
-import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
@@ -22,15 +21,11 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-/**
- * A [PairingDesk] over the channel instances of a channel plugin, offering an unpaired chat one code per lifetime and
- * warning through [control] when an unpaired chat is still a home chat or linked.
- */
+/** A [PairingDesk] over the channel instances of a channel plugin, offering an unpaired chat one code per lifetime. */
 public open class Pairings(
     private val clock: Clock,
     records: Records,
     public val codeLifetime: Duration = 10.minutes,
-    private val control: AgentControl? = null,
 ) : PairingDesk {
     private val approvals = records.collection<Approval>(COLLECTION)
     private val codes = PairingCodes<ChatAddress, ChatAddress>(clock, codeLifetime, capacity = CAPACITY)
@@ -47,16 +42,15 @@ public open class Pairings(
     /** Opens the pairing of [instance], whose config declares the chats [declared] paired. */
     public suspend fun open(instance: ChannelInstanceId, declared: Collection<ChatAddress>): InstancePairing {
         require(declared.all { it.instance == instance }) { "The paired chats of $instance hold another instance's." }
-        val approved = approvals.list().mapNotNull { record ->
-            ChatAddress.parseOrNull(record.key)?.takeIf { it.instance == instance && it.thread == null }
-                ?.let { it to record }
-        }
-        return synchronized(lock) {
-            require(instance !in instances) { "The pairing of $instance is open already." }
-            val paired = declared.mapTo(LinkedHashSet()) { it.parent }
-            val pairing = InstancePairing(instance, this, paired, approved.toMap(LinkedHashMap()))
-            instances[instance] = pairing
-            pairing
+        return deciding.withLock {
+            val approved = approvals.list().mapNotNull(::byChat).filter { (chat, _) -> chat.instance == instance }
+            synchronized(lock) {
+                require(instance !in instances) { "The pairing of $instance is open already." }
+                val paired = declared.mapTo(LinkedHashSet()) { it.parent }
+                val pairing = InstancePairing(instance, this, paired, approved.toMap(LinkedHashMap()))
+                instances[instance] = pairing
+                pairing
+            }
         }
     }
 
@@ -100,21 +94,29 @@ public open class Pairings(
         return PairingDecision.Approved(request)
     }
 
-    final override fun paired(): List<PairedChat> = synchronized(lock) {
-        instances.values.flatMap { pairing ->
-            val declared = pairing.declared.map { PairedChat(it, true, pairing.approved[it]?.let(::approval)) }
-            declared + pairing.approved.filterKeys { it !in pairing.declared }.map { (chat, record) ->
-                PairedChat(chat, false, approval(record))
+    final override suspend fun paired(): List<PairedChat> {
+        val recorded = approvals.list().mapNotNull(::byChat)
+        return synchronized(lock) {
+            val running = instances.values.flatMap { pairing ->
+                val declared = pairing.declared.map { PairedChat(it, true, pairing.approved[it]?.let(::approval)) }
+                declared + pairing.approved.filterKeys { it !in pairing.declared }.map { (chat, record) ->
+                    PairedChat(chat, false, approval(record))
+                }
+            }
+            running + recorded.filter { (chat, _) -> chat.instance !in instances }.map { (chat, record) ->
+                PairedChat(chat, false, approval(record), instanceRunning = false)
             }
         }
     }
 
     final override suspend fun unpair(chat: ChatAddress): Unpairing = deciding.withLock {
         val key = chat.parent
-        val pairing = synchronized(lock) { instances[key.instance]?.takeIf { it.isPaired(key) } }
-            ?: return@withLock Unpairing.NotPaired
-        if (key in pairing.declared) return@withLock Unpairing.Declared
-        try {
+        val pairing = synchronized(lock) { instances[key.instance] }
+        val declared = pairing != null && key in pairing.declared
+        if (pairing != null && synchronized(lock) { key !in pairing.approved }) {
+            return@withLock if (declared) Unpairing.Declared(approvalRemoved = false) else Unpairing.NotPaired
+        }
+        val removed = try {
             approvals.remove("$key")
         } catch (e: CancellationException) {
             throw e
@@ -122,10 +124,20 @@ public open class Pairings(
             logger.warn("Cannot unpair chat {}: {}", key, e.toString())
             return@withLock Unpairing.Failed(e.message ?: e.toString())
         }
-        synchronized(lock) { pairing.approved -= key }
-        logger.info("Chat {} is unpaired", key)
-        warnIfServed(key)
-        Unpairing.Unpaired
+        if (pairing != null) synchronized(lock) { pairing.approved -= key }
+        when {
+            declared -> {
+                logger.info("The approval of chat {} is removed, and the config file still pairs it", key)
+                Unpairing.Declared(approvalRemoved = true)
+            }
+
+            pairing == null && !removed -> Unpairing.NotPaired
+
+            else -> {
+                logger.info("Chat {} is unpaired", key)
+                Unpairing.Unpaired
+            }
+        }
     }
 
     internal fun isPaired(pairing: InstancePairing, chat: ChatAddress): Boolean =
@@ -191,27 +203,6 @@ public open class Pairings(
         codes.revoke(PURPOSE, chat)
     }
 
-    /** Warns when the agents still keep [chat], now unpaired, as a home chat or in a linked group. */
-    private fun warnIfServed(chat: ChatAddress) {
-        val control = control ?: return
-        val uses = try {
-            val homes = control.agents(chat.instance).filter { it.home?.parent == chat }
-            val groups = control.links().filter { group -> (group.members + group.anchor).any { it.parent == chat } }
-            homes.map { "the home chat of agent ${it.id}" } + groups.map { "linked at agent ${it.agent}" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            logger.warn("Cannot tell whether the unpaired chat {} is still a home chat or linked: {}", chat, "$e")
-            return
-        }
-        if (uses.isEmpty()) return
-        logger.warn(
-            "Chat {} is unpaired but still {}: the bot sends it nothing until it is paired again",
-            chat,
-            uses.joinToString(" and "),
-        )
-    }
-
     private companion object {
         const val PURPOSE = "pair"
 
@@ -265,6 +256,10 @@ internal class Requester(
 }
 
 private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
+
+/** [record] by the chat it approves, null when its key names none. */
+private fun byChat(record: StoredRecord<Approval>): Pair<ChatAddress, StoredRecord<Approval>>? =
+    ChatAddress.parseOrNull(record.key)?.takeIf { it.thread == null }?.let { it to record }
 
 private fun approval(record: StoredRecord<Approval>): PairingApproval = PairingApproval(
     record.value.kind,

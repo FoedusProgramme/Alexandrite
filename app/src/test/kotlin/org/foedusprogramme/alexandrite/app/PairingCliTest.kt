@@ -78,11 +78,29 @@ class PairingCliTest {
         assertEquals(0, code, err.toString(Charsets.UTF_8))
     }
 
+    /** The config of the bot's instance [instance], whose config declares the chats [allowed] paired. */
+    private fun config(allowed: String = "[$ADA]", instance: String = "work"): String =
+        """{"channels": {"telegram": {"instances": {"$instance": {"botToken": "${fake.token}", """ +
+            """"apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], "allowedChats": $allowed, """ +
+            """"polling": {"timeoutSeconds": 1}}}}}}"""
+
+    /** Has Bob ask for a code and approves it from the command line. */
+    private fun pairBob(): Printed {
+        fake.send(bob, bobChat, "Hello?")
+        val offer = fake.await { botMessages(BOB).singleOrNull() }.text
+        return cli("pair", checkNotNull(CODE.find(offer)) { offer }.value)
+    }
+
+    /** Whether Bob is offered a code again when he writes [text]. */
+    private fun offeredAgain(text: String): Boolean {
+        val before = fake.botMessages(BOB).size
+        fake.send(bob, bobChat, text)
+        return "is not paired" in fake.await { botMessages(BOB).getOrNull(before) }.text
+    }
+
     @Test
     fun `an operator pairs a waiting chat from the command line, and the pairing outlives the app in its store`() {
-        val config = """{"channels": {"telegram": {"instances": {"work": {"botToken": "${fake.token}", """ +
-            """"apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], "allowedChats": [$ADA], """ +
-            """"polling": {"timeoutSeconds": 1}}}}}}"""
+        val config = config()
         Files.writeString(configFile, config)
         val printed = mutableListOf<Printed>()
         var offered = ""
@@ -140,6 +158,72 @@ class PairingCliTest {
         val stopped = cli("pairings")
         assertEquals(ExitCode.UNAVAILABLE, stopped.code)
         assertContains(stopped.err, "alexandrite: No Alexandrite runs with the data directory $dataDir")
+    }
+
+    @Test
+    fun `unpairing a chat the config also declares removes its approval, so taking it out of the file unpairs it`() {
+        val printed = mutableListOf<Printed>()
+        Files.writeString(configFile, config())
+        app { printed += pairBob() }
+        Files.writeString(configFile, config("[$ADA, $BOB]"))
+        app {
+            printed += cli("pairings")
+            printed += cli("unpair", "telegram:work:$BOB")
+        }
+        Files.writeString(configFile, config())
+        var offered = false
+        app { offered = offeredAgain("Still there?") }
+
+        val (paired, listed, unpaired) = printed
+        assertEquals(0, paired.code, paired.err)
+        val both = Regex(
+            "No chat waits to be paired.\nPaired:\n  telegram:work:$ADA \\(declared in the config file\\)\n" +
+                "  telegram:work:$BOB \\(direct, from Bob @bob_test, telegram:work@$BOB\\), declared in the config " +
+                "file and approved \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d by the host\n",
+        )
+        assertTrue(both.matches(listed.out), listed.out)
+        assertEquals(
+            Printed(
+                1,
+                "",
+                "alexandrite: Removed the approval of telegram:work:$BOB, but it stays paired: the config file " +
+                    "declares it, so edit the file and restart Alexandrite to unpair it.\n",
+            ),
+            unpaired,
+        )
+        assertTrue(offered)
+    }
+
+    @Test
+    fun `the approvals of an instance taken out of the config are listed and can be removed before it runs again`() {
+        val printed = mutableListOf<Printed>()
+        Files.writeString(configFile, config())
+        app { printed += pairBob() }
+        Files.writeString(configFile, config(instance = "other"))
+        app {
+            printed += cli("pairings")
+            printed += cli("unpair", "telegram:work:$BOB")
+            printed += cli("pairings")
+        }
+        Files.writeString(configFile, config())
+        var offered = false
+        app { offered = offeredAgain("Back again?") }
+
+        val (paired, listed, unpaired, relisted) = printed
+        assertEquals(0, paired.code, paired.err)
+        val dormant = Regex(
+            "No chat waits to be paired.\nPaired:\n  telegram:other:$ADA \\(declared in the config file\\)\n" +
+                "  telegram:work:$BOB \\(direct, from Bob @bob_test, telegram:work@$BOB\\), approved " +
+                "\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d by the host; telegram:work is not running and pairs it again " +
+                "when it runs\n",
+        )
+        assertTrue(dormant.matches(listed.out), listed.out)
+        assertEquals(Printed(0, "Unpaired telegram:work:$BOB.\n", ""), unpaired)
+        assertEquals(
+            "No chat waits to be paired.\nPaired:\n  telegram:other:$ADA (declared in the config file)\n",
+            relisted.out,
+        )
+        assertTrue(offered)
     }
 
     private data class Printed(val code: Int, val out: String, val err: String)

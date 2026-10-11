@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOB
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOT_MENTION
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.CODE
+import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.CODER
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.GROUP
 import org.foedusprogramme.alexandrite.app.control.ControlAnswers
 import org.foedusprogramme.alexandrite.app.control.controlSocket
@@ -19,6 +20,8 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -53,6 +56,30 @@ class TelegramAccessTest {
             PrintStream(ByteArrayOutputStream(), true),
         )
         return code to out.toString(Charsets.UTF_8)
+    }
+
+    @Test
+    fun `a home chat or linked chat that the agent keeps but that is not paired is warned of at start`() {
+        app.run(app.builder(directory)) {
+            val control = get<AgentControl>()
+            control.updateSettings(app.address(app.group), ChatSettingsUpdate.builder().home().build(), null)
+            control.link(CODER, app.address(app.adaChat), app.address(app.bobChat), null)
+        }
+
+        Files.delete(configFile())
+        val lines = logged("org.foedusprogramme.alexandrite.channel.telegram") {
+            app.run(app.builder(directory, paired = listOf(ADA))) {}
+        }
+
+        val hint = "but not paired, so the bot sends it nothing: add %s to channels.telegram.instances.work." +
+            "allowedChats, or approve the code it is offered when it addresses the bot with `alexandrite pair <code>`"
+        assertEquals(
+            listOf(
+                "WARN Chat telegram:work:$GROUP is the home chat of agent coder ${hint.format(GROUP)}",
+                "WARN Chat telegram:work:$BOB is linked at agent coder ${hint.format(BOB)}",
+            ),
+            lines.filter { "not paired" in it },
+        )
     }
 
     @Test

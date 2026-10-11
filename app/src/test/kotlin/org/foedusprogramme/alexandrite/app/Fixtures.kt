@@ -97,8 +97,8 @@ class GreeterIndex : PluginIndex {
     override fun bindings() = emptyList<Binding<*>>()
 }
 
-fun logged(block: () -> Unit): List<String> {
-    val logger = LoggerFactory.getLogger("org.foedusprogramme.alexandrite.app") as Logger
+fun logged(name: String = "org.foedusprogramme.alexandrite.app", block: () -> Unit): List<String> {
+    val logger = LoggerFactory.getLogger(name) as Logger
     val appender = ListAppender<ILoggingEvent>().apply { start() }
     logger.addAppender(appender)
     try {

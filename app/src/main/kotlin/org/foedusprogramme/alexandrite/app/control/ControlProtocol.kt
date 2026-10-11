@@ -76,18 +76,23 @@ internal sealed interface ControlReply {
     @SerialName("malformed_code")
     data object MalformedCode : ControlReply
 
+    /** [chat] is unpaired, and is still the home chat of the agents [homeOf] and linked at the agents [linkedAt]. */
     @Serializable
     @SerialName("unpaired")
-    class Unpaired(val chat: String) : ControlReply
+    class Unpaired(
+        val chat: String,
+        val homeOf: List<String> = emptyList(),
+        val linkedAt: List<String> = emptyList(),
+    ) : ControlReply
 
     @Serializable
     @SerialName("not_paired")
     class NotPaired(val chat: String) : ControlReply
 
-    /** The config file declares the chat. */
+    /** The config file declares the chat, which stays paired. */
     @Serializable
     @SerialName("declared")
-    class Declared(val chat: String) : ControlReply
+    class Declared(val chat: String, val approvalRemoved: Boolean = false) : ControlReply
 
     @Serializable
     @SerialName("unpair_failed")
@@ -121,7 +126,12 @@ internal class RequesterView(val user: String, val name: String, val username: S
 
 /** A paired chat. */
 @Serializable
-internal class PairedView(val chat: String, val declared: Boolean = false, val approval: ApprovalView? = null)
+internal class PairedView(
+    val chat: String,
+    val declared: Boolean = false,
+    val approval: ApprovalView? = null,
+    val instanceRunning: Boolean = true,
+)
 
 @Serializable
 internal class ApprovalView(

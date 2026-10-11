@@ -49,7 +49,7 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
     val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
     private val session = BotSession(instance, config, api, TelegramBots(), control)
     val outbox = Outbox(instance, api, limiter, testTexts("alexandrite-channel-telegram"), null, session)
-    private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords(), null), outbox)
+    private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
         .also { runBlocking { it.onStart() } }
     val channel = TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session))
 

@@ -19,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.SocketChannel
 import java.nio.file.Path
@@ -30,7 +31,7 @@ val WORK = ChannelInstanceId(ChannelType("chat"), "work")
 
 val NOW: Instant = Instant.parse("2026-10-11T08:00:00Z")
 
-fun chat(id: String): ChatAddress = ChatAddress(WORK, id)
+fun chat(id: String, thread: String? = null): ChatAddress = ChatAddress(WORK, id, thread)
 
 /** The request of chat [id] to be paired, which got [code] [minutes] minutes before [NOW]. */
 fun request(
@@ -48,9 +49,9 @@ fun request(
 /** The chat [id], which the config file declares paired. */
 fun declared(id: String): PairedChat = PairedChat(chat(id), true, null)
 
-/** The chat of [request], paired at [NOW] by [by]. */
-fun approved(request: PairingRequest, by: UserAddress? = null): PairedChat =
-    PairedChat(request.chat, false, PairingApproval(request.kind, request.title, request.requester, NOW, by))
+/** The chat of [request], paired at [NOW] by [by], on an instance that runs unless [running] is false. */
+fun approved(request: PairingRequest, by: UserAddress? = null, running: Boolean = true): PairedChat =
+    PairedChat(request.chat, false, PairingApproval(request.kind, request.title, request.requester, NOW, by), running)
 
 /** A desk that holds [requests] and pairs [paired], recording what it is asked. */
 class FakeDesk(vararg requests: PairingRequest, paired: List<PairedChat> = emptyList()) : PairingDesk {
@@ -88,7 +89,7 @@ class FakeDesk(vararg requests: PairingRequest, paired: List<PairedChat> = empty
         return PairingDecision.Denied(request)
     }
 
-    override fun paired(): List<PairedChat> = paired.toList()
+    override suspend fun paired(): List<PairedChat> = paired.toList()
 
     override suspend fun unpair(chat: ChatAddress): Unpairing {
         calls += "unpair $chat"
@@ -113,9 +114,9 @@ internal fun served(directory: Path, answers: ControlAnswers, block: suspend (Pa
     }
 }
 
-/** Runs [block] with the path of a control socket in [directory] over [desks]. */
-fun served(directory: Path, vararg desks: PairingDesk, block: suspend (Path) -> Unit) =
-    served(directory, ControlAnswers("1.2.3") { PairingDesks(desks.toList()) }, block)
+/** Runs [block] with the path of a control socket in [directory] over [desks] and the agents' [control]. */
+fun served(directory: Path, vararg desks: PairingDesk, control: AgentControl? = null, block: suspend (Path) -> Unit) =
+    served(directory, ControlAnswers("1.2.3", { control }) { PairingDesks(desks.toList()) }, block)
 
 internal suspend fun ask(socket: Path, request: ControlRequest): ControlReply =
     withContext(Dispatchers.IO) { askDaemon(socket, request) }

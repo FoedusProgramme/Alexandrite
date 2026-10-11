@@ -1,9 +1,14 @@
 package org.foedusprogramme.alexandrite.app.control
 
+import org.foedusprogramme.alexandrite.app.logged
+import org.foedusprogramme.alexandrite.channel.common.InternalChannelCommonApi
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.Test
@@ -22,7 +27,10 @@ class ControlAnswersTest {
         FakeDesk(
             group,
             carol,
-            paired = listOf(declared("8"), approved(request("9", "NNNN-NNNN"), UserAddress(WORK, "1"))),
+            paired = listOf(
+                declared("8"),
+                approved(request("9", "NNNN-NNNN"), UserAddress(WORK, "1"), running = false),
+            ),
         )
 
     // Pairings.
@@ -35,6 +43,7 @@ class ControlAnswersTest {
             assertEquals(listOf("GGGG-GGGG", "BBBB-BBBB", "CCCC-CCCC"), pairings.requests.map { it.code })
             assertEquals(listOf("chat:work:7", "chat:work:8", "chat:work:9"), pairings.paired.map { it.chat })
             assertEquals(listOf(true, true, false), pairings.paired.map { it.declared })
+            assertEquals(listOf(true, true, false), pairings.paired.map { it.instanceRunning })
             val approval = checkNotNull(pairings.paired.last().approval)
             assertEquals(
                 listOf("direct", null, "chat:work@9", "User 9", "user9", NOW, "chat:work@1"),
@@ -128,12 +137,62 @@ class ControlAnswersTest {
     @Test
     fun `an unpairing that the config file keeps or that fails is reported`() {
         served(directory, first) { socket ->
-            first.unpairing = Unpairing.Declared
-            assertIs<ControlReply.Declared>(ask(socket, ControlRequest.Unpair("chat:work:7")))
+            for (removed in listOf(false, true)) {
+                first.unpairing = Unpairing.Declared(approvalRemoved = removed)
+                val declared = assertIs<ControlReply.Declared>(ask(socket, ControlRequest.Unpair("chat:work:7")))
+                assertEquals("chat:work:7" to removed, declared.chat to declared.approvalRemoved)
+            }
 
             first.unpairing = Unpairing.Failed("The file is read-only.")
             val failed = assertIs<ControlReply.UnpairFailed>(ask(socket, ControlRequest.Unpair("chat:work:7")))
             assertEquals("chat:work:7" to "The file is read-only.", failed.chat to failed.reason)
+        }
+    }
+
+    @Test
+    fun `an unpaired chat that an agent still keeps as its home chat or linked is named in the reply and the log`() {
+        val control = RecordingAgentControl()
+        val desk = FakeDesk(paired = listOf(approved(request("9", "NNNN-NNNN")), approved(request("10", "MMMM-MMMM"))))
+        lateinit var unpaired: List<ControlReply.Unpaired>
+
+        val lines = logged {
+            served(directory, desk, control = control) { socket ->
+                control.updateSettings(chat("9", "5"), ChatSettingsUpdate.builder().home().build(), null)
+                control.link(AgentId.MAIN, chat("7"), chat("9"), null)
+                unpaired = listOf("chat:work:9", "chat:work:10").map {
+                    assertIs<ControlReply.Unpaired>(ask(socket, ControlRequest.Unpair(it)))
+                }
+            }
+        }
+
+        assertEquals(
+            listOf(listOf("main") to listOf("main"), emptyList<String>() to emptyList()),
+            unpaired.map { it.homeOf to it.linkedAt },
+        )
+        assertEquals(
+            listOf(
+                "WARN Chat chat:work:9 is unpaired but still the home chat of agent main and linked at agent main: " +
+                    "the bot sends it nothing until it is paired again",
+            ),
+            lines.filter { it.startsWith("WARN") },
+        )
+    }
+
+    @Test
+    fun `an answer of a desk that this app does not know is a failure`() {
+        val desk = FakeDesk(request("42", "BBBB-BBBB"))
+        desk.decision = Expired
+        desk.unpairing = Revoked
+
+        served(directory, desk) { socket ->
+            assertEquals(
+                "A pairing desk answered Expired, which this Alexandrite does not know.",
+                assertIs<ControlReply.Failure>(ask(socket, ControlRequest.Approve("BBBB-BBBB"))).message,
+            )
+            assertEquals(
+                "A pairing desk answered Revoked, which this Alexandrite does not know.",
+                assertIs<ControlReply.Failure>(ask(socket, ControlRequest.Unpair("chat:work:42"))).message,
+            )
         }
     }
 
@@ -163,4 +222,10 @@ class ControlAnswersTest {
             assertIs<ControlReply.Pong>(ask(socket, ControlRequest.Ping))
         }
     }
+
+    @OptIn(InternalChannelCommonApi::class)
+    private data object Expired : PairingDecision
+
+    @OptIn(InternalChannelCommonApi::class)
+    private data object Revoked : Unpairing
 }

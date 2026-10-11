@@ -47,7 +47,7 @@ class PairingsTest {
     // Codes.
 
     @Test
-    fun `a paired chat and its threads pass and are offered no code`() {
+    fun `a paired chat and its threads pass and are offered no code`() = runTest {
         assertTrue(pairing.isPaired(configured))
         assertTrue(pairing.isPaired(ChatAddress(work, "7", "3")))
         assertNull(offer(configured))
@@ -240,13 +240,29 @@ class PairingsTest {
     fun `a chat the config declares, or one whose record cannot be removed, stays paired`() = runTest {
         desk.approve(assertNotNull(offer()).text, null)
 
-        assertEquals(Unpairing.Declared, desk.unpair(ChatAddress(work, "7", "3")))
+        assertEquals(Unpairing.Declared(approvalRemoved = false), desk.unpair(ChatAddress(work, "7", "3")))
         assertTrue(pairing.isPaired(configured))
 
         store.failure = IOException("The disk is full.")
         assertEquals(Unpairing.Failed("The disk is full."), desk.unpair(stranger))
         assertTrue(pairing.isPaired(stranger))
         assertEquals(listOf("$stranger by null"), records())
+    }
+
+    @Test
+    fun `unpairing a declared chat removes its approval too, so taking it out of the config unpairs it`() = runTest {
+        desk.approve(assertNotNull(offer()).text, null)
+        val declaring = desk()
+        val declared = declaring.open(work, listOf(configured, stranger))
+        assertEquals(listOf(PairedChat(stranger, true, approval())), declaring.paired().drop(1))
+
+        assertEquals(Unpairing.Declared(approvalRemoved = true), declaring.unpair(stranger))
+
+        assertTrue(declared.isPaired(stranger))
+        assertEquals(emptyList(), records())
+        assertEquals(listOf(PairedChat(stranger, true, null)), declaring.paired().drop(1))
+        assertEquals(Unpairing.Declared(approvalRemoved = false), declaring.unpair(stranger))
+        assertFalse(desk().open(work, listOf(configured)).isPaired(stranger))
     }
 
     // Instances.
@@ -265,6 +281,29 @@ class PairingsTest {
         assertEquals(listOf(configured, homeChat), desk.paired().map { it.chat })
         assertEquals(listOf(stranger), desk.pending().map { it.chat })
     }
+
+    @Test
+    fun `the approvals of an instance that does not run are listed and can be removed before it runs again`() =
+        runTest {
+            desk.approve(assertNotNull(offer()).text, null)
+            desk.approve(assertNotNull(offer(group)).text, null)
+            val next = desk()
+            next.open(home, emptyList())
+
+            assertEquals(
+                listOf(stranger, group).map { PairedChat(it, false, approval(), instanceRunning = false) },
+                next.paired(),
+            )
+            assertEquals(Unpairing.Unpaired, next.unpair(ChatAddress(work, "42", "3")))
+            assertEquals(Unpairing.NotPaired, next.unpair(stranger))
+            assertEquals(Unpairing.NotPaired, next.unpair(ChatAddress(home, "42")))
+
+            assertEquals(listOf("$group by null"), records())
+            val reopened = next.open(work, emptyList())
+            assertFalse(reopened.isPaired(stranger))
+            assertTrue(reopened.isPaired(group))
+            assertEquals(listOf(PairedChat(group, false, approval())), next.paired())
+        }
 
     @Test
     fun `a closed instance takes its requests and codes along, and may open again`() = runTest {

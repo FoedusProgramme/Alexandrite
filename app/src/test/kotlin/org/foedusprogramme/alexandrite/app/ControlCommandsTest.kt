@@ -1,19 +1,26 @@
 package org.foedusprogramme.alexandrite.app
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.app.control.ControlRequest
 import org.foedusprogramme.alexandrite.app.control.FakeDesk
 import org.foedusprogramme.alexandrite.app.control.WORK
 import org.foedusprogramme.alexandrite.app.control.approved
+import org.foedusprogramme.alexandrite.app.control.chat
 import org.foedusprogramme.alexandrite.app.control.declared
 import org.foedusprogramme.alexandrite.app.control.request
 import org.foedusprogramme.alexandrite.app.control.served
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairedChat
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.junit.jupiter.api.io.TempDir
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
@@ -35,13 +42,19 @@ class ControlCommandsTest {
             declared("7"),
             approved(request("9", "NNNN-NNNN", requester = null)),
             approved(request("-200", "MMMM-MMMM", kind = ChatKind.GROUP, title = "Ops"), UserAddress(WORK, "1")),
+            PairedChat(chat("8"), true, approved(request("8", "PPPP-PPPP", requester = null)).approval),
+            approved(request("10", "QQQQ-QQQQ", requester = null), running = false),
         ),
     )
 
-    /** The exit code, standard output and standard error of [request] while [desks] serve. */
-    private fun printed(request: ControlRequest, vararg desks: PairingDesk = arrayOf(desk)): Printed {
+    /** The exit code, standard output and standard error of [request] while [desks] and the agents' [control] serve. */
+    private fun printed(
+        request: ControlRequest,
+        vararg desks: PairingDesk = arrayOf(desk),
+        control: AgentControl? = null,
+    ): Printed {
         lateinit var result: Printed
-        served(directory, *desks) {
+        served(directory, *desks, control = control) {
             val out = ByteArrayOutputStream()
             val err = ByteArrayOutputStream()
             val code = withContext(Dispatchers.IO) {
@@ -66,7 +79,11 @@ class ControlCommandsTest {
                     "  chat:work:7 (declared in the config file)\n" +
                     "  chat:work:9 (direct, from an unknown sender), approved 2026-10-11 08:00 by the host\n" +
                     "  chat:work:-200 (group \"Ops\", from User -200 @user-200, chat:work@-200), approved " +
-                    "2026-10-11 08:00 by chat:work@1\n",
+                    "2026-10-11 08:00 by chat:work@1\n" +
+                    "  chat:work:8 (direct, from an unknown sender), declared in the config file and approved " +
+                    "2026-10-11 08:00 by the host\n" +
+                    "  chat:work:10 (direct, from an unknown sender), approved 2026-10-11 08:00 by the host; " +
+                    "chat:work is not running and pairs it again when it runs\n",
                 "",
             ),
             printed(ControlRequest.ListPairings),
@@ -101,15 +118,42 @@ class ControlCommandsTest {
     fun `a chat is unpaired, or the reason why not is printed`() {
         assertEquals(Triple(0, "Unpaired chat:work:7.\n", ""), printed(ControlRequest.Unpair("chat:work:7")))
         assertEquals(refused("chat:work:7 is not paired."), printed(ControlRequest.Unpair("chat:work:7")))
-        desk.unpairing = Unpairing.Declared
+        desk.unpairing = Unpairing.Declared(approvalRemoved = false)
         assertEquals(
             refused("chat:work:7 stays paired: the config file declares it, so edit the file to unpair it."),
+            printed(ControlRequest.Unpair("chat:work:7")),
+        )
+        desk.unpairing = Unpairing.Declared(approvalRemoved = true)
+        assertEquals(
+            refused(
+                "Removed the approval of chat:work:7, but it stays paired: the config file declares it, so edit the " +
+                    "file and restart Alexandrite to unpair it.",
+            ),
             printed(ControlRequest.Unpair("chat:work:7")),
         )
         desk.unpairing = Unpairing.Failed("The file is read-only")
         assertEquals(
             refused("Cannot unpair chat:work:7: The file is read-only."),
             printed(ControlRequest.Unpair("chat:work:7")),
+        )
+    }
+
+    @Test
+    fun `unpairing a chat that is still a home chat or linked says that the bot sends it nothing`() {
+        val control = RecordingAgentControl()
+        runBlocking {
+            control.updateSettings(chat("9"), ChatSettingsUpdate.builder().home().build(), null)
+            control.link(AgentId.MAIN, chat("7"), chat("9"), null)
+        }
+
+        assertEquals(
+            Triple(
+                0,
+                "Unpaired chat:work:9. It is still the home chat of agent main and linked at agent main, so the bot " +
+                    "sends it nothing until it is paired again.\n",
+                "",
+            ),
+            printed(ControlRequest.Unpair("chat:work:9"), control = control),
         )
     }
 

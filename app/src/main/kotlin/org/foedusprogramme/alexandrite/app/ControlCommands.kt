@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.app.control.RequestView
 import org.foedusprogramme.alexandrite.app.control.RequesterView
 import org.foedusprogramme.alexandrite.app.control.askDaemon
 import org.foedusprogramme.alexandrite.app.control.controlSocket
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import java.io.IOException
 import java.io.PrintStream
 import java.nio.file.Path
@@ -61,12 +62,17 @@ internal fun control(
             "${shown(codeOf(request))} is no pairing code: a code is 8 letters and digits, such as ABCD-EFGH.",
         )
 
-        is ControlReply.Unpaired -> done("Unpaired ${shown(reply.chat)}.")
+        is ControlReply.Unpaired -> done("Unpaired ${shown(reply.chat)}.${stillUsed(reply)}")
 
         is ControlReply.NotPaired -> refused("${shown(reply.chat)} is not paired.")
 
         is ControlReply.Declared -> refused(
-            "${shown(reply.chat)} stays paired: the config file declares it, so edit the file to unpair it.",
+            if (reply.approvalRemoved) {
+                "Removed the approval of ${shown(reply.chat)}, but it stays paired: the config file declares it, so " +
+                    "edit the file and restart Alexandrite to unpair it."
+            } else {
+                "${shown(reply.chat)} stays paired: the config file declares it, so edit the file to unpair it."
+            },
         )
 
         is ControlReply.UnpairFailed ->
@@ -98,13 +104,27 @@ private fun pairings(reply: ControlReply.Pairings, time: DateTimeFormatter, day:
 
 /** The paired chat [paired] and how it was paired. */
 private fun described(paired: PairedView, day: DateTimeFormatter): String {
-    val approval = paired.approval
-    return when {
-        paired.declared || approval == null -> "${shown(paired.chat)} (declared in the config file)"
+    val approval = paired.approval ?: return "${shown(paired.chat)} (declared in the config file)"
+    val approved = "approved ${day.format(approval.approvedAt)} by ${approval.approvedBy?.let(::shown) ?: "the host"}"
+    val how = when {
+        paired.declared -> "declared in the config file and $approved"
 
-        else -> "${shown(paired.chat)} (${chatOf(approval.kind, approval.title, approval.requester)}), approved " +
-            "${day.format(approval.approvedAt)} by ${approval.approvedBy?.let(::shown) ?: "the host"}"
+        !paired.instanceRunning -> {
+            val instance = ChatAddress.parseOrNull(paired.chat)?.instance?.let { shown("$it") } ?: "its instance"
+            "$approved; $instance is not running and pairs it again when it runs"
+        }
+
+        else -> approved
     }
+    return "${shown(paired.chat)} (${chatOf(approval.kind, approval.title, approval.requester)}), $how"
+}
+
+/** The note that the chat of [reply] is still a home chat or linked, empty when it is neither. */
+private fun stillUsed(reply: ControlReply.Unpaired): String {
+    val uses = reply.homeOf.map { "the home chat of agent ${shown(it)}" } +
+        reply.linkedAt.map { "linked at agent ${shown(it)}" }
+    if (uses.isEmpty()) return ""
+    return " It is still ${uses.joinToString(" and ")}, so the bot sends it nothing until it is paired again."
 }
 
 /** The chat of [request], its kind and title, and who asked. */
