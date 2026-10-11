@@ -7,13 +7,14 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.di.Inject
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
+import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.slf4j.LoggerFactory
 import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-/** Calls a model again after a failure that may pass, as long as the failed call showed nothing. */
+/** Calls a model again after a failure that may pass, as long as the failed call showed nothing but void output. */
 @Singleton
 internal class RetryPolicy(config: ModelCallConfig, private val random: Random) {
     @Inject
@@ -46,7 +47,9 @@ internal class RetryPolicy(config: ModelCallConfig, private val random: Random) 
 
     /** How long to wait before retry [retry] after [error], null when the call is not made again. */
     fun delayBefore(retry: Int, error: ModelError): Duration? {
-        if (!error.retryable || error.outputStarted || retry > retries) return null
+        if (!error.retryable || retry > retries) return null
+        if (error.kind == ModelErrorKind.MALFORMED_OUTPUT) return Duration.ZERO
+        if (error.outputStarted) return null
         val asked = error.retryAfter ?: return backoff(retry)
         return asked.takeIf { it <= maxRetryAfter }
     }

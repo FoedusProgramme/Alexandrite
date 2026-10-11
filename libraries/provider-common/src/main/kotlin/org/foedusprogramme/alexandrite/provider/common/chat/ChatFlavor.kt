@@ -37,6 +37,7 @@ public class ChatFlavor(
     public val tools: ChatTools = ChatTools(),
     public val caching: ChatCaching = ChatCaching(),
     public val finishReasons: ChatFinishReasons = ChatFinishReasons(),
+    public val text: ChatText = ChatText(),
 ) {
     public companion object {
         /** The dialect of the standard API. */
@@ -86,6 +87,28 @@ public open class ChatReasoningReader {
 
 /** Reasoning that one delta adds, whose [text] and [summary] are null where it shows none. */
 public class ChatReasoningDelta(public val text: String? = null, public val summary: String? = null)
+
+/** How a backend's models write the text of a response. */
+public open class ChatText {
+    /** A reader of the next text part that a response streams. */
+    public open fun reader(): ChatTextReader = ChatTextReader()
+}
+
+/** Reads one text part as it streams, holding back text until it knows what the text is. */
+public open class ChatTextReader {
+    /** What the part shows of the text held back and the [text] that follows it. */
+    public open fun read(text: String): ChatTextDelta = ChatTextDelta(text)
+
+    /** The text held back, which the part shows as it ends. */
+    public open fun release(): String = ""
+}
+
+/** What one delta lets a text part show. */
+public class ChatTextDelta(
+    public val shown: String,
+    /** Why the model's output is malformed, null while it is not. */
+    public val malformed: String? = null,
+)
 
 /** How a backend takes tools and names the calls of its models. */
 public open class ChatTools {

@@ -80,6 +80,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
+import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
@@ -440,8 +441,28 @@ internal class AgentTurnRunner(
         }
 
         /** The response of [model] to [request], whose text the chat is shown as it comes. */
-        private suspend fun call(model: SelectedModel, request: ModelRequest): ModelEvent.Completed =
-            retries.retrying(plan.id) { collectResponse(model.endpoint, request) { previews?.event(it) } }
+        private suspend fun call(model: SelectedModel, request: ModelRequest): ModelEvent.Completed {
+            var attempt = 0
+            return retries.retrying(plan.id) {
+                attempt++
+                try {
+                    collectResponse(model.endpoint, request) { previews?.event(it) }
+                } catch (e: ModelException) {
+                    if (e.error.kind == ModelErrorKind.MALFORMED_OUTPUT) {
+                        logger.warn(
+                            "Turn {} of {}: model {} wrote malformed output on attempt {}: {}",
+                            plan.id,
+                            plan.key,
+                            model.ref,
+                            attempt,
+                            e.error.message,
+                        )
+                        previews?.discard()
+                    }
+                    throw e
+                }
+            }
+        }
 
         /**
          * Runs [calls] of the turn's [tools], storing each result as its call ends, and then the project instructions

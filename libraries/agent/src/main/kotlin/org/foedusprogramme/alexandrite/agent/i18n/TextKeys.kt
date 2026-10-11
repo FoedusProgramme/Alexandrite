@@ -38,6 +38,7 @@ internal object TextKeys {
     const val MODEL_UNAVAILABLE: String = "notice.model.unavailable"
     const val MODEL_CONTENT_FILTERED: String = "notice.model.content_filtered"
     const val MODEL_UNSUPPORTED: String = "notice.model.unsupported"
+    const val MODEL_MALFORMED_OUTPUT: String = "notice.model.malformed_output"
 
     /** Takes `{kind}`. */
     const val MODEL_FAILED: String = "notice.model.failed"
@@ -100,6 +101,8 @@ internal object TextKeys {
         ModelErrorKind.CONTENT_FILTERED -> MODEL_CONTENT_FILTERED
 
         ModelErrorKind.UNSUPPORTED -> MODEL_UNSUPPORTED
+
+        ModelErrorKind.MALFORMED_OUTPUT -> MODEL_MALFORMED_OUTPUT
 
         ModelErrorKind.RATE_LIMITED,
         ModelErrorKind.OVERLOADED,

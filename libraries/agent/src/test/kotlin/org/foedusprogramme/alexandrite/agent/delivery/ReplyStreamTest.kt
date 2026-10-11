@@ -113,6 +113,47 @@ class ReplyStreamTest {
     }
 
     @Test
+    fun `a discarded response's preview is replaced by the next response's, even where it reads the same`() = runTest {
+        val stream = stream()
+
+        stream.text("Saving it.")
+        stream.text(" <", afterMillis = 100)
+        stream.discard()
+        stream.text("Saving it.", afterMillis = 100)
+        stream.event(ModelEvent.ToolCallStarted(1, ToolCallId("c1"), "fs.write"))
+        stream.nextSegment()
+        stream.text("Saved.", afterMillis = 800)
+
+        assertEquals(listOf(0 to "Saving it.", 0 to "Saving it.", 1 to "Saved."), sink.previews)
+    }
+
+    @Test
+    fun `a segment that still shows a discarded response's text takes the next round's text`() = runTest {
+        val stream = stream(interval = 0)
+
+        stream.text("Saving it.")
+        stream.discard()
+        stream.event(ModelEvent.ToolCallStarted(0, ToolCallId("c1"), "fs.write"))
+        stream.nextSegment()
+        stream.text("Saved.")
+        stream.nextSegment()
+
+        assertEquals(listOf("preview 0 Saving it.", "preview 0 Saved.", "start 1"), sink.calls)
+    }
+
+    @Test
+    fun `a discarded response that showed nothing leaves the segments as they are`() = runTest {
+        val stream = stream()
+
+        stream.text("Done.")
+        stream.nextSegment()
+        stream.discard()
+        stream.nextSegment()
+
+        assertEquals(listOf("preview 0 Done.", "start 1", "start 2"), sink.calls)
+    }
+
+    @Test
     fun `the hook replaces a preview, or holds it back while the throttle still counts it`() = runTest {
         val stream = stream { _, text -> if (text.endsWith("!")) null else text.uppercase() }
 

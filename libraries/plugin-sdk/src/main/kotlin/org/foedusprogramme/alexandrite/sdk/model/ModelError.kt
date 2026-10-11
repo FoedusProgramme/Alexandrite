@@ -92,6 +92,7 @@ private val TRANSIENT = setOf(
     ModelErrorKind.SERVER_ERROR,
     ModelErrorKind.TIMEOUT,
     ModelErrorKind.CONNECTION,
+    ModelErrorKind.MALFORMED_OUTPUT,
 )
 
 /** What kind of failure a [ModelError] is. */
@@ -138,6 +139,12 @@ public value class ModelErrorKind internal constructor(public val id: String) {
         /** A response that breaks its protocol or the stream contract. */
         public val PROTOCOL: ModelErrorKind = ModelErrorKind("protocol")
 
+        /**
+         * The response broke the model's own output format, such as a tool call written as text. The same request may
+         * succeed, and what the call emitted is void.
+         */
+        public val MALFORMED_OUTPUT: ModelErrorKind = ModelErrorKind("malformed_output")
+
         /** The values this version knows. */
         public val entries: List<ModelErrorKind> = listOf(
             AUTHENTICATION,
@@ -154,6 +161,7 @@ public value class ModelErrorKind internal constructor(public val id: String) {
             CONTENT_FILTERED,
             UNSUPPORTED,
             PROTOCOL,
+            MALFORMED_OUTPUT,
         )
 
         /** The value of [id], which keeps an id this version does not know. */

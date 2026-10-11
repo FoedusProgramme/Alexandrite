@@ -342,6 +342,7 @@ class SubclassOptInTest {
             ModelErrorKind.CONTENT_FILTERED -> 11
             ModelErrorKind.UNSUPPORTED -> 12
             ModelErrorKind.PROTOCOL -> 13
+            ModelErrorKind.MALFORMED_OUTPUT -> 14
             ELSE
         }
 

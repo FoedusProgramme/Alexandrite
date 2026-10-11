@@ -140,9 +140,10 @@ internal class ChatResponse(
             builder.add(reasoning, own, events)
         }
         delta.content.text()?.takeIf { it.isNotEmpty() }?.let { text ->
-            val builder = current as? TextBuilder ?: open(TextBuilder(parts.size), events)
-            builder.text.append(text)
-            events += ModelEvent.TextDelta(builder.index, text)
+            val builder = current as? TextBuilder ?: open(TextBuilder(parts.size, flavor.text.reader()), events)
+            val read = builder.reader.read(text)
+            read.malformed?.let { throw failure(ModelErrorKind.MALFORMED_OUTPUT, it) }
+            builder.show(read.shown, events)
         }
         val raws = raw["tool_calls"] as? JsonArray
         delta.toolCalls?.forEachIndexed { position, call ->
@@ -223,11 +224,20 @@ internal class ChatResponse(
         }
     }
 
-    private class TextBuilder(index: Int) : PartBuilder(index) {
-        val text = StringBuilder()
+    private class TextBuilder(index: Int, val reader: ChatTextReader) : PartBuilder(index) {
+        private val text = StringBuilder()
 
-        override fun build(): Pair<List<ModelEvent>, AssistantPart> =
-            emptyList<ModelEvent>() to TextPart(text.toString())
+        fun show(shown: String, events: MutableList<ModelEvent>) {
+            if (shown.isEmpty()) return
+            text.append(shown)
+            events += ModelEvent.TextDelta(index, shown)
+        }
+
+        override fun build(): Pair<List<ModelEvent>, AssistantPart> {
+            val events = mutableListOf<ModelEvent>()
+            show(reader.release(), events)
+            return events to TextPart(text.toString())
+        }
     }
 
     private class ReasoningBuilder(index: Int, val reader: ChatReasoningReader) : PartBuilder(index) {

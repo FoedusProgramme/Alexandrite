@@ -144,6 +144,7 @@ class ModelResponseTest {
             ModelErrorKind.SERVER_ERROR,
             ModelErrorKind.TIMEOUT,
             ModelErrorKind.CONNECTION,
+            ModelErrorKind.MALFORMED_OUTPUT,
         )
         val lasting = listOf(
             ModelErrorKind.AUTHENTICATION,

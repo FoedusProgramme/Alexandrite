@@ -11,6 +11,9 @@ import org.foedusprogramme.alexandrite.provider.common.chat.ChatFinishReasons
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatFlavor
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoning
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoningReader
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatText
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatTextDelta
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatTextReader
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatTools
 import org.foedusprogramme.alexandrite.provider.common.long
 import org.foedusprogramme.alexandrite.provider.common.obj
@@ -42,8 +45,15 @@ private val LEVELS = mapOf(
     ReasoningEffort.MAX to ReasoningEffort.MAX,
 )
 
-internal val DEEPSEEK_FLAVOR: ChatFlavor =
-    ChatFlavor(DEEPSEEK, DeepSeekListing, DeepSeekReasoning, DeepSeekTools, DeepSeekCaching, DeepSeekFinishReasons)
+internal val DEEPSEEK_FLAVOR: ChatFlavor = ChatFlavor(
+    DEEPSEEK,
+    DeepSeekListing,
+    DeepSeekReasoning,
+    DeepSeekTools,
+    DeepSeekCaching,
+    DeepSeekFinishReasons,
+    DeepSeekText,
+)
 
 /** Whether the model thinks on [request]: always, unless its effort is NONE. */
 private fun thinks(request: ModelRequest): Boolean = request.options.reasoning != ReasoningEffort.NONE
@@ -126,4 +136,43 @@ internal object DeepSeekCaching : ChatCaching() {
 internal object DeepSeekFinishReasons : ChatFinishReasons() {
     override fun failure(raw: String): ModelErrorKind? =
         ModelErrorKind.OVERLOADED.takeIf { raw == "insufficient_system_resource" }
+}
+
+internal object DeepSeekText : ChatText() {
+    override fun reader(): ChatTextReader = MarkupReader()
+}
+
+/** Pieces of the markup of a tool call that the model writes as text, each with the name of its markup. */
+private val MARKERS = mapOf(
+    "\uFF5CDSML" to "DSML markup",
+    "DSML\uFF5C" to "DSML markup",
+    "<\uFF5Ctool\u2581" to "tool-call tokens",
+)
+
+private val LONGEST_MARKER = MARKERS.keys.maxOf { it.length }
+
+/** Holds back text from where a marker of [MARKERS] may start, and finds the output malformed once one is whole. */
+private class MarkupReader : ChatTextReader() {
+    private var held = ""
+
+    override fun read(text: String): ChatTextDelta {
+        val all = held + text
+        MARKERS.entries.firstOrNull { it.key in all }?.let { (_, markup) ->
+            return ChatTextDelta("", "The model wrote a tool call as text ($markup).")
+        }
+        val start = heldFrom(all)
+        held = all.substring(start)
+        return ChatTextDelta(all.substring(0, start))
+    }
+
+    override fun release(): String = held.also { held = "" }
+
+    /** Where the end of [text] that may start a marker begins, its length when it holds none. */
+    private fun heldFrom(text: String): Int {
+        for (at in maxOf(0, text.length - LONGEST_MARKER + 1) until text.length) {
+            val tail = text.length - at
+            if (MARKERS.keys.any { tail < it.length && it.regionMatches(0, text, at, tail) }) return at
+        }
+        return text.length
+    }
 }

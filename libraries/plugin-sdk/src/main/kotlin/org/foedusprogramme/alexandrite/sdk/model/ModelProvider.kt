@@ -25,7 +25,8 @@ public interface ModelEndpoint {
      * - Deltas are previews: the parts of the [ModelEvent.PartCompleted] events, in index order, make up the message
      *   of [ModelEvent.Completed].
      * - Whether the response calls tools is read from its parts alone.
-     * - A failed call throws a [ModelException], and a call is retried only before its first event.
+     * - A failed call throws a [ModelException], and a call is retried only before its first event or after
+     *   [ModelErrorKind.MALFORMED_OUTPUT].
      * - A tool call's name is the offered tool's name that the provider maps its wire name back to, by default
      *   [ToolNames.fromWire] of the wire name, or the wire name where that is null.
      * - A tool call that the backend gives no id gets [RequestIds.callId] of its part index.

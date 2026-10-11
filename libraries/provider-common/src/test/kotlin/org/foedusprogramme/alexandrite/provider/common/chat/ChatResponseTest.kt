@@ -76,6 +76,25 @@ class ChatResponseTest {
         },
     )
 
+    /** A flavor that holds back each trailing `!` and finds two in a row malformed. */
+    private val guarded = ChatFlavor(
+        Dialect("guarded"),
+        text = object : ChatText() {
+            override fun reader(): ChatTextReader = object : ChatTextReader() {
+                private var held = ""
+
+                override fun read(text: String): ChatTextDelta {
+                    val all = held + text
+                    if ("!!" in all) return ChatTextDelta("", "Two in a row.")
+                    held = if (all.endsWith("!")) "!" else ""
+                    return ChatTextDelta(all.removeSuffix("!"))
+                }
+
+                override fun release(): String = held.also { held = "" }
+            }
+        },
+    )
+
     @AfterTest
     fun close() {
         server.close()
@@ -346,6 +365,43 @@ class ChatResponseTest {
         assertEquals(ModelErrorKind.OVERLOADED, error.kind)
         assertTrue(error.retryable && error.outputStarted)
         assertTrue("'busy'" in error.message)
+    }
+
+    @Test
+    fun `a flavor's text reader holds text back until it reads on or the part ends`() {
+        val events = respond(
+            chunks(
+                chunk { with("content", "Hi!") },
+                chunk { with("content", " there!") },
+                chunk { with("tool_calls", calls(call(0, "c1", "notes.add", "{}"))) },
+                chunk("tool_calls"),
+            ),
+            guarded,
+        )
+
+        val text = events.filter { it is ModelEvent.TextDelta || (it as? ModelEvent.PartCompleted)?.index == 0 }
+        assertEquals(
+            listOf(
+                ModelEvent.TextDelta(0, "Hi"),
+                ModelEvent.TextDelta(0, "! there"),
+                ModelEvent.TextDelta(0, "!"),
+                ModelEvent.PartCompleted(0, TextPart("Hi! there!")),
+            ),
+            text,
+        )
+        assertTrue(events.indexOf(text.last()) < events.indexOfFirst { it is ModelEvent.ToolCallStarted })
+        val held = respond(chunks(chunk { with("content", "!") }, chunk("stop")), guarded)
+        assertEquals(listOf(TextPart("!")), completed(held).message.parts)
+    }
+
+    @Test
+    fun `output the text reader finds malformed fails the response, as it started or not`() {
+        val late = fail(chunks(chunk { with("content", "Hi!") }, chunk { with("content", "!") }), guarded).error
+        val early = fail(chunks(chunk { with("content", "!!") }, chunk("stop")), guarded).error
+
+        assertEquals(ModelErrorKind.MALFORMED_OUTPUT to "Two in a row.", late.kind to late.message)
+        assertTrue(late.retryable && late.outputStarted)
+        assertEquals(ModelErrorKind.MALFORMED_OUTPUT to false, early.kind to early.outputStarted)
     }
 
     @Test

@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
+import org.foedusprogramme.alexandrite.sdk.model.rebuild
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -82,6 +83,23 @@ class RetryPolicyTest {
                 assertEquals(0L, testScheduler.currentTime)
             }
         }
+
+    @Test
+    fun `malformed output is retried at once, also after output started, until the retries run out`() = runTest {
+        val malformed = error(ModelErrorKind.MALFORMED_OUTPUT, retryAfter = 5.seconds, outputStarted = true)
+        val calls = mutableListOf<Long>()
+
+        assertFailsWith<ModelException> {
+            policy(retries = 2).retrying(turn) {
+                calls += testScheduler.currentTime
+                throw ModelException(malformed)
+            }
+        }
+
+        assertEquals(listOf(0L, 0L, 0L), calls)
+        assertEquals(Duration.ZERO, policy().delayBefore(1, malformed.rebuild { outputStarted(false) }))
+        assertNull(policy().delayBefore(1, malformed.rebuild { retryable(false) }))
+    }
 
     @Test
     fun `a wait the backend asks for is kept, up to the longest one allowed`() = runTest {

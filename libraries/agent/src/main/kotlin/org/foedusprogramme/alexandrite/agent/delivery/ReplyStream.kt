@@ -30,6 +30,12 @@ internal class ReplyStream(
     private var offered: String? = null
     private var offeredAt: Instant? = null
 
+    /** Whether the current segment got a preview. */
+    private var segmentShown = false
+
+    /** Whether the current segment shows the text of a discarded response. */
+    private var showsDiscarded = false
+
     /** Whether a preview went to the sink. */
     var shown: Boolean = false
         private set
@@ -47,14 +53,27 @@ internal class ReplyStream(
         }
     }
 
-    /** Shows the current segment's last text where the throttle held it back, and starts the next segment. */
+    /**
+     * Shows the current segment's last text where the throttle held it back, and starts the next segment unless the
+     * current one still shows the text of a discarded response.
+     */
     suspend fun nextSegment() {
         offer(throttled = false)
+        texts.clear()
+        calling = false
+        if (showsDiscarded) return
         segment++
+        offered = null
+        segmentShown = false
+        toSink("The start of segment $segment") { sink.startSegment(segment) }
+    }
+
+    /** Drops the text of the current response, whose preview the next one or the final message replaces. */
+    fun discard() {
         texts.clear()
         calling = false
         offered = null
-        toSink("The start of segment $segment") { sink.startSegment(segment) }
+        if (segmentShown) showsDiscarded = true
     }
 
     private suspend fun offer(throttled: Boolean) {
@@ -67,6 +86,8 @@ internal class ReplyStream(
         offeredAt = now
         val previewed = preview(segment, text)?.takeIf { it.isNotEmpty() } ?: return
         shown = true
+        segmentShown = true
+        showsDiscarded = false
         toSink("A preview") { sink.preview(segment, previewed) }
     }
 
