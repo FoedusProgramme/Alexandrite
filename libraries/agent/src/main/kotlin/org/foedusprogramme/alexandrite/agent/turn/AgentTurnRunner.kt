@@ -62,6 +62,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -129,8 +130,8 @@ internal class AgentTurnRunner(
     private val routes: Routes,
     private val clock: Clock,
 ) : TurnRunner {
-    override suspend fun run(plan: TurnPlan, followUps: FollowUps): TurnOutcome {
-        val run = Run(plan, followUps)
+    override suspend fun run(plan: TurnPlan, followUps: FollowUps, resolved: (ConversationId) -> Unit): TurnOutcome {
+        val run = Run(plan, followUps, resolved)
         return try {
             run.execute()
         } catch (e: Throwable) {
@@ -144,7 +145,11 @@ internal class AgentTurnRunner(
     }
 
     /** One turn on its way through the pipeline, with what it stored and showed so far. */
-    private inner class Run(private val plan: TurnPlan, private val followUps: FollowUps) {
+    private inner class Run(
+        private val plan: TurnPlan,
+        private val followUps: FollowUps,
+        private val resolved: (ConversationId) -> Unit,
+    ) {
         private val startedAt = clock.instant()
         private lateinit var agent: Agent
         private lateinit var model: ModelRef
@@ -248,6 +253,7 @@ internal class AgentTurnRunner(
             } else {
                 conversations.current(key)
             }
+            resolved(conversation.id)
             val turn = TurnInfo.builder(plan.id, plan.origin, conversation.id, plan.kind)
                 .actor(plan.actor)
                 .language(language)
@@ -335,7 +341,7 @@ internal class AgentTurnRunner(
             while (true) {
                 if (round > 0) previews?.nextSegment()
                 val final = toolRounds == agent.config.maxRounds
-                val built = request(parts, pending, round, final || tools.forbidden)
+                val built = request(parts, pending, round, final)
                 val request = hooks.llmRequest(turn, round, built).or { return stopped(it) }
                 val response = try {
                     call(parts.model, request)
@@ -462,12 +468,11 @@ internal class AgentTurnRunner(
                     "files" to folder.files.joinToString(),
                 )
             } else {
-                notices.text(
-                    turn,
-                    TextKeys.UNTRUSTED_FOLDERS,
-                    "agent" to agent.name,
-                    "folders" to folders.joinToString("; ") { "${it.folder} (${it.files.joinToString()})" },
-                )
+                val named = folders.take(MAX_NAMED_FOLDERS)
+                    .joinToString("; ") { "${it.folder} (${it.files.joinToString()})" }
+                val more = folders.size - MAX_NAMED_FOLDERS
+                val key = if (more > 0) TextKeys.UNTRUSTED_FOLDERS_MORE else TextKeys.UNTRUSTED_FOLDERS
+                notices.text(turn, key, "agent" to agent.name, "folders" to named, "count" to more)
             }
             notify(NoticeKind.UNTRUSTED_FOLDER, text)
         }
@@ -491,14 +496,20 @@ internal class AgentTurnRunner(
             val entry = (input as? Hooked.Proceed)?.let { entry(turn, message, it.value, emptyList()) }
             withContext(NonCancellable) {
                 taken.removeFirst()
-                if (entry != null) {
-                    append(entry)
-                    followUp.complete(TurnOutcome.Absorbed(turn.id))
-                    logger.debug("Turn {} of {} absorbs turn {} as a follow-up", turn.id, turn.key, followUp.plan.id)
-                } else {
-                    val reply = (input as? Hooked.Stopped)?.reply?.takeIf { it.isNotBlank() }
-                    notify(NoticeKind.HOOK_ABORTED, reply ?: notices.text(turn, TextKeys.HOOK_ABORTED), message.ref)
-                    followUp.complete(TurnOutcome.Completed(null))
+                try {
+                    if (entry != null) {
+                        append(entry)
+                        followUp.complete(TurnOutcome.Absorbed(turn.id))
+                        val absorbed = followUp.plan.id
+                        logger.debug("Turn {} of {} absorbs turn {} as a follow-up", turn.id, turn.key, absorbed)
+                    } else {
+                        val reply = (input as? Hooked.Stopped)?.reply?.takeIf { it.isNotBlank() }
+                        notify(NoticeKind.HOOK_ABORTED, reply ?: notices.text(turn, TextKeys.HOOK_ABORTED), message.ref)
+                        followUp.complete(TurnOutcome.Completed(null))
+                    }
+                } catch (e: Throwable) {
+                    followUp.complete(TurnOutcome.Failed(e.toString()))
+                    throw e
                 }
             }
         }
@@ -706,10 +717,7 @@ private class RequestParts(
 )
 
 /** The tools a turn [offered] the model by name, and the names of those it may call. */
-private class TurnTools(val offered: Map<String, Tool>, val callable: Set<String>) {
-    /** Whether the turn offers tools and may call none of them. */
-    val forbidden: Boolean get() = offered.isNotEmpty() && callable.isEmpty()
-}
+private class TurnTools(val offered: Map<String, Tool>, val callable: Set<String>)
 
 /** The message that the turn answers, null for a turn that a plugin started. */
 private val TurnSource.message: IncomingMessage?
@@ -738,6 +746,9 @@ private const val MAX_PAUSES = 3
 
 /** The tool calls of one response that run at once. */
 private const val MAX_PARALLEL_CALLS = 4
+
+/** The untrusted folders that one notice names. */
+private const val MAX_NAMED_FOLDERS = 10
 
 private const val ROUND_LIMIT_RESULT = "Not run: the turn used up its tool rounds."
 

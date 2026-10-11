@@ -80,16 +80,18 @@ class AgentTurnSubmitterTest {
         val conversations = GatedConversations(store)
 
         agentHarness(config(coder, perKey = 2), store = null) {
-            channel().model(model(3)).plugin(StoreIndex(store, conversations))
+            channel().model(model(4)).plugin(StoreIndex(store, conversations))
         }.execute {
             val channel = channel()
+            val running = channel.receive("Hello")
+            while (conversations.asked.isEmpty()) delay(10)
             val taken = List(2) { channel.receive("Hello") }
             val full = channel.receive("Hello")
             val exempt = channel.submit(Submission.Message(channel.message("Hello"), Capacity.EXEMPT))
             conversations.openAll()
 
             assertEquals(Admission.Refused(RefusalReason.QUEUE_FULL, 2), full)
-            assertEquals(List(3) { "Hi" }, (taken + exempt).map { answer(it) })
+            assertEquals(List(4) { "Hi" }, (listOf(running) + taken + exempt).map { answer(it) })
         }
     }
 

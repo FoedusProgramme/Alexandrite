@@ -30,11 +30,11 @@ import java.time.Instant
 public interface AgentControl {
     /**
      * The turns that the agent's workers run or queue and the commands that run, at [chat] or everywhere when null,
-     * delegated runs included.
+     * delegated runs included, where a queued turn shows the conversation it would start in now.
      *
      * Messages that a chat's intake holds and commands that wait in its command lane are left out.
      */
-    public fun turns(chat: ChatAddress? = null): List<TurnStatus>
+    public suspend fun turns(chat: ChatAddress? = null): List<TurnStatus>
 
     /** Cancels the running turns at [chat] and every run they delegated, leaving queued turns alone. */
     public fun cancel(chat: ChatAddress, by: ChatUser?): Boolean
@@ -49,7 +49,8 @@ public interface AgentControl {
      * Seals the conversation of the chat's agent once the turns queued at its key before the call have ended, and
      * returns the new one.
      *
-     * Throws [IllegalStateException] when called in a turn, or once the agent stops.
+     * Throws [IllegalStateException] when called in a turn, in a change of the chat's key or a hook it fires, or once
+     * the agent stops.
      */
     public suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId
 
@@ -64,7 +65,8 @@ public interface AgentControl {
      *
      * The agent and the home change at once, the model, reasoning and language once the turns queued at the chat's key
      * before the call have ended. An update of the model, reasoning or language throws [IllegalStateException] when
-     * called in a turn, changing nothing, and when the agent stops before it is made, with the agent and home changed.
+     * called in a turn or in a change of the chat's key or a hook it fires, changing nothing, and when the agent stops
+     * before it is made, with the agent and home changed.
      */
     public suspend fun updateSettings(
         chat: ChatAddress,
@@ -78,8 +80,11 @@ public interface AgentControl {
      */
     public suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup
 
-    /** Takes [member] out of its group at [agent], false when it is in none. */
-    public suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Boolean
+    /**
+     * Takes [member] out of its group at [agent], removing its link made at runtime whenever there is one, and tells
+     * whether the config file still links it.
+     */
+    public suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation
 
     /** The linked groups of [agent], or of every agent when null. */
     public fun links(agent: AgentId? = null): List<ChatLinkGroup>
@@ -90,10 +95,13 @@ public interface AgentControl {
      */
     public suspend fun trustFolder(folder: Path, by: ChatUser?): Path
 
-    /** Stops trusting [folder], false when it is not a trusted folder itself. */
-    public suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean
+    /**
+     * Stops trusting [folder] at runtime, removing its grant whenever there is one, and tells whether the config file
+     * still trusts it.
+     */
+    public suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation
 
-    /** The trusted folders, each covering the folders below it. */
+    /** The trusted folders, each covering the folders below it outside the repositories nested in it. */
     public fun trustedFolders(): List<TrustedFolder>
 
     /** The model endpoints the agents can use. */
@@ -102,10 +110,20 @@ public interface AgentControl {
     /**
      * The models of [endpoint] from the listing that a chat's model is checked against.
      *
-     * Throws [ControlRefusedException] for an endpoint that [endpoints] leaves out.
+     * Throws [ControlRefusedException] for an endpoint that [endpoints] leaves out, and the endpoint's own exception
+     * when its first listing fails.
      */
     public suspend fun models(endpoint: EndpointId): List<ModelInfo>
 }
+
+/** What revoking a grant did. */
+@Poko
+public class Revocation(
+    /** Whether a grant made at runtime was removed. */
+    public val removed: Boolean,
+    /** Whether the config file still grants it. */
+    public val declared: Boolean,
+)
 
 /** A trusted folder. */
 @Poko
@@ -125,14 +143,27 @@ public class ChatLinkGroup(
     public val agent: AgentId,
     public val anchor: ChatAddress,
     public val members: List<ChatAddress>,
+    /** Whether the config file declares the group. */
+    public val declared: Boolean = false,
+    /** The links of [members] made at runtime, by member. */
+    public val links: Map<ChatAddress, ChatLink> = emptyMap(),
 ) {
     init {
         require(members.isNotEmpty()) { "A linked group of $anchor has at least one member." }
         require(anchor !in members && members.toSet().size == members.size) {
             "A linked group holds each chat once, was $anchor with $members."
         }
+        require(members.containsAll(links.keys)) { "A linked group has links of its members only, was ${links.keys}." }
     }
 }
+
+/** A link of a chat into a group made at runtime. */
+@Poko
+public class ChatLink(
+    public val linkedAt: Instant,
+    /** Null for the host. */
+    public val linkedBy: ChatUser?,
+)
 
 /** An agent as it serves one channel instance. */
 @Poko
@@ -145,6 +176,12 @@ public class AgentSummary(
     public val default: Boolean,
     /** The agent's home chat on the instance, null when it has none. */
     public val home: ChatAddress?,
+    /** The home chat that the config file declares on the instance, null when it declares none. */
+    public val configuredHome: ChatAddress? = null,
+    /** When [home], or none, was set at runtime, null when the configured home applies. */
+    public val homeSetAt: Instant? = null,
+    /** Who set [home] at runtime, null for the host or when nobody did. */
+    public val homeSetBy: ChatUser? = null,
 )
 
 /** A running or queued turn. */
@@ -324,10 +361,11 @@ public class ChatSettingsUpdate private constructor(
     public val reasoning: SettingChange<ReasoningEffort>,
     public val language: SettingChange<LanguageTag>,
     /**
-     * Whether the chat is the home chat of its agent on its channel instance, where a reset brings back the configured
-     * home.
+     * Whether the chat is the home chat of its agent on its channel instance, where a reset, from any chat of the
+     * instance, drops the home set at runtime there and brings back the configured one.
      *
-     * False and a reset change nothing unless the chat, or the chat of its thread, is the home.
+     * True changes nothing while the chat, or the chat of its thread, is the home, and false changes nothing unless it
+     * is.
      */
     public val home: SettingChange<Boolean>,
 ) {

@@ -10,6 +10,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
+import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.TestRecords
 import org.foedusprogramme.alexandrite.testkit.testTexts
@@ -17,9 +19,7 @@ import org.foedusprogramme.alexandrite.testkit.testUser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class ChatTopologyTest {
     private val config = """
@@ -72,14 +72,21 @@ class ChatTopologyTest {
         assertEquals(message, texts.text(refused.key, null, *refused.args))
     }
 
-    private fun setHome(agent: AgentId, instance: ChannelInstanceId, chat: ChatAddress?) {
-        blocking { topology.setHome(agent, instance, chat, admin) }
+    private fun change(agent: AgentId, at: String, change: SettingChange<Boolean>) {
+        blocking { topology.changeHome(agent, chat(at), change, admin) }
     }
+
+    private fun home(agent: AgentId, at: String) = change(agent, at, SettingChange.SetTo(true))
+
+    private fun noHome(agent: AgentId, at: String) = change(agent, at, SettingChange.SetTo(false))
+
+    private fun resetHome(agent: AgentId, at: String) = change(agent, at, SettingChange.Reset)
 
     private fun link(agent: AgentId, chat: ChatAddress, member: ChatAddress): LinkGroup =
         blocking { topology.link(agent, chat, member, admin) }
 
-    private fun unlink(agent: AgentId, member: ChatAddress): Boolean = blocking { topology.unlink(agent, member) }
+    private fun unlink(agent: AgentId, member: ChatAddress, topology: ChatTopology = this.topology): Revocation =
+        blocking { topology.unlink(agent, member) }
 
     /** The records of [collection] as `<key> <value> <who>`. */
     private fun stored(collection: String): List<String> =
@@ -107,17 +114,18 @@ class ChatTopologyTest {
     }
 
     @Test
-    fun `a home is set per agent and instance and cleared with null`() {
-        setHome(coder, main, chat("test:main:5"))
-        setHome(coder, solo, chat("test:solo:4"))
+    fun `a home moves to the chat that takes it, and only the home or its thread leaves the instance without one`() {
+        home(coder, "test:main:5")
+        home(coder, "test:solo:4")
 
         assertEquals(chat("test:main:5"), topology.home(coder, main))
         assertEquals(chat("test:solo:4"), topology.home(coder, solo))
         assertNull(topology.homeAgent(chat("test:main:1")))
         assertEquals(coder, topology.homeAgent(chat("test:main:5")))
 
-        setHome(coder, main, chat("test:main:5"))
-        setHome(coder, main, null)
+        noHome(coder, "test:main:6")
+        assertEquals(chat("test:main:5"), topology.home(coder, main))
+        noHome(coder, "test:main:5#2")
 
         assertNull(topology.home(coder, main))
         assertNull(topology.homeAgent(chat("test:main:5")))
@@ -125,19 +133,59 @@ class ChatTopologyTest {
     }
 
     @Test
+    fun `a chat that is the home already, or a thread of it, keeps the home as it is`() {
+        home(coder, "test:main:1#3")
+        home(coder, "test:main:1")
+
+        assertEquals(chat("test:main:1"), topology.home(coder, main))
+        assertEquals(coder, topology.homeAgent(chat("test:main:1#4")))
+        assertEquals(emptyList(), stored("homes"))
+    }
+
+    @Test
     fun `a home that breaks a rule is refused and changes nothing`() {
-        refused("test:main:2 is the home chat of agent 'helper'.") {
-            setHome(coder, main, chat("test:main:2"))
-        }
-        refused("test:solo:5 is no chat of test:main.") { setHome(coder, main, chat("test:solo:5")) }
-        refused("Agent 'planner' does not serve test:main.") {
-            setHome(AgentId("planner"), main, chat("test:main:5"))
-        }
-        refused("Agent 'other' does not serve test:main.") { setHome(AgentId("other"), main, null) }
+        refused("test:main:2 is the home chat of agent 'helper'.") { home(coder, "test:main:2") }
+        refused("Agent 'planner' does not serve test:main.") { home(AgentId("planner"), "test:main:5") }
+        refused("Agent 'other' does not serve test:main.") { noHome(AgentId("other"), "test:main:5") }
 
         assertEquals(chat("test:main:1"), topology.home(coder, main))
         assertEquals(helper, topology.homeAgent(chat("test:main:2")))
         assertEquals(emptyList(), stored("homes"))
+    }
+
+    @Test
+    fun `a reset from any chat of the instance drops the home set at runtime, also one left without a home`() {
+        noHome(coder, "test:main:1")
+        resetHome(coder, "test:main:9")
+        val afterOff = topology.home(coder, main)
+        home(coder, "test:main:5")
+        resetHome(coder, "test:main:5")
+        resetHome(coder, "test:main:5")
+
+        assertEquals(listOf(chat("test:main:1"), chat("test:main:1")), listOf(afterOff, topology.home(coder, main)))
+        assertEquals(emptyList(), stored("homes"))
+        assertNull(topology.homeGrant(coder, main))
+    }
+
+    @Test
+    fun `a reset that would give back a configured home another agent took is refused and changes nothing`() {
+        noHome(coder, "test:main:1")
+        home(helper, "test:main:1")
+
+        refused("test:main:1 is the home chat of agent 'helper'.") { resetHome(coder, "test:main:9") }
+
+        assertNull(topology.home(coder, main))
+        assertEquals(listOf("coder@test:main", "helper@test:main"), stored("homes").map { it.substringBefore(' ') })
+    }
+
+    @Test
+    fun `a home set at runtime shows when and by whom, and the configured home stays known`() {
+        home(coder, "test:main:5")
+        val grant = topology.homeGrant(coder, main)
+
+        assertEquals(chat("test:main:1"), topology.configuredHome(coder, main))
+        assertEquals(admin, grant?.by)
+        assertEquals(listOf(true, false), listOf(grant != null, topology.homeGrant(helper, main) != null))
     }
 
     @Test
@@ -160,6 +208,9 @@ class ChatTopologyTest {
         )
         assertEquals(AgentChatKey.parse("helper@test:main:5"), topology.key(helper, chat("test:solo:5")))
         assertEquals(AgentChatKey.parse("coder@test:solo:9"), topology.key(coder, chat("test:solo:10")))
+        val group = topology.group(coder, chat("test:solo:9"))!!
+        assertEquals(admin, topology.linkGrant(coder, group, chat("test:main:9"))?.by)
+        assertNull(topology.linkGrant(coder, group, chat("test:solo:9")))
     }
 
     @Test
@@ -194,9 +245,9 @@ class ChatTopologyTest {
         refused("test:main:8 $declaredGroup") { link(coder, chat("test:main:5"), chat("test:main:8")) }
         refused("test:main:7 $declaredGroup") { link(coder, chat("test:main:7"), chat("test:main:5")) }
         refused("test:solo:7 $declaredGroup") { link(coder, chat("test:solo:7"), chat("test:main:5")) }
-        refused("test:main:8 $declaredGroup") { unlink(coder, chat("test:main:8")) }
-        refused("test:main:7 $declaredGroup") { unlink(coder, chat("test:main:7")) }
 
+        assertEquals(Revocation(false, true), unlink(coder, chat("test:main:8")))
+        assertEquals(Revocation(false, true), unlink(coder, chat("test:main:7")))
         assertEquals(listOf(declared("test:main:7", "test:solo:7", "test:main:8")), topology.groups(coder))
         assertEquals(emptyList(), stored("links"))
     }
@@ -206,18 +257,18 @@ class ChatTopologyTest {
         link(coder, chat("test:main:5"), chat("test:main:6"))
         link(coder, chat("test:main:5"), chat("test:solo:6"))
 
-        assertTrue(unlink(coder, chat("test:main:6")))
+        assertEquals(Revocation(true, false), unlink(coder, chat("test:main:6")))
         assertEquals(group("test:main:5", "test:solo:6"), topology.group(coder, chat("test:main:5")))
         refused("test:main:5 anchors its group: unlink the other chats first.") {
             unlink(coder, chat("test:main:5"))
         }
 
-        assertTrue(unlink(coder, chat("test:solo:6")))
+        assertEquals(Revocation(true, false), unlink(coder, chat("test:solo:6")))
 
         assertNull(topology.group(coder, chat("test:main:5")))
         assertEquals(AgentChatKey.parse("coder@test:solo:6"), topology.key(coder, chat("test:solo:6")))
-        assertFalse(unlink(coder, chat("test:main:5")))
-        assertFalse(unlink(helper, chat("test:main:8")))
+        assertEquals(Revocation(false, false), unlink(coder, chat("test:main:5")))
+        assertEquals(Revocation(false, false), unlink(helper, chat("test:main:8")))
         assertEquals(emptyList(), stored("links"))
     }
 
@@ -225,8 +276,8 @@ class ChatTopologyTest {
 
     @Test
     fun `each change is a record of who made it, which the next start loads over the config`() {
-        setHome(coder, main, chat("test:main:5"))
-        setHome(helper, main, null)
+        home(coder, "test:main:5")
+        noHome(helper, "test:main:2")
         link(coder, chat("test:main:5"), chat("test:solo:5"))
 
         val restarted = started()
@@ -235,18 +286,21 @@ class ChatTopologyTest {
         assertNull(restarted.home(helper, main))
         assertEquals(group("test:main:5", "test:solo:5"), restarted.group(coder, chat("test:solo:5")))
         assertEquals(declared("test:main:7", "test:solo:7", "test:main:8"), restarted.group(coder, chat("test:main:8")))
+        assertEquals(listOf(admin, admin), listOf(coder, helper).map { restarted.homeGrant(it, main)?.by })
+        val by = "{\"address\":\"${admin.address}\",\"name\":\"Ada\",\"username\":null,\"bot\":false,\"admin\":true}"
         assertEquals(
             listOf(
-                "coder@test:main {\"agent\":\"coder\",\"instance\":\"test:main\",\"chat\":\"test:main:5\"} " +
+                "coder@test:main {\"agent\":\"coder\",\"instance\":\"test:main\",\"chat\":\"test:main:5\"," +
+                    "\"by\":$by} ${admin.address}",
+                "helper@test:main {\"agent\":\"helper\",\"instance\":\"test:main\",\"chat\":null,\"by\":$by} " +
                     "${admin.address}",
-                "helper@test:main {\"agent\":\"helper\",\"instance\":\"test:main\",\"chat\":null} ${admin.address}",
             ),
             stored("homes"),
         )
         assertEquals(
             listOf(
-                "coder@test:solo:5 {\"agent\":\"coder\",\"member\":\"test:solo:5\",\"anchor\":\"test:main:5\"} " +
-                    "${admin.address}",
+                "coder@test:solo:5 {\"agent\":\"coder\",\"member\":\"test:solo:5\",\"anchor\":\"test:main:5\"," +
+                    "\"by\":$by} ${admin.address}",
             ),
             stored("links"),
         )
@@ -254,10 +308,10 @@ class ChatTopologyTest {
 
     @Test
     fun `a home set back to the configured chat leaves no record`() {
-        setHome(coder, main, chat("test:main:5"))
-        setHome(coder, main, chat("test:main:1"))
-        setHome(helper, main, null)
-        setHome(helper, main, chat("test:main:2"))
+        home(coder, "test:main:5")
+        home(coder, "test:main:1")
+        noHome(helper, "test:main:2")
+        home(helper, "test:main:2")
 
         assertEquals(emptyList(), stored("homes"))
         assertEquals(chat("test:main:1"), started().home(coder, main))
@@ -265,15 +319,28 @@ class ChatTopologyTest {
 
     @Test
     fun `until it starts a topology knows only the config`() {
-        setHome(coder, main, chat("test:main:5"))
+        home(coder, "test:main:5")
 
         assertEquals(chat("test:main:1"), topology().home(coder, main))
     }
 
     @Test
+    fun `homes swapped at runtime are as swapped after the next start`() {
+        noHome(helper, "test:main:2")
+        home(coder, "test:main:2")
+        home(helper, "test:main:1")
+
+        val restarted = started()
+        val homes = listOf(coder, helper).map { restarted.home(it, main) }
+
+        assertEquals(listOf("test:main:2", "test:main:1").map(::chat), homes)
+        assertEquals(listOf(helper, coder), listOf("test:main:1", "test:main:2").map { restarted.homeAgent(chat(it)) })
+    }
+
+    @Test
     fun `a recorded change that the config no longer allows is ignored with a warning`() {
-        setHome(coder, solo, chat("test:solo:4"))
-        setHome(coder, main, chat("test:main:3"))
+        home(coder, "test:solo:4")
+        home(coder, "test:main:3")
         link(coder, chat("test:main:5"), chat("test:main:9"))
         link(coder, chat("test:main:5"), chat("test:solo:9"))
         val changed = """
@@ -292,19 +359,34 @@ class ChatTopologyTest {
         lateinit var restarted: ChatTopology
         val warnings = logged { restarted = started(changed) }.filter { it.startsWith("WARN") }
 
-        assertNull(restarted.home(coder, main))
-        assertEquals(helper, restarted.homeAgent(chat("test:main:3")))
+        assertEquals(chat("test:main:3"), restarted.home(coder, main))
+        assertNull(restarted.home(helper, main))
         assertEquals(listOf(declared("test:main:3", "test:main:9")), restarted.groups(coder))
         assertEquals(
             listOf(
                 "WARN The home chat test:solo:4 of agent 'coder' is ignored: agent 'coder' does not serve test:solo",
-                "WARN The home chat test:main:3 of agent 'coder' is ignored: it is the home chat of agent 'helper'",
+                "WARN The configured home chat test:main:3 of agent 'helper' is the home chat of agent 'coder' now: " +
+                    "'helper' has no home chat on test:main",
                 "WARN The link of test:main:9 to test:main:5 at agent 'coder' is ignored: it is in another group",
                 "WARN The link of test:solo:9 to test:main:5 at agent 'coder' is ignored: agent 'coder' does not " +
                     "serve both chats",
             ),
             warnings,
         )
+    }
+
+    @Test
+    fun `unlinking a chat that the config links since drops its runtime link, which no later start brings back`() {
+        link(coder, chat("test:main:5"), chat("test:main:6"))
+        val declaring = config.replace("""[["test:main:7"""", """[["test:main:5", "test:main:6"], ["test:main:7"""")
+
+        val linked = started(declaring)
+        val revoked = unlink(coder, chat("test:main:6"), linked)
+
+        assertEquals(Revocation(true, true), revoked)
+        assertEquals(declared("test:main:5", "test:main:6"), linked.group(coder, chat("test:main:6")))
+        assertNull(started().group(coder, chat("test:main:6")))
+        assertEquals(emptyList(), stored("links"))
     }
 
     private companion object {

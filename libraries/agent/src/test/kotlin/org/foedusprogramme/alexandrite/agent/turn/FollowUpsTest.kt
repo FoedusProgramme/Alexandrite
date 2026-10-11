@@ -1,11 +1,14 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
 import kotlinx.coroutines.CompletableDeferred
+import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
+import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeKind
@@ -31,7 +34,10 @@ class FollowUpsTest {
     private val key = AgentChatKey.parse("coder@test:main:chat")
     private val read = recordingTool("fs.read").hold()
 
-    private fun harness(configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness = agentHarness(
+    private fun harness(
+        store: MemoryStore? = this.store,
+        configure: PluginHarness.Builder.() -> Unit = {},
+    ): PluginHarness = agentHarness(
         """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}""",
         store,
     ) { channel(admins = setOf("admin")).model(model).tool(read).apply(configure) }
@@ -95,6 +101,30 @@ class FollowUpsTest {
             val entries = stored()
             assertEquals(NoticeEntry(null, "No follow-ups.", NoticeKind.HOOK_ABORTED), entries[3].withoutRecord())
             assertEquals(entries.take(3), model.requests[1].history)
+        }
+    }
+
+    @Test
+    fun `a follow-up whose entry cannot be stored ends as failed with its turn`() {
+        model.reply { toolCall("fs.read") }.reply { text("Never.") }
+        val transcripts = object : TranscriptStore by store.transcripts {
+            override suspend fun append(turn: TurnId, entries: List<TranscriptEntry>): List<TranscriptEntry> {
+                check(entries.none { words(it) == "And then summarize." }) { "The disk is full." }
+                return store.transcripts.append(turn, entries)
+            }
+        }
+
+        harness(store = null) { plugin(StoreIndex(store, transcripts = transcripts)) }.execute {
+            val first = send("Read it.")
+            read.awaitCalls(1)
+            val second = send("And then summarize.")
+            read.release()
+
+            assertIs<TurnOutcome.Failed>(first.ticket.outcome())
+            assertEquals(
+                TurnOutcome.Failed("java.lang.IllegalStateException: The disk is full."),
+                second.ticket.outcome(),
+            )
         }
     }
 

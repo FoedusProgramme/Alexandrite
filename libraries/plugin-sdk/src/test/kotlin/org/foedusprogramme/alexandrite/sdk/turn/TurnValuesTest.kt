@@ -316,20 +316,29 @@ class TurnValuesTest {
         assertEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, home), summary)
         assertNotEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, null), summary)
         assertEquals(
-            "AgentSummary(id=coder, name=Coder, description=Writes code., default=true, home=telegram:work:42)",
+            "AgentSummary(id=coder, name=Coder, description=Writes code., default=true, home=telegram:work:42, " +
+                "configuredHome=null, homeSetAt=null, homeSetBy=null)",
             summary.toString(),
         )
+        assertNotEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, home, home), summary)
     }
 
     @Test
-    fun `a linked group holds at least one member and each chat once`() {
+    fun `a linked group holds at least one member and each chat once, with links of its members only`() {
         val other = ChatAddress.parse("test:main:2")
         val group = ChatLinkGroup(AgentId("coder"), chat, listOf(other))
+        val link = ChatLink(Instant.EPOCH, null)
 
         assertEquals(listOf(other), group.members)
+        assertEquals(false to emptyMap(), group.declared to group.links)
+        val linked = ChatLinkGroup(AgentId("coder"), chat, listOf(other), links = mapOf(other to link))
+        assertEquals(mapOf(other to link), linked.links)
         assertFailsWith<IllegalArgumentException> { ChatLinkGroup(AgentId("coder"), chat, emptyList()) }
         assertFailsWith<IllegalArgumentException> { ChatLinkGroup(AgentId("coder"), chat, listOf(chat)) }
         assertFailsWith<IllegalArgumentException> { ChatLinkGroup(AgentId("coder"), chat, listOf(other, other)) }
+        assertFailsWith<IllegalArgumentException> {
+            ChatLinkGroup(AgentId("coder"), chat, listOf(other), links = mapOf(chat to link))
+        }
     }
 
     @Test

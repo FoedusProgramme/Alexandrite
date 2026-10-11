@@ -57,8 +57,13 @@ internal class TrustCommands(private val control: AgentControl, private val text
         replies: Replies,
     ) {
         val folder = folder(UNTRUST, text, context, replies) ?: return
-        val untrusted = context.refusing { control.untrustFolder(folder, invocation.issuer) } ?: return
-        val key = if (untrusted) TextKeys.UNTRUST_DONE else TextKeys.UNTRUST_NOT_TRUSTED
+        val revocation = context.refusing { control.untrustFolder(folder, invocation.issuer) } ?: return
+        val key = when {
+            revocation.declared && revocation.removed -> TextKeys.UNTRUST_DECLARED_REMOVED
+            revocation.declared -> TextKeys.UNTRUST_DECLARED
+            revocation.removed -> TextKeys.UNTRUST_DONE
+            else -> TextKeys.UNTRUST_NOT_TRUSTED
+        }
         context.reply(replies.text(key, "folder" to folder))
     }
 
@@ -77,7 +82,14 @@ internal class TrustCommands(private val control: AgentControl, private val text
         val at = folder.trustedAt
         val by = folder.trustedBy
         return when {
-            folder.declared || at == null -> replies.text(TextKeys.TRUST_DECLARED, "folder" to folder.path)
+            at == null -> replies.text(TextKeys.TRUST_DECLARED, "folder" to folder.path)
+
+            folder.declared -> replies.text(
+                TextKeys.TRUST_DECLARED_GRANTED,
+                "folder" to folder.path,
+                "user" to (by?.displayName ?: replies.text(TextKeys.VALUE_HOST)),
+                "date" to dateOf(at),
+            )
 
             by == null ->
                 replies.text(TextKeys.TRUST_GRANTED_BY_HOST, "folder" to folder.path, "date" to dateOf(at))

@@ -112,8 +112,8 @@ internal fun mediaNote(leftOut: List<Pair<MediaAttachment, String>>): ContextPar
 /** [label] on one line, with a backslash in front when it would pass for a framing field, a quote or a header. */
 private fun factLabel(label: String): String {
     val line = Escaper.HEADERS.text(oneLine(label))
-    val seen = line.replace(INVISIBLE_RUN, "").trimEnd(':').lowercase(Locale.ROOT)
-    val forged = seen.startsWith(">") || seen in FRAMING_FIELDS
+    val seen = line.replace(INVISIBLE_RUN, "").lowercase(Locale.ROOT)
+    val forged = seen.startsWith(">") || seen.split(COLON, limit = 2).first() in FRAMING_FIELDS
     return if (forged && !line.startsWith("\\")) "\\$line" else line
 }
 
@@ -123,5 +123,8 @@ private const val UNKNOWN = "unknown"
 private val FRAMING_FIELDS = setOf("from", "operator", "received", "chat", "forwardedfrom", "quoting")
 
 private val INVISIBLE_RUN = Regex("$INVISIBLE+")
+
+/** A colon and the characters that look like one. */
+private val COLON = Regex("[:\\u02F8\\u05C3\\u2236\\uA789\\uFE13\\uFE55\\uFF1A]")
 
 private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mmXXX", Locale.ROOT)

@@ -46,8 +46,8 @@ import java.time.Instant
 /**
  * Runs the command invocations that a handler claims, in a lane per chat beside the chat's turns.
  *
- * A lane admits `queue.commandsPerChat` counted invocations and runs `queue.commandsRunning` of them at once: those
- * whose command runs alongside as they come, the others one after another in the order they came.
+ * A lane admits `queue.commandsPerChat` counted invocations and runs those whose command runs alongside as they come,
+ * the others one after another in the order they came.
  */
 @Singleton
 internal class CommandLanes(
@@ -65,7 +65,6 @@ internal class CommandLanes(
     private val clock: Clock,
 ) {
     private val perChat = settings.queue.commandsPerChat
-    private val concurrent = settings.queue.commandsRunning
     private val lanes = HashMap<ChatAddress, Lane>()
 
     /** Admits [command], which [handler] claims, and holds its chat's messages until the handler ends. */
@@ -175,7 +174,6 @@ internal class CommandLanes(
         var serial = lane.running.any { !it.alongside }
         val starting = mutableListOf<Invocation>()
         for (invocation in lane.waiting) {
-            if (lane.running.size + starting.size == concurrent) break
             if (!invocation.alongside) {
                 if (serial) continue
                 serial = true
@@ -185,6 +183,7 @@ internal class CommandLanes(
         lane.waiting.removeAll(starting)
         lane.running += starting
         for (invocation in starting) {
+            intakes.arm(lane.chat, invocation.turn)
             val job = lock.launch { run(invocation) }
             invocation.job = job
             job.invokeOnCompletion { error -> ended(lane, invocation, error) }

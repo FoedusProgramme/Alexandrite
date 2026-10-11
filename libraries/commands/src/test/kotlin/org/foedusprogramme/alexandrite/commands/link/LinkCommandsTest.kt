@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.commands.answer
 import org.foedusprogramme.alexandrite.commands.commandContext
 import org.foedusprogramme.alexandrite.commands.commandTexts
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
@@ -20,8 +21,10 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl.Call
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
@@ -211,6 +214,28 @@ class LinkCommandsTest {
         )
         assertEquals(listOf(Call.Unlink(AgentId.MAIN, testChat("third"), ADMIN)), control.calls.drop(2))
     }
+
+    @Test
+    @OptIn(InternalAlexandriteApi::class)
+    fun `unlink of a chat that the config file links says to edit the file, also once its runtime link is gone`() =
+        runTest {
+            control.declareLink(AgentId.MAIN, first, listOf(second))
+            val dropping = object : AgentControl by control {
+                override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation =
+                    Revocation(removed = true, declared = true)
+            }
+
+            assertEquals(
+                "The config file links test:main:second to the conversation of main: edit the file to unlink it.",
+                commands.answer(unlink(second)),
+            )
+            assertEquals(
+                "The link of test:main:second made at runtime is removed, but the config file still links it to the " +
+                    "conversation of main: edit the file to unlink it.",
+                LinkCommands(dropping, control, channels, LinkCodes(clock), commandTexts(), clock)
+                    .answer(unlink(second)),
+            )
+        }
 
     @Test
     fun `a refused unlink replies with the agent's message`() = runTest {

@@ -1,13 +1,18 @@
 package org.foedusprogramme.alexandrite.agent.control
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
+import kotlinx.coroutines.yield
+import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.turn.Observer
 import org.foedusprogramme.alexandrite.agent.worker.ticket
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -15,7 +20,10 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatSettings
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -25,6 +33,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
+import org.foedusprogramme.alexandrite.sdk.turn.ConversationSealed
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
@@ -32,6 +41,7 @@ import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordedReply
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -40,6 +50,16 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
+
+/** What [call] returned, as `done`, or the message of the [IllegalStateException] it threw. */
+private suspend fun attempt(call: suspend () -> Any): String = try {
+    call()
+    "done"
+} catch (e: IllegalStateException) {
+    e.message.orEmpty()
+}
 
 class AgentControlTest {
     private val store = MemoryStore()
@@ -255,15 +275,17 @@ class AgentControlTest {
             val main = channel().instance
             val side = channel("side").instance
 
+            val home = channel().chat("home")
+            val sideHome = channel("side").chat("7", "2")
             assertEquals(
                 listOf(
-                    AgentSummary(helper, "Helper", "Answers questions.", false, channel().chat("home")),
+                    AgentSummary(helper, "Helper", "Answers questions.", false, home, home),
                     AgentSummary(coder, "coder", null, true, null),
                 ),
                 control.agents(main),
             )
             assertEquals(
-                listOf(AgentSummary(helper, "Helper", "Answers questions.", true, channel("side").chat("7", "2"))),
+                listOf(AgentSummary(helper, "Helper", "Answers questions.", true, sideHome, sideHome)),
                 control.agents(side),
             )
             assertEquals(emptyList(), control.agents(ChannelInstanceId.parse("test:other")))
@@ -334,6 +356,97 @@ class AgentControlTest {
             assertEquals(home, configured)
             assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, update(topic) { resetHome() })
         }
+    }
+
+    @Test
+    fun `a reset from any chat of the instance drops the home set at runtime, also one left without a home`() {
+        harness().execute {
+            val control = get<AgentControl>()
+            val home = channel().chat("home")
+            val admin = channel().user("admin")
+            fun helper() = control.agents(channel().instance).single { it.id == helper }
+            suspend fun update(chat: ChatAddress, update: ChatSettingsUpdate.Builder.() -> Unit) =
+                control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), admin)
+
+            update(home) { noHome() }
+            val off = helper()
+            update(channel().chat("dm")) { resetHome() }
+
+            assertEquals(listOf(null, home, admin), listOf(off.home, off.configuredHome, off.homeSetBy))
+            assertTrue(off.homeSetAt != null)
+            assertEquals(AgentSummary(helper, "helper", null, false, home, home), helper())
+        }
+    }
+
+    @Test
+    fun `making a topic of the home group the home keeps the group as the home`() {
+        harness().execute {
+            val control = get<AgentControl>()
+            val topic = channel().chat("home", "5")
+
+            val snapshot = control.updateSettings(topic, ChatSettingsUpdate.builder().home().build(), null)
+
+            assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, snapshot)
+            val group = listOf(channel().chat("home"), channel().chat("home", "6"))
+            assertEquals(listOf(helper, helper), group.map { control.settings(it).agent })
+            assertNull(control.agents(channel().instance).single { it.id == helper }.homeSetAt)
+        }
+    }
+
+    @Test
+    fun `a hook that a change of a chat fires cannot wait for another change of that chat`() {
+        model.reply { text("One.") }
+        val outcomes = CopyOnWriteArrayList<String>()
+        val waiting = object : ObserverHook<ConversationSealed> {
+            override val point = TurnPoints.CONVERSATION_SEALED
+
+            override suspend fun observe(payload: ConversationSealed) {
+                val chat = payload.turn.chat
+                val effort = ChatSettingsUpdate.builder().reasoning(ReasoningEffort.LOW).build()
+                outcomes += attempt { commands.control.updateSettings(chat, effort, null) }
+                outcomes += attempt { commands.control.newConversation(chat, null) }
+            }
+        }
+
+        harness { hook(waiting) }.execute {
+            val channel = start()
+            channel.answered(channel.receive("Hi"))
+            val started = TimeSource.Monotonic.markNow()
+
+            commands.control.newConversation(channel.chat(), null)
+
+            val refused = "A change of a chat, or a hook it fires, cannot wait for another change of the chat, which " +
+                "runs after it."
+            assertEquals(List(2) { refused }, outcomes)
+            assertTrue(started.elapsedNow() < 5.seconds)
+            assertNull(commands.control.settings(channel.chat()).reasoning)
+        }
+    }
+
+    @Test
+    fun `a new conversation that the store made is returned also when its hook is cut off`() {
+        model.reply { text("One.") }
+        val store = MemoryStore()
+        val conversations = object : ConversationStore by store.conversations {
+            override suspend fun newConversation(key: AgentChatKey): Rotation =
+                store.conversations.newConversation(key).also { currentCoroutineContext().job.cancel() }
+        }
+        val yielding = object : ObserverHook<ConversationSealed> {
+            override val point = TurnPoints.CONVERSATION_SEALED
+
+            override suspend fun observe(payload: ConversationSealed) = yield()
+        }
+        val config = """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}"""
+
+        agentHarness(config, null) { channel().model(model).plugin(StoreIndex(store, conversations)).hook(yielding) }
+            .execute {
+                val chat = channel().chat()
+                channel().answered(channel().receive("Hi"))
+
+                val successor = get<AgentControl>().newConversation(chat, null)
+
+                assertEquals(store.conversations.current(AgentChatKey(AgentId("coder"), chat)).id, successor)
+            }
     }
 
     @Test

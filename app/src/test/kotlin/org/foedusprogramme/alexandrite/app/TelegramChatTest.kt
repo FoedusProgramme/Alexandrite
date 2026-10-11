@@ -10,7 +10,6 @@ import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.GROUP
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
-import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -156,10 +155,12 @@ class TelegramChatTest {
             app.send(app.bob, app.group, "$BOT_MENTION and after the restart?")
             app.message(app.group, "Still on Friday.")
             idle()
+            val group = get<AgentControl>().links().single()
             assertEquals(
-                listOf(ChatLinkGroup(CODER, app.address(app.adaChat), listOf(app.address(app.group)))),
-                get<AgentControl>().links(),
+                listOf(app.address(app.adaChat), app.address(app.group)),
+                listOf(group.anchor) + group.members,
             )
+            assertEquals(setOf(app.address(app.group)), group.links.keys)
         }
 
         assertContains(

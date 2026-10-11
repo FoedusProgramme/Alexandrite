@@ -42,6 +42,9 @@ internal object TextKeys {
     const val HOME_CLEARED: String = "home.cleared"
     const val HOME_NOT_HOME: String = "home.not_home"
     const val HOME_RESET: String = "home.reset"
+    const val HOME_RESET_NONE: String = "home.reset_none"
+    const val HOME_NOTHING_TO_RESET: String = "home.nothing_to_reset"
+    const val HOME_ALREADY: String = "home.already"
 
     const val LINK_OFFER: String = "link.offer"
     const val LINK_CURRENT: String = "link.current"
@@ -56,6 +59,8 @@ internal object TextKeys {
     const val UNLINK_DONE: String = "unlink.done"
     const val UNLINK_NOT_LINKED: String = "unlink.not_linked"
     const val UNLINK_NOT_IN_GROUP: String = "unlink.not_in_group"
+    const val UNLINK_DECLARED: String = "unlink.declared"
+    const val UNLINK_DECLARED_REMOVED: String = "unlink.declared_removed"
 
     const val SETTINGS_TITLE: String = "settings.title"
     const val SETTINGS_AGENT: String = "settings.agent"
@@ -73,12 +78,15 @@ internal object TextKeys {
     const val TRUST_LIST: String = "trust.list"
     const val TRUST_NONE: String = "trust.none"
     const val TRUST_DECLARED: String = "trust.declared"
+    const val TRUST_DECLARED_GRANTED: String = "trust.declared_granted"
     const val TRUST_GRANTED: String = "trust.granted"
     const val TRUST_GRANTED_BY_HOST: String = "trust.granted_by_host"
     const val TRUST_RELATIVE: String = "trust.relative"
     const val TRUST_DONE: String = "trust.done"
     const val UNTRUST_DONE: String = "untrust.done"
     const val UNTRUST_NOT_TRUSTED: String = "untrust.not_trusted"
+    const val UNTRUST_DECLARED: String = "untrust.declared"
+    const val UNTRUST_DECLARED_REMOVED: String = "untrust.declared_removed"
 
     const val SOURCE_SELECTED: String = "source.selected"
     const val SOURCE_HOME: String = "source.home"
@@ -92,6 +100,7 @@ internal object TextKeys {
 
     const val VALUE_DEFAULT: String = "value.default"
     const val VALUE_NONE: String = "value.none"
+    const val VALUE_HOST: String = "value.host"
     const val LIST_ITEM: String = "list.item"
 
     fun description(command: String): String = "command.$command.description"

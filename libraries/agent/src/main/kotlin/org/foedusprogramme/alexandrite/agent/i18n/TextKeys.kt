@@ -21,6 +21,9 @@ internal object TextKeys {
     /** Takes `{agent}` and `{folders}`. */
     const val UNTRUSTED_FOLDERS: String = "notice.untrusted_folders"
 
+    /** Takes `{agent}`, `{folders}` and `{count}`. */
+    const val UNTRUSTED_FOLDERS_MORE: String = "notice.untrusted_folders_more"
+
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"
 
@@ -54,9 +57,6 @@ internal object TextKeys {
     /** Takes `{effort}` and `{efforts}`. */
     const val UNKNOWN_REASONING: String = "control.unknown_reasoning"
 
-    /** Takes `{chat}` and `{instance}`. */
-    const val NOT_A_CHAT_OF: String = "control.not_a_chat_of"
-
     /** Takes `{chat}` and `{agent}`. */
     const val HOME_TAKEN: String = "control.home_taken"
     const val SELF_LINK: String = "control.self_link"
@@ -78,9 +78,6 @@ internal object TextKeys {
 
     /** Takes `{folder}` and `{reason}`. */
     const val FOLDER_PROTECTED: String = "control.folder_protected"
-
-    /** Takes `{folder}`. */
-    const val FOLDER_DECLARED: String = "control.folder_declared"
 
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {

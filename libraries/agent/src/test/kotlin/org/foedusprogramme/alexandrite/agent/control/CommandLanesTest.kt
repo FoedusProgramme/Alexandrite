@@ -6,6 +6,8 @@ import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.worker.AgentTicket
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
@@ -25,6 +27,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 class CommandLanesTest {
+    private val store = MemoryStore()
     private val model = ScriptedModel()
     private val commands = TestCommands()
 
@@ -36,7 +39,7 @@ class CommandLanesTest {
           "agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}
         }
         """.trimIndent(),
-        MemoryStore(),
+        store,
     ) { channel().model(model).commandHandler(commands) }
 
     private val Admission.accepted: Admission.Accepted get() = this as Admission.Accepted
@@ -48,7 +51,7 @@ class CommandLanesTest {
     }
 
     @Test
-    fun `a lane admits commandsPerChat counted invocations and runs commandsRunning at once, in submit order`() {
+    fun `a lane admits commandsPerChat counted invocations and runs them one at a time, in submit order`() {
         harness(perChat = 2, running = 1).execute {
             commands.control = get()
             val channel = channel()
@@ -104,6 +107,52 @@ class CommandLanesTest {
                 List(3) { TurnOutcome.Completed(null) },
                 listOf(first, second, elsewhere).map { it.ticket.outcome() },
             )
+        }
+    }
+
+    @Test
+    fun `a command that runs alongside starts at once beside a waiting one, however few commands may run`() {
+        model.reply {
+            text("Hel")
+            hang()
+        }
+
+        harness(running = 1).execute {
+            commands.control = get()
+            val channel = channel()
+            val running = channel.receive("Hi").accepted
+            model.awaitRequests(1)
+            val new = channel.receiveCommand("new").accepted
+            awaitStarted(1)
+            val cancel = channel.receiveCommand("cancel").accepted
+
+            assertTrue(cancel.ticket.outcome() is TurnOutcome.Completed)
+            assertEquals(TurnOutcome.Cancelled, running.ticket.outcome())
+            assertTrue(new.ticket.outcome() is TurnOutcome.Completed)
+        }
+    }
+
+    @Test
+    fun `a message waits for each command sent before it, whose gate times out only once it runs`() {
+        model.reply {
+            text("Old")
+            hang()
+        }.reply { text("New.") }
+
+        harness(gateSeconds = 1).execute {
+            commands.control = get()
+            val channel = channel()
+            val running = channel.receive("Hi").accepted
+            model.awaitRequests(1)
+            val news = List(2) { channel.receiveCommand("new").accepted }
+            val held = channel.receive("Again").accepted
+            delay(1_500)
+            assertTrue(running.ticket.cancel())
+
+            news.forEach { assertTrue(it.ticket.outcome() is TurnOutcome.Completed) }
+            assertTrue(held.ticket.outcome() is TurnOutcome.Completed)
+            val current = store.conversations.current(AgentChatKey(AgentId("coder"), channel.chat())).id
+            assertEquals(current, channel.reply(held.ticket.turn).awaitEnd().turn.conversation)
         }
     }
 

@@ -24,6 +24,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
@@ -119,8 +120,11 @@ internal class FakeRunner : TurnRunner {
     /** The follow-ups that each started turn may take. */
     val followUps: MutableMap<TurnId, FollowUps> = ConcurrentHashMap()
 
-    override suspend fun run(plan: TurnPlan, followUps: FollowUps): TurnOutcome {
+    private val resolved = ConcurrentHashMap<TurnId, (ConversationId) -> Unit>()
+
+    override suspend fun run(plan: TurnPlan, followUps: FollowUps, resolved: (ConversationId) -> Unit): TurnOutcome {
         this.followUps[plan.id] = followUps
+        this.resolved[plan.id] = resolved
         started += plan.id
         val end = end(plan.id)
         if (plan.id in stubborn) return withContext(NonCancellable) { end.await() }
@@ -129,6 +133,11 @@ internal class FakeRunner : TurnRunner {
         } catch (e: CancellationException) {
             onCancel[plan.id] ?: throw e
         }
+    }
+
+    /** Tells the worker of [turn], which started, that it runs in [conversation]. */
+    fun resolve(turn: TurnId, conversation: ConversationId) {
+        resolved.getValue(turn)(conversation)
     }
 
     fun finish(turn: TurnId, outcome: TurnOutcome = TurnOutcome.Completed(null)) {

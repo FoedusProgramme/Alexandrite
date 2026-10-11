@@ -15,9 +15,11 @@ import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
+import org.foedusprogramme.alexandrite.agent.routing.LinkGroup
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
 import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
+import org.foedusprogramme.alexandrite.agent.worker.RunningControl
 import org.foedusprogramme.alexandrite.agent.worker.RunningTurn
 import org.foedusprogramme.alexandrite.agent.worker.TurnWorkers
 import org.foedusprogramme.alexandrite.agent.worker.WorkerJob
@@ -39,14 +41,17 @@ import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
@@ -75,7 +80,7 @@ internal class AgentControlImpl(
     private val clock: Clock,
 ) : AgentControl,
     ChatSettings {
-    override fun turns(chat: ChatAddress?): List<TurnStatus> =
+    override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
         (workers.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
 
     override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
@@ -96,7 +101,10 @@ internal class AgentControlImpl(
     override suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId {
         val key = refusing(null) { served(chat).key }
         val command = currentCoroutineContext()[RunningCommand]?.turn
-        val successor = onWorker(key) { rotate(key, chat, command, by) }
+        val rotation = onWorker(key, after = { sealed(key, chat, command, by, it) }) {
+            conversations.newConversation(key)
+        }
+        val successor = rotation.successor.id
         logger.info("The conversation of {} is sealed by {}: {} follows", key, who(by), successor)
         return successor
     }
@@ -104,12 +112,16 @@ internal class AgentControlImpl(
     override fun agents(instance: ChannelInstanceId): List<AgentSummary> {
         val default = directory.default(instance)?.id
         return directory.attached(instance).map { agent ->
+            val grant = topology.homeGrant(agent.id, instance)
             AgentSummary(
                 agent.id,
                 agent.name,
                 agent.config.description,
                 agent.id == default,
                 topology.home(agent.id, instance),
+                topology.configuredHome(agent.id, instance),
+                grant?.at,
+                grant?.by,
             )
         }
     }
@@ -127,7 +139,7 @@ internal class AgentControlImpl(
             val agent = agentAfter(chat, current.agent, update.agent)
             checkModel(update.model)
             checkReasoning(update.reasoning)
-            if (changes.isNotEmpty()) checkWaiting()
+            if (changes.isNotEmpty()) checkWaiting(topology.key(agent, chat))
             topology.changeHome(agent, chat, update.home, by)
             agent
         }
@@ -147,24 +159,28 @@ internal class AgentControlImpl(
         val group = refusing(topology.key(agent, member)) { topology.link(agent, anchor, member, by) }
         logger.info("Agent '{}' links {} into the group of {} by {}", agent, member, group.anchor, who(by))
         seal(AgentChatKey(agent, member), currentCoroutineContext()[RunningCommand]?.turn, by)
-        return ChatLinkGroup(agent, group.anchor, group.members)
+        return view(agent, group)
     }
 
-    override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Boolean {
-        val unlinked = refusing(topology.key(agent, member)) { topology.unlink(agent, member) }
-        if (!unlinked) return false
-        logger.info("Agent '{}' unlinks {} by {}", agent, member, who(by))
-        return true
+    override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation {
+        val revocation = refusing(topology.key(agent, member)) { topology.unlink(agent, member) }
+        when {
+            revocation.declared && revocation.removed ->
+                logger.info("Agent '{}' drops the link of {} by {}: the config still links it", agent, member, who(by))
+
+            revocation.removed -> logger.info("Agent '{}' unlinks {} by {}", agent, member, who(by))
+        }
+        return revocation
     }
 
     override fun links(agent: AgentId?): List<ChatLinkGroup> {
         val agents = if (agent == null) directory.agents.map { it.id } else listOf(agent)
-        return agents.flatMap { id -> topology.groups(id).map { ChatLinkGroup(id, it.anchor, it.members) } }
+        return agents.flatMap { id -> topology.groups(id).map { view(id, it) } }
     }
 
     override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = refusing(null) { trust.trust(folder, by) }
 
-    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean =
+    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation =
         refusing(null) { trust.untrust(folder, by) }
 
     override fun trustedFolders(): List<TrustedFolder> = trust.folders()
@@ -260,9 +276,17 @@ internal class AgentControlImpl(
         }
     }
 
+    /** [group] of [agent] as the control port shows it. */
+    private fun view(agent: AgentId, group: LinkGroup): ChatLinkGroup {
+        val links = group.members.mapNotNull { member ->
+            topology.linkGrant(agent, group, member)?.let { member to ChatLink(it.at, it.by) }
+        }
+        return ChatLinkGroup(agent, group.anchor, group.members, group.declared, links.toMap())
+    }
+
     /** Seals the conversation at [key] once the turns queued there have ended. */
     private fun seal(key: AgentChatKey, command: TurnInfo?, by: ChatUser?) {
-        val job = WorkerJob.Control { rotate(key, key.chat, command, by) }
+        val job = WorkerJob.Control { sealed(key, key.chat, command, by, conversations.newConversation(key)) }
         try {
             workers.control(key, job)
         } catch (e: IllegalStateException) {
@@ -275,18 +299,17 @@ internal class AgentControlImpl(
     }
 
     /**
-     * Seals the conversation at [key] and fires `conversation.sealed` with the turn of [command] when it ran at [key],
-     * else with a COMMAND turn of [by] in [chat].
+     * Fires `conversation.sealed` for [rotation] at [key] with the turn of [command] when it ran at [key], else with a
+     * COMMAND turn of [by] in [chat].
      */
-    private suspend fun rotate(
+    private suspend fun sealed(
         key: AgentChatKey,
         chat: ChatAddress,
         command: TurnInfo?,
         by: ChatUser?,
-    ): ConversationId {
-        val rotation = conversations.newConversation(key)
-        val successor = rotation.successor.id
-        val sealed = rotation.sealed?.id ?: return successor
+        rotation: Rotation,
+    ) {
+        val sealed = rotation.sealed?.id ?: return
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)
@@ -294,30 +317,46 @@ internal class AgentControlImpl(
                 .agent(key.agent)
                 .key(key)
                 .build()
-        hooks.conversationSealed(turn, sealed, successor)
-        return successor
+        hooks.conversationSealed(turn, sealed, rotation.successor.id)
     }
 
-    /** Throws [IllegalStateException] where a change cannot wait for a worker: in a turn, or once the agent stops. */
-    private suspend fun checkWaiting() {
-        check(currentCoroutineContext()[RunningTurn] == null) {
+    /**
+     * Throws [IllegalStateException] where a change cannot wait for the worker of [key]: in a turn, in a change of
+     * [key] or a hook it fires, or once the agent stops.
+     */
+    private suspend fun checkWaiting(key: AgentChatKey) {
+        val context = currentCoroutineContext()
+        check(context[RunningTurn] == null) {
             "A turn cannot wait for a change of a chat, which runs after the turns queued at the chat: make it " +
                 "outside the turn."
+        }
+        check(context[RunningControl]?.workerKey != key) {
+            "A change of a chat, or a hook it fires, cannot wait for another change of the chat, which runs after it."
         }
         check(workers.accepting) { "The agent is not running." }
     }
 
-    /** What [effect] returns, run at [key] once the turns queued there before it have ended. */
-    private suspend fun <T> onWorker(key: AgentChatKey, effect: suspend () -> T): T {
-        checkWaiting()
+    /**
+     * What [effect] returns, run at [key] once the turns queued there before it have ended, before [after] runs with
+     * it there.
+     */
+    private suspend fun <T> onWorker(key: AgentChatKey, after: suspend (T) -> Unit = {}, effect: suspend () -> T): T {
+        checkWaiting(key)
         val result = CompletableDeferred<T>()
-        val job = WorkerJob.Control { result.complete(effect()) }
+        val job = WorkerJob.Control {
+            val value = effect()
+            result.complete(value)
+            after(value)
+        }
         workers.control(key, job)
         try {
             job.done.await()
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
-            throw IllegalStateException("The agent stopped before the change was made.", e)
+            if (!result.isCompleted) throw IllegalStateException("The agent stopped before the change was made.", e)
+        } catch (e: Exception) {
+            if (!result.isCompleted) throw e
+            logger.warn("A change of {} is made, but what follows it failed: {}", key, e.toString())
         }
         return result.await()
     }

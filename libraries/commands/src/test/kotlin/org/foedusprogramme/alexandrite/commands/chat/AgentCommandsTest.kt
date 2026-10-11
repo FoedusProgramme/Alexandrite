@@ -105,6 +105,10 @@ class AgentCommandsTest {
             "This chat talks to main \"Main\": this is its home chat.",
             commands.answer(testCommand("agent")).lines().first(),
         )
+        val again = listOf(chat, testChat(thread = "7")).map {
+            commands.answer(testCommand("home", chat = it, issuer = ADMIN))
+        }
+        assertEquals(List(2) { "This chat is the home chat of main on test:main already." }, again)
         assertEquals(
             "This chat is no longer the home chat of main.",
             commands.answer(testCommand("home", "OFF", issuer = ADMIN)),
@@ -119,14 +123,39 @@ class AgentCommandsTest {
     }
 
     @Test
-    fun `home reset goes back to the configured home chat`() = runTest {
+    fun `home reset in any chat goes back to the configured home chat, also after home off`() = runTest {
+        val home = testChat("home")
+        control.declareHome(AgentId.MAIN, home)
+        commands.answer(testCommand("home", "off", chat = home, issuer = ADMIN))
+
         val reply = commands.answer(testCommand("home", "reset", issuer = ADMIN))
 
-        assertEquals("main uses its configured home chat on test:main again.", reply)
+        assertEquals("main uses its configured home chat test:main:home on test:main again.", reply)
+        assertEquals(home, control.agents(chat.instance).first().home)
         assertEquals(
-            listOf(Call.UpdateSettings(chat, ChatSettingsUpdate.builder().resetHome().build(), ADMIN)),
-            control.calls,
+            Call.UpdateSettings(chat, ChatSettingsUpdate.builder().resetHome().build(), ADMIN),
+            control.calls.last(),
         )
+    }
+
+    @Test
+    fun `home reset of a home with none configured leaves the agent without one`() = runTest {
+        commands.answer(testCommand("home", issuer = ADMIN))
+
+        val reply = commands.answer(testCommand("home", "reset", chat = testChat("other"), issuer = ADMIN))
+
+        assertEquals("main has no home chat on test:main again, as configured.", reply)
+        assertEquals(null, control.agents(chat.instance).first().home)
+    }
+
+    @Test
+    fun `home reset with no home set at runtime says so and changes nothing`() = runTest {
+        control.declareHome(AgentId.MAIN, testChat("home"))
+
+        val reply = commands.answer(testCommand("home", "reset", issuer = ADMIN))
+
+        assertEquals("Nothing to reset: no home chat of main on test:main is set at runtime.", reply)
+        assertEquals(emptyList(), control.calls)
     }
 
     @Test

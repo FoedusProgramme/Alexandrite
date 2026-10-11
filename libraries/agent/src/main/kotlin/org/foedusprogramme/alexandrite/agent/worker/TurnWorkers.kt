@@ -9,6 +9,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
@@ -54,6 +55,11 @@ internal sealed interface WorkerJob {
 /** The key whose worker runs the turn of the coroutine. */
 internal class RunningTurn(val workerKey: AgentChatKey) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<RunningTurn>
+}
+
+/** The key whose worker runs the change of the coroutine. */
+internal class RunningControl(val workerKey: AgentChatKey) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<RunningControl>
 }
 
 /** One FIFO worker per agent and chat key, created on demand and removed once idle, whose turns share permits. */
@@ -158,9 +164,21 @@ internal class TurnWorkers(
         }
     }
 
-    /** The running and queued turns that came from [chat], or from every chat when it is null. */
-    fun statuses(chat: ChatAddress?): List<TurnStatus> = lock.locked {
-        workers.values.flatMap { it.statuses(chat) }.sortedBy { it.queuedAt }
+    /**
+     * The running and queued turns that came from [chat], or from every chat when it is null, each in the conversation
+     * its runner read, else in the one its key holds now.
+     */
+    suspend fun statuses(chat: ChatAddress?): List<TurnStatus> {
+        val listed = lock.locked { workers.values.flatMap { it.listed(chat) } }
+        val read = HashMap<Pair<AgentChatKey, Boolean>, ConversationId?>()
+        return listed.mapNotNull { turn ->
+            val plan = turn.plan
+            val heartbeat = plan.kind == TurnKind.HEARTBEAT
+            val conversation = turn.conversation
+                ?: read.getOrPut(plan.key to heartbeat) { conversation(plan.key, heartbeat) }
+                ?: return@mapNotNull null
+            status(plan, conversation, turn.startedAt)
+        }.sortedBy { it.queuedAt }
     }
 
     /** Cancels the running turns that came from [chat], and returns whether there was one. */
@@ -232,10 +250,6 @@ internal class TurnWorkers(
 
     private suspend fun work(worker: Worker) {
         while (true) {
-            if (lock.locked { worker.conversation == null && worker.queue.any { it.readsCurrent } }) {
-                val loaded = load(worker.key)
-                lock.locked { worker.conversation = loaded }
-            }
             val current = lock.locked { take(worker) } ?: return
             when (val job = current.job) {
                 is WorkerJob.Control -> control(worker, job)
@@ -271,14 +285,20 @@ internal class TurnWorkers(
     private suspend fun execute(worker: Worker, current: Current, turn: WorkerJob.Turn) {
         val outcome = try {
             permits.withPermit {
-                val heartbeat = turn.plan.kind == TurnKind.HEARTBEAT && lock.locked { worker.heartbeatBase == null }
-                val base = if (heartbeat) loadHeartbeatBase(worker.key) else null
                 lock.locked {
                     current.cause?.let { throw it }
-                    base?.let { worker.heartbeatBase = it }
                     current.startedAt = clock.instant()
                 }
-                runner.run(turn.plan, QueuedFollowUps(turn.plan.key))
+                runner.run(turn.plan, QueuedFollowUps(turn.plan.key)) { conversation ->
+                    lock.locked {
+                        current.conversation = conversation
+                        if (turn.plan.kind == TurnKind.HEARTBEAT) {
+                            worker.heartbeatBase = conversation
+                        } else {
+                            worker.conversation = conversation
+                        }
+                    }
+                }
             }
         } catch (e: Throwable) {
             if (e is VirtualMachineError) throw e
@@ -307,17 +327,16 @@ internal class TurnWorkers(
 
     private suspend fun control(worker: Worker, job: WorkerJob.Control) {
         try {
-            job.effect()
+            withContext(RunningControl(worker.key)) { job.effect() }
             job.done.complete(Unit)
         } catch (e: Throwable) {
             job.done.completeExceptionally(e)
             if (e is VirtualMachineError) throw e
             currentCoroutineContext().ensureActive()
             if (e !is Exception) logger.error("A change of {} failed", worker.key, e)
+        } finally {
+            lock.locked { worker.conversation = null }
         }
-        if (lock.locked { worker.conversation == null }) return
-        val loaded = load(worker.key)
-        lock.locked { worker.conversation = loaded }
     }
 
     /** Removes [worker], whose loop ended with [error], and ends the jobs still queued there. */
@@ -355,21 +374,13 @@ internal class TurnWorkers(
         }
     }
 
-    private suspend fun load(key: AgentChatKey): ConversationId? = try {
-        store.current(key).id
+    /** The current conversation of [key], or its heartbeat base when [heartbeat], null when it cannot be read. */
+    private suspend fun conversation(key: AgentChatKey, heartbeat: Boolean): ConversationId? = try {
+        (if (heartbeat) store.heartbeatBase(key) else store.current(key)).id
     } catch (e: Throwable) {
         if (e is VirtualMachineError) throw e
         currentCoroutineContext().ensureActive()
-        logger.warn("Cannot read the current conversation of {}: {}", key, e.toString())
-        null
-    }
-
-    private suspend fun loadHeartbeatBase(key: AgentChatKey): ConversationId? = try {
-        store.heartbeatBase(key).id
-    } catch (e: Throwable) {
-        if (e is VirtualMachineError) throw e
-        currentCoroutineContext().ensureActive()
-        logger.warn("Cannot read the heartbeat base conversation of {}: {}", key, e.toString())
+        logger.warn("Cannot read the conversation of {} that its queued turns show: {}", key, e.toString())
         null
     }
 }
@@ -379,32 +390,36 @@ private class Worker(val key: AgentChatKey) {
     var current: Current? = null
     var loop: Job? = null
 
-    /** The conversation the worker last read as current, null before then. */
+    /** The current conversation that the last runner read, null before then and after each change of the key. */
     var conversation: ConversationId? = null
 
-    /** The conversation of the key's heartbeat turns, null until one of them starts. */
+    /** The conversation of the key's heartbeat turns, null until a runner read it. */
     var heartbeatBase: ConversationId? = null
 
-    fun statuses(chat: ChatAddress?): List<TurnStatus> {
-        val running = current?.let { current -> current.turn?.let { it to current.startedAt } }
-        val queued = queue.filterIsInstance<WorkerJob.Turn>().map { it to null }
-        return (listOfNotNull(running) + queued)
-            .filter { (turn, _) -> chat == null || turn.plan.origin == chat }
-            .mapNotNull { (turn, startedAt) ->
-                val conversation = if (turn.plan.kind == TurnKind.HEARTBEAT) heartbeatBase else conversation
-                conversation?.let { status(turn.plan, it, startedAt) }
-            }
+    /** The running and queued turns that came from [chat], or from every chat when it is null. */
+    fun listed(chat: ChatAddress?): List<Listed> {
+        val running = current?.let { current ->
+            current.turn?.let { Listed(it.plan, current.startedAt, current.conversation) }
+        }
+        val queued = queue.filterIsInstance<WorkerJob.Turn>().map { turn ->
+            val known = if (turn.plan.kind == TurnKind.HEARTBEAT) heartbeatBase else conversation
+            Listed(turn.plan, null, known)
+        }
+        return (listOfNotNull(running) + queued).filter { chat == null || it.plan.origin == chat }
     }
 }
 
-/** Whether this job is a turn that runs in the key's current conversation. */
-private val WorkerJob.readsCurrent: Boolean get() = this is WorkerJob.Turn && plan.kind != TurnKind.HEARTBEAT
+/** A turn that a worker runs or queues, with the conversation it runs in when the worker knows it. */
+private class Listed(val plan: TurnPlan, val startedAt: Instant?, val conversation: ConversationId?)
 
 /** The job a worker took from its queue. */
 private class Current(val job: WorkerJob) {
     var child: Job? = null
     var startedAt: Instant? = null
     var cause: CancellationException? = null
+
+    /** The conversation that the runner of the turn read, null before then. */
+    var conversation: ConversationId? = null
 
     val turn: WorkerJob.Turn? get() = job as? WorkerJob.Turn
 

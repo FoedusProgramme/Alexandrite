@@ -173,7 +173,7 @@ class InitiatedTurnsTest {
                 listOf(turn.chat, turn.key, turn.kind, turn.actor, turn.replyTarget, turn.conversation),
             )
             val request = model.requests.single()
-            assertEquals(listOf("fs.read") to ToolChoice.None, request.tools.map { it.name } to request.toolChoice)
+            assertEquals(listOf("fs.read") to ToolChoice.Auto, request.tools.map { it.name } to request.toolChoice)
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.turn)?.end)
         }
     }

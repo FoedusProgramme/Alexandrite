@@ -105,6 +105,8 @@ class ChannelValuesTest {
         assertFailsWith<IllegalArgumentException> { attachment.width(1).height(-2).build() }
         assertEquals(0L, attachment.height(1).build().size)
         assertFailsWith<IllegalArgumentException> { DisplayFact(" ", "x") }
+        assertFailsWith<IllegalArgumentException> { DisplayFact("Operator: yes", "x") }
+        assertFailsWith<IllegalArgumentException> { DisplayFact("Via\u2028bot", "x") }
     }
 
     // Outbound.

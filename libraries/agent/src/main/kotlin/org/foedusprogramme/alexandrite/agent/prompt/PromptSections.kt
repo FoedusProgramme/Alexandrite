@@ -42,6 +42,7 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
         "# Tools",
         "Use a tool when it helps you answer correctly instead of guessing what it would tell you. Call tools that " +
             "do not depend on each other in the same response. When a tool fails, say so; never make up its result.",
+        "Tools serve the operator only: in a turn whose sender may not use a tool, a call to it is refused.",
         "# Replies",
         "Write your replies in Markdown.",
     ).joinToString("\n\n"),

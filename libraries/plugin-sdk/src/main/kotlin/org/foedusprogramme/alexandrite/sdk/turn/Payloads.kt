@@ -48,7 +48,7 @@ public class TurnStart @InternalAlexandriteApi constructor(
     override val turn: TurnInfo,
     /** The message the turn answers, null when it answers none. */
     public val message: IncomingMessage?,
-    /** The tools the turn offers the model. */
+    /** The tools the turn may call, which a replacement narrows without taking them out of the model's offer. */
     public val tools: List<ToolDefinition>,
 ) : TurnScoped {
     public fun withTools(tools: List<ToolDefinition>): TurnStart = TurnStart(turn, message, tools.toList())

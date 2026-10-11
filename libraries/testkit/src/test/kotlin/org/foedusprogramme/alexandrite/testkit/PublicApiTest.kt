@@ -177,6 +177,8 @@ class PublicApiTest {
                 testRecords("probe").collection<String>("notes").list(),
                 control.trustedFolders().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
                 control.declareFolder(Path.of("/srv/config")),
+                control.declareHome(AgentId.MAIN, testChat("home")),
+                control.declareLink(AgentId.MAIN, testChat("anchor"), listOf(testChat("member"))),
                 testToolContext(testDelegatedTurn(testTurn(), RunId("r"), ToolCallId("c")) { }, ToolCallId("c")),
                 testMessage("hi", testChat(), testUser("ada", true, TEST_INSTANCE), "m1") { }, TEST_TIME,
             )

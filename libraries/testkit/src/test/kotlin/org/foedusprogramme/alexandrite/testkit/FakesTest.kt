@@ -27,12 +27,14 @@ import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
@@ -245,8 +247,8 @@ class FakesTest {
         val conversations =
             blocking { listOf(control.newConversation(chat, admin), control.newConversation(chat, null)) }
 
-        assertEquals(listOf(running, delegated), control.turns(chat))
-        assertEquals(emptyList(), control.turns(testChat("other")))
+        assertEquals(listOf(running, delegated), blocking { control.turns(chat) })
+        assertEquals(emptyList(), blocking { control.turns(testChat("other")) })
         assertEquals(listOf(true, false, true, true), listOf(cancelled, elsewhere, turn, run))
         assertEquals(listOf(ConversationId("conversation-1"), ConversationId("conversation-2")), conversations)
         assertEquals(
@@ -318,6 +320,27 @@ class FakesTest {
         assertEquals(chat, kept)
         assertNull(control.agents(TEST_INSTANCE).first().home)
         assertFalse(blocking { control.settings(chat) }.home)
+    }
+
+    @Test
+    fun `a recording agent control resets a home changed at runtime to the declared one from any chat`() {
+        val control = RecordingAgentControl()
+        val (home, other) = listOf(testChat("home"), testChat("other"))
+        val admin = testUser("ada", isAdmin = true)
+        control.declareHome(AgentId.MAIN, home)
+        fun update(chat: ChatAddress, block: ChatSettingsUpdate.Builder.() -> Unit) =
+            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().apply(block).build(), admin) }
+
+        val declared = control.agents(TEST_INSTANCE).single()
+        update(home) { noHome() }
+        val off = control.agents(TEST_INSTANCE).single()
+        update(other) { resetHome() }
+        val reset = control.agents(TEST_INSTANCE).single()
+        update(testChat("home", "7")) { home() }
+
+        assertEquals(AgentSummary(AgentId.MAIN, "main", null, true, home, home), declared)
+        assertEquals(AgentSummary(AgentId.MAIN, "main", null, true, null, home, TEST_TIME, admin), off)
+        assertEquals(listOf(declared, declared), listOf(reset, control.agents(TEST_INSTANCE).single()))
     }
 
     @Test
@@ -447,18 +470,33 @@ class FakesTest {
             control.link(coder, first, second, null)
         }
 
-        assertEquals(ChatLinkGroup(coder, anchor, listOf(first, second)), linked)
+        val links = mapOf(first to ChatLink(TEST_TIME, admin), second to ChatLink(TEST_TIME, null))
+        assertEquals(ChatLinkGroup(coder, anchor, listOf(first, second), links = links), linked)
         assertEquals(listOf(linked), control.links(coder))
         assertEquals(emptyList(), control.links(AgentId.MAIN))
         assertFailsWith<ControlRefusedException> { blocking { control.link(coder, testChat("d"), second, null) } }
         assertFailsWith<ControlRefusedException> { blocking { control.unlink(coder, anchor, null) } }
         assertEquals(
-            listOf(true, true, false),
+            listOf(Revocation(true, false), Revocation(true, false), Revocation(false, false)),
             blocking { listOf(first, second, first).map { control.unlink(coder, it, null) } },
         )
         assertEquals(emptyList(), control.links())
         assertEquals(RecordingAgentControl.Call.Link(coder, anchor, first, admin), control.calls.first())
         assertEquals(RecordingAgentControl.Call.Unlink(coder, first, null), control.calls.last())
+    }
+
+    @Test
+    fun `a recording agent control keeps a declared group as the config file has it`() {
+        val control = RecordingAgentControl()
+        val coder = AgentId("coder")
+        val (anchor, member) = listOf("a", "b").map { testChat(it) }
+        control.declareLink(coder, anchor, listOf(member))
+        val declared = listOf(ChatLinkGroup(coder, anchor, listOf(member), declared = true))
+
+        assertEquals(declared, control.links())
+        assertFailsWith<ControlRefusedException> { blocking { control.link(coder, anchor, testChat("c"), null) } }
+        assertEquals(Revocation(false, true), blocking { control.unlink(coder, member, null) })
+        assertEquals(declared, control.links())
     }
 
     @Test
@@ -479,10 +517,12 @@ class FakesTest {
             control.trustedFolders(),
         )
         assertFailsWith<IllegalArgumentException> { blocking { control.trustFolder(Path.of("repo"), null) } }
-        assertFailsWith<IllegalArgumentException> { blocking { control.untrustFolder(declared, null) } }
+        val revoked = blocking {
+            listOf(declared, Path.of("/srv"), repository, repository).map { control.untrustFolder(it, null) }
+        }
         assertEquals(
-            listOf(false, true, false),
-            blocking { listOf(Path.of("/srv"), repository, repository).map { control.untrustFolder(it, null) } },
+            listOf(true to false, false to false, false to true, false to false),
+            revoked.map { it.declared to it.removed },
         )
         assertEquals(listOf(declared), control.trustedFolders().map { it.path })
         assertEquals(RecordingAgentControl.Call.TrustFolder(repository, admin), control.calls.first())

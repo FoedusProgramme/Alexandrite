@@ -208,7 +208,7 @@ class SubclassOptInTest {
         }
 
         class Agent : org.foedusprogramme.alexandrite.sdk.turn.AgentControl {
-            override fun turns(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress?) = TODO()
+            override suspend fun turns(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress?) = TODO()
             override fun cancel(
                 chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,

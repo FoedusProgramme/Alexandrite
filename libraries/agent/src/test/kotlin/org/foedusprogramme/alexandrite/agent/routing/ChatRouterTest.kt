@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
+import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.testRecords
 import java.util.concurrent.atomic.AtomicInteger
@@ -207,11 +208,9 @@ class ChatRouterTest {
 
     @Test
     fun `a change of a home chat or a group applies to the next resolution`() {
-        val main = ChannelInstanceId.parse("test:main")
-
         blocking {
-            topology.setHome(AgentId("helper"), main, ChatAddress.parse("test:main:5"), null)
-            topology.setHome(AgentId("reviewer"), main, null, null)
+            topology.changeHome(AgentId("helper"), ChatAddress.parse("test:main:5"), SettingChange.SetTo(true), null)
+            topology.changeHome(AgentId("reviewer"), ChatAddress.parse("test:main:1"), SettingChange.SetTo(false), null)
             topology.link(AgentId("coder"), ChatAddress.parse("test:solo:6"), ChatAddress.parse("test:main:9"), null)
         }
 

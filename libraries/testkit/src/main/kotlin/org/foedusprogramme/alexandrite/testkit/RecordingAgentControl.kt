@@ -19,10 +19,12 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
@@ -34,8 +36,9 @@ import java.nio.file.Path
  * `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance, linked groups and
  * trusted folders, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
  *
- * It refuses with a [ControlRefusedException] what the agent refuses for the reasons it knows, and the calls that
- * [refuseNext] queues refusals for.
+ * Homes, groups and folders that the test declares stand for the config file's, and those changed at runtime over them
+ * are set at [TEST_TIME]. It refuses with a [ControlRefusedException] what the agent refuses for the reasons it knows,
+ * and the calls that [refuseNext] queues refusals for.
  */
 public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.MAIN) :
     AgentControl,
@@ -45,7 +48,8 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     private val profiles = linkedMapOf(defaultAgent to Profile(defaultAgent.value, null, null, null, null))
     private val selected = HashMap<ChatAddress, AgentId>()
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
-    private val homes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
+    private val configuredHomes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
+    private val runtimeHomes = LinkedHashMap<Pair<AgentId, ChannelInstanceId>, RuntimeHome>()
     private val groups = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
     private val trusted = mutableListOf<TrustedFolder>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
@@ -91,7 +95,20 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         synchronized(lock) { trusted += TrustedFolder(folder.normalize(), true, null, null) }
     }
 
-    override fun turns(chat: ChatAddress?): List<TurnStatus> = statuses.filter { chat == null || it.turn.chat == chat }
+    /** Makes [chat] the home chat of [agent] on its instance that the config file declares. */
+    public fun declareHome(agent: AgentId, chat: ChatAddress) {
+        synchronized(lock) { configuredHomes[agent to chat.instance] = chat }
+    }
+
+    /** Lists the group of [anchor] and [members] at [agent] as one that the config file declares. */
+    public fun declareLink(agent: AgentId, anchor: ChatAddress, members: List<ChatAddress>) {
+        synchronized(lock) {
+            groups[agent] = groups[agent].orEmpty() + ChatLinkGroup(agent, anchor, members.toList(), declared = true)
+        }
+    }
+
+    override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
+        statuses.filter { chat == null || it.turn.chat == chat }
 
     /** Whether a turn at [chat] runs. */
     override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
@@ -121,8 +138,19 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
 
     /** [defaultAgent] and the scripted agents, in order. */
     override fun agents(instance: ChannelInstanceId): List<AgentSummary> = synchronized(lock) {
+        val homes = homes()
         profiles.map { (id, profile) ->
-            AgentSummary(id, profile.name, profile.description, id == defaultAgent, homes[id to instance])
+            val runtime = runtimeHomes[id to instance]
+            AgentSummary(
+                id,
+                profile.name,
+                profile.description,
+                id == defaultAgent,
+                homes[id to instance],
+                configuredHomes[id to instance],
+                runtime?.let { TEST_TIME },
+                runtime?.by,
+            )
         }
     }
 
@@ -134,10 +162,8 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     }
 
     /**
-     * Refuses an agent that is not listed, and to make [chat] the home of its agent while it is another agent's home
-     * chat.
-     *
-     * Clearing or resetting the home removes it while [chat], or the chat of its thread, is the home.
+     * Refuses an agent that is not listed and a home chat of another agent, and changes homes as the agent does: true
+     * while [chat] is not the home, false while it is, and a reset from any chat of the instance.
      */
     override suspend fun updateSettings(
         chat: ChatAddress,
@@ -153,13 +179,21 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         }
         refuseIf(choice != null && choice !in profiles) { "Agent '$choice' does not serve ${chat.instance}." }
         val agent = choice ?: homeAgent(chat) ?: defaultAgent
-        val owner = homeOf(chat)
-        val makesHome = (update.home as? SettingChange.SetTo)?.value == true
-        refuseIf(makesHome && owner != null && owner != agent) { "$chat is the home chat of agent '$owner'." }
+        val instance = agent to chat.instance
+        val home = homeAgent(chat) == agent
+        val set = (update.home as? SettingChange.SetTo)?.value
+        val target = when {
+            set == true && !home -> chat
+            update.home == SettingChange.Reset && instance in runtimeHomes -> configuredHomes[instance]
+            else -> null
+        }
+        val owner = target?.let(::homeOf)
+        refuseIf(owner != null && owner != agent) { "$target is the home chat of agent '$owner'." }
         if (choice == null) selected.remove(chat) else selected[chat] = choice
         when {
-            makesHome -> homes[agent to chat.instance] = chat
-            update.home != SettingChange.Keep && homeAgent(chat) == agent -> homes.remove(agent to chat.instance)
+            update.home == SettingChange.Reset -> runtimeHomes.remove(instance)
+            set == true && !home -> setHome(instance, chat, by)
+            set == false && home -> setHome(instance, null, by)
         }
         val key = AgentChatKey(agent, chat)
         val stored = settings[key]
@@ -171,7 +205,10 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         snapshot(chat)
     }
 
-    /** Links [member] into the group that holds [anchor], else into a new one, and refuses a member linked already. */
+    /**
+     * Links [member] into the group that holds [anchor], else into a new one, and refuses a member linked already and a
+     * declared group.
+     */
     override suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup =
         synchronized(lock) {
             recorded += Call.Link(agent, anchor, member, by)
@@ -179,27 +216,35 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
             refuseQueued()
             refuseIf(groups.any { member == it.anchor || member in it.members }) { "$member is linked already." }
             val group = groups.firstOrNull { anchor == it.anchor || anchor in it.members }
-            val linked = ChatLinkGroup(agent, group?.anchor ?: anchor, group?.members.orEmpty() + member)
+            refuseIf(group?.declared == true) { "$anchor is in a group that the config file declares." }
+            val linked = ChatLinkGroup(
+                agent,
+                group?.anchor ?: anchor,
+                group?.members.orEmpty() + member,
+                links = group?.links.orEmpty() + (member to ChatLink(TEST_TIME, by)),
+            )
             this.groups[agent] = if (group == null) groups + linked else groups.map { if (it === group) linked else it }
             linked
         }
 
-    /** Takes [member] out of its group and refuses an anchor. */
-    override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Boolean = synchronized(lock) {
+    /** Takes [member] out of its group unless the group is declared, and refuses the anchor of a runtime group. */
+    override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation = synchronized(lock) {
         recorded += Call.Unlink(agent, member, by)
         refuseQueued()
         val groups = groups[agent].orEmpty()
-        refuseIf(groups.any { it.anchor == member }) { "$member anchors its group." }
-        val group = groups.firstOrNull { member in it.members } ?: return@synchronized false
+        val group = groups.firstOrNull { member == it.anchor || member in it.members }
+            ?: return@synchronized Revocation(removed = false, declared = false)
+        if (group.declared) return@synchronized Revocation(removed = false, declared = true)
+        refuseIf(group.anchor == member) { "$member anchors its group." }
         val members = group.members - member
         this.groups[agent] = groups.mapNotNull {
             when {
                 it !== group -> it
                 members.isEmpty() -> null
-                else -> ChatLinkGroup(agent, group.anchor, members)
+                else -> ChatLinkGroup(agent, group.anchor, members, links = group.links - member)
             }
         }
-        true
+        Revocation(removed = true, declared = false)
     }
 
     override fun links(agent: AgentId?): List<ChatLinkGroup> = synchronized(lock) {
@@ -218,13 +263,14 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
             ?: normalized.also { trusted += TrustedFolder(it, false, TEST_TIME, by) }
     }
 
-    /** Stops trusting [folder] and refuses one that the config file declares. */
-    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Boolean = synchronized(lock) {
+    /** Stops trusting [folder] unless the config file declares it, and refuses a relative path. */
+    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation = synchronized(lock) {
         recorded += Call.UntrustFolder(folder, by)
         refuseQueued()
-        val found = trusted.firstOrNull { it.path == folder.normalize() } ?: return@synchronized false
-        refuseIf(found.declared) { "$folder is declared in the config file." }
-        trusted.remove(found)
+        refuseIf(!folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
+        val found = trusted.firstOrNull { it.path == folder.normalize() }
+        if (found != null && !found.declared) trusted.remove(found)
+        Revocation(removed = found?.declared == false, declared = found?.declared == true)
     }
 
     override fun trustedFolders(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
@@ -256,10 +302,21 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
             .build()
     }
 
+    /** The homes changed at runtime, and the configured ones that none of them changed or took. */
+    private fun homes(): Map<Pair<AgentId, ChannelInstanceId>, ChatAddress> {
+        val changed = runtimeHomes.mapNotNull { (key, home) -> home.chat?.let { key to it } }.toMap()
+        return configuredHomes.filter { (key, chat) -> key !in runtimeHomes && chat !in changed.values } + changed
+    }
+
+    /** Makes [chat] the home at [key] for [by], or none there when null. */
+    private fun setHome(key: Pair<AgentId, ChannelInstanceId>, chat: ChatAddress?, by: ChatUser?) {
+        if (chat == configuredHomes[key]) runtimeHomes.remove(key) else runtimeHomes[key] = RuntimeHome(chat, by)
+    }
+
     /** The agent whose home [chat] is, else the one whose home its parent is. */
     private fun homeAgent(chat: ChatAddress): AgentId? = homeOf(chat) ?: homeOf(chat.parent)
 
-    private fun homeOf(chat: ChatAddress): AgentId? = homes.entries.firstOrNull { it.value == chat }?.key?.first
+    private fun homeOf(chat: ChatAddress): AgentId? = homes().entries.firstOrNull { it.value == chat }?.key?.first
 
     private fun record(call: Call) {
         synchronized(lock) { recorded += call }
@@ -269,6 +326,8 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     private fun refuseQueued() {
         refusals.removeFirstOrNull()?.let { throw ControlRefusedException(it) }
     }
+
+    private class RuntimeHome(val chat: ChatAddress?, val by: ChatUser?)
 
     private class Profile(
         val name: String,

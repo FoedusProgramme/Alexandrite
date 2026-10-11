@@ -173,5 +173,8 @@ public fun interface MediaContent {
 public class DisplayFact(public val label: String, public val value: String) {
     init {
         require(label.isNotBlank()) { "A fact's label may not be blank." }
+        require(!NOT_IN_LABEL.containsMatchIn(label)) { "A fact's label holds no ':' and no line break, was '$label'." }
     }
 }
+
+private val NOT_IN_LABEL = Regex(":|\\R")

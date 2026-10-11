@@ -5,10 +5,14 @@ import org.foedusprogramme.alexandrite.commands.ADMIN
 import org.foedusprogramme.alexandrite.commands.TestClock
 import org.foedusprogramme.alexandrite.commands.answer
 import org.foedusprogramme.alexandrite.commands.commandTexts
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
+import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl.Call
+import org.foedusprogramme.alexandrite.testkit.TEST_TIME
 import org.foedusprogramme.alexandrite.testkit.testCommand
 import java.nio.file.Path
 import kotlin.test.Test
@@ -51,8 +55,29 @@ class TrustCommandsTest {
                 "- /srv/host (trusted by the host on 2026-01-01)",
             commands.answer(trust()),
         )
-        assertEquals("/srv/config is declared in the config file.", commands.answer(untrust("/srv/config")))
+        assertEquals(
+            "The config file trusts /srv/config: edit the file to stop trusting it.",
+            commands.answer(untrust("/srv/config")),
+        )
     }
+
+    @Test
+    fun `a folder that the config file declares and a grant trusts too is listed with both, and untrust says so`() =
+        runTest {
+            val both = TrustedFolder(Path.of("/srv/both"), true, TEST_TIME, ADMIN)
+            val commands = TrustCommands(DeclaredAndGranted(control, both), commandTexts(), TestClock())
+
+            assertEquals(
+                "Trusted folders, each with the folders below it:\n- /srv/both (declared in the config file, and " +
+                    "trusted by Admin on 2026-01-01)",
+                commands.answer(trust()),
+            )
+            assertEquals(
+                "The trust in /srv/both granted at runtime is removed, but the config file still trusts it: edit " +
+                    "the file to stop trusting it.",
+                commands.answer(untrust("/srv/both")),
+            )
+        }
 
     @Test
     fun `untrust stops trusting a trusted folder`() = runTest {
@@ -90,4 +115,14 @@ class TrustCommandsTest {
     private fun trust(folder: String = "") = testCommand("trust", folder, issuer = ADMIN)
 
     private fun untrust(folder: String = "") = testCommand("untrust", folder, issuer = ADMIN)
+
+    /** [control] where [folder] is declared and granted, and an untrust drops a grant of a declared folder. */
+    @OptIn(InternalAlexandriteApi::class)
+    private class DeclaredAndGranted(control: AgentControl, private val folder: TrustedFolder) :
+        AgentControl by control {
+        override fun trustedFolders(): List<TrustedFolder> = listOf(folder)
+
+        override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation =
+            Revocation(removed = true, declared = true)
+    }
 }

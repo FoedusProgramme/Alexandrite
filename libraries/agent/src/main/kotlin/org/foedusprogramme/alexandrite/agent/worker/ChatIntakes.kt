@@ -67,16 +67,23 @@ internal class ChatIntakes(
             }
         }
 
-    /** Holds the chat's messages while [command] runs, for at most `queue.commandGateSeconds`. */
+    /** Holds the chat's messages until [command] lets them go. */
     fun gate(chat: ChatAddress, command: TurnId) {
         lock.locked {
             val intake = intakes.getOrPut(chat) { Intake(chat) }
-            if (command !in intake.gates) {
-                intake.gates[command] = lock.launch {
-                    delay(gateTimeout)
-                    logger.warn("Command {} held the messages of {} for {}: they go on", command, chat, gateTimeout)
-                    release(chat, command)
-                }
+            if (command !in intake.gates) intake.gates[command] = null
+        }
+    }
+
+    /** Lets the messages that [command] holds go `queue.commandGateSeconds` from now at the latest. */
+    fun arm(chat: ChatAddress, command: TurnId) {
+        lock.locked {
+            val intake = intakes[chat] ?: return@locked
+            if (command !in intake.gates || intake.gates[command] != null) return@locked
+            intake.gates[command] = lock.launch {
+                delay(gateTimeout)
+                logger.warn("Command {} held the messages of {} for {}: they go on", command, chat, gateTimeout)
+                release(chat, command)
             }
         }
     }
@@ -85,8 +92,8 @@ internal class ChatIntakes(
     fun release(chat: ChatAddress, command: TurnId) {
         lock.locked {
             val intake = intakes[chat] ?: return@locked
-            val timer = intake.gates.remove(command) ?: return@locked
-            timer.cancel()
+            if (command !in intake.gates) return@locked
+            intake.gates.remove(command)?.cancel()
             flush(intake)
         }
     }
@@ -109,7 +116,7 @@ internal class ChatIntakes(
         lock.locked {
             for (intake in intakes.values) {
                 intake.held.forEach { it.ticket.complete(TurnOutcome.ShutDown(replayable = true)) }
-                intake.gates.values.forEach(Job::cancel)
+                intake.gates.values.forEach { it?.cancel() }
             }
             intakes.clear()
             heldAt.clear()
@@ -215,8 +222,8 @@ internal class ChatIntakes(
 private class Intake(val chat: ChatAddress) {
     val held = ArrayDeque<Held>()
 
-    /** The commands that gate the chat, with the timers that release them. */
-    val gates = LinkedHashMap<TurnId, Job>()
+    /** The commands that gate the chat, with the timers that release them once they run. */
+    val gates = LinkedHashMap<TurnId, Job?>()
     var loading = false
 }
 

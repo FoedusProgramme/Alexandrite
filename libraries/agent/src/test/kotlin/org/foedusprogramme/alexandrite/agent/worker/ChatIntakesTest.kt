@@ -53,12 +53,16 @@ class ChatIntakesTest {
     }
 
     @Test
-    fun `a gate nobody releases lets the messages go on after commandGateSeconds`() = runTest {
+    fun `a gate nobody releases lets the messages go on commandGateSeconds after it is armed`() = runTest {
         val bench = WorkerBench(this)
         bench.intakes.gate(gated, command)
         val held = bench.receive("test:main:1").turn
 
         val lines = logged {
+            advanceTimeBy(60.seconds)
+            runCurrent()
+            assertEquals(emptyList(), bench.runner.started)
+            bench.intakes.arm(gated, command)
             advanceTimeBy(29.seconds)
             runCurrent()
             assertEquals(emptyList(), bench.runner.started)

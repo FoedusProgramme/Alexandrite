@@ -470,17 +470,25 @@ class ToolRoundsTest {
     }
 
     @Test
-    fun `a turn that may call none of the tools it offers forbids calls, and its history keeps earlier tool rounds`() {
-        model.reply { toolCall("fs.read", """{"path": "a"}""") }.reply { text("Read.") }.reply { text("Hello.") }
+    fun `a turn that may call none of the tools it offers leaves the choice to the model and refuses its calls`() {
+        model.reply { toolCall("fs.read", """{"path": "a"}""") }.reply { text("Read.") }
+            .reply { toolCall("fs.read", """{"path": "b"}""") }.reply { text("Hello.") }
 
         harness().execute {
             ask().ticket.outcome()
-            ask(user = "member").ticket.outcome()
+            val asked = ask(user = "member")
+            asked.ticket.outcome()
 
-            val (_, _, member) = model.requests
-            assertEquals(listOf("fs.read") to ToolChoice.None, member.tools.map { it.name } to member.toolChoice)
-            assertEquals(model.requests[0].tools, member.tools)
-            assertTrue(member.history.any { it is ToolResultEntry })
+            val member = model.requests.drop(2)
+            assertEquals(
+                List(2) { listOf("fs.read") to ToolChoice.Auto },
+                member.map { request -> request.tools.map { it.name } to request.toolChoice },
+            )
+            assertEquals(model.requests[0].tools, member[0].tools)
+            assertTrue(member[0].history.any { it is ToolResultEntry })
+            val refused = results(store.transcripts.turnEntries(asked.ticket.turn)).getValue("fs.read")
+            assertEquals(NotRun(NotRunReason.NOT_PERMITTED), refused.outcome)
+            assertEquals(1, read.calls.size)
         }
     }
 
@@ -493,7 +501,7 @@ class ToolRoundsTest {
             ask().ticket.outcome()
 
             assertEquals(
-                List(2) { listOf("fs.read") to ToolChoice.None },
+                List(2) { listOf("fs.read") to ToolChoice.Auto },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             val result = stored().filterIsInstance<ToolResultEntry>().single()

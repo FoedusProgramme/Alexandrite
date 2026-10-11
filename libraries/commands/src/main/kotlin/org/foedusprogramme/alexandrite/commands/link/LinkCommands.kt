@@ -173,13 +173,14 @@ internal class LinkCommands(
             }
         }
         val member = target ?: chat
-        val unlinked = context.refusing { control.unlink(agent, member, invocation.issuer) } ?: return
-        val text = if (unlinked) {
-            replies.text(TextKeys.UNLINK_DONE, "chat" to member, "agent" to agent)
-        } else {
-            replies.text(TextKeys.UNLINK_NOT_LINKED, "agent" to agent)
+        val revocation = context.refusing { control.unlink(agent, member, invocation.issuer) } ?: return
+        val key = when {
+            revocation.declared && revocation.removed -> TextKeys.UNLINK_DECLARED_REMOVED
+            revocation.declared -> TextKeys.UNLINK_DECLARED
+            revocation.removed -> TextKeys.UNLINK_DONE
+            else -> TextKeys.UNLINK_NOT_LINKED
         }
-        context.reply(text)
+        context.reply(replies.text(key, "chat" to member, "agent" to agent))
     }
 
     /** The whole minutes from now until [instant], at least 1. */

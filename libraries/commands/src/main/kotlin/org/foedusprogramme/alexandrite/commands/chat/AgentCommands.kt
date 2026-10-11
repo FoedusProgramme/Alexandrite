@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
@@ -39,9 +40,9 @@ internal class AgentCommands(private val control: AgentControl, private val text
             }
 
             HOME -> when {
-                words.isEmpty() -> home(invocation, context)
+                words.isEmpty() -> home(invocation, context, replies)
                 words.size == 1 && words[0].isKeyword(OFF) -> homeOff(invocation, context, replies)
-                words.size == 1 && words[0].isKeyword(RESET) -> resetHome(invocation, context)
+                words.size == 1 && words[0].isKeyword(RESET) -> resetHome(invocation, context, replies)
                 else -> context.reply(replies.usage(name))
             }
         }
@@ -100,10 +101,16 @@ internal class AgentCommands(private val control: AgentControl, private val text
         context.reply(replies.text(TextKeys.AGENT_RESET, "agent" to snapshot.agent, "source" to source))
     }
 
-    private suspend fun home(invocation: CommandInvocation, context: CommandContext) {
+    private suspend fun home(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
+        val instance = invocation.chat.instance
+        val current = context.refusing { control.settings(invocation.chat) } ?: return
+        if (current.home) {
+            context.reply(replies.text(TextKeys.HOME_ALREADY, "agent" to current.agent, "instance" to instance))
+            return
+        }
         val snapshot = context.updateSettings(control, invocation) { home() } ?: return
         val text = texts.replies(snapshot.effectiveLanguage)
-            .text(TextKeys.HOME_SET, "agent" to snapshot.agent, "instance" to invocation.chat.instance)
+            .text(TextKeys.HOME_SET, "agent" to snapshot.agent, "instance" to instance)
         context.reply(text)
     }
 
@@ -117,16 +124,31 @@ internal class AgentCommands(private val control: AgentControl, private val text
         context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.HOME_CLEARED, "agent" to current.agent))
     }
 
-    private suspend fun resetHome(invocation: CommandInvocation, context: CommandContext) {
+    private suspend fun resetHome(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
+        val instance = invocation.chat.instance
+        val current = context.refusing { control.settings(invocation.chat) } ?: return
+        if (summary(instance, current.agent)?.homeSetAt == null) {
+            val text = replies.text(TextKeys.HOME_NOTHING_TO_RESET, "agent" to current.agent, "instance" to instance)
+            context.reply(text)
+            return
+        }
         val snapshot = context.updateSettings(control, invocation) { resetHome() } ?: return
-        val text = texts.replies(snapshot.effectiveLanguage)
-            .text(TextKeys.HOME_RESET, "agent" to snapshot.agent, "instance" to invocation.chat.instance)
+        val home = summary(instance, snapshot.agent)?.home
+        val reset = texts.replies(snapshot.effectiveLanguage)
+        val text = if (home == null) {
+            reset.text(TextKeys.HOME_RESET_NONE, "agent" to snapshot.agent, "instance" to instance)
+        } else {
+            reset.text(TextKeys.HOME_RESET, "agent" to snapshot.agent, "instance" to instance, "home" to home)
+        }
         context.reply(text)
     }
 
+    private fun summary(instance: ChannelInstanceId, agent: AgentId): AgentSummary? =
+        control.agents(instance).firstOrNull { it.id == agent }
+
     /** How [agent] calls itself on [instance], its id when it does not serve the instance. */
     private fun name(instance: ChannelInstanceId, agent: AgentId): String =
-        control.agents(instance).firstOrNull { it.id == agent }?.name ?: agent.value
+        summary(instance, agent)?.name ?: agent.value
 
     private companion object {
         const val AGENT = "agent"

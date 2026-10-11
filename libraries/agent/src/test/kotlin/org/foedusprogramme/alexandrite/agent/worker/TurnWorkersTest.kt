@@ -9,7 +9,6 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.foedusprogramme.alexandrite.agent.GatedConversations
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.logged
@@ -18,6 +17,7 @@ import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -43,7 +43,7 @@ class TurnWorkersTest {
     private fun TestScope.bench(maxConcurrentTurns: Int = 2, perKey: Int = 2) =
         WorkerBench(this, maxConcurrentTurns, perKey)
 
-    private fun WorkerBench.phases(chat: String? = null): List<Pair<TurnId, TurnPhase>> =
+    private suspend fun WorkerBench.phases(chat: String? = null): List<Pair<TurnId, TurnPhase>> =
         workers.statuses(chat?.let(ChatAddress::parse)).map { it.turn.id to it.phase }
 
     private fun WorkerBench.heartbeat(key: AgentChatKey): TurnId {
@@ -291,7 +291,7 @@ class TurnWorkersTest {
     }
 
     @Test
-    fun `a read of the current conversation that throws an error leaves the worker running`() = runTest {
+    fun `a turn whose conversation cannot be read is left out of the statuses, and it runs`() = runTest {
         val store = MemoryStore(TestClock())
         val broken = object : ConversationStore by store.conversations {
             override suspend fun current(key: AgentChatKey): ConversationInfo = TODO("Not yet.")
@@ -299,8 +299,9 @@ class TurnWorkersTest {
         val bench = WorkerBench(this, store = store, conversations = broken)
 
         val turn = bench.receive("test:main:1")
-        logged { runCurrent() }
+        runCurrent()
 
+        assertEquals(emptyList(), bench.workers.statuses(null))
         assertEquals(listOf(turn.turn), bench.runner.started)
     }
 
@@ -355,32 +356,35 @@ class TurnWorkersTest {
     }
 
     @Test
-    fun `turns report the conversation their worker read, and not before it has read one`() = runTest {
-        val store = MemoryStore(TestClock())
-        val conversations = GatedConversations(store)
-        val bench = WorkerBench(this, store = store, conversations = conversations)
+    fun `turns show the conversation their runner read, and before then the one their key holds`() = runTest {
+        val bench = bench(perKey = 3)
         val key = AgentChatKey.parse("coder@test:main:1")
-        bench.receive("test:main:1")
-        runCurrent()
+        val running = bench.receive("test:main:1").turn
+        val queued = bench.receive("test:main:1").turn
 
-        assertEquals(emptyList(), bench.workers.statuses(null))
-        conversations.open(key)
+        val before = bench.workers.statuses(null).map { it.turn.id to it.turn.conversation }
         runCurrent()
+        val read = ConversationId("read-by-the-runner")
+        bench.runner.resolve(running, read)
 
-        val status = bench.workers.statuses(null).single()
-        assertEquals(store.conversations.current(key).id, status.turn.conversation)
+        val current = bench.store.conversations.current(key).id
+        assertEquals(listOf(running to current, queued to current), before)
+        val status = bench.workers.statuses(null).first()
         assertEquals(listOf("coder", "test:main:1"), listOf(status.turn.agent.value, status.turn.chat.toString()))
+        assertEquals(
+            listOf(running to read, queued to read),
+            bench.workers.statuses(null).map { it.turn.id to it.turn.conversation },
+        )
     }
 
     @Test
-    fun `heartbeats report the heartbeat base conversation, once the first of them has started`() = runTest {
+    fun `a message queued behind a running heartbeat is listed, as the heartbeats are`() = runTest {
         val bench = bench(perKey = 3)
         val key = AgentChatKey.parse("coder@test:main:1")
         val running = bench.heartbeat(key)
+        runCurrent()
         val queued = bench.heartbeat(key)
         val message = bench.receive("test:main:1").turn
-
-        assertEquals(emptyList(), bench.workers.statuses(null))
         runCurrent()
 
         val base = bench.store.conversations.heartbeatBase(key).id

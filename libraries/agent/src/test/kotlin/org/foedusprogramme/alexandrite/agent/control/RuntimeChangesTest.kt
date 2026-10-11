@@ -16,9 +16,11 @@ import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
+import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStart
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
@@ -33,7 +35,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RuntimeChangesTest {
@@ -115,7 +116,8 @@ class RuntimeChangesTest {
             val fromMember = ask(member)
             while (sealed.seen.isEmpty()) delay(5)
 
-            assertEquals(ChatLinkGroup(coder, anchor, listOf(member)), group)
+            val link = ChatLink(group.links.getValue(member).linkedAt, admin)
+            assertEquals(ChatLinkGroup(coder, anchor, listOf(member), links = mapOf(member to link)), group)
             assertEquals(listOf(group), control.links())
             assertEquals(listOf("coder@$member by ${admin.address}"), linked)
             assertEquals(fromAnchor.turn.conversation, fromMember.turn.conversation)
@@ -128,8 +130,8 @@ class RuntimeChangesTest {
                 Triple(seal.turn.chat, seal.turn.kind, seal.turn.agent),
             )
 
-            assertTrue(control.unlink(coder, member, null))
-            assertFalse(control.unlink(coder, member, null))
+            assertEquals(Revocation(removed = true, declared = false), control.unlink(coder, member, null))
+            assertEquals(Revocation(removed = false, declared = false), control.unlink(coder, member, null))
             val alone = ask(member)
 
             assertEquals(emptyList(), control.links(coder))
@@ -145,19 +147,24 @@ class RuntimeChangesTest {
         model.reply { text("Linked.") }
         val home = ChatAddress.parse("test:main:5")
         lateinit var config: String
+        lateinit var linked: ChatLinkGroup
+        lateinit var homed: AgentSummary
 
         harness().execute {
             config = Files.readString(file)
             val control = get<AgentControl>()
-            control.link(coder, anchor, member, null)
+            linked = control.link(coder, anchor, member, null)
             control.updateSettings(home, update { agent(helper).home() }, channel().user("admin"))
+            homed = control.agents(home.instance).single { it.id == helper }
         }
         harness().execute {
             val control = get<AgentControl>()
 
-            assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(member))), control.links(coder))
+            assertEquals(listOf(linked), control.links(coder))
             assertEquals(AgentChatKey(coder, anchor), ask(member).turn.key)
-            assertEquals(home, control.agents(home.instance).single { it.id == helper }.home)
+            assertEquals(homed, control.agents(home.instance).single { it.id == helper })
+            assertEquals(listOf(home, null), listOf(homed.home, homed.configuredHome))
+            assertEquals("Admin", homed.homeSetBy?.displayName)
             assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, control.settings(home))
         }
 
@@ -168,44 +175,61 @@ class RuntimeChangesTest {
     @Test
     fun `the groups and homes in force are the config's and the store's, and a declared group changes only there`() {
         model.reply { text("Not home.") }
-        val declared = ChatLinkGroup(coder, ChatAddress.parse("test:main:3"), listOf(ChatAddress.parse("test:side:4")))
+        val declaredMember = ChatAddress.parse("test:side:4")
+        val declared = ChatLinkGroup(coder, ChatAddress.parse("test:main:3"), listOf(declaredMember), declared = true)
         val configured = ChatAddress.parse("test:main:6")
         val moved = ChatAddress.parse("test:main:5")
         val reason = "is in a group that the config file declares: edit the config file to change the group."
+        lateinit var linked: ChatLinkGroup
 
         val coderConfig = ", \"linkedChats\": [[\"test:main:3\", \"test:side:4\"]]"
         harness(coderConfig, helperConfig = "{\"home\": \"6\"}").execute {
             val control = get<AgentControl>()
             val config = Files.readString(file)
 
-            val linked = control.link(coder, anchor, member, null)
+            linked = control.link(coder, anchor, member, null)
             control.updateSettings(moved, update { agent(helper).home() }, null)
             val refused = listOf(
                 assertFailsWith<IllegalArgumentException> {
                     control.link(coder, declared.anchor, ChatAddress.parse("test:side:9"), null)
                 },
-                assertFailsWith<IllegalArgumentException> { control.link(coder, anchor, declared.members[0], null) },
-                assertFailsWith<IllegalArgumentException> { control.unlink(coder, declared.members[0], null) },
+                assertFailsWith<IllegalArgumentException> { control.link(coder, anchor, declaredMember, null) },
             ).map { it.message }
 
+            assertEquals(Revocation(removed = false, declared = true), control.unlink(coder, declaredMember, null))
             assertEquals(listOf(declared, linked), control.links(coder))
-            assertEquals(
-                listOf(
-                    "${declared.anchor} $reason",
-                    "${declared.members[0]} $reason",
-                    "${declared.members[0]} $reason",
-                ),
-                refused,
-            )
+            assertEquals(listOf("${declared.anchor} $reason", "$declaredMember $reason"), refused)
             assertEquals(listOf(null, moved), control.agents(moved.instance).map { it.home })
+            assertEquals(listOf(null, configured), control.agents(moved.instance).map { it.configuredHome })
             assertEquals(AgentChatKey(coder, configured), ask(configured).turn.key)
             assertEquals(config, Files.readString(file))
         }
         harness(coderConfig, helperConfig = "{\"home\": \"6\"}").execute {
             val control = get<AgentControl>()
 
-            assertEquals(listOf(declared, ChatLinkGroup(coder, anchor, listOf(member))), control.links(coder))
+            assertEquals(listOf(declared, linked), control.links(coder))
             assertEquals(listOf(null, moved), control.agents(moved.instance).map { it.home })
+        }
+    }
+
+    @Test
+    fun `unlinking a chat that the config links too drops its runtime link, which no later start brings back`() {
+        val declaredGroup = ", \"linkedChats\": [[\"test:main:1\", \"test:side:2\"]]"
+
+        harness().execute { get<AgentControl>().link(coder, anchor, member, null) }
+        Files.delete(file)
+        harness(declaredGroup).execute {
+            val control = get<AgentControl>()
+            val group = control.links(coder).single()
+
+            assertEquals(listOf(true, true), listOf(group.declared, member in group.links))
+            assertEquals(Revocation(removed = true, declared = true), control.unlink(coder, member, null))
+            assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(member), declared = true)), control.links(coder))
+        }
+        Files.delete(file)
+        harness().execute {
+            assertEquals(emptyList(), get<AgentControl>().links(coder))
+            assertEquals(emptyList(), stored("links"))
         }
     }
 
@@ -224,10 +248,11 @@ class RuntimeChangesTest {
 
             assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, home)
             assertEquals(listOf("helper@test:main by null"), recorded)
+            val setAt = checkNotNull(listed[1].homeSetAt)
             assertEquals(
                 listOf(
                     AgentSummary(coder, "coder", null, true, null),
-                    AgentSummary(helper, "helper", null, false, chat),
+                    AgentSummary(helper, "helper", null, false, chat, null, setAt, null),
                 ),
                 listed,
             )
@@ -257,7 +282,7 @@ class RuntimeChangesTest {
             }
 
             assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, control.settings(chat))
-            assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(member))), control.links())
+            assertEquals(listOf(anchor to listOf(member)), control.links().map { it.anchor to it.members })
             assertEquals(AgentChatKey(coder, anchor), ask(member).turn.key)
         }
     }
