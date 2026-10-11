@@ -41,6 +41,7 @@ internal object TextKeys {
     const val HOME_SET: String = "home.set"
     const val HOME_CLEARED: String = "home.cleared"
     const val HOME_NOT_HOME: String = "home.not_home"
+    const val HOME_RESET: String = "home.reset"
 
     const val LINK_OFFER: String = "link.offer"
     const val LINK_CURRENT: String = "link.current"

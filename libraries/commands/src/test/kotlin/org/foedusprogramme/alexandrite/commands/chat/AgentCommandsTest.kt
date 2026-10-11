@@ -119,6 +119,17 @@ class AgentCommandsTest {
     }
 
     @Test
+    fun `home reset goes back to the configured home chat`() = runTest {
+        val reply = commands.answer(testCommand("home", "reset", issuer = ADMIN))
+
+        assertEquals("main uses its configured home chat on test:main again.", reply)
+        assertEquals(
+            listOf(Call.UpdateSettings(chat, ChatSettingsUpdate.builder().resetHome().build(), ADMIN)),
+            control.calls,
+        )
+    }
+
+    @Test
     fun `a refused home replies with the agent's message`() = runTest {
         control.updateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).home().build(), ADMIN)
         control.updateSettings(chat, ChatSettingsUpdate.builder().agent(AgentId.MAIN).build(), ADMIN)
@@ -129,10 +140,14 @@ class AgentCommandsTest {
     }
 
     @Test
-    fun `home takes nothing but off`() = runTest {
+    fun `home takes nothing but off and reset`() = runTest {
         val reply = commands.answer(testCommand("home", "away"))
 
-        assertEquals("Send /home to make this chat the agent's home chat, or /home off to stop it being one.", reply)
+        assertEquals(
+            "Send /home to make this chat the agent's home chat, /home off to stop it being one, " +
+                "or /home reset to go back to the configured home chat.",
+            reply,
+        )
         assertEquals(emptyList(), control.calls)
     }
 

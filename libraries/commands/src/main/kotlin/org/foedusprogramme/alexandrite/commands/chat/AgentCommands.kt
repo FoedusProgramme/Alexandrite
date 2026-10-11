@@ -41,6 +41,7 @@ internal class AgentCommands(private val control: AgentControl, private val text
             HOME -> when {
                 words.isEmpty() -> home(invocation, context)
                 words.size == 1 && words[0].isKeyword(OFF) -> homeOff(invocation, context, replies)
+                words.size == 1 && words[0].isKeyword(RESET) -> resetHome(invocation, context)
                 else -> context.reply(replies.usage(name))
             }
         }
@@ -114,6 +115,13 @@ internal class AgentCommands(private val control: AgentControl, private val text
         }
         val snapshot = context.updateSettings(control, invocation) { noHome() } ?: return
         context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.HOME_CLEARED, "agent" to current.agent))
+    }
+
+    private suspend fun resetHome(invocation: CommandInvocation, context: CommandContext) {
+        val snapshot = context.updateSettings(control, invocation) { resetHome() } ?: return
+        val text = texts.replies(snapshot.effectiveLanguage)
+            .text(TextKeys.HOME_RESET, "agent" to snapshot.agent, "instance" to invocation.chat.instance)
+        context.reply(text)
     }
 
     /** How [agent] calls itself on [instance], its id when it does not serve the instance. */
