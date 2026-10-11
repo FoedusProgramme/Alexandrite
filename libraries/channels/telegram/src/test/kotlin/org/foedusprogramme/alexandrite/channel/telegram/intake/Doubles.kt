@@ -18,8 +18,11 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
 import org.foedusprogramme.alexandrite.channel.telegram.api.WebhookInfo
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
@@ -151,6 +154,11 @@ internal class RecordingControl : RuntimeControl {
     override fun stop(request: StopRequest) {
         requests += request
     }
+}
+
+@OptIn(InternalAlexandriteApi::class)
+internal object NoEdits : ConfigEditor {
+    override suspend fun edit(block: ConfigEdit.() -> Unit): Unit = error("The test edits no config.")
 }
 
 internal fun testConfig(allowed: List<Long> = listOf(1001), retryMaxSeconds: Int = 30): TelegramInstanceConfig {

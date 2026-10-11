@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.seconds
 
@@ -77,6 +78,13 @@ internal class BotSession(
         if (config.allowedChats.isEmpty()) {
             logger.warn("{}: no chat is paired yet: the first message of a chat gets a pairing code", instance.id)
         }
+        if (sendsTokenInClear(config.apiBase)) {
+            logger.warn(
+                "{} reaches the Bot API at {} over plain http, so its bot token crosses the network unencrypted",
+                instance.id,
+                config.apiBase,
+            )
+        }
         if (config.adminUserIds.isEmpty()) {
             logger.warn(
                 "{}: no admin is configured, so nobody may run admin commands and agents offer tools to nobody",
@@ -121,5 +129,15 @@ internal class BotSession(
         const val TRIES = 3
     }
 }
+
+/** Whether [url] is plain http to a host other than this one. */
+private fun sendsTokenInClear(url: String): Boolean {
+    val uri = URI(url)
+    val host = uri.host.removePrefix("[").removeSuffix("]").lowercase()
+    val loopback = host == "localhost" || host.endsWith(".localhost") || host == "::1" || LOOPBACK_V4.matches(host)
+    return uri.scheme.equals("http", ignoreCase = true) && !loopback
+}
+
+private val LOOPBACK_V4 = Regex("127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")
 
 private val logger = LoggerFactory.getLogger(BotSession::class.java)

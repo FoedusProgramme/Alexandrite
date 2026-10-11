@@ -194,6 +194,27 @@ class PairingCodesTest {
     }
 
     @Test
+    fun `a trusted redeemer spends a live code of the purpose once, and its wrong codes never lock`() {
+        val issued = codes.issue(LINK, "a", "offer")
+        val other = codes.issue(PAIR, "c", "other")
+
+        repeat(MAX_FAILURES * 3) { assertEquals(null, codes.take(LINK, "WRNG-C0DE")) }
+        assertEquals(null, codes.take(LINK, other.text))
+        assertEquals(null, codes.take(LINK, "hello"))
+        val taken = codes.take(LINK, issued.text.lowercase().replace("-", " "))
+
+        assertEquals("a" to "offer", taken?.owner to taken?.payload)
+        assertEquals(null, codes.take(LINK, issued.text))
+        codes.assertRedeemed(other.text, owner = "c", payload = "other", purpose = PAIR)
+    }
+
+    @Test
+    fun `input is a code when it holds eight code characters, however it is written`() {
+        for (input in listOf("1A0Z-9KMX", "  la0z 9kmx\t", "WRNG-C0DE")) assertTrue(isPairingCode(input), input)
+        for (input in listOf("", "hello", "ABCD-EFG", "UBCD-EFGH")) assertEquals(false, isPairingCode(input), input)
+    }
+
+    @Test
     fun `beyond the capacity the oldest code is dropped`() {
         val small = PairingCodes<String, String>(clock, capacity = 3)
         val issued = (1..4).map { small.issue(LINK, "owner $it", "offer $it") }

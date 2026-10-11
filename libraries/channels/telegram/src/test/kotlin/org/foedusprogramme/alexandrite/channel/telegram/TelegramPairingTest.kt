@@ -19,6 +19,13 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.Delivery
+import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
+import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
@@ -26,11 +33,13 @@ import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
+import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -38,7 +47,9 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class TelegramPairingTest {
@@ -139,6 +150,70 @@ class TelegramPairingTest {
             assertEquals(1, telegram.submitter.submissions.size)
             assertEquals(JsonArray(listOf(JsonPrimitive(ADA), JsonPrimitive(GROUP))), allowedChats())
             assertEquals(Unpairing.NotPaired, desk().unpair(telegram.address(BOB)))
+        }
+    }
+
+    @Test
+    fun `an unpaired chat gets nothing the agent sends, and nothing reaches it unasked`() {
+        val forbidden = Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "the chat is not paired")
+        val notice = OutboundMessage.builder("Still there?", MessageKind.NOTICE).build()
+
+        telegram.run(telegram.builder().writeConfigFile(file)) {
+            val channel = checkNotNull(get<ChannelDirectory>().channel(WORK))
+            val chat = telegram.address(BOB)
+            assertTrue(channel.capabilities(chat).proactive)
+
+            assertEquals(Unpairing.Unpaired, desk().unpair(chat))
+
+            assertFalse(channel.capabilities(chat).proactive)
+            assertEquals(forbidden, channel.send(chat, notice))
+            assertEquals(forbidden, channel.openReply(ReplyRequest(testTurn(chat = chat), null)).complete(notice))
+            assertIs<Delivery.Delivered>(channel.send(telegram.address(ADA), notice))
+        }
+
+        assertEquals(emptyList(), fake.botMessages(BOB))
+        assertEquals(emptyList(), fake.calls("sendChatAction").filter { it.params["chat_id"] == JsonPrimitive(BOB) })
+    }
+
+    @Test
+    fun `unpairing a chat that is still a home chat or linked is warned of`() {
+        val lines = runBlocking {
+            logged {
+                telegram.run(telegram.builder().writeConfigFile(file)) {
+                    val group = telegram.address(GROUP)
+                    telegram.control.updateSettings(group, ChatSettingsUpdate.builder().home().build(), null)
+                    telegram.control.link(AgentId.MAIN, group, telegram.address(BOB, 3), null)
+
+                    for (chat in listOf(GROUP, BOB, ADA)) {
+                        assertEquals(Unpairing.Unpaired, desk().unpair(telegram.address(chat)))
+                    }
+                }
+            }
+        }
+
+        val warnings = lines.filter { it.startsWith("WARN") && "is unpaired" in it }
+        assertEquals(
+            listOf(
+                "WARN Chat telegram:work:$GROUP is unpaired but still the home chat of agent main and linked at " +
+                    "agent main: the bot sends it nothing until it is paired again",
+                "WARN Chat telegram:work:$BOB is unpaired but still linked at agent main: the bot sends it nothing " +
+                    "until it is paired again",
+            ),
+            warnings,
+        )
+    }
+
+    @Test
+    fun `a chat unpaired while its message waited is not asked to send it again`() {
+        TelegramHarness(outcome = null).use { open ->
+            open.run(open.builder().writeConfigFile(file)) {
+                open.fake.send(open.bob, open.bobChat, "one")
+                open.submitted(1)
+                assertEquals(Unpairing.Unpaired, desk().unpair(open.address(BOB)))
+                open.submitter.tickets.single().complete(TurnOutcome.ShutDown(replayable = true))
+            }
+
+            assertEquals(emptyList(), open.fake.botMessages(BOB))
         }
     }
 

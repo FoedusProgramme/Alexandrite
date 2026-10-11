@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companio
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.GROUP
 import org.foedusprogramme.alexandrite.channel.telegram.api.HttpBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
+import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeUser
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
@@ -122,6 +123,44 @@ class TelegramIntakeTest {
         }
     }
 
+    @Test
+    fun `a claimed command the matrix does not list is for admins alone, and one no handler claims passes`() {
+        telegram.run(telegram.builder().commandHandler(ClaimedCommands("mode"))) {
+            fake.send(telegram.bob, telegram.bobChat, "/mode bypass")
+            fake.send(telegram.bob, telegram.group, "/start@alexandrite_test_bot")
+
+            val start = assertIs<Submission.Command>(telegram.submitted(1).single())
+            assertEquals("start" to telegram.address(GROUP), start.invocation.name to start.chat)
+            val refusal = fake.await { botMessages(BOB).singleOrNull() }
+            assertEquals("Only an admin of this bot may use /mode.", refusal.text)
+        }
+
+        assertEquals(1, telegram.submitter.submissions.size)
+    }
+
+    @Test
+    fun `a refused command is told once a minute to each issuer in each chat`() {
+        val carol = FakeUser(1003, "Carol")
+
+        telegram.run {
+            repeat(3) { fake.send(telegram.bob, telegram.group, "/new") }
+            fake.send(carol, telegram.group, "/cancel")
+            fake.send(telegram.bob, telegram.bobChat, "/model deepseek/deepseek-chat")
+            fake.send(telegram.bob, telegram.group, "/home")
+            telegram.consumed(6)
+        }
+
+        assertEquals(
+            listOf(
+                "Only an admin of this bot may use /new in this chat." to 1L,
+                "Only an admin of this bot may use /cancel in this chat." to 4L,
+            ),
+            fake.botMessages(GROUP).map { it.text to it.replyTo }.sortedBy { it.second },
+        )
+        assertEquals(listOf("Only an admin of this bot may use /model."), fake.botMessages(BOB).map { it.text })
+        assertEquals(emptyList(), telegram.submitter.submissions)
+    }
+
     // Admissions.
 
     @Test
@@ -212,24 +251,48 @@ class TelegramIntakeTest {
     }
 
     @Test
-    fun `a message whose turn a stop cut off is asked for again at the drain`() {
-        val notice = TelegramHarness(outcome = null).use { open ->
+    fun `a message a stop cut off is asked for again at once, per message in a group and once in a direct chat`() {
+        val again = "The bot stopped before it answered this message. Send it again once the bot is back."
+        TelegramHarness(outcome = null).use { open ->
             open.run {
                 open.fake.send(open.bob, open.group, "@alexandrite_test_bot run the migration")
-                open.fake.send(open.bob, open.bobChat, "and this one ends")
-                open.submitted(2)
-                open.submitter.tickets[0].complete(TurnOutcome.ShutDown(replayable = true))
-                open.submitter.tickets[1].complete(TurnOutcome.Completed(null))
+                open.fake.send(open.bob, open.group, "@alexandrite_test_bot and the backfill")
+                open.fake.send(open.bob, open.bobChat, "one")
+                open.fake.send(open.bob, open.bobChat, "two")
+                open.fake.send(open.ada, open.adaChat, "and this one ends")
+                open.submitted(5)
+                open.submitter.tickets.take(4).forEach { it.complete(TurnOutcome.ShutDown(replayable = true)) }
+                open.submitter.tickets[4].complete(TurnOutcome.Completed(null))
+
+                val notices = open.fake.await { botMessages().takeIf { it.size == 3 } }
+                assertEquals(GROUP, notices.last().chat)
             }
-            assertEquals(emptyList(), open.fake.botMessages(BOB))
-            open.fake.botMessages(GROUP).single()
+
+            val group = open.fake.botMessages(GROUP).map { it.text to it.replyTo }
+            assertEquals(listOf(again to 1L, again to 2L), group.sortedBy { it.second })
+            assertEquals(listOf(again to null), open.fake.botMessages(BOB).map { it.text to it.replyTo })
+            assertEquals(emptyList(), open.fake.botMessages(ADA))
+        }
+    }
+
+    @Test
+    fun `an update that does not read is skipped, and the ones after it reach the agent`() {
+        telegram.run {
+            fake.send(telegram.bob, telegram.bobChat, "one")
+            fake.queue(
+                buildJsonObject {
+                    put("from", telegram.bob.json())
+                    put("chat", telegram.bobChat.json())
+                    put("date", "yesterday")
+                    put("text", "broken")
+                },
+            )
+            fake.send(telegram.bob, telegram.bobChat, "two")
+            telegram.submitted(2)
         }
 
-        assertEquals(
-            "The bot stopped before it answered this message. Send it again once the bot is back.",
-            notice.text,
-        )
-        assertEquals(1L, notice.replyTo)
+        val texts = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message.text }
+        assertEquals(listOf("one", "two"), texts)
     }
 
     // Start and failures.

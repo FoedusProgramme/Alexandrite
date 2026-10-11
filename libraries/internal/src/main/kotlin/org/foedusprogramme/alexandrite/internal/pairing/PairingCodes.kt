@@ -73,6 +73,17 @@ public class PairingCodes<K : Any, P : Any>(
         }
     }
 
+    /** Spends the live code [input] for [purpose] without counting a wrong one, null when [input] is no live code. */
+    public fun take(purpose: String, input: String): Redemption.Redeemed<K, P>? {
+        synchronized(lock) {
+            purge(clock.instant())
+            val code = normalize(input) ?: return null
+            val live = codes[code]?.takeIf { it.purpose == purpose } ?: return null
+            remove(code)
+            return Redemption.Redeemed(live.owner, live.payload)
+        }
+    }
+
     /** Whether [input] is a live code for [purpose], which is neither spent nor counted. */
     public fun holds(purpose: String, input: String): Boolean {
         synchronized(lock) {
@@ -107,21 +118,6 @@ public class PairingCodes<K : Any, P : Any>(
         return String(CharArray(LENGTH) { index -> ALPHABET[(bits shr (LENGTH - 1 - index) * 5).toInt() and 31] })
     }
 
-    /** The code characters of [input], null when it holds no code. */
-    private fun normalize(input: String): String? {
-        val code = StringBuilder()
-        for (char in input.trim()) {
-            when (char) {
-                '-', ' ' -> {}
-                'I', 'i', 'L', 'l' -> code.append('1')
-                'O', 'o' -> code.append('0')
-                in 'a'..'z' -> code.append(char.uppercaseChar())
-                else -> code.append(char)
-            }
-        }
-        return code.toString().takeIf { text -> text.length == LENGTH && text.all { it in ALPHABET } }
-    }
-
     private class Live<K, P>(val purpose: String, val owner: K, val payload: P, val expiresAt: Instant)
 
     internal companion object {
@@ -131,6 +127,26 @@ public class PairingCodes<K : Any, P : Any>(
         const val ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
         const val LENGTH = 8
         const val GROUP = 4
+    }
+}
+
+/** Whether [input] holds the eight characters of a code, however it is written. */
+public fun isPairingCode(input: String): Boolean = normalize(input) != null
+
+/** The code characters of [input], null when it holds no code. */
+private fun normalize(input: String): String? {
+    val code = StringBuilder()
+    for (char in input.trim()) {
+        when (char) {
+            '-', ' ' -> {}
+            'I', 'i', 'L', 'l' -> code.append('1')
+            'O', 'o' -> code.append('0')
+            in 'a'..'z' -> code.append(char.uppercaseChar())
+            else -> code.append(char)
+        }
+    }
+    return code.toString().takeIf { text ->
+        text.length == PairingCodes.LENGTH && text.all { it in PairingCodes.ALPHABET }
     }
 }
 

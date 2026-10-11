@@ -25,9 +25,10 @@ class ConfigPairedChatsTest {
         return MemoryConfigEditor(Json.parseToJsonElement("""{"instances": {"work": $instance}}""").jsonObject)
     }
 
-    private fun store(editor: MemoryConfigEditor) = ConfigPairedChats(
+    private fun store(editor: MemoryConfigEditor, vararg loaded: Long) = ConfigPairedChats(
         editor,
         path,
+        loaded.map { ChatAddress(work, "$it") },
         entryOf = { JsonPrimitive(it.chat.toLong()) },
         chatOf = { text -> text.toLongOrNull()?.let { ChatAddress(work, "$it") } },
     )
@@ -67,7 +68,7 @@ class ConfigPairedChatsTest {
     fun `a removed chat leaves every entry that names it and keeps the others as they are`() = runTest {
         val editor = editor("""[7, "${'$'}{env:HOME_CHAT}", "7", -100]""")
 
-        assertTrue(store(editor).remove(ChatAddress(work, "7")))
+        assertTrue(store(editor, 7, -100, 7, -100).remove(ChatAddress(work, "7")))
 
         assertEquals("""["${'$'}{env:HOME_CHAT}",-100]""", editor.chats())
     }
@@ -76,9 +77,28 @@ class ConfigPairedChatsTest {
     fun `a chat the file names only through environment variables cannot be removed`() = runTest {
         val editor = editor("""["${'$'}{env:HOME_CHAT}", -100]""")
 
-        assertFalse(store(editor).remove(ChatAddress(work, "7")))
+        assertFalse(store(editor, 7, -100).remove(ChatAddress(work, "7")))
 
         assertEquals(0, editor.edits)
+    }
+
+    @Test
+    fun `a chat that an environment variable names beside its own entry stays paired once that entry is gone`() =
+        runTest {
+            val editor = editor("""["${'$'}{env:HOME_CHAT}", 7, -100]""")
+
+            assertFalse(store(editor, 7, 7, -100).remove(ChatAddress(work, "7")))
+
+            assertEquals("""["${'$'}{env:HOME_CHAT}",-100]""", editor.chats())
+        }
+
+    @Test
+    fun `a chat paired while running leaves the file beside a variable that names another chat`() = runTest {
+        val editor = editor("""["${'$'}{env:HOME_CHAT}", 7]""")
+
+        assertTrue(store(editor, -100).remove(ChatAddress(work, "7")))
+
+        assertEquals("""["${'$'}{env:HOME_CHAT}"]""", editor.chats())
     }
 
     @Test

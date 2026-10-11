@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.telegram
 
 import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
+import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.channel.telegram.reply.TelegramReply
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Typing
@@ -22,12 +23,13 @@ import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import java.util.concurrent.ConcurrentHashMap
 
-/** The front end of one bot, which delivers nothing once the instance stops. */
+/** The front end of one bot, which delivers nothing to a chat that is not paired, nor once the instance stops. */
 @ChannelInstanceScoped
 @Contribute(Channel::class, name = "telegram")
 internal class TelegramChannel(
     private val instance: ChannelInstance,
     private val config: TelegramInstanceConfig,
+    private val gate: AccessGate,
     private val outbox: Outbox,
     private val typing: Typing,
 ) : Channel,
@@ -41,7 +43,7 @@ internal class TelegramChannel(
         .maxPartsPerReply(1)
         .streaming(config.streaming.enabled)
         .finalReplacesPreview(true)
-        .proactive(true)
+        .proactive(gate.isPaired(chat))
         .markups(setOf(Markup.PLAIN, Markup.MARKDOWN))
         .build()
 
@@ -50,6 +52,7 @@ internal class TelegramChannel(
 
     override suspend fun openReply(request: ReplyRequest): ReplySink {
         if (stopped) return Undelivered(STOPPED)
+        if (!gate.isPaired(request.turn.chat)) return Undelivered(NOT_PAIRED)
         val target = targetOf(request.turn.chat) ?: return Undelivered(Delivery.NotDelivered(DeliveryFailure.CHAT_GONE))
         val reply = TelegramReply(request, target, config.streaming.enabled, outbox, typing, instance.scope) {
             replies.remove(it)
@@ -59,8 +62,11 @@ internal class TelegramChannel(
         return reply
     }
 
-    override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
-        if (stopped) STOPPED else outbox.send(chat, message)
+    override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = when {
+        stopped -> STOPPED
+        !gate.isPaired(chat) -> NOT_PAIRED
+        else -> outbox.send(chat, message)
+    }
 
     override fun onStop() {
         stopped = true
@@ -79,5 +85,6 @@ internal class TelegramChannel(
 
     private companion object {
         val STOPPED = Delivery.NotDelivered(DeliveryFailure.TRANSIENT)
+        val NOT_PAIRED = Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "the chat is not paired")
     }
 }

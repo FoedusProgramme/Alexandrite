@@ -2,7 +2,6 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
-import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
@@ -10,7 +9,6 @@ import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.slf4j.LoggerFactory
-import java.util.Locale
 
 /** Takes one update through the access gate, the reader, the command rules and the admissions. */
 @ChannelInstanceScoped
@@ -19,8 +17,8 @@ internal class Intake(
     private val config: TelegramInstanceConfig,
     private val session: BotSession,
     private val gate: AccessGate,
+    private val rules: CommandRules,
     private val admissions: Admissions,
-    private val outbox: Outbox,
 ) {
     private val reader by lazy { UpdateReader(instance.id, config.adminUserIds.toSet(), session.identity) }
 
@@ -42,7 +40,7 @@ internal class Intake(
                 Dispatch.DONE
             }
 
-            is Inbound.Message -> admissions.submit(Submission.Message(inbound.message), trigger)
+            is Inbound.Message -> admissions.submit(Submission.Message(inbound.message), trigger, kind)
 
             is Inbound.Command -> command(inbound, kind, trigger)
         }
@@ -50,13 +48,13 @@ internal class Intake(
 
     private fun command(inbound: Inbound.Command, kind: ChatKind, trigger: ChannelMessageRef): Dispatch {
         val invocation = inbound.invocation
-        val refusal = CommandRules.refusal(invocation, kind)
+        val refusal = rules.refusal(invocation, kind)
         if (refusal != null) {
-            outbox.notify(invocation.chat, trigger, refusal, "command" to invocation.name.lowercase(Locale.ROOT))
+            admissions.refuse(invocation, trigger, refusal)
             return Dispatch.DONE
         }
         val capacity = if (invocation.issuer.isAdmin) Capacity.EXEMPT else Capacity.COUNTED
-        return admissions.submit(Submission.Command(invocation, inbound.message, capacity), trigger)
+        return admissions.submit(Submission.Command(invocation, inbound.message, capacity), trigger, kind)
     }
 
     private fun ignored(update: Update, why: String): Dispatch {

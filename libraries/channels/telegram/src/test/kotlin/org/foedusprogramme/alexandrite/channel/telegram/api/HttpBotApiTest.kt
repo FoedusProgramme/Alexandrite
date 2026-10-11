@@ -28,6 +28,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure.UNAUTH
 import org.foedusprogramme.alexandrite.channel.telegram.configOf
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeUser
+import org.foedusprogramme.alexandrite.channel.telegram.logged
 import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -191,6 +192,30 @@ class HttpBotApiTest {
             },
             params,
         )
+    }
+
+    @Test
+    fun `an update that does not read is passed on empty under its id, and the ones around it read`() = runBlocking {
+        val message = """{"message_id": 1, "date": 0, "chat": {"id": 42, "type": "private"}, "text": "Hello"}"""
+        val broken = """{"message_id": 2, "date": "yesterday", "chat": {"id": 42, "type": "private"}}"""
+        val result = listOf(5 to message, 6 to broken, 7 to message)
+            .joinToString { (id, update) -> """{"update_id": $id, "message": $update}""" }
+        fake.respond("getUpdates", 200, """{"ok": true, "result": [$result]}""")
+
+        lateinit var updates: List<Update>
+        val lines = logged { updates = api.getUpdates(null, 100, 0) }
+
+        assertEquals(listOf(5L, 6L, 7L), updates.map { it.updateId })
+        assertEquals(listOf("Hello", null, "Hello"), updates.map { it.message?.text })
+        assertEquals(listOf("WARN Update 6 does not read and is skipped"), lines.filter { it.startsWith("WARN") })
+        assertFalse(lines.any { "yesterday" in it })
+    }
+
+    @Test
+    fun `an update without an id fails the poll`() {
+        fake.respond("getUpdates", 200, """{"ok": true, "result": [{"update_id": 5}, {"message": {}}]}""")
+
+        assertEquals(PROTOCOL, failure { getUpdates(null, 100, 0) }.failure)
     }
 
     @Test

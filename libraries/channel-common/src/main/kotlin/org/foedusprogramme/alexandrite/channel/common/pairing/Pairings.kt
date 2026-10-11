@@ -4,11 +4,12 @@ import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.foedusprogramme.alexandrite.internal.pairing.PairingCodes
-import org.foedusprogramme.alexandrite.internal.pairing.Redemption
+import org.foedusprogramme.alexandrite.internal.pairing.isPairingCode
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
@@ -16,9 +17,16 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-/** A [PairingDesk] over the channel instances of a channel plugin, offering an unpaired chat one code per lifetime. */
-public open class Pairings(private val clock: Clock, public val codeLifetime: Duration = 10.minutes) : PairingDesk {
-    private val codes = PairingCodes<Party, ChatAddress>(clock, codeLifetime, capacity = CAPACITY)
+/**
+ * A [PairingDesk] over the channel instances of a channel plugin, offering an unpaired chat one code per lifetime and
+ * warning through [control] when an unpaired chat is still a home chat or linked.
+ */
+public open class Pairings(
+    private val clock: Clock,
+    public val codeLifetime: Duration = 10.minutes,
+    private val control: AgentControl? = null,
+) : PairingDesk {
+    private val codes = PairingCodes<ChatAddress, ChatAddress>(clock, codeLifetime, capacity = CAPACITY)
     private val lock = Any()
     private val instances = LinkedHashMap<ChannelInstanceId, InstancePairing>()
     private val requests = LinkedHashMap<ChatAddress, PairingRequest>()
@@ -50,14 +58,14 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
         }
     }
 
-    override fun pending(): List<PairingRequest> = synchronized(lock) {
+    final override fun pending(): List<PairingRequest> = synchronized(lock) {
         purge(clock.instant())
         requests.values.sortedBy { it.issuedAt }
     }
 
-    override fun holds(code: String): Boolean = synchronized(lock) { codes.holds(PURPOSE, code) }
+    final override fun holds(code: String): Boolean = synchronized(lock) { codes.holds(PURPOSE, code) }
 
-    override suspend fun approve(code: String): PairingDecision = decide(code) { request, pairing ->
+    final override suspend fun approve(code: String): PairingDecision = decide(code) { request, pairing ->
         try {
             pairing.store.add(request.chat)
         } catch (e: CancellationException) {
@@ -72,14 +80,15 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
         PairingDecision.Approved(request)
     }
 
-    override suspend fun deny(code: String): PairingDecision = decide(code) { request, _ ->
+    final override suspend fun deny(code: String): PairingDecision = decide(code) { request, _ ->
         logger.info("The request of chat {} to be paired is denied", request.chat)
         PairingDecision.Denied(request)
     }
 
-    override fun paired(): List<ChatAddress> = synchronized(lock) { instances.values.flatMap { it.paired.toList() } }
+    final override fun paired(): List<ChatAddress> =
+        synchronized(lock) { instances.values.flatMap { it.paired.toList() } }
 
-    override suspend fun unpair(chat: ChatAddress): Unpairing = deciding.withLock {
+    final override suspend fun unpair(chat: ChatAddress): Unpairing = deciding.withLock {
         val key = chat.parent
         val pairing = synchronized(lock) { instances[key.instance]?.takeIf { key in it.paired } }
             ?: return@withLock Unpairing.NotPaired
@@ -94,6 +103,7 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
         if (!removed) return@withLock Unpairing.ByReference
         synchronized(lock) { pairing.paired -= key }
         logger.info("Chat {} is unpaired", key)
+        warnIfServed(key)
         Unpairing.Unpaired
     }
 
@@ -112,7 +122,7 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
         val now = clock.instant()
         purge(now)
         if (key in offered) return null
-        val issued = codes.issue(PURPOSE, Party.Chat(key), key)
+        val issued = codes.issue(PURPOSE, key, key)
         offered[key] = issued.expiresAt
         requests.remove(key)
         requests[key] = PairingRequest(key, kind, title, requester, issued.text, now, issued.expiresAt)
@@ -127,25 +137,16 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
     ): PairingDecision = deciding.withLock {
         val found = synchronized(lock) {
             purge(clock.instant())
-            when (val redemption = codes.redeem(PURPOSE, code, Party.Operator)) {
-                is Redemption.Redeemed -> {
-                    val chat = redemption.payload
-                    checkNotNull(requests.remove(chat)) to checkNotNull(instances[chat.instance])
-                }
-
-                is Redemption.Rejected -> return@withLock PairingDecision.Unknown(redemption.triesLeft)
-
-                is Redemption.Locked -> return@withLock PairingDecision.Locked(redemption.until)
-
-                Redemption.Malformed, Redemption.OwnCode -> return@withLock PairingDecision.Malformed
-            }
+            val chat = codes.take(PURPOSE, code)?.payload
+                ?: return@withLock if (isPairingCode(code)) PairingDecision.Unknown else PairingDecision.Malformed
+            checkNotNull(requests.remove(chat)) to checkNotNull(instances[chat.instance])
         }
         onRequest(found.first, found.second)
     }
 
     /** [request] under a new code, waiting again. */
     private fun reissue(request: PairingRequest): PairingRequest = synchronized(lock) {
-        val issued = codes.issue(PURPOSE, Party.Chat(request.chat), request.chat)
+        val issued = codes.issue(PURPOSE, request.chat, request.chat)
         val waiting = PairingRequest(
             request.chat,
             request.kind,
@@ -166,14 +167,28 @@ public open class Pairings(private val clock: Clock, public val codeLifetime: Du
 
     private fun drop(chat: ChatAddress) {
         requests.remove(chat)
-        codes.revoke(PURPOSE, Party.Chat(chat))
+        codes.revoke(PURPOSE, chat)
     }
 
-    /** Who issues or redeems a code. */
-    private sealed interface Party {
-        data class Chat(val address: ChatAddress) : Party
-
-        data object Operator : Party
+    /** Warns when the agents still keep [chat], now unpaired, as a home chat or in a linked group. */
+    private fun warnIfServed(chat: ChatAddress) {
+        val control = control ?: return
+        val uses = try {
+            val homes = control.agents(chat.instance).filter { it.home?.parent == chat }
+            val groups = control.links().filter { group -> (group.members + group.anchor).any { it.parent == chat } }
+            homes.map { "the home chat of agent ${it.id}" } + groups.map { "linked at agent ${it.agent}" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn("Cannot tell whether the unpaired chat {} is still a home chat or linked: {}", chat, "$e")
+            return
+        }
+        if (uses.isEmpty()) return
+        logger.warn(
+            "Chat {} is unpaired but still {}: the bot sends it nothing until it is paired again",
+            chat,
+            uses.joinToString(" and "),
+        )
     }
 
     private companion object {

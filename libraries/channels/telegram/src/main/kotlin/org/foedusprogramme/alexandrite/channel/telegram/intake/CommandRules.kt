@@ -1,23 +1,64 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import java.util.Locale
 
-/** Who may run the default commands: anyone in a direct chat, admins alone for what changes a group or the bot. */
-internal object CommandRules {
+/** Who may run a command. */
+internal enum class Who {
+    ANYONE,
+
+    /** Anyone in a direct chat, admins elsewhere. */
+    DIRECT,
+
+    ADMIN,
+}
+
+/** Who may run a command: [bare] without arguments, [withArguments] with them. */
+internal class CommandRule(val bare: Who, val withArguments: Who = bare)
+
+/**
+ * Who may run each command that a handler claims, after [MATRIX]: admins alone for a claimed command it does not list.
+ *
+ * A direct chat linked with other chats counts as a group.
+ */
+@Singleton
+internal class CommandRules(handlers: List<CommandHandler>, private val control: AgentControl?) {
+    private val claimed = handlers.flatMap { it.commands }.mapTo(HashSet()) { it.name.lowercase(Locale.ROOT) }
+
     /** The key of the refusal of [invocation] in a chat of [kind], null when its issuer may run it. */
     fun refusal(invocation: CommandInvocation, kind: ChatKind): String? {
-        if (invocation.issuer.isAdmin) return null
-        val direct = kind == ChatKind.DIRECT
-        val bare = invocation.arguments.isBlank()
-        return when (invocation.name.lowercase(Locale.ROOT)) {
-            "new", "cancel" -> TextKeys.REFUSED_ADMIN_HERE.takeUnless { direct }
-            "agent", "reasoning", "language" -> TextKeys.REFUSED_ADMIN_HERE.takeUnless { direct || bare }
-            "model" -> TextKeys.REFUSED_ADMIN.takeUnless { bare }
-            "home", "link", "unlink", "trust", "untrust" -> TextKeys.REFUSED_ADMIN
-            else -> null
+        val name = invocation.name.lowercase(Locale.ROOT)
+        if (invocation.issuer.isAdmin || name !in claimed) return null
+        val rule = MATRIX[name] ?: ADMIN_ONLY
+        return when (if (invocation.arguments.isBlank()) rule.bare else rule.withArguments) {
+            Who.ANYONE -> null
+            Who.DIRECT -> TextKeys.REFUSED_ADMIN_HERE.takeUnless { kind == ChatKind.DIRECT && !linked(invocation.chat) }
+            Who.ADMIN -> TextKeys.REFUSED_ADMIN
         }
+    }
+
+    private fun linked(chat: ChatAddress): Boolean = control?.links().orEmpty().any { group ->
+        (group.members + group.anchor).any { it.parent == chat.parent }
+    }
+
+    internal companion object {
+        /** The rules of the default commands. */
+        val MATRIX: Map<String, CommandRule> = mapOf(
+            "settings" to CommandRule(Who.ANYONE),
+            "agent" to CommandRule(Who.ANYONE, Who.DIRECT),
+            "reasoning" to CommandRule(Who.ANYONE, Who.DIRECT),
+            "language" to CommandRule(Who.ANYONE, Who.DIRECT),
+            "model" to CommandRule(Who.ANYONE, Who.ADMIN),
+            "new" to CommandRule(Who.DIRECT),
+            "cancel" to CommandRule(Who.DIRECT),
+        )
+
+        private val ADMIN_ONLY = CommandRule(Who.ADMIN)
     }
 }

@@ -4,9 +4,10 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.app.control.ContributedDesks
 import org.foedusprogramme.alexandrite.app.control.ControlAnswers
-import org.foedusprogramme.alexandrite.app.control.PairingDesks
 import org.foedusprogramme.alexandrite.app.control.serveControl
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesks
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.ConfigFileException
@@ -182,7 +183,9 @@ private fun host(
                 logger.info("Alexandrite {} is ready", alexandriteVersion)
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
-                    val answers = ControlAnswers(alexandriteVersion) { services.get<PairingDesks>().all }
+                    val answers = ControlAnswers(alexandriteVersion) {
+                        PairingDesks(services.get<ContributedDesks>().all)
+                    }
                     launch { serveControl(locations.dataDir, answers::answer) }
                     awaitCancellation()
                 }

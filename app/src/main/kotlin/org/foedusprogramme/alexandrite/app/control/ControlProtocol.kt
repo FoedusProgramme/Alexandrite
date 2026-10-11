@@ -70,14 +70,7 @@ internal sealed interface ControlReply {
 
     @Serializable
     @SerialName("unknown_code")
-    class UnknownCode(val triesLeft: Int) : ControlReply
-
-    @Serializable
-    @SerialName("locked")
-    class Locked(
-        @Serializable(with = InstantText::class)
-        val until: Instant,
-    ) : ControlReply
+    data object UnknownCode : ControlReply
 
     @Serializable
     @SerialName("malformed_code")
@@ -91,7 +84,7 @@ internal sealed interface ControlReply {
     @SerialName("not_paired")
     class NotPaired(val chat: String) : ControlReply
 
-    /** Only config entries that name environment variables pair the chat. */
+    /** Config entries that name environment variables still pair the chat. */
     @Serializable
     @SerialName("paired_by_reference")
     class PairedByReference(val chat: String) : ControlReply

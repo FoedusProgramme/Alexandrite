@@ -35,18 +35,23 @@ internal class AccessGate(
 
     override suspend fun onStart() {
         val id = instance.id
+        val configured = config.allowedChats.map { ChatAddress(id, "$it") }
         val store = ConfigPairedChats(
             editor,
             "instances.${id.name}.allowedChats",
+            configured,
             entryOf = { JsonPrimitive(it.chat.toLong()) },
             chatOf = { text -> text.toLongOrNull()?.let { ChatAddress(id, "$it") } },
         )
-        pairing = desk.open(id, config.allowedChats.map { ChatAddress(id, "$it") }, store)
+        pairing = desk.open(id, configured, store)
     }
 
     override fun onStop() {
         desk.close(instance.id)
     }
+
+    /** Whether [chat], or the chat whose thread it is, is paired. */
+    fun isPaired(chat: ChatAddress): Boolean = pairing?.isPaired(chat) == true
 
     /**
      * Whether the message [trigger] from [requester] in [chat] may pass; when its chat is not paired and the message

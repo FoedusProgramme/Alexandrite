@@ -1,7 +1,14 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import kotlinx.coroutines.test.runTest
+import org.foedusprogramme.alexandrite.channel.telegram.ClaimedCommands
+import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.DEFAULT_COMMANDS
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
+import org.foedusprogramme.alexandrite.testkit.testChat
 import org.foedusprogramme.alexandrite.testkit.testCommand
 import org.foedusprogramme.alexandrite.testkit.testUser
 import kotlin.test.Test
@@ -9,12 +16,19 @@ import kotlin.test.assertEquals
 
 class CommandRulesTest {
     private val kinds = listOf(ChatKind.DIRECT, ChatKind.GROUP, ChatKind.BROADCAST, ChatKind.UNKNOWN)
+    private val control = RecordingAgentControl()
+    private val rules = CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("mode")), control)
 
-    /** The refusal of `/[command] [arguments]` for a member and for an admin in a chat of [kind]. */
-    private fun refusals(command: String, arguments: String, kind: ChatKind): Pair<String?, String?> {
-        val member = testCommand(command, arguments, issuer = testUser("bob"))
-        val admin = testCommand(command, arguments, issuer = testUser("ada", isAdmin = true))
-        return CommandRules.refusal(member, kind) to CommandRules.refusal(admin, kind)
+    /** The refusal of `/[command] [arguments]` in [chat] of [kind] for a member and for an admin. */
+    private fun refusals(
+        command: String,
+        arguments: String,
+        kind: ChatKind,
+        chat: ChatAddress = testChat(),
+    ): Pair<String?, String?> {
+        val member = testCommand(command, arguments, chat, issuer = testUser("bob"))
+        val admin = testCommand(command, arguments, chat, issuer = testUser("ada", isAdmin = true))
+        return rules.refusal(member, kind) to rules.refusal(admin, kind)
     }
 
     private fun assertRow(command: String, arguments: String, direct: String?, others: String?) {
@@ -67,9 +81,30 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `names are matched ignoring case, and other commands pass to the agent`() {
+    fun `names are matched ignoring case, and a command no handler claims reaches the agent from anyone`() {
         assertRow("New", "", direct = null, others = TextKeys.REFUSED_ADMIN_HERE)
         assertRow("MODEL", "x/y", direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
         for (command in listOf("start", "help", "notes")) assertRow(command, "anything", direct = null, others = null)
+    }
+
+    @Test
+    fun `a claimed command the matrix does not list is for admins alone`() {
+        for ((command, arguments) in listOf("mode" to "", "mode" to "bypass", "Mode" to "plan")) {
+            assertRow(command, arguments, direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
+        }
+    }
+
+    @Test
+    fun `a direct chat linked with a group is ruled as the group`() = runTest {
+        val group = testChat("-100")
+        val linked = testChat("42")
+        control.link(AgentId.MAIN, group, linked, testUser("ada", isAdmin = true))
+
+        for (chat in listOf(linked, testChat("42", "7"))) {
+            assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refusals("new", "", ChatKind.DIRECT, chat))
+            assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refusals("language", "en", ChatKind.DIRECT, chat))
+            assertEquals(null to null, refusals("settings", "", ChatKind.DIRECT, chat))
+        }
+        assertEquals(null to null, refusals("new", "", ChatKind.DIRECT, testChat("43")))
     }
 }

@@ -47,6 +47,9 @@ internal class SendLimiter(
     private val globalInterval = 1.seconds / perSecond
     private val lock = Any()
     private var nextGlobal = timeSource.markNow()
+
+    /** When the bot's last 429 has been waited out. */
+    private var globalBackOff = nextGlobal
     private val chats = HashMap<Long, ChatSlots>()
     private val closed = CompletableDeferred<Unit>()
 
@@ -63,7 +66,7 @@ internal class SendLimiter(
     /** Runs a chat action for [chat] at the bot's pace, never again after a 429. */
     suspend fun <T> action(chat: Long, call: suspend () -> T): T = run(chat, paced = false, null, retried = false, call)
 
-    /** Stops waiting out back-offs and retrying. */
+    /** Stops waiting out 429s and retrying. */
     fun close() {
         closed.complete(Unit)
     }
@@ -99,8 +102,14 @@ internal class SendLimiter(
     }
 
     private suspend fun acquire(chat: Long?, paced: Boolean, spacing: Duration?) {
+        val backOff = synchronized(lock) {
+            val now = timeSource.markNow()
+            val until = if (chat != null && paced) maxOf(globalBackOff, slots(chat, now).backOff) else globalBackOff
+            until - now
+        }
+        if (backOff.isPositive()) withTimeoutOrNull(backOff) { closed.await() }
         if (chat != null && spacing != null) {
-            pause(
+            delay(
                 reserve { now ->
                     val slots = slots(chat, now)
                     maxOf(now, slots.preview).also { slots.preview = it + spacing }
@@ -108,14 +117,14 @@ internal class SendLimiter(
             )
         }
         if (chat != null && paced) {
-            pause(
+            delay(
                 reserve { now ->
                     val slots = slots(chat, now)
                     maxOf(now, slots.next).also { slots.next = it + chatInterval }
                 },
             )
         }
-        pause(reserve { now -> maxOf(now, nextGlobal).also { nextGlobal = it + globalInterval } })
+        delay(reserve { now -> maxOf(now, nextGlobal).also { nextGlobal = it + globalInterval } })
     }
 
     /** The wait until the slot that [take] reserves at the time it is given. */
@@ -124,37 +133,33 @@ internal class SendLimiter(
         take(now) - now
     }
 
-    /** Moves the next slot of [chat], or the bot's for no chat, [wait] from now. */
+    /** Holds the calls of [chat], or every call for no chat, [wait] from now. */
     private fun backOff(chat: Long?, wait: Duration) {
         synchronized(lock) {
             val now = timeSource.markNow()
             if (chat == null) {
-                nextGlobal = maxOf(nextGlobal, now + wait)
+                globalBackOff = maxOf(globalBackOff, now + wait)
             } else {
                 val slots = slots(chat, now)
-                slots.next = maxOf(slots.next, now + wait)
+                slots.backOff = maxOf(slots.backOff, now + wait)
             }
-        }
-    }
-
-    /** Waits [wait], or less once closed when it is longer than [chatInterval]. */
-    private suspend fun pause(wait: Duration) {
-        when {
-            !wait.isPositive() -> Unit
-            wait <= chatInterval -> delay(wait)
-            else -> withTimeoutOrNull(wait) { closed.await() }
         }
     }
 
     /** The slots of [chat], dropping those of chats whose slots have all passed once there are too many. */
     private fun slots(chat: Long, now: ComparableTimeMark): ChatSlots {
         if (chats.size >= MAX_TRACKED_CHATS && chat !in chats) {
-            chats.values.removeIf { it.next <= now && it.preview <= now }
+            chats.values.removeIf { it.next <= now && it.preview <= now && it.backOff <= now }
         }
-        return chats.getOrPut(chat) { ChatSlots(now, now) }
+        return chats.getOrPut(chat) { ChatSlots(now, now, now) }
     }
 
-    private class ChatSlots(var next: ComparableTimeMark, var preview: ComparableTimeMark)
+    private class ChatSlots(
+        var next: ComparableTimeMark,
+        var preview: ComparableTimeMark,
+        /** When the chat's last 429 has been waited out. */
+        var backOff: ComparableTimeMark,
+    )
 
     internal companion object {
         const val MAX_TRACKED_CHATS = 1024

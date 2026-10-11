@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.app.control.ControlAnswers
 import org.foedusprogramme.alexandrite.app.control.controlSocket
 import org.foedusprogramme.alexandrite.app.control.serveControl
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesks
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
@@ -67,7 +68,7 @@ class TelegramAccessTest {
             val code = checkNotNull(CODE.find(offer)) { offer }.value
             assertEquals(emptyList(), app.model.requests)
             coroutineScope {
-                val answers = ControlAnswers("test") { getAll<PairingDesk>() }
+                val answers = ControlAnswers("test") { PairingDesks(getAll<PairingDesk>()) }
                 val control = launch(Dispatchers.IO) { serveControl(app.dataDir(directory), answers::answer) }
                 withContext(Dispatchers.IO) {
                     awaitControlSocket(controlSocket(app.dataDir(directory)))

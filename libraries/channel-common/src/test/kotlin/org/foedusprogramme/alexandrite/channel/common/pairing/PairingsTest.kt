@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.testkit.testUser
 import java.io.IOException
+import java.lang.reflect.Modifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -114,18 +115,15 @@ class PairingsTest {
     }
 
     @Test
-    fun `unknown, malformed and too many wrong codes are told apart`() = runTest {
-        assertEquals(PairingDecision.Malformed, desk.approve("hello"))
-        assertEquals(PairingDecision.Unknown(4), desk.approve("AAAA-AAAA"))
-        repeat(3) { desk.deny("AAAA-AAAA") }
-        assertEquals(PairingDecision.Unknown(0), desk.deny("AAAA-AAAA"))
+    fun `unknown and malformed codes are told apart, and no number of wrong codes locks the operator out`() = runTest {
         val code = assertNotNull(offer())
 
-        val locked = assertIs<PairingDecision.Locked>(desk.approve("AAAA-AAAA"))
+        assertEquals(PairingDecision.Malformed, desk.approve("hello"))
+        repeat(20) { assertEquals(PairingDecision.Unknown, desk.deny("AAAA-AAAA")) }
+        repeat(20) { assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA")) }
 
-        assertEquals(clock.now.plusSeconds(600), locked.until)
-        assertIs<PairingDecision.Locked>(desk.approve(code.text))
-        assertFalse(pairing.isPaired(stranger))
+        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+        assertTrue(pairing.isPaired(stranger))
     }
 
     @Test
@@ -162,7 +160,7 @@ class PairingsTest {
 
         repeat(10) { assertFalse(desk.holds("AAAA-AAAA")) }
 
-        assertEquals(PairingDecision.Unknown(4), desk.approve("AAAA-AAAA"))
+        assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA"))
         assertIs<PairingDecision.Approved>(desk.approve(code.text))
     }
 
@@ -240,8 +238,18 @@ class PairingsTest {
     }
 
     @Test
+    fun `a subclass of the desk cannot replace how it decides`() {
+        val decisions = Pairings::class.java.declaredMethods.filter { it.name in PairingDesk::class.java.methodNames() }
+
+        assertEquals(PairingDesk::class.java.methodNames(), decisions.map { it.name }.toSet())
+        assertEquals(emptyList(), decisions.filterNot { Modifier.isFinal(it.modifiers) }.map { it.name })
+    }
+
+    @Test
     fun `an instance opens once, with its own chats only`() {
         assertFailsWith<IllegalArgumentException> { desk.open(work, emptyList(), MemoryStore()) }
         assertFailsWith<IllegalArgumentException> { desk.open(home, listOf(configured), MemoryStore()) }
     }
 }
+
+private fun Class<*>.methodNames(): Set<String> = declaredMethods.mapTo(HashSet()) { it.name }

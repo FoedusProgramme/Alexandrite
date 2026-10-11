@@ -52,12 +52,7 @@ internal fun control(
                 "under the new code ${reply.request.code}.",
         )
 
-        is ControlReply.UnknownCode -> refused(
-            "No chat waits with the code ${shown(codeOf(request))}; wrong codes left before pairing locks: " +
-                "${reply.triesLeft}.",
-        )
-
-        is ControlReply.Locked -> refused("Too many wrong codes: try again after ${time.format(reply.until)}.")
+        ControlReply.UnknownCode -> refused("No chat waits with the code ${shown(codeOf(request))}.")
 
         ControlReply.MalformedCode -> refused(
             "${shown(codeOf(request))} is no pairing code: a code is 8 letters and digits, such as ABCD-EFGH.",
@@ -68,7 +63,7 @@ internal fun control(
         is ControlReply.NotPaired -> refused("${shown(reply.chat)} is not paired.")
 
         is ControlReply.PairedByReference -> refused(
-            "${shown(reply.chat)} stays paired: only config entries that name environment variables pair it.",
+            "${shown(reply.chat)} stays paired: config entries that name environment variables still pair it.",
         )
 
         is ControlReply.UnpairFailed ->

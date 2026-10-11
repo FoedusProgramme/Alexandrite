@@ -11,7 +11,7 @@ public interface PairedChatStore {
     /** Keeps [chat] as paired, or throws why it cannot. */
     public suspend fun add(chat: ChatAddress)
 
-    /** Stops keeping [chat] as paired, false when only entries that name environment variables keep it. */
+    /** Stops keeping [chat] as paired, false when entries that name environment variables still pair it. */
     public suspend fun remove(chat: ChatAddress): Boolean
 }
 
@@ -19,6 +19,8 @@ public interface PairedChatStore {
 public class ConfigPairedChats(
     private val editor: ConfigEditor,
     private val path: String,
+    /** The chats the list paired when the config was loaded, its environment variables resolved. */
+    private val loaded: Collection<ChatAddress>,
     /** The entry that names a chat. */
     private val entryOf: (ChatAddress) -> JsonElement,
     /** The chat that an entry's text names, null when it names none. */
@@ -36,10 +38,10 @@ public class ConfigPairedChats(
         editor.edit {
             val entries = entries(get(path))
             val kept = entries.filterNot { names(it, chat) }
-            when {
-                kept.size < entries.size -> set(path, JsonArray(kept))
-                entries.any { it is JsonPrimitive && it.isString && literal(it) == null } -> removed = false
-            }
+            if (kept.size < entries.size) set(path, JsonArray(kept))
+            val references = kept.any { it is JsonPrimitive && it.isString && literal(it) == null }
+            // The loaded list holds the chat once per entry that named it, a reference included.
+            removed = !references || loaded.count { it.parent == chat.parent } <= entries.size - kept.size
         }
         return removed
     }

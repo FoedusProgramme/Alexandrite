@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDecision
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesk
+import org.foedusprogramme.alexandrite.channel.common.pairing.PairingDesks
 import org.foedusprogramme.alexandrite.channel.common.pairing.PairingRequest
 import org.foedusprogramme.alexandrite.channel.common.pairing.Unpairing
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -64,7 +65,7 @@ class FakeDesk(vararg requests: PairingRequest, paired: List<ChatAddress> = empt
     override suspend fun approve(code: String): PairingDecision {
         calls += "approve $code"
         decision?.let { return it }
-        val request = requests.find { it.code == code } ?: return PairingDecision.Unknown(4)
+        val request = requests.find { it.code == code } ?: return PairingDecision.Unknown
         requests -= request
         paired += request.chat
         return PairingDecision.Approved(request)
@@ -73,7 +74,7 @@ class FakeDesk(vararg requests: PairingRequest, paired: List<ChatAddress> = empt
     override suspend fun deny(code: String): PairingDecision {
         calls += "deny $code"
         decision?.let { return it }
-        val request = requests.find { it.code == code } ?: return PairingDecision.Unknown(4)
+        val request = requests.find { it.code == code } ?: return PairingDecision.Unknown
         requests -= request
         return PairingDecision.Denied(request)
     }
@@ -105,7 +106,7 @@ internal fun served(directory: Path, answers: ControlAnswers, block: suspend (Pa
 
 /** Runs [block] with the path of a control socket in [directory] over [desks]. */
 fun served(directory: Path, vararg desks: PairingDesk, block: suspend (Path) -> Unit) =
-    served(directory, ControlAnswers("1.2.3") { desks.toList() }, block)
+    served(directory, ControlAnswers("1.2.3") { PairingDesks(desks.toList()) }, block)
 
 internal suspend fun ask(socket: Path, request: ControlRequest): ControlReply =
     withContext(Dispatchers.IO) { askDaemon(socket, request) }

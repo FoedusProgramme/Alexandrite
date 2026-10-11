@@ -4,7 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.app.control.ControlRequest
 import org.foedusprogramme.alexandrite.app.control.FakeDesk
-import org.foedusprogramme.alexandrite.app.control.NOW
 import org.foedusprogramme.alexandrite.app.control.chat
 import org.foedusprogramme.alexandrite.app.control.request
 import org.foedusprogramme.alexandrite.app.control.served
@@ -69,20 +68,19 @@ class ControlCommandsTest {
         assertEquals(Triple(0, "Paired $BOB.\n", ""), printed(ControlRequest.Approve("BBBB-BBBB")))
         assertEquals(Triple(0, "Denied the request of $GROUP.\n", ""), printed(ControlRequest.Deny("GGGG-GGGG")))
         assertEquals(
-            refused("No chat waits with the code AAAA-AAAA; wrong codes left before pairing locks: 4."),
+            refused("No chat waits with the code AAAA-AAAA."),
             printed(ControlRequest.Approve("AAAA-AAAA")),
         )
-        val cases = listOf(
-            PairingDecision.Locked(NOW.plusSeconds(300)) to "Too many wrong codes: try again after 08:05:00.",
-            PairingDecision.Malformed to "hello is no pairing code: a code is 8 letters and digits, such as ABCD-EFGH.",
-            PairingDecision.Failed(request("42", "NEWC-0DE0"), "The disk is full.") to
-                "Cannot pair chat:work:42: The disk is full. Its request now waits under the new code NEWC-0DE0.",
+        assertEquals(
+            refused("hello is no pairing code: a code is 8 letters and digits, such as ABCD-EFGH."),
+            printed(ControlRequest.Approve("hello")),
         )
-        for ((decision, message) in cases) {
-            desk.decision = decision
-
-            assertEquals(refused(message), printed(ControlRequest.Approve("hello")))
-        }
+        val failing = FakeDesk(request("43", "CCCC-CCCC"))
+        failing.decision = PairingDecision.Failed(request("43", "NEWC-0DE0"), "The disk is full.")
+        assertEquals(
+            refused("Cannot pair chat:work:43: The disk is full. Its request now waits under the new code NEWC-0DE0."),
+            printed(ControlRequest.Approve("CCCC-CCCC"), failing),
+        )
     }
 
     @Test
@@ -91,7 +89,7 @@ class ControlCommandsTest {
         assertEquals(refused("chat:work:7 is not paired."), printed(ControlRequest.Unpair("chat:work:7")))
         desk.unpairing = Unpairing.ByReference
         assertEquals(
-            refused("chat:work:7 stays paired: only config entries that name environment variables pair it."),
+            refused("chat:work:7 stays paired: config entries that name environment variables still pair it."),
             printed(ControlRequest.Unpair("chat:work:7")),
         )
         desk.unpairing = Unpairing.Failed("The file is read-only")

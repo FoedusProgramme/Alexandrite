@@ -8,6 +8,10 @@ import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
+import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
+import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
+import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
@@ -21,7 +25,7 @@ val WORK = ChannelInstanceId(ChannelType("telegram"), "work")
 
 /**
  * The Telegram plugin over a [FakeBotApi] whose bot has Ada as its admin, Bob as a member and a group, where every
- * accepted turn ends with [outcome] at once unless it is null.
+ * accepted turn ends with [outcome] at once unless it is null and a handler claims the default commands.
  */
 class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : AutoCloseable {
     val fake = FakeBotApi()
@@ -44,6 +48,7 @@ class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : Aut
             .config("""{"instances": {${instances.joinToString { (name, config) -> "\"$name\": $config" }}}}""")
             .turnSubmitter(submitter)
             .agentControl(control)
+            .commandHandler(ClaimedCommands(*DEFAULT_COMMANDS))
 
     fun run(builder: PluginHarness.Builder = builder(), block: suspend PluginHarness.Running.() -> Unit): Termination =
         runBlocking { withTimeout(60.seconds) { builder.build().run(block) } }
@@ -66,5 +71,18 @@ class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : Aut
         const val ADA = 1001L
         const val BOB = 1002L
         const val GROUP = -1001234500000L
+
+        val DEFAULT_COMMANDS = arrayOf(
+            "new", "cancel", "agent", "model", "reasoning", "language", "home", "link", "unlink", "settings", "trust",
+            "untrust",
+        )
     }
+}
+
+/** A handler that claims the commands [names] and is never asked to run them. */
+class ClaimedCommands(vararg names: String) : CommandHandler {
+    override val commands: List<CommandSpec> = names.map { CommandSpec.builder(it, "The test's /$it").build() }
+
+    override suspend fun handle(invocation: CommandInvocation, context: CommandContext): Unit =
+        error("The test runs no command.")
 }

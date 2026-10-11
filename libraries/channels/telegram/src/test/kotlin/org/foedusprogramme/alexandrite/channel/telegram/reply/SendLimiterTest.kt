@@ -272,6 +272,29 @@ class SendLimiterTest {
         assertEquals(listOf(0L, 1_000L), at)
     }
 
+    @Test
+    fun `a closed limiter still keeps the preview spacing`() = runTest {
+        val limiter = limiter()
+        limiter.close()
+        val at = mutableListOf<Long>()
+
+        repeat(3) { limiter.preview(-100L, group = true) { at += currentTime } }
+
+        assertEquals(listOf(0L, 3_000L, 6_000L), at)
+    }
+
+    @Test
+    fun `a closed limiter waits out no 429 that came before, and keeps the chat interval`() = runTest {
+        val limiter = limiter()
+        assertFailsWith<BotApiException> { limiter.action(1L) { throw rateLimited(30) } }
+        limiter.close()
+        val at = mutableListOf<Long>()
+
+        repeat(2) { limiter.message(1L) { at += currentTime } }
+
+        assertEquals(listOf(40L, 1_000L), at)
+    }
+
     // Pruning.
 
     @Test

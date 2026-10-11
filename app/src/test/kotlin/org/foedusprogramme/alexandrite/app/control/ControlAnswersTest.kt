@@ -58,13 +58,13 @@ class ControlAnswersTest {
     }
 
     @Test
-    fun `a code that no desk holds goes to the first desk, which counts it`() {
+    fun `a code that no desk holds is unknown or malformed at once, and no desk decides on it`() {
         served(directory, first, second) { socket ->
-            val unknown = ask(socket, ControlRequest.Deny("AAAA-AAAA"))
+            assertEquals(ControlReply.UnknownCode, ask(socket, ControlRequest.Deny("AAAA-AAAA")))
+            assertEquals(ControlReply.MalformedCode, ask(socket, ControlRequest.Approve("hello")))
 
-            assertEquals(4, assertIs<ControlReply.UnknownCode>(unknown).triesLeft)
-            assertEquals(listOf("holds AAAA-AAAA", "deny AAAA-AAAA"), first.calls)
-            assertEquals(listOf("holds AAAA-AAAA"), second.calls)
+            assertEquals(listOf("holds AAAA-AAAA", "holds hello"), first.calls)
+            assertEquals(listOf("holds AAAA-AAAA", "holds hello"), second.calls)
         }
     }
 
@@ -78,9 +78,6 @@ class ControlAnswersTest {
             desk.decision = PairingDecision.Failed(request("42", "NEWC-0DE0"), "The disk is full.")
             val notKept = assertIs<ControlReply.NotKept>(approve())
             assertEquals("NEWC-0DE0" to "The disk is full.", notKept.request.code to notKept.reason)
-
-            desk.decision = PairingDecision.Locked(NOW.plusSeconds(300))
-            assertEquals(NOW.plusSeconds(300), assertIs<ControlReply.Locked>(approve()).until)
 
             desk.decision = PairingDecision.Malformed
             assertEquals(ControlReply.MalformedCode, approve())

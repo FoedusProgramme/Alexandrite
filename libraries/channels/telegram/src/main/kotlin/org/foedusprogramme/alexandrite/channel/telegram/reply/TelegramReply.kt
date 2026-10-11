@@ -132,6 +132,7 @@ internal class TelegramReply(
         typing.stop(chat)
     }
 
+    /** Shows the pending previews, and after a 429 the limiter gave up on waits for the next preview to try again. */
     private suspend fun runEditor() {
         while (true) {
             wake.receive()
@@ -142,6 +143,7 @@ internal class TelegramReply(
                     throw e
                 } catch (e: Exception) {
                     logger.debug("A preview of turn {} did not reach chat {}: {}", turn, chat, e.toString())
+                    if (e is BotApiException && e.failure == BotApiFailure.RATE_LIMITED) break
                 }
             }
         }

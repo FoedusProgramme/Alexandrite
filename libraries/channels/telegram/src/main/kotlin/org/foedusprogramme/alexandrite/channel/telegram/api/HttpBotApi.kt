@@ -5,6 +5,9 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure.BAD_REQUEST
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure.CHAT_GONE
@@ -26,6 +29,7 @@ import org.foedusprogramme.alexandrite.internal.http.HttpTransport
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Inject
+import org.slf4j.LoggerFactory
 import java.net.URI
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -49,7 +53,7 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
 
     override suspend fun getUpdates(offset: Long?, limit: Int, timeoutSeconds: Int): List<Update> {
         val body = JSON.encodeToString(GetUpdates.serializer(), GetUpdates(offset, limit, timeoutSeconds, UPDATES))
-        return call("getUpdates", body, ListSerializer(Update.serializer()), timeoutSeconds.seconds + POLL_MARGIN)
+        return call("getUpdates", body, UPDATE_LIST, timeoutSeconds.seconds + POLL_MARGIN).map(::update)
     }
 
     override suspend fun sendMessage(request: SendMessage): Message =
@@ -89,6 +93,16 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         }
     }
 
+    /** The update [element] holds, or an update of its id with nothing in it when the rest does not read. */
+    private fun update(element: JsonElement): Update = try {
+        JSON.decodeFromJsonElement(Update.serializer(), element)
+    } catch (e: IllegalArgumentException) {
+        val id = ((element as? JsonObject)?.get("update_id") as? JsonPrimitive)?.longOrNull
+            ?: throw BotApiException(PROTOCOL, "getUpdates", reason = "an update has no id")
+        logger.warn("Update {} does not read and is skipped", id)
+        Update(id)
+    }
+
     private fun failure(method: String, call: HttpCall, e: HttpException): BotApiException {
         val status = e.status
         if (status == null || status in 200..299) {
@@ -122,6 +136,7 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         val HEADERS = mapOf("content-type" to "application/json", "accept" to "application/json")
         const val NO_PARAMETERS = "{}"
         val UPDATES = listOf("message")
+        val UPDATE_LIST = ListSerializer(JsonElement.serializer())
         val ENVELOPE: KSerializer<Envelope<JsonElement>> = Envelope.serializer(JsonElement.serializer())
         val JSON = Json {
             ignoreUnknownKeys = true
@@ -156,3 +171,5 @@ private val REFUSALS = listOf(
     CHAT_GONE to listOf("chat not found", "message thread not found"),
     ENTITIES_REJECTED to listOf("can't parse entities", "entity", "entities"),
 )
+
+private val logger = LoggerFactory.getLogger(HttpBotApi::class.java)

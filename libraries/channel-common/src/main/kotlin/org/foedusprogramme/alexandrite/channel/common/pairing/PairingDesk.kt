@@ -7,13 +7,17 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import java.time.Instant
 
-/** The pairing of one channel plugin's chats, which an app approves and revokes for the operator. */
+/**
+ * The pairing of one channel plugin's chats, which an app approves and revokes for the operator.
+ *
+ * New members come with default bodies only.
+ */
 @ContributedSpi
 public interface PairingDesk {
     /** The requests of unpaired chats whose codes are still valid, oldest first. */
     public fun pending(): List<PairingRequest>
 
-    /** Whether a request of this desk holds [code], which is never counted as a wrong code. */
+    /** Whether a request of this desk holds [code]. */
     public fun holds(code: String): Boolean
 
     /** Pairs the chat that got [code] at once. */
@@ -54,12 +58,7 @@ public sealed interface PairingDecision {
     public class Failed(public val request: PairingRequest, public val reason: String) : PairingDecision
 
     /** No request holds the code. */
-    @Poko
-    public class Unknown(public val triesLeft: Int) : PairingDecision
-
-    /** Too many unknown codes. */
-    @Poko
-    public class Locked(public val until: Instant) : PairingDecision
+    public data object Unknown : PairingDecision
 
     /** Input that holds no code. */
     public data object Malformed : PairingDecision
@@ -71,7 +70,7 @@ public sealed interface Unpairing {
 
     public data object NotPaired : Unpairing
 
-    /** Only entries that name environment variables pair the chat. */
+    /** Entries that name environment variables still pair the chat. */
     public data object ByReference : Unpairing
 
     @Poko

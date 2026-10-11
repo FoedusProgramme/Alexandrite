@@ -381,6 +381,43 @@ class TelegramReplyTest {
         assertEquals(listOf("sendMessage One"), output.shown())
     }
 
+    @Test
+    fun `a preview Telegram rate-limits once the limiter closed waits for the next preview`() = runTest {
+        val output = output()
+        val reply = output.open(GROUP)
+        reply.preview(0, "One")
+        advanceTimeBy(100)
+        output.limiter.close()
+        repeat(100) { output.api.fail("editMessageText", BotApiFailure.RATE_LIMITED, retryAfter = 30.seconds) }
+
+        reply.preview(0, "One two")
+        advanceTimeBy(10_000)
+        val stalled = output.api.calls("editMessageText").map { it.at }
+        reply.preview(0, "One two three")
+        advanceTimeBy(10_000)
+
+        assertEquals(listOf(3_000L), stalled)
+        assertEquals(listOf(3_000L, 10_100L), output.api.calls("editMessageText").map { it.at })
+        reply.abandon(ReplyEnd.SHUTDOWN)
+    }
+
+    @Test
+    fun `a chat that is not paired gets no reply, no typing and no message, and nothing proactive`() = runTest {
+        val output = output()
+        val stranger = output.address(DIRECT + 2)
+        val forbidden = Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "the chat is not paired")
+        val reply = output.open(DIRECT + 2)
+
+        reply.preview(0, "One")
+        advanceTimeBy(5_000)
+
+        assertEquals(forbidden, reply.complete(markdown("Done")))
+        assertEquals(forbidden, output.channel.send(stranger, markdown("Hello")))
+        assertEquals(emptyList(), output.api.sent.map { "$it" })
+        assertEquals(false, output.channel.capabilities(stranger).proactive)
+        assertEquals(true, output.channel.capabilities(output.address(GROUP, 5)).proactive)
+    }
+
     // Typing.
 
     @Test

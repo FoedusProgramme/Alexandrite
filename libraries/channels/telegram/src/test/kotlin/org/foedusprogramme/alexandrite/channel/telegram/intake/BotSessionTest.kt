@@ -5,12 +5,15 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramBots
+import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
+import org.foedusprogramme.alexandrite.channel.telegram.logged
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
+import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import java.io.IOException
 import kotlin.test.Test
@@ -87,6 +90,36 @@ class BotSessionTest {
         val error = assertFailsWith<ConfigException> { session(home).onStart() }
         assertEquals("channels.telegram.instances.home.botToken", error.path)
         assertContains(error.message.orEmpty(), "is the bot of telegram:work already")
+    }
+
+    @Test
+    fun `a Bot API reached over plain http on another host is warned of, without the token`() = runTest {
+        val urls = listOf(
+            "http://botapi.lan:8081",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081/",
+            "http://[::1]:8081",
+            "https://botapi.lan",
+        )
+
+        val lines = logged {
+            for (url in urls) {
+                val config = TelegramInstanceConfig(Secret(FAKE_BOT_TOKEN), apiBaseUrl = url)
+                BotSession(TestInstance(backgroundScope), config, api, bots, control).apply {
+                    onStart()
+                    onStop()
+                }
+            }
+        }
+
+        assertEquals(
+            listOf(
+                "WARN telegram:work reaches the Bot API at http://botapi.lan:8081 over plain http, so its bot token " +
+                    "crosses the network unencrypted",
+            ),
+            lines.filter { "plain http" in it },
+        )
+        assertFalse(lines.any { FAKE_BOT_TOKEN.substringAfter(':') in it })
     }
 
     @Test
