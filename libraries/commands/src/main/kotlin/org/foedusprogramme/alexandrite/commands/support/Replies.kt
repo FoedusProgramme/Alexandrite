@@ -22,13 +22,13 @@ internal class Replies(private val texts: Texts, private val language: LanguageT
     }
 
     fun model(snapshot: ChatSettingsSnapshot): Setting =
-        setting(snapshot.model, snapshot.defaults.model, TextKeys.VALUE_NONE, TextKeys.SOURCE_NO_MODEL)
+        setting(snapshot.model, snapshot.defaultModel, TextKeys.VALUE_NONE, TextKeys.SOURCE_NO_MODEL)
 
     fun reasoning(snapshot: ChatSettingsSnapshot): Setting =
-        setting(snapshot.reasoning, snapshot.defaults.reasoning, TextKeys.VALUE_DEFAULT, TextKeys.SOURCE_MODEL_DEFAULT)
+        setting(snapshot.reasoning, snapshot.defaultReasoning, TextKeys.VALUE_DEFAULT, TextKeys.SOURCE_MODEL_DEFAULT)
 
     fun language(snapshot: ChatSettingsSnapshot): Setting =
-        setting(snapshot.language, snapshot.defaults.language, TextKeys.VALUE_DEFAULT, TextKeys.SOURCE_HOST_DEFAULT)
+        setting(snapshot.language, snapshot.defaultLanguage, TextKeys.VALUE_DEFAULT, TextKeys.SOURCE_HOST_DEFAULT)
 
     /** [items] as the lines of a list. */
     fun list(items: List<Any>): String = items.joinToString("\n") { text(TextKeys.LIST_ITEM, "item" to it) }
@@ -44,9 +44,6 @@ internal class Replies(private val texts: Texts, private val language: LanguageT
 internal class Setting(val value: String, val source: String)
 
 internal fun Texts.replies(language: LanguageTag?): Replies = Replies(this, language)
-
-/** The language a chat with these settings is answered in, null for the host's. */
-internal val ChatSettingsSnapshot.languageInForce: LanguageTag? get() = language ?: defaults.language
 
 /** The command [name], described by the English text of its description. */
 internal fun Texts.spec(name: String): CommandSpec =

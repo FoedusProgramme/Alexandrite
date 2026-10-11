@@ -1,8 +1,10 @@
 package org.foedusprogramme.alexandrite.testkit
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -115,9 +117,9 @@ public class RecordedRequest internal constructor(
         throw AssertionError("The body of $this is no JSON: ${e.message}", e)
     }
 
-    /** Whether the client closed the connection of this request's hanging response within [timeout]. */
+    /** Whether the client closed the connection of this request's hanging response within [timeout] of real time. */
     public suspend fun awaitClosed(timeout: Duration): Boolean =
-        withTimeoutOrNull(timeout) { clientClosed.await() } != null
+        withContext(Dispatchers.Default) { withTimeoutOrNull(timeout) { clientClosed.await() } } != null
 
     override fun toString(): String = "$method $path"
 }

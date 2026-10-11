@@ -14,7 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 
 /**
- * The entries of every conversation, which are never changed once stored.
+ * The entries of every conversation, which are never changed once stored, except that [deleteMessage] removes them.
  *
  * - Only a store backend implements it, and only the agent calls it.
  * - Every call is atomic, and a call that throws changes nothing.

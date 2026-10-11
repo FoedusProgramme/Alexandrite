@@ -191,13 +191,16 @@ class GraphTest {
     fun `the runtime binds the host's paths, made absolute`() {
         val config = RuntimeConfig.builder(dataDir.resolve("root/."))
             .cacheDir(dataDir.resolve("cache"))
-            .configFile(Path.of("alexandrite.json"))
             .protect(dataDir.resolve("logs"))
             .protect(Path.of("install"))
             .protect(dataDir.resolve("logs/."))
             .build()
+        val directory = dataDir.toRealPath()
+        val file = Files.writeString(directory.resolve("alexandrite.json"), "{}")
         val probe = probe("probe", "paths" to key<HostPaths>(), "files" to key<PluginFiles>("probe"))
-        val spec = RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe)))).build()
+        val spec = RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe))))
+            .configFile(directory.resolve("./alexandrite.json"))
+            .build()
 
         lateinit var paths: HostPaths
         lateinit var files: PluginFiles
@@ -212,9 +215,9 @@ class GraphTest {
         assertEquals(dataDir.resolve("root/plugins"), paths.pluginDataRoot)
         assertEquals(paths.pluginDataRoot.resolve("probe"), files.dataDir)
         assertEquals(dataDir.resolve("cache"), paths.cacheRoot)
-        assertEquals(Path.of("alexandrite.json").toAbsolutePath(), paths.configFile)
+        assertEquals(file, paths.configFile)
         assertEquals(paths.configFile, paths.configTarget)
-        assertEquals(Path.of("alexandrite.json.bak").toAbsolutePath(), paths.configBackup)
+        assertEquals(directory.resolve("alexandrite.json.bak"), paths.configBackup)
         assertEquals(listOf(dataDir.resolve("logs"), Path.of("install").toAbsolutePath()), paths.protected)
     }
 
@@ -224,11 +227,12 @@ class GraphTest {
         Files.writeString(target, "{}")
         val link = Files.createDirectories(dataDir.resolve("config")).resolve("alexandrite.json")
         Files.createSymbolicLink(link, target)
-        val config = RuntimeConfig.builder(dataDir.resolve("root")).configFile(link).build()
+        val config = RuntimeConfig.builder(dataDir.resolve("root")).build()
         val probe = probe("probe", "paths" to key<HostPaths>())
         lateinit var paths: HostPaths
 
-        RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe)))).build().execute {
+        val spec = RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe)))).configFile(link)
+        spec.build().execute {
             paths = services.get(key<Probe>()).values.getValue("paths") as HostPaths
         }
 

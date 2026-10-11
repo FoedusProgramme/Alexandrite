@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -21,10 +23,13 @@ internal class AgentToolContext(turn: TurnInfo, call: ToolCallId, private val wo
         get() = field.also { checkOpen() }
 
     override val workspace: Path?
-        get() {
-            checkOpen()
-            return workspaces.open(turn.agent)
-        }
+        get() = workspaces.paths[turn.agent]
+
+    override suspend fun openWorkspace(): Path {
+        val agent = turn.agent
+        val path = withContext(Dispatchers.IO) { workspaces.open(agent) }
+        return checkNotNull(path) { "Agent '$agent' has no workspace." }
+    }
 
     /** The paths that the call reported as touched, each once, in order. */
     val touchedPaths: List<Path> get() = reported.distinct()

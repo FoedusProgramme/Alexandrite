@@ -32,13 +32,15 @@ internal class ReadTool(private val floor: HardFloor) : Tool {
         val path = context.absolute(arguments.requiredString("path"))
         val offset = arguments.count("offset") ?: 1
         val limit = minOf(arguments.count("limit") ?: MAX_LINES, MAX_LINES)
-        val file = floor.allowed(path, context)
-        checkReadable(file, path, attributes(file))
-        context.touched(file)
-        try {
-            TextLines(file, MAX_LINE_CHARS, MAX_READ_BYTES).use { ToolResult(rendered(it, path, offset, limit)) }
-        } catch (e: NotText) {
-            throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+        blocking {
+            val file = floor.allowed(path, context)
+            checkReadable(file, path, attributes(file))
+            context.touched(file)
+            try {
+                TextLines(file, MAX_LINE_CHARS, MAX_READ_BYTES).use { ToolResult(rendered(it, path, offset, limit)) }
+            } catch (e: NotText) {
+                throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+            }
         }
     }
 

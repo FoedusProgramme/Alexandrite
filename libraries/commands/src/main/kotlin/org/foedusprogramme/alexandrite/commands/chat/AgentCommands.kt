@@ -5,7 +5,6 @@ import org.foedusprogramme.alexandrite.commands.support.Replies
 import org.foedusprogramme.alexandrite.commands.support.TextKeys
 import org.foedusprogramme.alexandrite.commands.support.commandWord
 import org.foedusprogramme.alexandrite.commands.support.isKeyword
-import org.foedusprogramme.alexandrite.commands.support.languageInForce
 import org.foedusprogramme.alexandrite.commands.support.refusing
 import org.foedusprogramme.alexandrite.commands.support.replies
 import org.foedusprogramme.alexandrite.commands.support.spec
@@ -88,21 +87,21 @@ internal class AgentCommands(private val control: AgentControl, private val text
         }
         val snapshot = context.updateSettings(control, invocation) { agent(agent) } ?: return
         val instance = invocation.chat.instance
-        val text = texts.replies(snapshot.languageInForce)
+        val text = texts.replies(snapshot.effectiveLanguage)
             .text(TextKeys.AGENT_SWITCHED, "agent" to snapshot.agent, "name" to name(instance, snapshot.agent))
         context.reply(text)
     }
 
     private suspend fun resetAgent(invocation: CommandInvocation, context: CommandContext) {
         val snapshot = context.updateSettings(control, invocation) { resetAgent() } ?: return
-        val replies = texts.replies(snapshot.languageInForce)
+        val replies = texts.replies(snapshot.effectiveLanguage)
         val source = replies.agentSource(snapshot, invocation.chat)
         context.reply(replies.text(TextKeys.AGENT_RESET, "agent" to snapshot.agent, "source" to source))
     }
 
     private suspend fun home(invocation: CommandInvocation, context: CommandContext) {
         val snapshot = context.updateSettings(control, invocation) { home() } ?: return
-        val text = texts.replies(snapshot.languageInForce)
+        val text = texts.replies(snapshot.effectiveLanguage)
             .text(TextKeys.HOME_SET, "agent" to snapshot.agent, "instance" to invocation.chat.instance)
         context.reply(text)
     }
@@ -114,7 +113,7 @@ internal class AgentCommands(private val control: AgentControl, private val text
             return
         }
         val snapshot = context.updateSettings(control, invocation) { noHome() } ?: return
-        context.reply(texts.replies(snapshot.languageInForce).text(TextKeys.HOME_CLEARED, "agent" to current.agent))
+        context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.HOME_CLEARED, "agent" to current.agent))
     }
 
     /** How [agent] calls itself on [instance], its id when it does not serve the instance. */

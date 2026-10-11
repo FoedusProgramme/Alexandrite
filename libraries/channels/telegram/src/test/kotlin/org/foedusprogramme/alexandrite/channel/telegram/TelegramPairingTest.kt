@@ -86,7 +86,7 @@ class TelegramPairingTest {
         val offer = harness.fake.await { botMessages(chat.id).singleOrNull() }
         val request = desk().pending().single { it.chat == harness.address(chat.id) }
         assertEquals(code(offer.text), request.code)
-        assertIs<PairingDecision.Approved>(desk().approve(request.code))
+        assertIs<PairingDecision.Approved>(desk().approve(request.code, null))
         return request
     }
 
@@ -114,7 +114,7 @@ class TelegramPairingTest {
                     assertEquals(ChatKind.DIRECT, request.kind)
                     assertEquals("Bob", request.requester?.displayName)
 
-                    assertIs<PairingDecision.Approved>(desk().approve(request.code))
+                    assertIs<PairingDecision.Approved>(desk().approve(request.code, null))
 
                     fake.send(telegram.bob, telegram.bobChat, "Now?")
                     val message = assertIs<Submission.Message>(telegram.submitted(1).single()).message
@@ -184,7 +184,7 @@ class TelegramPairingTest {
             assertEquals(listOf(offer), fake.botMessages(GROUP))
             val request = desk().pending().single()
             assertEquals(ChatKind.GROUP to "Backend", request.kind to request.title)
-            assertIs<PairingDecision.Denied>(desk().deny(code(offer.text)))
+            assertIs<PairingDecision.Denied>(desk().deny(code(offer.text), null))
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot please?")
             telegram.consumed(4)
 
@@ -295,9 +295,9 @@ class TelegramPairingTest {
                 """"apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], """ +
                 """"allowedChats": ["${'$'}{env:BOB_CHAT}", $ADA], "polling": {"timeoutSeconds": 1}}}}}}"""
         Files.writeString(file, written)
-        val config = RuntimeConfig.builder(directory.resolve("data")).configFile(file).environment(environment).build()
+        val config = RuntimeConfig.builder(directory.resolve("data")).build()
         val plugins = PluginSet.of(AlexandriteChannelTelegramIndex()) + SubmitterIndex(submitter)
-        val spec = RuntimeSpec.builder(config, plugins).pluginConfig(ConfigFile.read(file, environment)).build()
+        val spec = RuntimeSpec.builder(config, plugins).configFile(file, environment).build()
 
         runBlocking {
             withTimeout(60.seconds) {
@@ -308,7 +308,7 @@ class TelegramPairingTest {
                     fake.send(carol, carolChat, "Me too?")
                     val code = code(fake.await { botMessages(carolChat.id).singleOrNull() }.text)
 
-                    assertIs<PairingDecision.Approved>(desk.approve(code))
+                    assertIs<PairingDecision.Approved>(desk.approve(code, null))
                     assertEquals(Unpairing.Declared, desk.unpair(telegram.address(BOB)))
                     fake.send(carol, carolChat, "Now?")
                     fake.send(telegram.bob, telegram.bobChat, "Still here")

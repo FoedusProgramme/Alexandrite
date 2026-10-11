@@ -24,6 +24,7 @@ import java.nio.file.Path
 import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class TurnInitiatorTest {
     @TempDir
@@ -80,6 +81,26 @@ class TurnInitiatorTest {
 
             assertEquals(Admission.Refused(RefusalReason.QUEUE_FULL, 20), admission)
             assertEquals(listOf("beat" to heartbeat, "other" to heartbeat), agent.initiated.toList())
+        }
+    }
+
+    @Test
+    fun `an initiator refuses the kinds that the agent starts itself before the agent sees them`() {
+        spec(explicit(agent(), beat("beat")), dataDir).execute {
+            val agent = services.get(key<Probe>()).values.getValue("agent") as Agent
+
+            for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE)) {
+                val turn = InitiatedTurn.builder(chat, kind, "Approved.").build()
+
+                val refused = assertFailsWith<IllegalArgumentException> { agent.beat.initiator.initiate(turn) }
+
+                assertEquals(
+                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval and agent message " +
+                        "turns itself.",
+                    refused.message,
+                )
+            }
+            assertEquals(emptyList(), agent.initiated.toList())
         }
     }
 

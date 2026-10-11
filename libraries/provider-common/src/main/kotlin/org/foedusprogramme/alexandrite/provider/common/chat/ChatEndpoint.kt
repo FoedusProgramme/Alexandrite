@@ -5,15 +5,12 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.serialization.json.Json
-import org.foedusprogramme.alexandrite.internal.http.HttpException
 import org.foedusprogramme.alexandrite.internal.http.HttpResponseStream
 import org.foedusprogramme.alexandrite.internal.http.HttpTransport
-import org.foedusprogramme.alexandrite.provider.common.EndpointConnection
+import org.foedusprogramme.alexandrite.provider.common.EndpointCore
 import org.foedusprogramme.alexandrite.provider.common.EndpointSettings
-import org.foedusprogramme.alexandrite.provider.common.ModelCatalog
 import org.foedusprogramme.alexandrite.provider.common.TurnContextSetting
 import org.foedusprogramme.alexandrite.provider.common.modelException
-import org.foedusprogramme.alexandrite.provider.common.toModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
@@ -24,31 +21,27 @@ import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 
-/** An endpoint that speaks Chat Completions in [flavor], which describes each model by the last listing it read. */
+/**
+ * An endpoint that speaks Chat Completions in [flavor] at `{baseUrl}/chat/completions`, which describes each model by
+ * the last listing it read.
+ */
 public class ChatEndpoint(
     override val id: EndpointId,
     private val settings: EndpointSettings,
     private val flavor: ChatFlavor,
+    private val chat: ChatApiSettings = ChatApiSettings(),
 ) : ModelEndpoint,
     AutoCloseable {
-    private val connection = EndpointConnection(
-        settings,
-        settings.apiKey?.let { mapOf("authorization" to "Bearer ${it.reveal()}") }.orEmpty(),
-    )
-    private val catalog = ModelCatalog(id, settings, flavor.listing, flavor.dialect, connection)
+    private val core = EndpointCore(id, settings, flavor.listing, flavor.dialect)
 
-    override suspend fun models(): List<ModelInfo> = catalog.models()
+    override suspend fun models(): List<ModelInfo> = core.models()
 
     override fun stream(request: ModelRequest): Flow<ModelEvent> = flow {
-        val info = admit(request)
-        val chat = ChatRequest(request, info, flavor, settings.promptCacheKey)
-        val response = ChatResponse(request, flavor, chat.warnings)
-        val body = chat.body.toString()
-        val call = connection.call("POST", "${connection.base}/chat/completions", "text/event-stream", body)
-        try {
-            connection.transport.open(call) { stream -> read(stream, response) }
-        } catch (e: HttpException) {
-            throw e.toModelException(response.started)
+        val info = core.admit(request)
+        val built = ChatRequest(request, info, flavor, chat.promptCacheKey)
+        val response = ChatResponse(request, flavor, built.warnings)
+        core.post("/chat/completions", built.body.toString(), emptyMap(), { response.started }) { stream ->
+            read(stream, response)
         }
         response.finish().forEach { emit(it) }
     }
@@ -61,26 +54,10 @@ public class ChatEndpoint(
         }
 
     override fun close() {
-        connection.close()
+        core.close()
     }
 
-    internal fun describe(model: String): ModelInfo = catalog.describe(model)
-
-    /** The model of [request], which this endpoint can answer. */
-    private fun admit(request: ModelRequest): ModelInfo {
-        if (request.model.endpoint != id) {
-            throw modelException(
-                ModelErrorKind.INVALID_REQUEST,
-                "Endpoint '$id' got a request for ${request.model}.",
-                false,
-            )
-        }
-        val info = describe(request.model.model)
-        if (request.tools.isNotEmpty() && !info.nativeTools) {
-            throw modelException(ModelErrorKind.UNSUPPORTED, "Model ${request.model} takes no tools.", false)
-        }
-        return info
-    }
+    internal fun describe(model: String): ModelInfo = core.describe(model)
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: ChatResponse) {
         when (stream.mediaType) {
@@ -91,11 +68,7 @@ public class ChatEndpoint(
             "application/json", null ->
                 response.chunk(chunk(stream.text(HttpTransport.DEFAULT_LIMIT), false)).forEach { emit(it) }
 
-            else -> throw modelException(
-                ModelErrorKind.PROTOCOL,
-                "Endpoint '$id' answered with ${stream.mediaType}.",
-                response.started,
-            )
+            else -> throw core.unreadable(stream.mediaType, response.started)
         }
     }
 

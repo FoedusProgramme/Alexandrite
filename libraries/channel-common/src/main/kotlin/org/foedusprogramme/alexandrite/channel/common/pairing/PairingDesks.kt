@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.common.pairing
 
 import org.foedusprogramme.alexandrite.internal.pairing.isPairingCode
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 
 /** The pairing desks of every channel as one, which hands each code to the desk whose request holds it. */
 public class PairingDesks(public val all: List<PairingDesk>) {
@@ -10,9 +11,11 @@ public class PairingDesks(public val all: List<PairingDesk>) {
 
     public fun paired(): List<PairedChat> = all.flatMap { it.paired() }
 
-    public suspend fun approve(code: String): PairingDecision = holding(code)?.approve(code) ?: unheld(code)
+    public suspend fun approve(code: String, by: ChatUser?): PairingDecision =
+        holding(code)?.approve(code, by) ?: unheld(code)
 
-    public suspend fun deny(code: String): PairingDecision = holding(code)?.deny(code) ?: unheld(code)
+    public suspend fun deny(code: String, by: ChatUser?): PairingDecision =
+        holding(code)?.deny(code, by) ?: unheld(code)
 
     /** Unpairs [chat] at the desk that pairs it. */
     public suspend fun unpair(chat: ChatAddress): Unpairing {

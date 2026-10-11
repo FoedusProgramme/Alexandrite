@@ -13,10 +13,14 @@ import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.slf4j.LoggerFactory
 import java.net.URI
 
-/** The HTTP side of one endpoint, which sends the headers [own] with every request. */
-internal class EndpointConnection(settings: EndpointSettings, private val own: Map<String, String>) : AutoCloseable {
+/**
+ * The HTTP side of one endpoint, which sends the API key of [settings] in its [EndpointSettings.authHeader] and the
+ * headers [own] with every request.
+ */
+internal class EndpointConnection(settings: EndpointSettings, own: Map<String, String> = emptyMap()) : AutoCloseable {
     val base: String = settings.baseUrl.trimEnd('/')
     val transport: HttpTransport = HttpTransport(settings.timeouts.timeouts())
+    private val own = auth(settings) + own
     private val headers = settings.headers.mapValues { it.value.reveal() }
     private val secrets = listOfNotNull(settings.apiKey?.reveal()) + headers.values
 
@@ -40,6 +44,13 @@ internal class EndpointConnection(settings: EndpointSettings, private val own: M
     override fun close() {
         transport.close()
     }
+}
+
+/** The API key of [settings] in its header, after `Bearer` in `authorization`. */
+private fun auth(settings: EndpointSettings): Map<String, String> {
+    val key = settings.apiKey?.reveal() ?: return emptyMap()
+    val header = settings.authHeader.lowercase()
+    return mapOf(header to if (header == "authorization") "Bearer $key" else key)
 }
 
 /** The models of the endpoint [id], each described by the config, the last listing [models] read and [listing]. */

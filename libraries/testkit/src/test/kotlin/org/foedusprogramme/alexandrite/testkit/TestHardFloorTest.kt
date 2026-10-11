@@ -19,9 +19,9 @@ class TestHardFloorTest {
 
         val floor = testHardFloor(listOf(root.resolve("secret")), home = root.resolve("home"))
 
-        assertEquals(FloorCheck.Denied("a place the test protects"), floor.check(root.resolve("secret/key")))
-        assertEquals(FloorCheck.Denied("SSH keys"), floor.check(root.resolve("home/.ssh/id_rsa")))
-        assertEquals(FloorCheck.Denied("devices"), floor.check(Path.of("/dev/null")))
-        assertEquals(FloorCheck.Allowed(target.resolve("notes.md")), floor.check(root.resolve("link/notes.md")))
+        assertEquals(FloorCheck.Denied("a place the test protects"), floor.checkRead(root.resolve("secret/key")))
+        assertEquals(FloorCheck.Denied("SSH keys"), floor.checkRead(root.resolve("home/.ssh/id_rsa")))
+        assertEquals(FloorCheck.Denied("devices"), floor.checkRead(Path.of("/dev/null")))
+        assertEquals(FloorCheck.Allowed(target.resolve("notes.md")), floor.checkRead(root.resolve("link/notes.md")))
     }
 }

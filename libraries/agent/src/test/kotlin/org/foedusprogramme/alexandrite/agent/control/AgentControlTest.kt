@@ -16,14 +16,15 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
@@ -47,10 +48,6 @@ class AgentControlTest {
     private val sealed = Observer(TurnPoints.CONVERSATION_SEALED)
     private val coder = AgentId("coder")
     private val helper = AgentId("helper")
-    private val configured = mapOf(
-        coder to AgentDefaults(model.ref, null, LanguageTag("en")),
-        helper to AgentDefaults(model.ref),
-    )
 
     /** `coder` is the default of `test:main`, and `helper` answers in its home chat `test:main:home`. */
     private fun harness(configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness = agentHarness(
@@ -78,7 +75,8 @@ class AgentControlTest {
         block: ChatSettingsSnapshot.Builder.() -> Unit = {},
     ): ChatSettingsSnapshot = ChatSettingsSnapshot.builder(agent)
         .agentSource(source)
-        .defaults(configured.getValue(agent))
+        .defaultModel(model.ref)
+        .defaultLanguage(LanguageTag("en").takeIf { agent == coder })
         .apply(block)
         .build()
 
@@ -225,7 +223,7 @@ class AgentControlTest {
                 listOf(
                     snapshot(coder, AgentSource.DEFAULT),
                     snapshot(helper, AgentSource.HOME) { home(true) },
-                    snapshot(helper, AgentSource.HOME),
+                    snapshot(helper, AgentSource.HOME) { home(true) },
                 ),
                 before,
             )
@@ -282,7 +280,7 @@ class AgentControlTest {
             suspend fun refused(
                 chat: ChatAddress = channel.chat(),
                 update: ChatSettingsUpdate.Builder.() -> Unit,
-            ): String? = assertFailsWith<IllegalArgumentException> {
+            ): String? = assertFailsWith<ControlRefusedException> {
                 control.updateSettings(chat, ChatSettingsUpdate.builder().apply(update).build(), null)
             }.message
 
@@ -302,9 +300,52 @@ class AgentControlTest {
             assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, control.settings(home))
             assertEquals(
                 "No agent serves test:other:1.",
-                assertFailsWith<IllegalArgumentException> {
+                assertFailsWith<ControlRefusedException> {
                     control.settings(ChatAddress.parse("test:other:1"))
                 }.message,
+            )
+        }
+    }
+
+    @Test
+    fun `a chat stops being the home only while it or the chat of its thread is the home`() {
+        harness().execute {
+            val control = get<AgentControl>()
+            val home = channel().chat("home")
+            val topic = channel().chat("home", "1")
+            val elsewhere = channel().chat("elsewhere")
+
+            suspend fun update(chat: ChatAddress, update: ChatSettingsUpdate.Builder.() -> Unit) =
+                control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), null)
+
+            val notHome = update(elsewhere) { noHome() }
+            val stillHome = control.agents(channel().instance).single { it.id == helper }.home
+            val clearedInTopic = update(topic) { noHome() }
+            val noneLeft = control.agents(channel().instance).single { it.id == helper }.home
+            update(elsewhere) { home() }
+            val resetElsewhere = update(elsewhere) { resetHome() }
+            val configured = control.agents(channel().instance).single { it.id == helper }.home
+
+            assertEquals(snapshot(helper, AgentSource.SELECTED), notHome)
+            assertEquals(home, stillHome)
+            assertEquals(snapshot(helper, AgentSource.SELECTED), clearedInTopic)
+            assertNull(noneLeft)
+            assertEquals(snapshot(helper, AgentSource.SELECTED), resetElsewhere)
+            assertEquals(home, configured)
+            assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, update(topic) { resetHome() })
+        }
+    }
+
+    @Test
+    fun `the agent lists its endpoints and the models a chat's model is checked against`() {
+        harness().execute {
+            val control = get<AgentControl>()
+
+            assertEquals(listOf(EndpointId("scripted")), control.endpoints())
+            assertEquals(listOf("test-model", "other"), control.models(EndpointId("scripted")).map { it.id })
+            assertEquals(
+                "There is no model endpoint 'nowhere'.",
+                assertFailsWith<ControlRefusedException> { control.models(EndpointId("nowhere")) }.message,
             )
         }
     }
@@ -321,15 +362,15 @@ class AgentControlTest {
             val chat = channel().chat()
             val nowhere = ChatSettingsUpdate.builder().model(ModelRef.parse("nowhere/m")).build()
 
-            val english = assertFailsWith<IllegalArgumentException> { control.updateSettings(chat, nowhere, null) }
+            val english = assertFailsWith<ControlRefusedException> { control.updateSettings(chat, nowhere, null) }
             control.updateSettings(chat, ChatSettingsUpdate.builder().language(LanguageTag("de")).build(), null)
-            val chosen = assertFailsWith<IllegalArgumentException> { control.updateSettings(chat, nowhere, null) }
+            val chosen = assertFailsWith<ControlRefusedException> { control.updateSettings(chat, nowhere, null) }
             val toCoder = ChatSettingsUpdate.builder().agent(coder).home().build()
-            val taken = assertFailsWith<IllegalArgumentException> {
+            val taken = assertFailsWith<ControlRefusedException> {
                 control.updateSettings(channel().chat("home"), toCoder, null)
             }
             val unserved =
-                assertFailsWith<IllegalArgumentException> { control.settings(ChatAddress.parse("test:other:1")) }
+                assertFailsWith<ControlRefusedException> { control.settings(ChatAddress.parse("test:other:1")) }
 
             assertEquals("There is no model endpoint 'nowhere'.", english.message)
             assertEquals("Kein Endpunkt 'nowhere'.", chosen.message)

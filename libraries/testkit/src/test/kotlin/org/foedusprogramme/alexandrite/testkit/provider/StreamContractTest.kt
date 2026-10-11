@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.AssistantPart
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.testkit.TEST_MODEL
+import org.foedusprogramme.alexandrite.testkit.assertStreamContract
 import org.foedusprogramme.alexandrite.testkit.testModelRequest
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
@@ -30,11 +31,11 @@ class StreamContractTest {
     )
 
     private fun broken(events: List<ModelEvent>, failure: ModelException? = null): String =
-        assertFailsWith<AssertionError> { checkStream(request, events, failure) }.message.orEmpty()
+        assertFailsWith<AssertionError> { assertStreamContract(request, events, failure) }.message.orEmpty()
 
     @Test
     fun `a stream that keeps the contract passes`() {
-        checkStream(
+        assertStreamContract(
             request,
             listOf(
                 ModelEvent.ResponseStarted("r", "m", emptyList()),

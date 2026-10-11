@@ -51,6 +51,7 @@ internal const val PLUGINS_DIRECTORY = "plugins"
  */
 internal fun runtimeBindings(
     config: RuntimeConfig,
+    configFile: Path?,
     plugins: List<PluginInfo>,
     hookFailures: HookFailureListener,
     hookDecisions: HookDecisionListener,
@@ -72,7 +73,7 @@ internal fun runtimeBindings(
     val clock = Clock.system(config.zone)
     val memory by lazy { MemoryChatStateStore() }
     val memoryRecords by lazy { MemoryRecordStore(clock) }
-    val paths = RuntimeHostPaths(config)
+    val paths = RuntimeHostPaths(config, configFile)
     val bindings = listOf(
         binding(
             key<Hooks>(),
@@ -157,11 +158,11 @@ private class PluginDirectories(private val data: Path, private val cache: Path)
     override val cacheDir: Path get() = cache.also(::createOwnerOnly)
 }
 
-private class RuntimeHostPaths(config: RuntimeConfig) : HostPaths {
+private class RuntimeHostPaths(config: RuntimeConfig, configFile: Path?) : HostPaths {
     override val dataRoot: Path = config.dataDir.absolute()
     override val pluginDataRoot: Path = dataRoot.resolve(PLUGINS_DIRECTORY)
     override val cacheRoot: Path = config.cacheDir.absolute()
-    override val configFile: Path? = config.configFile?.absolute()
+    override val configFile: Path? = configFile?.absolute()
     override val configTarget: Path? = configFile?.let(::followed)
     override val configBackup: Path? = configTarget?.let(::configBackup)
     override val protected: List<Path> = config.protected.map { it.absolute() }.distinct()

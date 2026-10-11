@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
@@ -226,19 +227,20 @@ class ToolExecutorTest {
 
     @Test
     @DisabledOnOs(OS.WINDOWS)
-    fun `a call's context creates its agent's workspace owner-only when the tool first asks for it`() = runTest {
+    fun `a call's context names its agent's workspace and creates it owner-only once a tool opens it`() = runBlocking {
         val workspaces = Workspaces(hostPaths(null, directory), settings("""{"agents": {"main": {}}}"""))
         val workspace = directory.resolve("workspaces/main")
         var existed: Boolean? = null
         val tool = recordingTool("fs.read") { _, context ->
+            val named = context.workspace
             existed = Files.exists(workspace)
-            ToolResult("${context.workspace}")
+            ToolResult("$named ${context.openWorkspace()}")
         }
 
         val result = executor(workspaces = workspaces).executed(tool).result
 
         assertEquals(false, existed)
-        assertEquals("$workspace", result.text())
+        assertEquals("$workspace $workspace", result.text())
         assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace)))
         assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace.parent)))
     }

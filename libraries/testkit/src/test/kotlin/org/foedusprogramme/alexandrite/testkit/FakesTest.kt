@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
@@ -22,13 +23,14 @@ import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.store.collection
+import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
@@ -192,6 +194,18 @@ class FakesTest {
         assertEquals(3, blocking { initiator.awaitInitiated(3) }.size)
     }
 
+    @Test
+    fun `a recording initiator refuses the kinds that the agent starts itself, as the runtime does`() {
+        val initiator = RecordingTurnInitiator("reminders")
+
+        for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE)) {
+            val turn = InitiatedTurn.builder(testChat(), kind, "Approved.").build()
+
+            assertFailsWith<IllegalArgumentException> { initiator.initiate(turn) }
+        }
+        assertEquals(emptyList(), initiator.initiated)
+    }
+
     // Commands and control.
 
     @Test
@@ -253,6 +267,7 @@ class FakesTest {
         val control = RecordingAgentControl()
         val chat = testChat()
         val coder = AgentId("coder")
+        control.scriptAgent(coder)
         val set = ChatSettingsUpdate.builder().model(TEST_MODEL).reasoning(ReasoningEffort.HIGH).build()
         val switch = ChatSettingsUpdate.builder().agent(coder).language(LanguageTag("de")).build()
         val back = ChatSettingsUpdate.builder().resetAgent().resetReasoning().build()
@@ -285,15 +300,24 @@ class FakesTest {
         val control = RecordingAgentControl()
         val chat = testChat()
         val coder = AgentId("coder")
+        control.scriptAgent(coder)
+        fun update(chat: ChatAddress, block: ChatSettingsUpdate.Builder.() -> Unit) =
+            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().apply(block).build(), null) }
 
-        val home = blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().home().build(), null) }
-        val switched =
-            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().agent(coder).build(), null) }
-        val back = blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().resetAgent().build(), null) }
-        val left = blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().noHome().build(), null) }
+        val home = update(chat) { home() }
+        val switched = update(chat) { agent(coder) }
+        val back = update(chat) { resetAgent() }
+        val elsewhere = update(testChat("other")) { noHome() }
+        val kept = control.agents(TEST_INSTANCE).first().home
+        val left = update(testChat("chat", "7")) { resetHome() }
 
-        assertEquals(listOf(true, false, true, false), listOf(home, switched, back, left).map { it.home })
-        assertFalse(blocking { control.settings(testChat("other")) }.home)
+        assertEquals(
+            listOf(true, false, true, false, false),
+            listOf(home, switched, back, elsewhere, left).map { it.home },
+        )
+        assertEquals(chat, kept)
+        assertNull(control.agents(TEST_INSTANCE).first().home)
+        assertFalse(blocking { control.settings(chat) }.home)
     }
 
     @Test
@@ -303,10 +327,12 @@ class FakesTest {
         val coder = AgentId("coder")
         fun update(block: ChatSettingsUpdate.Builder.() -> Unit) = ChatSettingsUpdate.builder().apply(block).build()
 
+        control.scriptAgent(coder)
+
         val chosen = blocking { control.updateSettings(chat, update { agent(coder).home() }, null) }
         val reset = blocking { control.updateSettings(chat, update { resetAgent() }, null) }
         val thread = blocking { control.settings(testChat("a", "7")) }
-        val taken = assertFailsWith<IllegalArgumentException> {
+        val taken = assertFailsWith<ControlRefusedException> {
             blocking { control.updateSettings(chat, update { agent(AgentId.MAIN).home() }, null) }
         }
         val unchanged = blocking { control.settings(chat) }
@@ -317,7 +343,7 @@ class FakesTest {
             listOf(Triple(coder, AgentSource.SELECTED, true), Triple(coder, AgentSource.HOME, true)),
             listOf(chosen, reset).map { Triple(it.agent, it.agentSource, it.home) },
         )
-        assertEquals(Triple(coder, AgentSource.HOME, false), Triple(thread.agent, thread.agentSource, thread.home))
+        assertEquals(Triple(coder, AgentSource.HOME, true), Triple(thread.agent, thread.agentSource, thread.home))
         assertEquals("test:main:a is the home chat of agent 'coder'.", taken.message)
         assertEquals(AgentId.MAIN to AgentSource.DEFAULT, elsewhere.agent to elsewhere.agentSource)
         assertEquals(reset, unchanged)
@@ -329,9 +355,8 @@ class FakesTest {
         val control = RecordingAgentControl(AgentId("coder"))
         val helper = AgentId("helper")
         val chat = testChat()
-        val english = AgentDefaults(TEST_MODEL, ReasoningEffort.LOW, LanguageTag("en"))
-        control.scriptAgent(helper, "Helper", "Answers questions.", AgentDefaults(language = LanguageTag("de")))
-        control.scriptAgent(AgentId("coder"), "Coder", defaults = english)
+        control.scriptAgent(helper, "Helper", "Answers questions.", language = LanguageTag("de"))
+        control.scriptAgent(AgentId("coder"), "Coder", null, TEST_MODEL, ReasoningEffort.LOW, LanguageTag("en"))
 
         val listed = control.agents(TEST_INSTANCE)
         val home = blocking {
@@ -351,10 +376,63 @@ class FakesTest {
             listed,
         )
         assertEquals(listOf(null, chat), control.agents(TEST_INSTANCE).map { it.home })
-        assertEquals(AgentDefaults(language = LanguageTag("de")), home.defaults)
-        assertEquals(english, blocking { control.settings(testChat("other")) }.defaults)
+        assertEquals(listOf(null, null, LanguageTag("de")), defaults(home))
+        assertEquals(
+            listOf(TEST_MODEL, ReasoningEffort.LOW, LanguageTag("en")),
+            defaults(blocking { control.settings(testChat("other")) }),
+        )
         assertEquals(listOf("de", "fr", "en").map(::LanguageTag), languages)
-        assertEquals(AgentDefaults(), blocking { RecordingAgentControl().settings(chat) }.defaults)
+        assertEquals(listOf(null, null, null), defaults(blocking { RecordingAgentControl().settings(chat) }))
+    }
+
+    private fun defaults(snapshot: ChatSettingsSnapshot): List<Any?> =
+        listOf(snapshot.defaultModel, snapshot.defaultReasoning, snapshot.defaultLanguage)
+
+    @Test
+    fun `a recording agent control refuses an agent it does not list and the refusals the test queues`() {
+        val control = RecordingAgentControl()
+        val chat = testChat()
+        val admin = testUser("ada", isAdmin = true)
+        val coder = ChatSettingsUpdate.builder().agent(AgentId("coder")).build()
+
+        val unlisted =
+            assertFailsWith<ControlRefusedException> { blocking { control.updateSettings(chat, coder, null) } }
+        control.refuseNext("No agent serves $chat.")
+        control.refuseNext("Folder /srv is protected.")
+        val queued = assertFailsWith<ControlRefusedException> { blocking { control.newConversation(chat, admin) } }
+        val folder =
+            assertFailsWith<ControlRefusedException> { blocking { control.trustFolder(Path.of("/srv"), null) } }
+        val conversation = blocking { control.newConversation(chat, admin) }
+
+        assertEquals("Agent 'coder' does not serve test:main.", unlisted.message)
+        assertEquals("No agent serves $chat.", queued.message)
+        assertEquals("Folder /srv is protected.", folder.message)
+        assertEquals(ConversationId("conversation-1"), conversation)
+        assertEquals(AgentId.MAIN, blocking { control.settings(chat) }.agent)
+        assertEquals(
+            listOf(
+                RecordingAgentControl.Call.NewConversation(chat, admin, null),
+                RecordingAgentControl.Call.TrustFolder(Path.of("/srv"), null),
+                RecordingAgentControl.Call.NewConversation(chat, admin, conversation),
+            ),
+            control.calls.drop(1),
+        )
+        assertEquals(emptyList(), control.trustedFolders())
+    }
+
+    @Test
+    fun `a recording agent control lists the models scripted per endpoint and refuses an unlisted endpoint`() {
+        val control = RecordingAgentControl()
+        val models = listOf(ScriptedModel.modelInfo("a"), ScriptedModel.modelInfo("b"))
+        control.scriptModels(EndpointId("local"), models)
+        control.scriptModels(EndpointId("remote"), emptyList())
+
+        assertEquals(listOf(EndpointId("local"), EndpointId("remote")), control.endpoints())
+        assertEquals(models, blocking { control.models(EndpointId("local")) })
+        assertEquals(
+            "No model endpoint 'nowhere'.",
+            assertFailsWith<ControlRefusedException> { blocking { control.models(EndpointId("nowhere")) } }.message,
+        )
     }
 
     @Test
@@ -372,8 +450,8 @@ class FakesTest {
         assertEquals(ChatLinkGroup(coder, anchor, listOf(first, second)), linked)
         assertEquals(listOf(linked), control.links(coder))
         assertEquals(emptyList(), control.links(AgentId.MAIN))
-        assertFailsWith<IllegalArgumentException> { blocking { control.link(coder, testChat("d"), second, null) } }
-        assertFailsWith<IllegalArgumentException> { blocking { control.unlink(coder, anchor, null) } }
+        assertFailsWith<ControlRefusedException> { blocking { control.link(coder, testChat("d"), second, null) } }
+        assertFailsWith<ControlRefusedException> { blocking { control.unlink(coder, anchor, null) } }
         assertEquals(
             listOf(true, true, false),
             blocking { listOf(first, second, first).map { control.unlink(coder, it, null) } },

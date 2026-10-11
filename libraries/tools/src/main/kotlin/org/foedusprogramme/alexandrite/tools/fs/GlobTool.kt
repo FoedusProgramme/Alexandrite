@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import java.nio.file.Path
 
 @Singleton
 @Contribute(Tool::class)
@@ -38,6 +39,10 @@ internal class GlobTool(private val floor: HardFloor) : Tool {
         val pattern = arguments.requiredString("pattern")
         val glob = Glob.of(pattern, "pattern")
         val path = context.searched(arguments.string("path"))
+        blocking { glob(glob, pattern, path, context) }
+    }
+
+    private fun glob(glob: Glob, pattern: String, path: Path, context: ToolContext): ToolResult {
         val root = floor.allowed(path, context)
         if (!attributes(root).isDirectory) throw Refusal("$path is no directory: give a directory as 'path'.")
         context.touched(root)
@@ -57,7 +62,7 @@ internal class GlobTool(private val floor: HardFloor) : Tool {
             "More paths match: give a narrower pattern or 'path'.".takeIf { more },
         ) + walk.notes
         val listing = matches.joinToString("\n").ifEmpty { "Nothing under $root matches '$pattern'." }
-        ToolResult(listing + notes.joinToString("") { "\n[$it]" })
+        return ToolResult(listing + notes.joinToString("") { "\n[$it]" })
     }
 
     private fun listed(entry: Entry): String = when {

@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.runtime.turn
 
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -12,6 +13,10 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
 internal class PluginTurnInitiator(private val plugin: String, private val initiation: Lazy<TurnInitiation>?) :
     TurnInitiator {
     override fun initiate(turn: InitiatedTurn): Admission {
+        require(turn.kind != TurnKind.APPROVAL && turn.kind != TurnKind.AGENT_MESSAGE) {
+            "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval and agent " +
+                "message turns itself."
+        }
         val backend = try {
             initiation?.value ?: return Admission.Refused(RefusalReason.NO_AGENT)
         } catch (e: DiException) {

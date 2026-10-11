@@ -52,11 +52,12 @@ class SubclassOptInTest {
             override val turn get() = TODO()
             override val call get() = TODO()
             override val workspace get() = TODO()
+            override suspend fun openWorkspace() = TODO()
             override fun touched(path: java.nio.file.Path) = TODO()
         }
 
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
-            override fun check(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
+            override fun checkRead(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
                 TODO()
         }
 
@@ -253,6 +254,8 @@ class SubclassOptInTest {
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
             override fun trustedFolders() = TODO()
+            override fun endpoints() = TODO()
+            override suspend fun models(endpoint: org.foedusprogramme.alexandrite.sdk.transcript.EndpointId) = TODO()
         }
     """.trimIndent()
 
@@ -592,11 +595,19 @@ class SubclassOptInTest {
                     is Admission.Refused -> admission.reason == RefusalReason.QUEUE_FULL
                 }
                 val home = ChatSettingsUpdate.builder().home().build()
-                if (!control.updateSettings(invocation.chat, home, invocation.issuer).home) return
+                val homed = try {
+                    control.updateSettings(invocation.chat, home, invocation.issuer).home
+                } catch (e: ControlRefusedException) {
+                    context.reply(e.message ?: "Refused.")
+                    false
+                }
+                if (!homed) return
                 val settings = control.settings(invocation.chat)
                 val agent = settings.agent
                 val described: AgentSummary? = control.agents(invocation.chat.instance).firstOrNull { it.id == agent }
-                val model = settings.model ?: settings.defaults.model
+                val model = settings.model ?: settings.defaultModel
+                val models = control.endpoints().flatMap { control.models(it) }.map { it.id }
+                if (settings.effectiveLanguage == null && models.isEmpty()) return
                 val chosenDefault = settings.agentSource == AgentSource.SELECTED && described?.default == true
                 if (chosenDefault) context.reply("${'$'}model")
                 val group: ChatLinkGroup = control.link(agent, invocation.chat, invocation.chat, invocation.issuer)
@@ -637,7 +648,7 @@ class SubclassOptInTest {
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
                 val given = Path.of(arguments.getValue("path").jsonPrimitive.content)
                 val path = if (given.isAbsolute) given else context.workspace?.resolve(given) ?: given
-                return when (val check = floor.check(path, context.turn.agent)) {
+                return when (val check = floor.checkRead(path, context.turn.agent)) {
                     is FloorCheck.Allowed -> {
                         context.touched(check.canonical)
                         ToolResult(Files.readString(check.canonical))
@@ -647,7 +658,7 @@ class SubclassOptInTest {
             }
         }
 
-        fun allowedToAll(floor: HardFloor, path: Path): Boolean = floor.check(path) is FloorCheck.Allowed
+        fun allowedToAll(floor: HardFloor, path: Path): Boolean = floor.checkRead(path) is FloorCheck.Allowed
     """.trimIndent()
 
     /** A plugin that writes its own settings back into the config file. */

@@ -59,7 +59,7 @@ internal class TreeWalk(
             }
             val child = children.next()
             val name = child.fileName.toString()
-            val denied = floor.check(child, agent) as? FloorCheck.Denied
+            val denied = floor.checkRead(child, agent) as? FloorCheck.Denied
             if (denied != null) {
                 protected.add(child to denied.reason)
                 continue

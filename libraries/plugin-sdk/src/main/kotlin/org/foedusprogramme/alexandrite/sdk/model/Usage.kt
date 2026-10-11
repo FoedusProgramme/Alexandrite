@@ -3,7 +3,11 @@ package org.foedusprogramme.alexandrite.sdk.model
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.json.JsonObject
 
-/** The tokens of one model call, null where the backend does not say. */
+/**
+ * The tokens of one model call, null where the backend does not say.
+ *
+ * A count that contradicts the others, such as cached tokens beyond the input tokens, is left out when it is built.
+ */
 @Poko
 public class Usage private constructor(
     /** Prompt tokens of every request, cached ones included. */
@@ -32,16 +36,6 @@ public class Usage private constructor(
             require(count == null || count >= 0) { "A count of $name tokens is at least 0, was $count." }
         }
         require(requests >= 1) { "A call makes at least 1 request, was $requests." }
-        if (inputTokens != null) {
-            val cached = (cacheReadTokens ?: 0) + (cacheWriteTokens ?: 0)
-            require(cached <= inputTokens) { "$cached cached tokens exceed $inputTokens input tokens." }
-            require(contextTokens == null || contextTokens <= inputTokens) {
-                "$contextTokens context tokens exceed $inputTokens input tokens."
-            }
-        }
-        require(outputTokens == null || reasoningTokens == null || reasoningTokens <= outputTokens) {
-            "$reasoningTokens reasoning tokens exceed $outputTokens output tokens."
-        }
     }
 
     public fun toBuilder(): Builder = Builder()
@@ -81,16 +75,19 @@ public class Usage private constructor(
 
         public fun raw(raw: JsonObject?): Builder = apply { this.raw = raw }
 
-        public fun build(): Usage = Usage(
-            inputTokens,
-            cacheReadTokens,
-            cacheWriteTokens,
-            outputTokens,
-            reasoningTokens,
-            contextTokens,
-            requests,
-            raw,
-        )
+        public fun build(): Usage {
+            val input = inputTokens
+            var cacheRead = cacheReadTokens
+            var cacheWrite = cacheWriteTokens
+            if (input != null && (cacheRead ?: 0) + (cacheWrite ?: 0) > input) {
+                cacheWrite = null
+                if ((cacheRead ?: 0) > input) cacheRead = null
+            }
+            val context = contextTokens?.takeUnless { input != null && it > input }
+            val output = outputTokens
+            val reasoning = reasoningTokens?.takeUnless { output != null && it > output }
+            return Usage(input, cacheRead, cacheWrite, output, reasoning, context, requests, raw)
+        }
     }
 
     public companion object {

@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
+import org.foedusprogramme.alexandrite.sdk.model.rebuild
 import org.foedusprogramme.alexandrite.sdk.transcript.Dialect
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -25,10 +26,12 @@ import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptRules
  * A model endpoint that answers each request with the first queued step that matches it, and records the requests.
  *
  * A request that no step matches, that names another endpoint or whose history breaks [TranscriptRules] fails with a
- * [ModelException] that is not retried, and stops and fails the [PluginHarness] run that holds the model.
+ * [ModelException] that is not retried, and stops and fails the [PluginHarness] run that holds the model. A request
+ * that offers tools to a model without [ModelInfo.nativeTools] fails as a real endpoint fails it, with
+ * [ModelErrorKind.UNSUPPORTED] before any event.
  */
 public class ScriptedModel(
-    override val id: EndpointId = EndpointId("scripted"),
+    override val id: EndpointId = DEFAULT_ENDPOINT,
     models: List<ModelInfo> = listOf(modelInfo()),
     private val turnContextMode: TurnContextMode = TurnContextMode.TRANSIENT,
     private val untrustedTurnContextMode: TurnContextMode = turnContextMode,
@@ -67,9 +70,13 @@ public class ScriptedModel(
     public fun reply(reply: ScriptedReply, match: RequestMatch = RequestMatch.ANY): ScriptedModel =
         queue(Step(match, reply, null))
 
-    /** Queues a [ModelException] of [error], thrown before any event, for the first request that [match] accepts. */
+    /**
+     * Queues a [ModelException] of [error], thrown before any event, for the first request that [match] accepts.
+     *
+     * The error is thrown as one that came before the response's output, whatever [ModelError.outputStarted] says.
+     */
     public fun fail(error: ModelError, match: RequestMatch = RequestMatch.ANY): ScriptedModel =
-        queue(Step(match, null, error))
+        queue(Step(match, null, error.rebuild { outputStarted(false) }))
 
     public fun fail(
         kind: ModelErrorKind,
@@ -123,6 +130,13 @@ public class ScriptedModel(
                         .build(),
                 )
 
+                request.tools.isNotEmpty() && models.none { it.id == request.model.model && it.nativeTools } ->
+                    throw ModelException(
+                        ModelError.builder(ModelErrorKind.UNSUPPORTED, "Model ${request.model} takes no tools.")
+                            .retryable(false)
+                            .build(),
+                    )
+
                 steps.isEmpty() -> "$name, but its script has no step left."
 
                 index < 0 ->
@@ -143,8 +157,12 @@ public class ScriptedModel(
         /** The dialect of the default model and of its reasoning seals. */
         public val DIALECT: Dialect = Dialect("scripted")
 
+        public val DEFAULT_ENDPOINT: EndpointId = EndpointId("scripted")
+
+        public const val DEFAULT_MODEL: String = "test-model"
+
         /** A model that takes tools, calls them in parallel, streams and reasons. */
-        public fun modelInfo(id: String = "test-model"): ModelInfo = ModelInfo.builder(id, DIALECT)
+        public fun modelInfo(id: String = DEFAULT_MODEL): ModelInfo = ModelInfo.builder(id, DIALECT)
             .nativeTools(true)
             .parallelToolCalls(true)
             .streaming(true)

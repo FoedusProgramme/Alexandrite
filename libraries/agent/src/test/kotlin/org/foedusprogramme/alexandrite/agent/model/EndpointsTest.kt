@@ -76,6 +76,18 @@ class EndpointsTest {
     }
 
     @Test
+    fun `a fresh listing passes over the cached one and is kept in its place`() {
+        blocking {
+            endpoints.models(EndpointId("local"))
+            local.models = listOf(ScriptedModel.modelInfo("mistral"))
+
+            assertEquals(listOf("mistral"), endpoints.models(EndpointId("local"), fresh = true).map { it.id })
+            assertEquals(listOf("mistral"), endpoints.models(EndpointId("local")).map { it.id })
+            assertEquals(2, local.listings)
+        }
+    }
+
+    @Test
     fun `a failed listing is not kept`() {
         local.failure = IOException("down")
 

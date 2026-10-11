@@ -1,10 +1,16 @@
 package org.foedusprogramme.alexandrite.testkit
 
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
+import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
+import org.foedusprogramme.alexandrite.sdk.model.ModelException
+import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.testkit.provider.PROVIDER_CHECKS
 import org.foedusprogramme.alexandrite.testkit.provider.ProviderRun
+import org.foedusprogramme.alexandrite.testkit.provider.checkStream
 import kotlin.time.Duration.Companion.seconds
 
 /** The checks that every model provider passes, each through a [ProviderFixture] of its wire dialect. */
@@ -16,12 +22,16 @@ public class ProviderCheck internal constructor(
     private val body: suspend ProviderRun.() -> Unit,
 ) {
     /**
-     * Runs the check on a [FakeModelServer] of its own and the endpoint that [fixture] builds for it, and throws an
-     * [AssertionError] when the endpoint breaks the contract.
+     * Runs the check on a [FakeModelServer] of its own and the endpoint that [fixture] builds for it, on the real clock
+     * whatever the caller's, and throws an [AssertionError] when the endpoint breaks the contract or the check does not
+     * end within 30 seconds.
      */
     public suspend fun run(fixture: ProviderFixture) {
-        FakeModelServer().use { server ->
-            withTimeout(CHECK_TIMEOUT) { ProviderRun(fixture, server, fixture.endpoint(server)).body() }
+        withContext(Dispatchers.Default) {
+            FakeModelServer().use { server ->
+                withTimeoutOrNull(CHECK_TIMEOUT) { ProviderRun(fixture, server, fixture.endpoint(server)).body() }
+                    ?: throw AssertionError("Provider check '$name' did not end within $CHECK_TIMEOUT.")
+            }
         }
     }
 
@@ -32,7 +42,12 @@ public class ProviderCheck internal constructor(
     }
 }
 
-/** What a provider's tests give the [PROVIDER_CONTRACT]: the endpoint under check and its dialect's responses. */
+/**
+ * What a provider's tests give the [PROVIDER_CONTRACT]: the endpoint under check, which talks HTTP to a
+ * [FakeModelServer], and its dialect's responses.
+ *
+ * It gains members only with default bodies, and a check skips the endpoint where such a member answers null.
+ */
 public interface ProviderFixture {
     /** The model every check calls, which takes tools, calls them in parallel and streams. */
     public val model: String
@@ -72,6 +87,14 @@ public interface ProviderFixture {
 
     /** The call id and the text of each tool result that [request] sends, in order. */
     public fun toolResults(request: RecordedRequest): List<Pair<String, String>>
+}
+
+/**
+ * Throws an [AssertionError] when [events], the response to [request] that threw [failure] or completed when it is null,
+ * break the stream contract of [ModelEndpoint.stream], whatever transport the endpoint uses.
+ */
+public fun assertStreamContract(request: ModelRequest, events: List<ModelEvent>, failure: ModelException? = null) {
+    checkStream(request, events, failure)
 }
 
 /** A tool call that a [ProviderFixture] scripts, named in its wire form, its arguments streamed in chunks. */

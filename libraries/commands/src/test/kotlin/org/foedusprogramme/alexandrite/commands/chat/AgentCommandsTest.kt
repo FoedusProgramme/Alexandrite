@@ -8,7 +8,6 @@ import org.foedusprogramme.alexandrite.commands.answer
 import org.foedusprogramme.alexandrite.commands.commandTexts
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl.Call
@@ -59,7 +58,7 @@ class AgentCommandsTest {
 
     @Test
     fun `a switch replies in the language of the agent the chat switched to`() = runTest {
-        control.scriptAgent(CODER, "Coder", defaults = AgentDefaults(language = CHINESE))
+        control.scriptAgent(CODER, "Coder", language = CHINESE)
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "agent.switched", "现在由 {agent}「{name}」回答。").build()
 
         val reply = AgentCommands(control, commandTexts(catalog)).answer(testCommand("agent", "coder"))

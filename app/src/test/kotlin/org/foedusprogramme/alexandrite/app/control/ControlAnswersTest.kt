@@ -70,7 +70,12 @@ class ControlAnswersTest {
             assertEquals("chat:work:43" to "chat:work:-100", approved.request.chat to denied.request.chat)
             assertEquals(listOf("holds CCCC-CCCC", "holds GGGG-GGGG"), first.calls)
             assertEquals(
-                listOf("holds CCCC-CCCC", "approve CCCC-CCCC", "holds GGGG-GGGG", "deny GGGG-GGGG"),
+                listOf(
+                    "holds CCCC-CCCC",
+                    "approve CCCC-CCCC by the host",
+                    "holds GGGG-GGGG",
+                    "deny GGGG-GGGG by the host",
+                ),
                 second.calls,
             )
             assertEquals(listOf(chat("8"), chat("9"), chat("43")), second.paired.map { it.chat })

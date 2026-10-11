@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.testkit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
@@ -49,7 +50,11 @@ import kotlin.time.Duration
 public class PluginHarness private constructor(
     private val id: String,
     private val plugins: PluginSet,
-    private val pluginConfig: ConfigSource,
+    /** The config the harness gives the plugins. */
+    private val tree: JsonObject,
+    /** The part of [tree] that only the harness's own plugins read. */
+    private val owned: JsonObject,
+    private val environment: Map<String, String>,
     private val dataRoot: Path?,
     private val configFile: Path?,
     private val keepsConfig: Boolean,
@@ -89,18 +94,25 @@ public class PluginHarness private constructor(
     }
 
     private suspend fun runIn(root: Path, block: suspend Running.() -> Unit): Termination {
-        val settings = RuntimeConfig.builder(root).zone(zone).name("harness").configFile(configFile)
+        val settings = RuntimeConfig.builder(root).zone(zone).name("harness")
         offLimits.forEach(settings::protect)
         language?.let(settings::language)
-        texts?.let(settings::texts)
         shutdownGrace?.let(settings::shutdownGrace)
-        val config = configFile?.takeIf { keepsConfig }?.let(::configIn) ?: pluginConfig
-        val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(config).build()
+        val builder = RuntimeSpec.builder(settings.build(), plugins)
+        texts?.let(builder::texts)
+        val file = configFile
+        if (file == null) {
+            builder.pluginConfig(resolved(tree, environment))
+        } else {
+            prepare(file)
+            builder.configFile(file, environment)
+        }
+        val spec = builder.build()
         var running: Running? = null
         var finished = false
         val termination = try {
             AlexandriteRuntime.run(spec) {
-                val current = Running(this, id, configFile)
+                val current = Running(this, id, configFile, environment)
                 running = current
                 watch { current.stop(StopRequest.failure("a test double saw a problem")) }
                 current.block()
@@ -119,14 +131,23 @@ public class PluginHarness private constructor(
         channels.forEach { it.onProblem = stop }
     }
 
-    /** The config kept in [file], which gets the harness's config first when it does not exist. */
-    private fun configIn(file: Path): ConfigSource {
-        if (Files.notExists(file)) {
-            file.toAbsolutePath().parent?.let(Files::createDirectories)
-            val text = PRETTY.encodeToString(JsonObject.serializer(), checkNotNull(pluginConfig.tree("")))
-            Files.writeString(file, "$text\n")
+    /**
+     * Writes the harness's config into [file], or only the harness's own sections where they differ when the run keeps
+     * the config in a file that exists.
+     */
+    private fun prepare(file: Path) {
+        if (!keepsConfig || Files.notExists(file)) {
+            write(file, tree)
+            return
         }
-        return ConfigFile.read(file)
+        if (owned.isEmpty()) return
+        val current = try {
+            Json.parseToJsonElement(Files.readString(file).removePrefix(BYTE_ORDER_MARK)) as? JsonObject
+        } catch (e: SerializationException) {
+            null
+        } ?: return
+        val merged = merged(current, owned)
+        if (merged != current) write(file, merged)
     }
 
     /** The problems the doubles met during the run, as an error caused by [cause], null when there are none. */
@@ -150,6 +171,7 @@ public class PluginHarness private constructor(
         private val runtime: AlexandriteRuntime,
         id: String,
         private val configFile: Path?,
+        private val environment: Map<String, String>,
     ) {
         private val files = runtime.services.resolver().get(key<PluginFiles>(id))
 
@@ -186,8 +208,10 @@ public class PluginHarness private constructor(
                 ?: throw NoSuchElementException("No recording channel of instance $instance is open.")
 
         /** The config file as the host would read it now. */
-        public fun readConfig(): ConfigSource =
-            ConfigFile.read(configFile ?: throw IllegalStateException("The harness names no config file."))
+        public fun readConfig(): ConfigSource = ConfigFile.read(
+            configFile ?: throw IllegalStateException("The harness names no config file."),
+            environment,
+        )
 
         /** The scripted model [id] that the runtime's model providers contribute. */
         public fun model(id: String = "scripted"): ScriptedModel =
@@ -202,6 +226,7 @@ public class PluginHarness private constructor(
         private var dataRoot: Path? = null
         private var configFile: Path? = null
         private var keepsConfig = false
+        private var environment: Map<String, String> = System.getenv()
         private val offLimits = mutableListOf<Path>()
         private var zone: ZoneId = ZoneOffset.UTC
         private var language: LanguageTag? = null
@@ -219,6 +244,7 @@ public class PluginHarness private constructor(
         private var states: TestChatStates? = null
         private var store: MemoryStore? = null
         private var floor: HardFloor? = null
+        private var hostFloor = false
 
         internal var temporaryRoot: () -> Path = { Files.createTempDirectory("alexandrite-harness-") }
 
@@ -244,20 +270,25 @@ public class PluginHarness private constructor(
         /** The runtime's data directory, a temporary one deleted when the run ends unless set. */
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
 
-        /** The config file that the runtime's host paths name, none unless set. */
+        /** The config file that each run writes the harness's config into, replacing it, and reads, none unless set. */
         public fun configFile(file: Path): Builder = apply {
             configFile = file
             keepsConfig = false
         }
 
         /**
-         * Names [file] as the config file and keeps the config in it: a run writes the harness's config there when the
-         * file does not exist and reads the file, so what the plugins write into it reaches later runs.
+         * Keeps the config in [file]: a run writes the harness's config there when the file does not exist, else the
+         * sections of the harness's recording channels, and reads the file, so what the plugins write reaches later
+         * runs.
          */
         public fun writeConfigFile(file: Path): Builder = apply {
             configFile = file
             keepsConfig = true
         }
+
+        /** The variables that `${env:NAME}` references name in the config, the process's unless set. */
+        public fun environment(environment: Map<String, String>): Builder =
+            apply { this.environment = environment.toMap() }
 
         /** Declares [path] off-limits, as a host does. */
         public fun protect(path: Path): Builder = apply { offLimits.add(path) }
@@ -326,7 +357,16 @@ public class PluginHarness private constructor(
         public fun store(store: MemoryStore): Builder = apply { this.store = store }
 
         /** Binds [floor] as the runtime's HardFloor. */
-        public fun hardFloor(floor: HardFloor): Builder = apply { this.floor = floor }
+        public fun hardFloor(floor: HardFloor): Builder = apply {
+            this.floor = floor
+            hostFloor = false
+        }
+
+        /** Binds the [testHardFloor] over the run's host paths as the runtime's HardFloor. */
+        public fun hardFloor(): Builder = apply {
+            floor = null
+            hostFloor = true
+        }
 
         public fun build(): PluginHarness {
             val store = store
@@ -335,18 +375,28 @@ public class PluginHarness private constructor(
                 "The harness binds one store, so its chat states must be TestChatStates(store) of its MemoryStore."
             }
             val chatStates = (store ?: states?.store)?.chatStates
-            val doubles =
-                DoublesPlugin(models, tools, hooks, handlers, submitter, initiator, control, store, chatStates, floor)
+            val doubles = DoublesPlugin(
+                models,
+                tools,
+                hooks,
+                handlers,
+                submitter,
+                initiator,
+                control,
+                store,
+                chatStates,
+                floor,
+                hostFloor,
+            )
             val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
-            val all = configs + recording.associate { it.configRoot to it.config() }
-            val tree = all.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->
-                merged(tree, root.split('.').foldRight(config) { name, child -> JsonObject(mapOf(name to child)) })
-            }
+            val owned = tree(recording.associate { it.configRoot to it.config() })
             val indexes = extras + recording + listOfNotNull(doubles.takeUnless { it.empty })
             return PluginHarness(
                 plugin.info.id,
                 indexes.fold(PluginSet.of(plugin), PluginSet::plus),
-                JsonConfigSource(tree),
+                merged(tree(configs), owned),
+                owned,
+                environment,
                 dataRoot,
                 configFile,
                 keepsConfig,
@@ -369,6 +419,31 @@ public class PluginHarness private constructor(
 }
 
 private val PRETTY = Json { prettyPrint = true }
+
+private const val BYTE_ORDER_MARK = "\uFEFF"
+
+/** The config tree that holds each config of [roots] below its root. */
+private fun tree(roots: Map<String, JsonObject>): JsonObject =
+    roots.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->
+        merged(tree, root.split('.').foldRight(config) { name, child -> JsonObject(mapOf(name to child)) })
+    }
+
+private fun write(file: Path, tree: JsonObject) {
+    file.toAbsolutePath().parent?.let(Files::createDirectories)
+    Files.writeString(file, PRETTY.encodeToString(JsonObject.serializer(), tree) + "\n")
+}
+
+/** [tree] with each `${env:NAME}` replaced from [environment] as a config file's are. */
+private fun resolved(tree: JsonObject, environment: Map<String, String>): ConfigSource {
+    if ("$" !in tree.toString()) return JsonConfigSource(tree)
+    val file = Files.createTempFile("alexandrite-harness-", ".json")
+    try {
+        write(file, tree)
+        return JsonConfigSource(checkNotNull(ConfigFile.read(file, environment).tree("")))
+    } finally {
+        Files.deleteIfExists(file)
+    }
+}
 
 private fun merged(tree: JsonObject, other: JsonObject): JsonObject = JsonObject(
     (tree.keys + other.keys).associateWith { name ->

@@ -541,6 +541,10 @@ class AlexandriteLayoutTest {
             """
             package org.foedusprogramme.alexandrite.runtime.plugin
 
+            /**
+             * The layer of a built-in plugin, in a set that grows with the build layout:
+             * match its constants, and give a `when` over it an `else` branch.
+             */
             public enum class BuiltInLayer {
                 AGENT,
                 TOOLS,

@@ -9,17 +9,17 @@ import java.nio.file.Path
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface HardFloor {
     /**
-     * [path] (absolute) made canonical and checked for a call of [agent]: the path to open, or why it is refused.
+     * [path] (absolute) made canonical and checked for a read by [agent]: the path to open, or why it is refused.
      *
      * Each agent may read its own persona directory, which the floor refuses to everyone else.
      */
-    public fun check(path: Path, agent: AgentId?): FloorCheck
+    public fun checkRead(path: Path, agent: AgentId?): FloorCheck
 
-    /** [path] (absolute) made canonical and checked for no agent. */
-    public fun check(path: Path): FloorCheck = check(path, null)
+    /** [path] (absolute) made canonical and checked for a read by no agent. */
+    public fun checkRead(path: Path): FloorCheck = checkRead(path, null)
 }
 
-/** What [HardFloor.check] decided. */
+/** What [HardFloor.checkRead] decided. */
 public sealed interface FloorCheck {
     @Poko
     public class Allowed(public val canonical: Path) : FloorCheck

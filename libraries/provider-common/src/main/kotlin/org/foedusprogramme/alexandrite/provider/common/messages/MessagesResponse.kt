@@ -199,19 +199,14 @@ internal class MessagesResponse(
         events += ModelEvent.UsageUpdated(counted)
     }
 
-    /** The usage that [raw] reports, its inconsistent counts left out. */
+    /** The usage that [raw] reports, its negative counts left out. */
     private fun usage(raw: JsonObject): Usage {
         val caching = flavor.caching
         val prompt = caching.promptTokens(raw)?.takeIf { it >= 0 }
-        var cacheRead = caching.cacheReadTokens(raw)?.takeIf { it >= 0 }
-        var cacheWrite = caching.cacheWriteTokens(raw)?.takeIf { it >= 0 }
+        val cacheRead = caching.cacheReadTokens(raw)?.takeIf { it >= 0 }
+        val cacheWrite = caching.cacheWriteTokens(raw)?.takeIf { it >= 0 }
         val output = raw.long("output_tokens")?.takeIf { it >= 0 }
-        var reasoning = flavor.reasoning.reasoningTokens(raw)?.takeIf { it >= 0 }
-        if (prompt != null && (cacheRead ?: 0) + (cacheWrite ?: 0) > prompt) {
-            cacheWrite = null
-            if ((cacheRead ?: 0) > prompt) cacheRead = null
-        }
-        if (output != null && reasoning != null && reasoning > output) reasoning = null
+        val reasoning = flavor.reasoning.reasoningTokens(raw)?.takeIf { it >= 0 }
         return Usage.builder()
             .inputTokens(prompt)
             .cacheReadTokens(cacheRead)

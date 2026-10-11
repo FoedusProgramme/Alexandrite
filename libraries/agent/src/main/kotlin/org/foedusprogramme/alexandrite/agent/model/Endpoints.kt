@@ -45,12 +45,12 @@ internal class Endpoints(providers: List<ModelProvider>, settings: AgentSettings
 
     fun endpoint(id: EndpointId): ModelEndpoint? = listings[id]?.endpoint
 
-    /** The models of the endpoint [id], listed at most once per `models.listingTtlSeconds`. */
-    suspend fun models(id: EndpointId): List<ModelInfo> {
+    /** The models of the endpoint [id], listed at most once per `models.listingTtlSeconds` unless [fresh]. */
+    suspend fun models(id: EndpointId, fresh: Boolean = false): List<ModelInfo> {
         val listing = requireNotNull(listings[id]) { "No model endpoint '$id'." }
         return listing.lock.withLock {
             val now = clock.instant()
-            listing.cached(now) ?: listing.list(now)
+            listing.cached(now)?.takeUnless { fresh } ?: listing.list(now)
         }
     }
 

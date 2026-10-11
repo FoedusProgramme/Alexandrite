@@ -80,13 +80,9 @@ class TrustCommandsTest {
 
     @Test
     fun `a refused trust replies with the agent's message`() = runTest {
-        val refusing = object : AgentControl by control {
-            override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = throw IllegalArgumentException(
-                "$folder is a protected place (the data directory), so it cannot be trusted.",
-            )
-        }
+        control.refuseNext("/srv/data is a protected place (the data directory), so it cannot be trusted.")
 
-        val reply = TrustCommands(refusing, commandTexts(), TestClock()).answer(trust("/srv/data"))
+        val reply = commands.answer(trust("/srv/data"))
 
         assertEquals("/srv/data is a protected place (the data directory), so it cannot be trusted.", reply)
     }

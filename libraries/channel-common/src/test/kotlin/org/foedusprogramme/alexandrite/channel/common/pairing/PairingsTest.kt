@@ -100,7 +100,7 @@ class PairingsTest {
     fun `an approved code pairs its chat at once and keeps it as a record of the host's`() = runTest {
         val code = assertNotNull(offer())
 
-        val decision = assertIs<PairingDecision.Approved>(desk.approve(code.text.lowercase().replace("-", " ")))
+        val decision = assertIs<PairingDecision.Approved>(desk.approve(code.text.lowercase().replace("-", " "), null))
 
         assertEquals(stranger, decision.request.chat)
         assertTrue(pairing.isPaired(stranger))
@@ -110,14 +110,24 @@ class PairingsTest {
             desk.paired(),
         )
         assertEquals(emptyList(), desk.pending())
-        assertIs<PairingDecision.Unknown>(desk.approve(code.text))
+        assertIs<PairingDecision.Unknown>(desk.approve(code.text, null))
         assertNull(offer())
+    }
+
+    @Test
+    fun `an approval keeps who approved it`() = runTest {
+        val operator = testUser("grace", isAdmin = true, instance = home)
+
+        desk.approve(assertNotNull(offer()).text, operator)
+
+        assertEquals(listOf("$stranger by ${operator.address}"), records())
+        assertEquals(operator.address, desk.paired().last().approval?.approvedBy)
     }
 
     @Test
     fun `an approval outlives the desk, and the next desk opens the instance with it`() = runTest {
         val code = assertNotNull(pairing.request(group, ChatKind.GROUP, "Backend", ada))
-        desk.approve(code.text)
+        desk.approve(code.text, null)
         val approved = approval(ChatKind.GROUP, "Backend")
 
         val next = desk()
@@ -133,7 +143,7 @@ class PairingsTest {
     fun `a denied code pairs nothing and the chat stays silent until the code would have expired`() = runTest {
         val code = assertNotNull(offer())
 
-        assertEquals(stranger, assertIs<PairingDecision.Denied>(desk.deny(code.text)).request.chat)
+        assertEquals(stranger, assertIs<PairingDecision.Denied>(desk.deny(code.text, null)).request.chat)
 
         assertFalse(pairing.isPaired(stranger))
         assertEquals(emptyList(), records())
@@ -147,11 +157,11 @@ class PairingsTest {
     fun `unknown and malformed codes are told apart, and no number of wrong codes locks the operator out`() = runTest {
         val code = assertNotNull(offer())
 
-        assertEquals(PairingDecision.Malformed, desk.approve("hello"))
-        repeat(20) { assertEquals(PairingDecision.Unknown, desk.deny("AAAA-AAAA")) }
-        repeat(20) { assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA")) }
+        assertEquals(PairingDecision.Malformed, desk.approve("hello", null))
+        repeat(20) { assertEquals(PairingDecision.Unknown, desk.deny("AAAA-AAAA", null)) }
+        repeat(20) { assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA", null)) }
 
-        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+        assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
         assertTrue(pairing.isPaired(stranger))
     }
 
@@ -168,7 +178,7 @@ class PairingsTest {
         assertTrue(other.holds(elsewhere.text))
         assertFalse(desk.holds("hello"))
 
-        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+        assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
         assertFalse(desk.holds(code.text))
     }
 
@@ -189,8 +199,8 @@ class PairingsTest {
 
         repeat(10) { assertFalse(desk.holds("AAAA-AAAA")) }
 
-        assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA"))
-        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+        assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA", null))
+        assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
     }
 
     @Test
@@ -198,22 +208,22 @@ class PairingsTest {
         val code = assertNotNull(offer())
         store.failure = IOException("The disk is full.")
 
-        val failed = assertIs<PairingDecision.Failed>(desk.approve(code.text))
+        val failed = assertIs<PairingDecision.Failed>(desk.approve(code.text, null))
 
         assertEquals("The disk is full.", failed.reason)
         assertNotEquals(code.text, failed.request.code)
         assertFalse(pairing.isPaired(stranger))
         assertEquals(listOf(failed.request), desk.pending())
         assertNull(offer())
-        assertIs<PairingDecision.Unknown>(desk.approve(code.text))
+        assertIs<PairingDecision.Unknown>(desk.approve(code.text, null))
         store.failure = null
-        assertIs<PairingDecision.Approved>(desk.approve(failed.request.code))
+        assertIs<PairingDecision.Approved>(desk.approve(failed.request.code, null))
         assertTrue(pairing.isPaired(stranger))
     }
 
     @Test
     fun `unpairing removes the chat's record and stops its messages at once`() = runTest {
-        desk.approve(assertNotNull(offer()).text)
+        desk.approve(assertNotNull(offer()).text, null)
 
         assertEquals(Unpairing.Unpaired, desk.unpair(ChatAddress(work, "42", "3")))
 
@@ -228,7 +238,7 @@ class PairingsTest {
 
     @Test
     fun `a chat the config declares, or one whose record cannot be removed, stays paired`() = runTest {
-        desk.approve(assertNotNull(offer()).text)
+        desk.approve(assertNotNull(offer()).text, null)
 
         assertEquals(Unpairing.Declared, desk.unpair(ChatAddress(work, "7", "3")))
         assertTrue(pairing.isPaired(configured))
@@ -248,7 +258,7 @@ class PairingsTest {
         val code = assertNotNull(other.request(homeChat, ChatKind.DIRECT, null, null))
         assertNotNull(offer())
 
-        assertIs<PairingDecision.Approved>(desk.approve(code.text))
+        assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
 
         assertTrue(other.isPaired(homeChat))
         assertFalse(pairing.isPaired(stranger))
@@ -264,7 +274,7 @@ class PairingsTest {
 
         assertEquals(emptyList(), desk.pending())
         assertEquals(emptyList(), desk.paired())
-        assertIs<PairingDecision.Unknown>(desk.approve(code.text))
+        assertIs<PairingDecision.Unknown>(desk.approve(code.text, null))
         assertNull(offer())
         val reopened = desk.open(work, emptyList())
         assertNotNull(offer(pairing = reopened))

@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -59,11 +60,18 @@ public class RecordingTool internal constructor(
     }
 
     /** A call of the tool. */
-    public data class Call(public val arguments: JsonObject, public val turn: TurnInfo, public val call: ToolCallId)
+    @Poko
+    public class Call(public val arguments: JsonObject, public val turn: TurnInfo, public val call: ToolCallId)
 }
 
+/** A recording tool [name] of [risk], read-only by default so that the agent runs its calls at once. */
 public fun recordingTool(
     name: String = "test.tool",
     risk: ToolRisk = ToolRisk.READ_ONLY,
     result: suspend (arguments: JsonObject, context: ToolContext) -> ToolResult = { _, _ -> ToolResult("done") },
 ): RecordingTool = RecordingTool(testToolDefinition(name, risk), result)
+
+public fun recordingTool(
+    definition: ToolDefinition,
+    result: suspend (arguments: JsonObject, context: ToolContext) -> ToolResult = { _, _ -> ToolResult("done") },
+): RecordingTool = RecordingTool(definition, result)

@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.provider.common.EndpointSettings
 import org.foedusprogramme.alexandrite.provider.common.ModelConfig
 import org.foedusprogramme.alexandrite.provider.common.TimeoutConfig
 import org.foedusprogramme.alexandrite.provider.common.TurnContextSetting
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatApiSettings
 import org.foedusprogramme.alexandrite.provider.common.requireEndpointIds
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
@@ -40,6 +41,15 @@ internal class EndpointConfig(
         settings()
     }
 
-    fun settings(): EndpointSettings =
-        EndpointSettings(baseUrl, apiKey, headers, models, discover, promptCacheKey, turnContext, timeouts)
+    fun settings(): EndpointSettings = EndpointSettings(
+        baseUrl = baseUrl,
+        apiKey = apiKey,
+        headers = headers,
+        models = models,
+        discover = discover,
+        turnContext = turnContext,
+        timeouts = timeouts,
+    )
+
+    fun chat(): ChatApiSettings = ChatApiSettings(promptCacheKey)
 }

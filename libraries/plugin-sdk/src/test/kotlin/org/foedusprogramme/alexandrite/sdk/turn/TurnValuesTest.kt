@@ -83,11 +83,11 @@ class TurnValuesTest {
     }
 
     @Test
-    fun `a command spec has a lowercase name of at most 32 characters and a description`() {
-        for (name in listOf("new", "set_model", "dark-mode", "2fa", "a".repeat(32))) {
+    fun `a command spec has a name of at most 32 lowercase letters, digits and underscores and a description`() {
+        for (name in listOf("new", "set_model", "_x", "2fa", "a".repeat(32))) {
             assertEquals(name, CommandSpec.builder(name, "Does it.").build().name)
         }
-        for (name in listOf("", "New", "_x", "-x", "a".repeat(33), "new cmd", "новый")) {
+        for (name in listOf("", "New", "dark-mode", "-x", "a".repeat(33), "new cmd", "новый")) {
             assertFailsWith<IllegalArgumentException>(name) { CommandSpec.builder(name, "Does it.").build() }
         }
         assertFailsWith<IllegalArgumentException> { CommandSpec.builder("new", " ").build() }
@@ -229,15 +229,25 @@ class TurnValuesTest {
             language(LanguageTag.of("zh_CN"))
         }
 
-        assertEquals(List(4) { SettingChange.Keep }, listOf(keep.agent, keep.model, keep.reasoning, keep.language))
-        assertNull(keep.home)
+        assertEquals(
+            List(5) { SettingChange.Keep },
+            listOf(keep.agent, keep.model, keep.reasoning, keep.language, keep.home),
+        )
         assertEquals(SettingChange.SetTo(AgentId("coder")), update.agent)
         assertEquals(SettingChange.SetTo(claude), update.model)
         assertEquals(SettingChange.Reset, update.reasoning)
         assertEquals(SettingChange.SetTo(LanguageTag("zh-CN")), update.language)
         assertEquals(SettingChange.Reset, update.rebuild { resetModel() }.model)
-        assertEquals(listOf(true, false), listOf(update.rebuild { home() }.home, update.rebuild { noHome() }.home))
-        assertEquals(false, update.rebuild { home() }.rebuild { noHome() }.toBuilder().build().home)
+        val homes = listOf(
+            update.rebuild { home() },
+            update.rebuild { noHome() },
+            update.rebuild { resetHome() },
+            update.rebuild { home() }.rebuild { noHome() }.toBuilder().build(),
+        )
+
+        val set = listOf(SettingChange.SetTo(true), SettingChange.SetTo(false))
+
+        assertEquals(set + SettingChange.Reset + SettingChange.SetTo(false), homes.map { it.home })
     }
 
     @Test
@@ -261,22 +271,45 @@ class TurnValuesTest {
     @Test
     fun `a settings snapshot has the default agent with nothing configured until set`() {
         val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
-        val configured = AgentDefaults(claude, ReasoningEffort.LOW, LanguageTag("de"))
         val chosen = snapshot.rebuild {
             agentSource(AgentSource.SELECTED)
-            defaults(configured)
+            defaultModel(claude)
+            defaultReasoning(ReasoningEffort.LOW)
+            defaultLanguage(LanguageTag("de"))
         }
 
         assertEquals(AgentSource.DEFAULT, snapshot.agentSource)
-        assertEquals(listOf(null, null, null), snapshot.defaults.let { listOf(it.model, it.reasoning, it.language) })
-        assertEquals(AgentSource.SELECTED to configured, chosen.agentSource to chosen.defaults)
+        assertEquals(
+            listOf(null, null, null),
+            listOf(snapshot.defaultModel, snapshot.defaultReasoning, snapshot.defaultLanguage),
+        )
+        assertEquals(
+            listOf(AgentSource.SELECTED, claude, ReasoningEffort.LOW, LanguageTag("de")),
+            listOf(chosen.agentSource, chosen.defaultModel, chosen.defaultReasoning, chosen.defaultLanguage),
+        )
         assertEquals(chosen, chosen.rebuild { home(true) }.toBuilder().home(false).build())
         assertNotEquals(snapshot, chosen.rebuild { agentSource(AgentSource.DEFAULT) })
-        assertEquals(snapshot, chosen.rebuild { agentSource(AgentSource.DEFAULT).defaults(AgentDefaults()) })
+        val reset = chosen.rebuild {
+            agentSource(AgentSource.DEFAULT)
+            defaultModel(null)
+            defaultReasoning(null)
+            defaultLanguage(null)
+        }
+        assertEquals(snapshot, reset)
     }
 
     @Test
-    fun `an agent summary and an agent's configured settings are equal by their properties`() {
+    fun `a settings snapshot answers in the chat's language, else in the agent's, else in the host's`() {
+        val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
+        val configured = snapshot.rebuild { defaultLanguage(LanguageTag("de")) }
+
+        assertNull(snapshot.effectiveLanguage)
+        assertEquals(LanguageTag("de"), configured.effectiveLanguage)
+        assertEquals(LanguageTag("fr"), configured.rebuild { language(LanguageTag("fr")) }.effectiveLanguage)
+    }
+
+    @Test
+    fun `an agent summary is equal by its properties`() {
         val home = ChatAddress(work, "42")
         val summary = AgentSummary(AgentId("coder"), "Coder", "Writes code.", default = true, home = home)
 
@@ -286,8 +319,6 @@ class TurnValuesTest {
             "AgentSummary(id=coder, name=Coder, description=Writes code., default=true, home=telegram:work:42)",
             summary.toString(),
         )
-        assertEquals(AgentDefaults(claude, null, null), AgentDefaults(model = claude))
-        assertNotEquals(AgentDefaults(), AgentDefaults(language = LanguageTag("de")))
     }
 
     @Test

@@ -128,8 +128,10 @@ class RuntimeTextsTest {
                 .text("gamma", LanguageTag("en"), "greeting", "Hey")
                 .build(),
         )
-        val config = RuntimeConfig.builder(directory).language(LanguageTag("zh-CN")).texts(catalog).name("test").build()
-        val spec = RuntimeSpec.builder(config, explicit(TestIndex("alpha"), TestIndex("beta"))).build()
+        val config = RuntimeConfig.builder(directory).language(LanguageTag("zh-CN")).name("test").build()
+        val spec = RuntimeSpec.builder(config, explicit(TestIndex("alpha"), TestIndex("beta")))
+            .texts(catalog)
+            .build()
         val seen = mutableListOf<String>()
 
         val lines = logged {

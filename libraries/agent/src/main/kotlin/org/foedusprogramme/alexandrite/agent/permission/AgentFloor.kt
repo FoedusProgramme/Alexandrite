@@ -25,7 +25,7 @@ import java.nio.file.Path
 internal class AgentFloor(paths: HostPaths, workspaces: Workspaces, settings: AgentSettings) : HardFloor {
     private val floor = hostFloor(paths, workspaces.paths, userHome(), operatorPlaces(paths, settings.protectedPaths))
 
-    override fun check(path: Path, agent: AgentId?): FloorCheck = when (val decision = floor.check(path, agent)) {
+    override fun checkRead(path: Path, agent: AgentId?): FloorCheck = when (val decision = floor.check(path, agent)) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
         is FloorDecision.Denied -> FloorCheck.Denied(decision.kind)
     }

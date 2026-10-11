@@ -37,6 +37,8 @@ import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
+import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
@@ -55,6 +57,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -225,13 +228,16 @@ class PluginHarnessTest {
 
     @Test
     fun `a config file the test wrote is read as it is and keeps its env references`() {
-        val home = System.getenv("HOME")
-        assumeTrue(home != null)
+        val home = "/home/test"
         val file = directory.resolve("alexandrite.json")
         val text = "{\"plugins\": {\"folders\": {\"home\": \"\${env:HOME}\"}}}\n"
         Files.writeString(file, text)
-        val harness =
-            PluginHarness.builder(folders).dataRoot(directory).writeConfigFile(file).config("""{"home": "1"}""").build()
+        val harness = PluginHarness.builder(folders)
+            .dataRoot(directory)
+            .writeConfigFile(file)
+            .config("""{"home": "1"}""")
+            .environment(mapOf("HOME" to home))
+            .build()
 
         harness.execute {
             assertEquals(Folders(home), get<Folders>())
@@ -243,16 +249,61 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a config file the harness only names is not written, so edits are refused`() {
-        harness { configFile(directory.resolve("alexandrite.json")) }.execute {
-            val refused =
-                assertFailsWith<ConfigEditException> { get<ConfigEditor>("probe").set("greeting", JsonPrimitive("hi")) }
+    fun `a config file the harness names gets the harness's config at each run, which edits reach until then`() {
+        val file = directory.resolve("alexandrite.json")
+        val named = harness { configFile(file).config("""{"greeting": "hi"}""") }
 
-            assertEquals(ConfigEditRefusal.NO_FILE, refused.refusal)
-            assertFailsWith<ConfigFileException.Missing> { readConfig() }
+        named.execute {
+            get<ConfigEditor>("probe").set("greeting", JsonPrimitive("hey"))
+
+            assertEquals(JsonPrimitive("hey"), readConfig().tree("plugins.probe")?.get("greeting"))
         }
+        named.execute { assertEquals(JsonObject(mapOf("greeting" to JsonPrimitive("hi"))), get<JsonObject>()) }
         harness().execute { assertFailsWith<IllegalStateException> { readConfig() } }
-        assertFalse(Files.exists(directory.resolve("alexandrite.json")))
+    }
+
+    @Test
+    fun `the harness's environment resolves the env references of its config as a config file's`() {
+        val environment = mapOf("GREETING" to "hi from the environment")
+        val config = """{"greeting": "${'$'}{env:GREETING}", "kept": "${'$'}${'$'}{GREETING}"}"""
+
+        val resolved = settings { environment(environment).config(config) }
+        val unset =
+            assertFailsWith<ConfigFileException.UnsetVariable> { settings { environment(emptyMap()).config(config) } }
+
+        assertEquals(JsonPrimitive("hi from the environment"), resolved["greeting"])
+        assertEquals(JsonPrimitive("\${GREETING}"), resolved["kept"])
+        assertContains(unset.message.orEmpty(), "GREETING")
+    }
+
+    @Test
+    fun `a kept config file the test wrote gets the sections of the harness's recording channels`() {
+        val file = directory.resolve("alexandrite.json")
+        Files.writeString(file, "{\"plugins\": {\"probe\": {\"greeting\": \"hi\"}}}\n")
+        val harness = harness { writeConfigFile(file).channel(admins = setOf("ada")) }
+
+        harness.execute {
+            assertTrue(channel().user("ada").isAdmin)
+            assertEquals(JsonObject(mapOf("greeting" to JsonPrimitive("hi"))), get<JsonObject>())
+        }
+        val written = Files.readString(file)
+        harness.execute { channel() }
+
+        assertEquals(written, Files.readString(file))
+    }
+
+    @Test
+    fun `the harness's own floor refuses the host's places and the places it protects`() {
+        val logs = directory.resolve("logs")
+
+        harness { hardFloor().protect(logs) }.execute {
+            val floor = get<HardFloor>()
+
+            assertEquals(FloorCheck.Denied("plugin data"), floor.checkRead(dataDir.resolve("notes.md")))
+            assertEquals(FloorCheck.Denied("Alexandrite's cache"), floor.checkRead(cacheDir.resolve("notes.md")))
+            assertEquals(FloorCheck.Denied("a place the host protects"), floor.checkRead(logs.resolve("run.log")))
+            assertIs<FloorCheck.Allowed>(floor.checkRead(directory.resolveSibling("elsewhere.md")))
+        }
     }
 
     @Test

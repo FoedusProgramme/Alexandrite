@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.provider.common.chat.ChatCaching
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatFinishReasons
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatFlavor
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoning
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoningReader
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatTools
 import org.foedusprogramme.alexandrite.provider.common.long
 import org.foedusprogramme.alexandrite.provider.common.obj
@@ -98,8 +99,10 @@ internal object DeepSeekReasoning : ChatReasoning() {
         if (text.isNotEmpty()) message.put("reasoning_content", text.joinToString(""))
     }
 
-    override fun seal(text: String, details: List<JsonObject>, origin: ModelRef): ReasoningSeal? =
-        text.takeIf { it.isNotEmpty() }?.let { ReasoningSeal(origin, DEEPSEEK, SealKind.PLAIN, it) }
+    override fun reader(origin: ModelRef): ChatReasoningReader = object : ChatReasoningReader() {
+        override fun seal(text: String): ReasoningSeal? =
+            text.takeIf { it.isNotEmpty() }?.let { ReasoningSeal(origin, DEEPSEEK, SealKind.PLAIN, it) }
+    }
 }
 
 internal object DeepSeekTools : ChatTools() {

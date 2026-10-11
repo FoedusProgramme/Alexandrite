@@ -5,6 +5,8 @@ package org.foedusprogramme.alexandrite.sdk
  *
  * How the SDK grows without breaking the plugins built against it:
  * - a type with a builder (`builder(…)`, `toBuilder()`, `rebuild { }`) gains optional properties;
+ * - a value with a public constructor gains a property through a new constructor, and keeps the old one as
+ *   `@Deprecated(level = DeprecationLevel.HIDDEN)`;
  * - an interface marked `@SubclassOptInRequired(InternalAlexandriteApi::class)` is implemented by Alexandrite alone
  *   and gains members and subtypes, so a `when` over its subtypes needs an `else` branch;
  * - an open enumeration, a value class with companion constants, gains constants, so a `when` over it needs an `else`

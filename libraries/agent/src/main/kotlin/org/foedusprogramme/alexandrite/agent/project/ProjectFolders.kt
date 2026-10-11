@@ -99,7 +99,7 @@ internal class ProjectFolders(
             return if (single) InstructionFile(path, canonical) else null
         }
 
-        private fun allowed(path: Path): Path? = (floor.check(path, agent) as? FloorCheck.Allowed)?.canonical
+        private fun allowed(path: Path): Path? = (floor.checkRead(path, agent) as? FloorCheck.Allowed)?.canonical
     }
 }
 

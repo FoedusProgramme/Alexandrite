@@ -101,8 +101,8 @@ class ProjectFoldersTest {
         write(workspace.resolve("AGENTS.md"))
         val floor = testHardFloor(listOf(data))
         val carved = object : HardFloor by floor {
-            override fun check(path: Path, agent: AgentId?): FloorCheck =
-                if (path.startsWith(workspace)) FloorCheck.Allowed(path) else floor.check(path, agent)
+            override fun checkRead(path: Path, agent: AgentId?): FloorCheck =
+                if (path.startsWith(workspace)) FloorCheck.Allowed(path) else floor.checkRead(path, agent)
         }
 
         val projects = ProjectFolders(carved) { false }.projects(listOf(workspace.resolve("notes.md")), agent)

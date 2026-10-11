@@ -42,18 +42,21 @@ class AgentFloorTest {
             val notes = configFile.resolveSibling("coder-files/notes.md")
             val helperNotes = paths.dataRoot.resolve("workspaces/helper/notes.md")
 
-            assertEquals(FloorCheck.Denied("Alexandrite's configuration"), floor.check(configFile))
+            assertEquals(FloorCheck.Denied("Alexandrite's configuration"), floor.checkRead(configFile))
             assertEquals(
                 FloorCheck.Denied("plugin data"),
-                floor.check(paths.dataRoot.resolve("plugins/alexandrite-agent/state.json")),
+                floor.checkRead(paths.dataRoot.resolve("plugins/alexandrite-agent/state.json")),
             )
-            assertEquals(FloorCheck.Denied("Alexandrite's data"), floor.check(paths.dataRoot.resolve("workspaces")))
-            assertEquals(FloorCheck.Denied("Alexandrite's cache"), floor.check(paths.cacheRoot.resolve("notes.md")))
-            assertEquals(FloorCheck.Denied("a place the host protects"), floor.check(logs.resolve("alexandrite.log")))
-            assertEquals(FloorCheck.Denied("SSH keys"), floor.check(home.resolve(".ssh/id_rsa")))
-            assertEquals(FloorCheck.Allowed(notes), floor.check(notes))
-            assertEquals(FloorCheck.Allowed(helperNotes), floor.check(helperNotes))
-            assertEquals(FloorCheck.Allowed(root.resolve("notes.md")), floor.check(root.resolve("notes.md")))
+            assertEquals(FloorCheck.Denied("Alexandrite's data"), floor.checkRead(paths.dataRoot.resolve("workspaces")))
+            assertEquals(FloorCheck.Denied("Alexandrite's cache"), floor.checkRead(paths.cacheRoot.resolve("notes.md")))
+            assertEquals(
+                FloorCheck.Denied("a place the host protects"),
+                floor.checkRead(logs.resolve("alexandrite.log")),
+            )
+            assertEquals(FloorCheck.Denied("SSH keys"), floor.checkRead(home.resolve(".ssh/id_rsa")))
+            assertEquals(FloorCheck.Allowed(notes), floor.checkRead(notes))
+            assertEquals(FloorCheck.Allowed(helperNotes), floor.checkRead(helperNotes))
+            assertEquals(FloorCheck.Allowed(root.resolve("notes.md")), floor.checkRead(root.resolve("notes.md")))
         }
     }
 
@@ -64,10 +67,10 @@ class AgentFloorTest {
             val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
             val denied = FloorCheck.Denied("Alexandrite's configuration")
 
-            assertEquals(FloorCheck.Allowed(persona), floor.check(persona, AgentId("coder")))
-            assertEquals(denied, floor.check(persona, AgentId("helper")))
-            assertEquals(denied, floor.check(persona))
-            assertEquals(denied, floor.check(configFile, AgentId("coder")))
+            assertEquals(FloorCheck.Allowed(persona), floor.checkRead(persona, AgentId("coder")))
+            assertEquals(denied, floor.checkRead(persona, AgentId("helper")))
+            assertEquals(denied, floor.checkRead(persona))
+            assertEquals(denied, floor.checkRead(configFile, AgentId("coder")))
         }
     }
 
@@ -101,8 +104,8 @@ class AgentFloorTest {
         }.execute {
             val floor = get<HardFloor>()
 
-            assertEquals(FloorCheck.Denied(OPERATOR), floor.check(configFile.resolveSibling("vault/notes.md")))
-            assertEquals(FloorCheck.Denied(OPERATOR), floor.check(root.resolve("keys/api.env")))
+            assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(configFile.resolveSibling("vault/notes.md")))
+            assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(root.resolve("keys/api.env")))
         }
         agentHarness("""{"protectedPaths": ["vault"]}""") { dataRoot(data) }.assertStartFails(
             StartStage.GRAPH,

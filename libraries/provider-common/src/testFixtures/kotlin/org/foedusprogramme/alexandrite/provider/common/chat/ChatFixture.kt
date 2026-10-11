@@ -42,17 +42,18 @@ public fun chatEndpoint(
     discover: Boolean = true,
     promptCacheKey: Boolean = false,
     turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
+    authHeader: String = "authorization",
 ): ChatEndpoint {
     val settings = EndpointSettings(
         baseUrl = "${server.baseUrl}/v1",
         apiKey = Secret(FIXTURE_API_KEY),
         models = models,
         discover = discover,
-        promptCacheKey = promptCacheKey,
         turnContext = turnContext,
         timeouts = FIXTURE_TIMEOUTS,
+        authHeader = authHeader,
     )
-    return ChatEndpoint(EndpointId("test"), settings, flavor)
+    return ChatEndpoint(EndpointId("test"), settings, flavor, ChatApiSettings(promptCacheKey))
 }
 
 /** The events of [request]'s response. */

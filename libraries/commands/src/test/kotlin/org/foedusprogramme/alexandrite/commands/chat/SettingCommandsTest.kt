@@ -14,35 +14,40 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
-import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
-import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl
 import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl.Call
-import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel.Companion.modelInfo
 import org.foedusprogramme.alexandrite.testkit.testChat
 import org.foedusprogramme.alexandrite.testkit.testCommand
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class SettingCommandsTest {
-    private val control = RecordingAgentControl().apply { scriptAgent(AgentId.MAIN, "Main") }
-    private val big = ScriptedModel(EndpointId("big"), (1..45).map { modelInfo("m-%02d".format(it)) }.shuffled())
-    private val slow = Listing(EndpointId("slow")) { awaitCancellation() }
-    private val broken = Listing(EndpointId("broken")) { throw IOException("connection refused") }
-    private val provider = object : ModelProvider {
-        override val endpoints: List<ModelEndpoint> = listOf(big, slow, broken)
+    private val control = RecordingAgentControl().apply {
+        scriptAgent(AgentId.MAIN, "Main")
+        scriptModels(EndpointId("big"), (1..45).map { modelInfo("m-%02d".format(it)) }.shuffled())
+        scriptModels(EndpointId("slow"), emptyList())
+        scriptModels(EndpointId("broken"), emptyList())
     }
-    private val commands = SettingCommands(control, listOf(provider), commandTexts())
+
+    /** [control], whose listing of `slow` never ends and of `broken` fails. */
+    private val listing = object : AgentControl by control {
+        override suspend fun models(endpoint: EndpointId): List<ModelInfo> = when (endpoint.value) {
+            "slow" -> awaitCancellation()
+            "broken" -> throw IOException("connection refused")
+            else -> control.models(endpoint)
+        }
+    }
+    private val commands = SettingCommands(listing, commandTexts())
     private val chat = testChat()
 
     // /model.
@@ -56,7 +61,7 @@ class SettingCommandsTest {
             "Model: none (neither this chat nor the agent sets one).\n$endpoints",
             commands.answer(testCommand("model")),
         )
-        control.scriptAgent(AgentId.MAIN, "Main", defaults = AgentDefaults(model = ModelRef.parse("big/m-01")))
+        control.scriptAgent(AgentId.MAIN, "Main", model = ModelRef.parse("big/m-01"))
         assertEquals("Model: big/m-01 (the agent's setting).\n$endpoints", commands.answer(testCommand("model")))
         commands.answer(testCommand("model", "big/m-02"))
         assertEquals("Model: big/m-02 (set in this chat).\n$endpoints", commands.answer(testCommand("model")))
@@ -64,7 +69,7 @@ class SettingCommandsTest {
 
     @Test
     fun `model with an endpoint lists its first models sorted, the one in use marked`() = runTest {
-        control.scriptAgent(AgentId.MAIN, "Main", defaults = AgentDefaults(model = ModelRef.parse("big/m-03")))
+        control.scriptAgent(AgentId.MAIN, "Main", model = ModelRef.parse("big/m-03"))
 
         val reply = commands.answer(testCommand("model", "big"))
 
@@ -89,26 +94,24 @@ class SettingCommandsTest {
 
     @Test
     fun `an endpoint that lists no models or does not exist is reported`() = runTest {
-        val empty = Listing(EndpointId("empty")) { emptyList() }
-        val provider = object : ModelProvider {
-            override val endpoints: List<ModelEndpoint> = listOf(empty)
-        }
-        val commands = SettingCommands(control, listOf(provider), commandTexts())
+        val bare = RecordingAgentControl()
+        val commands = SettingCommands(bare, commandTexts())
 
+        assertEquals(
+            "There is no endpoint 'nowhere'. Endpoints: none.",
+            commands.answer(testCommand("model", "nowhere")),
+        )
+        bare.scriptModels(EndpointId("empty"), emptyList())
         assertEquals("empty lists no models.", commands.answer(testCommand("model", "empty")))
         assertEquals(
             "There is no endpoint 'nowhere'. Endpoints: empty.",
             commands.answer(testCommand("model", "nowhere")),
         )
-        assertEquals(
-            "There is no endpoint 'nowhere'. Endpoints: none.",
-            SettingCommands(control, emptyList(), commandTexts()).answer(testCommand("model", "nowhere")),
-        )
     }
 
     @Test
     fun `model with a reference switches the model, and reset goes back to the agent's`() = runTest {
-        control.scriptAgent(AgentId.MAIN, "Main", defaults = AgentDefaults(model = ModelRef.parse("big/m-01")))
+        control.scriptAgent(AgentId.MAIN, "Main", model = ModelRef.parse("big/m-01"))
 
         assertEquals("This chat now uses the model big/m-02.", commands.answer(testCommand("model", "big/m-02")))
         assertEquals(
@@ -131,17 +134,26 @@ class SettingCommandsTest {
 
     @Test
     fun `a refused model replies with the agent's message`() = runTest {
-        val refusing = object : AgentControl by control {
+        control.refuseNext("Model endpoint 'big' has no model 'm-99'.")
+
+        val reply = commands.answer(testCommand("model", "big/m-99"))
+
+        assertEquals("Model endpoint 'big' has no model 'm-99'.", reply)
+    }
+
+    @Test
+    fun `an error of the control port that is no refusal is no reply`() = runTest {
+        val failing = object : AgentControl by control {
             override suspend fun updateSettings(
                 chat: ChatAddress,
                 update: ChatSettingsUpdate,
                 by: ChatUser?,
-            ): ChatSettingsSnapshot = throw IllegalArgumentException("Model endpoint 'big' has no model 'm-99'.")
+            ): ChatSettingsSnapshot = throw IllegalArgumentException("A linked group holds each chat once.")
         }
 
-        val reply = SettingCommands(refusing, listOf(provider), commandTexts()).answer(testCommand("model", "big/m-99"))
-
-        assertEquals("Model endpoint 'big' has no model 'm-99'.", reply)
+        assertFailsWith<IllegalArgumentException> {
+            SettingCommands(failing, commandTexts()).answer(testCommand("model", "big/m-01"))
+        }
     }
 
     @Test
@@ -159,7 +171,7 @@ class SettingCommandsTest {
     @Test
     fun `reasoning shows, sets and resets the effort`() = runTest {
         val efforts = "Efforts: none, minimal, low, medium, high, xhigh, max."
-        control.scriptAgent(AgentId.MAIN, "Main", defaults = AgentDefaults(reasoning = ReasoningEffort.LOW))
+        control.scriptAgent(AgentId.MAIN, "Main", reasoning = ReasoningEffort.LOW)
 
         assertEquals(
             "Reasoning effort: low (the agent's setting). $efforts",
@@ -209,7 +221,7 @@ class SettingCommandsTest {
         val catalog = TextCatalog.builder()
             .text(PLUGIN, CHINESE, "language.set", "这个聊天的语言现在是 {language}。")
             .build()
-        val commands = SettingCommands(control, listOf(provider), commandTexts(catalog))
+        val commands = SettingCommands(listing, commandTexts(catalog))
 
         assertEquals("Language: default (the host's language).", commands.answer(testCommand("language")))
         assertEquals("这个聊天的语言现在是 zh-CN。", commands.answer(testCommand("language", "zh_cn")))
@@ -228,7 +240,7 @@ class SettingCommandsTest {
 
     @Test
     fun `language shows the agent's language and where it is set`() = runTest {
-        control.scriptAgent(AgentId.MAIN, "Main", defaults = AgentDefaults(language = LanguageTag("en-GB")))
+        control.scriptAgent(AgentId.MAIN, "Main", language = LanguageTag("en-GB"))
 
         assertEquals("Language: en-GB (the agent's setting).", commands.answer(testCommand("language")))
         commands.answer(testCommand("language", "en-US"))
@@ -248,7 +260,7 @@ class SettingCommandsTest {
 
     @Test
     fun `settings shows each setting of a chat that sets nothing as the defaults give it`() = runTest {
-        control.scriptAgent(AgentId.MAIN, "Main", defaults = AgentDefaults(model = ModelRef.parse("big/m-01")))
+        control.scriptAgent(AgentId.MAIN, "Main", model = ModelRef.parse("big/m-01"))
 
         assertEquals(
             """
@@ -268,7 +280,7 @@ class SettingCommandsTest {
     @Test
     fun `settings shows the chat's own settings, the home elsewhere and the linked chats`() = runTest {
         val coder = AgentId("coder")
-        control.scriptAgent(coder, "Coder", defaults = AgentDefaults(model = ModelRef.parse("big/m-02")))
+        control.scriptAgent(coder, "Coder", model = ModelRef.parse("big/m-02"))
         control.updateSettings(testChat("home"), ChatSettingsUpdate.builder().agent(coder).home().build(), ADMIN)
         control.updateSettings(
             chat,
@@ -305,10 +317,5 @@ class SettingCommandsTest {
     @Test
     fun `settings takes no arguments`() = runTest {
         assertEquals("Send /settings without anything after it.", commands.answer(testCommand("settings", "all")))
-    }
-
-    private class Listing(id: EndpointId, private val listing: suspend () -> List<ModelInfo>) :
-        ModelEndpoint by ScriptedModel(id) {
-        override suspend fun models(): List<ModelInfo> = listing()
     }
 }

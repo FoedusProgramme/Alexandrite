@@ -92,8 +92,8 @@ public class CommandSpec private constructor(
 ) {
     init {
         require(COMMAND_NAME.matches(name)) {
-            "Malformed command name '$name': it must be lowercase letters, digits, '_' and '-', start with a letter " +
-                "or digit and have 32 characters at most, such as \"new\"."
+            "Malformed command name '$name': it must be lowercase letters, digits and '_', 32 characters at most, " +
+                "such as \"new\"."
         }
         require(description.isNotBlank()) { "The description of command '$name' may not be blank." }
     }
@@ -130,4 +130,4 @@ public interface CommandContext {
     public suspend fun reply(text: String, markup: Markup = Markup.PLAIN): Delivery
 }
 
-private val COMMAND_NAME = Regex("[a-z0-9][a-z0-9_-]{0,31}")
+private val COMMAND_NAME = Regex("[a-z0-9_]{1,32}")

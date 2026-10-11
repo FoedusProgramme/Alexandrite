@@ -54,14 +54,12 @@ class ConversationCommandsTest {
 
     @Test
     fun `a refused new replies with the agent's message`() = runTest {
-        val refusing = object : AgentControl by control {
-            override suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId =
-                throw IllegalArgumentException("No agent serves $chat.")
-        }
+        control.refuseNext("No agent serves test:main:chat.")
 
-        val reply = ConversationCommands(refusing, commandTexts()).answer(testCommand("new"))
+        val reply = commands.answer(testCommand("new"))
 
         assertEquals("No agent serves test:main:chat.", reply)
+        assertEquals(listOf(Call.NewConversation(testChat(), MEMBER, null)), control.calls)
     }
 
     @Test

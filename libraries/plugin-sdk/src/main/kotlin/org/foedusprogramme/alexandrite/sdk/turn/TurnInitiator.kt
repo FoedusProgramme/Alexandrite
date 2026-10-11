@@ -14,14 +14,19 @@ import org.foedusprogramme.alexandrite.sdk.model.Trust
 @PluginLocal
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface TurnInitiator {
-    /** Queues [turn] with the queue, capacity and outcome rules of a submission, and returns at once. */
+    /**
+     * Queues [turn] with the queue, capacity and outcome rules of a submission, and returns at once.
+     *
+     * Throws [IllegalArgumentException] for a turn of a kind that the agent starts itself: [TurnKind.APPROVAL] and
+     * [TurnKind.AGENT_MESSAGE].
+     */
     public fun initiate(turn: InitiatedTurn): Admission
 }
 
 /** The agent's side of every plugin's [TurnInitiator]. */
 @InternalAlexandriteApi
 public interface TurnInitiation {
-    /** Queues [turn] for [plugin], whose id its origin records. */
+    /** Queues [turn] for [plugin], whose id its origin records, with the refusals of [TurnInitiator.initiate]. */
     public fun initiate(plugin: String, turn: InitiatedTurn): Admission
 }
 

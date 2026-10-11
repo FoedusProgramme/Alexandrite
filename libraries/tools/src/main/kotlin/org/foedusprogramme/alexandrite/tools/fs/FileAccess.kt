@@ -31,9 +31,9 @@ import java.nio.file.attribute.BasicFileAttributes
 /** Ends a file tool's call with [message] as its failed result. */
 internal class Refusal(override val message: String) : Exception(message)
 
-/** What [block] returns, run where it may block, or the failed result that a [Refusal] or a read error makes. */
-internal suspend fun refusing(block: () -> ToolResult): ToolResult = try {
-    runInterruptible(Dispatchers.IO, block)
+/** What [block] returns, or the failed result that a [Refusal] or a read error makes. */
+internal suspend fun refusing(block: suspend () -> ToolResult): ToolResult = try {
+    block()
 } catch (e: Refusal) {
     ToolResult(e.message, isError = true)
 } catch (e: IOException) {
@@ -46,8 +46,11 @@ internal suspend fun refusing(block: () -> ToolResult): ToolResult = try {
     ToolResult(message, isError = true)
 }
 
+/** What [block] returns, run where it may block. */
+internal suspend fun <T> blocking(block: () -> T): T = runInterruptible(Dispatchers.IO, block)
+
 /** [argument] as an absolute path: a relative one resolved against the workspace, a leading `~` as the home directory. */
-internal fun ToolContext.absolute(argument: String): Path {
+internal suspend fun ToolContext.absolute(argument: String): Path {
     val home = System.getProperty("user.home").orEmpty()
     val expanded = when {
         home.isEmpty() -> argument
@@ -61,21 +64,24 @@ internal fun ToolContext.absolute(argument: String): Path {
         throw Refusal("'$argument' is no valid path.")
     }
     if (path.isAbsolute) return path.normalize()
-    val workspace = workspace ?: throw Refusal(
-        "'$argument' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
-    )
-    return workspace.resolve(path).normalize()
+    if (workspace == null) {
+        throw Refusal(
+            "'$argument' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
+        )
+    }
+    return openWorkspace().resolve(path).normalize()
 }
 
 /** Where a search goes: [argument] as an absolute path, or the workspace when it is null or empty. */
-internal fun ToolContext.searched(argument: String?): Path {
+internal suspend fun ToolContext.searched(argument: String?): Path {
     if (!argument.isNullOrEmpty()) return absolute(argument)
-    return workspace ?: throw Refusal("Give 'path': you have no workspace to search by default.")
+    if (workspace == null) throw Refusal("Give 'path': you have no workspace to search by default.")
+    return openWorkspace()
 }
 
 /** [path] made canonical for the call of [context], refused when it lies in a protected place. */
 internal fun HardFloor.allowed(path: Path, context: ToolContext): Path =
-    when (val check = check(path, context.turn.agent)) {
+    when (val check = checkRead(path, context.turn.agent)) {
         is FloorCheck.Allowed -> check.canonical
         is FloorCheck.Denied -> throw Refusal("$path is protected (${check.reason}): no file tool may read it.")
     }

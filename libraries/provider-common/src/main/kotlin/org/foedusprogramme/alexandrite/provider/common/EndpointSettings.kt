@@ -27,8 +27,6 @@ public class EndpointSettings(
     public val models: Map<String, ModelConfig> = emptyMap(),
     /** Whether the endpoint asks the backend for its models. */
     public val discover: Boolean = true,
-    /** Whether requests carry the agent's cache key. */
-    public val promptCacheKey: Boolean = false,
     public val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
     public val timeouts: TimeoutConfig = TimeoutConfig(),
     /** The header that carries [apiKey]. */

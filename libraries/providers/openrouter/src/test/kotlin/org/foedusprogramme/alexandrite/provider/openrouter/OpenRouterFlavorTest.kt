@@ -230,7 +230,7 @@ class OpenRouterFlavorTest {
         assertEquals(200000 to 64000, chat.contextWindow to chat.maxOutputTokens)
         assertEquals("Router chat-model" to OPENROUTER, chat.displayName to chat.dialect)
         assertEquals(setOf(MediaKind.IMAGE), chat.inputMedia)
-        assertEquals(ReasoningEffort.entries.toSet(), chat.reasoningEfforts)
+        assertEquals(ReasoningEffort.entries.toSet() - ReasoningEffort.MAX, chat.reasoningEfforts)
         val plain = models.getValue("plain-model")
         assertFalse(plain.nativeTools)
         assertEquals(emptySet(), plain.reasoningEfforts)

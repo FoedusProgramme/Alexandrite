@@ -35,6 +35,7 @@ class PublicApiTest {
         import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
         import org.foedusprogramme.alexandrite.sdk.model.*
         import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+        import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
         import org.foedusprogramme.alexandrite.sdk.store.collection
         import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
         import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -76,7 +77,7 @@ class PublicApiTest {
             return listOf(
                 events, scripted.requests, scripted.remaining, scripted.problems, scripted.awaitRequests(1),
                 scripted.models(), scripted.turnContextMode("m", ModelOptions.DEFAULT, Trust.TRUSTED), scripted.id,
-                ScriptedModel.DIALECT,
+                ScriptedModel.DIALECT, ScriptedModel.DEFAULT_ENDPOINT, ScriptedModel.DEFAULT_MODEL,
                 TEST_MODEL,
             )
         }
@@ -107,6 +108,7 @@ class PublicApiTest {
                 is RecordingChannel.Event.Abandoned -> listOf(event.turn, event.end)
                 is RecordingChannel.Event.Sent -> listOf(event.chat, event.message, event.delivery)
                 is RecordingChannel.Event.Received -> event.submission
+                else -> null
             }
             return listOf(
                 command, admissions, described, preview.segment, preview.text, recorded.request, recorded.turn,
@@ -136,7 +138,9 @@ class PublicApiTest {
             val invoked = testCommandContext(testCommand("new"))
             val control = RecordingAgentControl(AgentId.MAIN)
             control.statuses = emptyList()
-            control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", AgentDefaults(language = LanguageTag("en")))
+            control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
+            control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
+            control.refuseNext("No agent serves the chat.")
             control.cancel(testChat(), null)
             control.cancelTurn(TurnId("t"), null)
             control.cancelRun(RunId("r"), true, null)
@@ -157,6 +161,7 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
                 is RecordingAgentControl.Call.TrustFolder -> listOf(recorded.folder, recorded.by)
                 is RecordingAgentControl.Call.UntrustFolder -> listOf(recorded.folder, recorded.by)
+                else -> emptyList()
             }
             val states = TestChatStates()
             return listOf(
@@ -164,7 +169,8 @@ class PublicApiTest {
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies, invoked, call,
                 control.turns(null), control.settings(testChat()), control.links(), control.trustedFolders(),
-                control.agents(TEST_INSTANCE), control.language(testChat()),
+                control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),
+                control.models(EndpointId("scripted")),
                 states.of("probe"),
                 testChatStates("probe"),
                 TestRecords(MemoryStore().records).of("probe"),
@@ -205,15 +211,16 @@ class PublicApiTest {
             val result = tool.execute(JsonObject(emptyMap()), testToolContext())
             val call: RecordingTool.Call = tool.awaitCalls(1).first()
             val floor: HardFloor = testHardFloor(listOf(Path.of("/srv/secret")), Path.of("/home/user"))
-            val checked = when (val check = floor.check(Path.of("/srv/secret/key"))) {
+            val checked = when (val check = floor.checkRead(Path.of("/srv/secret/key"))) {
                 is FloorCheck.Allowed -> check.canonical
                 is FloorCheck.Denied -> check.reason
             }
             val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"))
             context.touched(Path.of("/srv/work/notes.md"))
+            val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             return listOf(
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
-                context.turn, context.call, context.workspace, context.touchedPaths,
+                context.turn, context.call, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
             )
         }
 
@@ -258,6 +265,8 @@ class PublicApiTest {
                 .store(store)
                 .chatStates(TestChatStates(store))
                 .hardFloor(testHardFloor())
+                .hardFloor()
+                .environment(mapOf("TOKEN" to "not a secret"))
                 .build()
             val seen = mutableListOf<Any>()
             val block: suspend PluginHarness.Running.() -> Unit = {
@@ -267,6 +276,7 @@ class PublicApiTest {
                 get<ConfigEditor>("notes").edit { set("home", get("home") ?: JsonPrimitive("1")) }
                 seen.addAll(listOf(channel("main", "test"), channel(TEST_INSTANCE), get(key<ChannelDirectory>())))
                 seen.addAll(getAll(key<ModelProvider>()))
+                seen.add(testHardFloor(get<HostPaths>(), listOf(root.resolve("secret")), Path.of("/home/user")))
                 stop()
             }
             seen.addAll(listOf(store.conversations, store.transcripts, store.media, store.chatStates, store.records))
@@ -316,6 +326,7 @@ class PublicApiTest {
             }
             val checks: List<ProviderCheck> = PROVIDER_CONTRACT
             for (check in checks) check.run(fixture)
+            assertStreamContract(testModelRequest(), emptyList(), null)
             return seen + checks.map { it.name } + ScriptedToolCall("c", "notes-add", listOf("{}"))
         }
     """.trimIndent()

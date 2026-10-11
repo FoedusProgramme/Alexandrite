@@ -2,7 +2,10 @@ package org.foedusprogramme.alexandrite.sdk.di.container
 
 import org.foedusprogramme.alexandrite.sdk.problem.ProblemKind
 
-/** What a problem of a [Container] is about, in a set that grows with the graph rules. */
+/**
+ * What a problem of a [Container] is about, in a set that grows with the graph rules: match its constants, and give a
+ * `when` over it an `else` branch.
+ */
 public enum class DiProblemKind : ProblemKind {
     /** A key nothing binds. */
     MISSING,

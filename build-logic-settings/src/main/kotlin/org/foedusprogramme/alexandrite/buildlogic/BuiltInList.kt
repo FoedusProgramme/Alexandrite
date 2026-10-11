@@ -19,6 +19,10 @@ object BuiltInList {
     fun source(discovery: Discovery): String = buildString {
         appendLine("package $PACKAGE")
         appendLine()
+        appendLine("/**")
+        appendLine(" * The layer of a built-in plugin, in a set that grows with the build layout:")
+        appendLine(" * match its constants, and give a `when` over it an `else` branch.")
+        appendLine(" */")
         appendLine("public enum class BuiltInLayer {")
         LAYERS.forEach { appendLine("    ${it.name},") }
         appendLine("}")

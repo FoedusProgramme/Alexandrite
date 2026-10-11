@@ -7,15 +7,12 @@ import kotlinx.coroutines.flow.transformWhile
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import org.foedusprogramme.alexandrite.internal.http.HttpException
 import org.foedusprogramme.alexandrite.internal.http.HttpResponseStream
 import org.foedusprogramme.alexandrite.internal.http.HttpTransport
-import org.foedusprogramme.alexandrite.provider.common.EndpointConnection
+import org.foedusprogramme.alexandrite.provider.common.EndpointCore
 import org.foedusprogramme.alexandrite.provider.common.EndpointSettings
 import org.foedusprogramme.alexandrite.provider.common.ErrorDetail
-import org.foedusprogramme.alexandrite.provider.common.ModelCatalog
 import org.foedusprogramme.alexandrite.provider.common.modelException
-import org.foedusprogramme.alexandrite.provider.common.toModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
@@ -46,7 +43,7 @@ public class MessagesSettings(
 
 /**
  * An endpoint that speaks the Messages API in [flavor] at `{baseUrl}/v1/messages`, which describes each model by the
- * last listing it read. It sends the API key in [EndpointSettings.authHeader], [AUTH_HEADER] for the standard API.
+ * last listing it read.
  */
 public class MessagesEndpoint(
     override val id: EndpointId,
@@ -55,24 +52,25 @@ public class MessagesEndpoint(
     private val messages: MessagesSettings = MessagesSettings(),
 ) : ModelEndpoint,
     AutoCloseable {
-    private val connection = EndpointConnection(settings, auth() + ("anthropic-version" to flavor.version))
-    private val catalog = ModelCatalog(id, settings, flavor.listing, flavor.dialect, connection)
+    private val core = EndpointCore(
+        id,
+        settings,
+        flavor.listing,
+        flavor.dialect,
+        mapOf("anthropic-version" to flavor.version),
+    )
 
-    override suspend fun models(): List<ModelInfo> = catalog.models()
+    override suspend fun models(): List<ModelInfo> = core.models()
 
     override fun stream(request: ModelRequest): Flow<ModelEvent> = flow {
-        val info = admit(request)
+        val info = core.admit(request)
         val built = MessagesRequest(request, info, flavor, messages, settings.turnContext) { trust ->
             mode(info, request.options, trust)
         }
         val response = MessagesResponse(request, flavor, built.warnings, built.kept)
         val headers = built.betas.takeIf { it.isNotEmpty() }?.let { mapOf("anthropic-beta" to it.joinToString(",")) }
-        val url = "${connection.base}/v1/messages"
-        val call = connection.call("POST", url, "text/event-stream", built.body.toString(), headers.orEmpty())
-        try {
-            connection.transport.open(call) { stream -> read(stream, response) }
-        } catch (e: HttpException) {
-            throw e.toModelException(response.started, ::classify)
+        core.post("/v1/messages", built.body.toString(), headers.orEmpty(), { response.started }, ::classify) {
+            read(it, response)
         }
         response.finish().forEach { emit(it) }
     }
@@ -81,10 +79,10 @@ public class MessagesEndpoint(
         mode(describe(model), options, trust)
 
     override fun close() {
-        connection.close()
+        core.close()
     }
 
-    internal fun describe(model: String): ModelInfo = catalog.describe(model)
+    internal fun describe(model: String): ModelInfo = core.describe(model)
 
     private fun mode(info: ModelInfo, options: ModelOptions, trust: Trust): TurnContextMode {
         val effort = options.reasoning?.takeIf { it in info.reasoningEfforts }
@@ -92,29 +90,7 @@ public class MessagesEndpoint(
         return flavor.turnContext.mode(trust, settings.turnContext, messages.turnScopedSystem, thinks)
     }
 
-    private fun auth(): Map<String, String> {
-        val key = settings.apiKey?.reveal() ?: return emptyMap()
-        val header = settings.authHeader.lowercase()
-        return mapOf(header to if (header == "authorization") "Bearer $key" else key)
-    }
-
     private fun classify(detail: ErrorDetail): ModelErrorKind? = flavor.errors.kind(detail.type, detail.message)
-
-    /** The model of [request], which this endpoint can answer. */
-    private fun admit(request: ModelRequest): ModelInfo {
-        if (request.model.endpoint != id) {
-            throw modelException(
-                ModelErrorKind.INVALID_REQUEST,
-                "Endpoint '$id' got a request for ${request.model}.",
-                false,
-            )
-        }
-        val info = describe(request.model.model)
-        if (request.tools.isNotEmpty() && !info.nativeTools) {
-            throw modelException(ModelErrorKind.UNSUPPORTED, "Model ${request.model} takes no tools.", false)
-        }
-        return info
-    }
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: MessagesResponse) {
         when (stream.mediaType) {
@@ -133,11 +109,7 @@ public class MessagesEndpoint(
                 response.message(message, ::classify).forEach { emit(it) }
             }
 
-            else -> throw modelException(
-                ModelErrorKind.PROTOCOL,
-                "Endpoint '$id' answered with ${stream.mediaType}.",
-                response.started,
-            )
+            else -> throw core.unreadable(stream.mediaType, response.started)
         }
     }
 

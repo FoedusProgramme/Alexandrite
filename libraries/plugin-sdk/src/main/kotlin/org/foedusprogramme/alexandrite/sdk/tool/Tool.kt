@@ -41,8 +41,16 @@ public interface ToolContext {
     public val turn: TurnInfo
     public val call: ToolCallId
 
-    /** The directory where the turn's agent keeps its own files, null when it has none. */
+    /** The directory where the turn's agent keeps its own files, which may not exist yet, null when it has none. */
     public val workspace: Path?
+
+    /**
+     * [workspace], created when it does not exist yet.
+     *
+     * Throws [IllegalStateException] when the agent has no workspace, and an [java.io.IOException] when it cannot be
+     * created.
+     */
+    public suspend fun openWorkspace(): Path
 
     /** Reports that the call read or listed [path]. */
     public fun touched(path: Path)

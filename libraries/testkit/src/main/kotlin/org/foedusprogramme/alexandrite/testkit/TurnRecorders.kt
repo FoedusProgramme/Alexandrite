@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
@@ -64,7 +66,7 @@ public class RecordingTurnSubmitter(
 
 /**
  * A [TurnInitiator] of the plugin [plugin] that records the initiated turns and admits them as a
- * [RecordingTurnSubmitter] admits submissions.
+ * [RecordingTurnSubmitter] admits submissions, refusing the kinds that the agent starts itself as the runtime does.
  */
 public class RecordingTurnInitiator(
     private val plugin: String = "test",
@@ -90,10 +92,17 @@ public class RecordingTurnInitiator(
 
     override fun initiate(turn: InitiatedTurn): Admission = record(plugin, turn)
 
-    internal fun record(plugin: String, turn: InitiatedTurn): Admission = admissions.admit(Initiated(plugin, turn))
+    internal fun record(plugin: String, turn: InitiatedTurn): Admission {
+        require(turn.kind != TurnKind.APPROVAL && turn.kind != TurnKind.AGENT_MESSAGE) {
+            "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval and agent " +
+                "message turns itself."
+        }
+        return admissions.admit(Initiated(plugin, turn))
+    }
 
     /** A [turn] that the plugin [plugin] started. */
-    public data class Initiated(public val plugin: String, public val turn: InitiatedTurn)
+    @Poko
+    public class Initiated(public val plugin: String, public val turn: InitiatedTurn)
 }
 
 private class Admissions<T>(private val outcome: TurnOutcome?) {

@@ -131,21 +131,33 @@ class ModelResponseTest {
     }
 
     @Test
-    fun `input tokens include cached and context tokens, output tokens include reasoning`() {
+    fun `a count beyond the input or output tokens that hold it is left out`() {
         fun usage(setting: Usage.Builder.() -> Unit) = Usage.builder().apply(setting).build()
+        fun counts(usage: Usage) =
+            with(usage) { listOf(cacheReadTokens, cacheWriteTokens, contextTokens, reasoningTokens) }
 
-        usage { inputTokens(100).cacheReadTokens(60).cacheWriteTokens(40).contextTokens(100) }
-        usage { cacheReadTokens(60).contextTokens(500).reasoningTokens(10) }
-        usage { outputTokens(10).reasoningTokens(10) }
-        val invalid = listOf<Usage.Builder.() -> Unit>(
-            { inputTokens(100).cacheReadTokens(60).cacheWriteTokens(41) },
-            { inputTokens(100).cacheReadTokens(101) },
-            { inputTokens(100).contextTokens(101) },
-            { outputTokens(10).reasoningTokens(11) },
+        val kept = listOf(
+            usage { inputTokens(100).cacheReadTokens(60).cacheWriteTokens(40).contextTokens(100) },
+            usage { cacheReadTokens(60).contextTokens(500).reasoningTokens(10) },
+            usage { outputTokens(10).reasoningTokens(10) },
         )
-        for ((index, setting) in invalid.withIndex()) {
-            assertFailsWith<IllegalArgumentException>("$index") { usage(setting) }
-        }
+        val normalized = listOf(
+            usage { inputTokens(100).cacheReadTokens(60).cacheWriteTokens(41) },
+            usage { inputTokens(100).cacheReadTokens(101).cacheWriteTokens(1) },
+            usage { inputTokens(100).contextTokens(101) },
+            usage { outputTokens(10).reasoningTokens(11) },
+        )
+
+        assertEquals(
+            listOf(listOf(60L, 40L, 100L, null), listOf(60L, null, 500L, 10L), listOf(null, null, null, 10L)),
+            kept.map(::counts),
+        )
+        assertEquals(
+            listOf(listOf(60L, null, null, null), listOf(null, null, null, null), List(4) { null }, List(4) { null }),
+            normalized.map(::counts),
+        )
+        assertEquals(listOf(100L, 100L, 100L, null), normalized.map { it.inputTokens })
+        assertEquals(10L, normalized.last().outputTokens)
     }
 
     // Errors.

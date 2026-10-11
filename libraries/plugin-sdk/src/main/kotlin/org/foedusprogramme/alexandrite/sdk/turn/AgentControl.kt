@@ -12,8 +12,10 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
+import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.Path
 import java.time.Instant
@@ -21,25 +23,31 @@ import java.time.Instant
 /**
  * The agent's control primitives, which check no permissions and record who asked as `by`.
  *
- * A change that breaks a rule throws [IllegalArgumentException] with a message for the user and changes nothing.
+ * A change that breaks a rule throws [ControlRefusedException] with a message for the user and changes nothing.
  */
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface AgentControl {
-    /** The running and queued turns at [chat], or everywhere when null, delegated runs included. */
+    /**
+     * The turns that the agent's workers run or queue and the commands that run, at [chat] or everywhere when null,
+     * delegated runs included.
+     *
+     * Messages that a chat's intake holds and commands that wait in its command lane are left out.
+     */
     public fun turns(chat: ChatAddress? = null): List<TurnStatus>
 
     /** Cancels the running turns at [chat] and every run they delegated, leaving queued turns alone. */
     public fun cancel(chat: ChatAddress, by: ChatUser?): Boolean
 
-    /** Drops [turn] while it is queued or cancels it while it runs. */
+    /** Drops [turn] while it is queued, held or waiting, or cancels it while it runs. */
     public fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean
 
     /** Cancels [run], and the runs it delegated when [tree] is true. */
     public fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean
 
     /**
-     * Seals the conversation of the chat's agent once its running turn has ended, and returns the new one.
+     * Seals the conversation of the chat's agent once the turns queued at its key before the call have ended, and
+     * returns the new one.
      *
      * Throws [IllegalStateException] when called in a turn, or once the agent stops.
      */
@@ -52,10 +60,11 @@ public interface AgentControl {
     public suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot
 
     /**
-     * Applies [update] at [chat] after its running turn and returns the settings then.
+     * Applies [update] at [chat] and returns the settings then.
      *
-     * An update of the model, reasoning or language throws [IllegalStateException] when called in a turn, changing
-     * nothing, and when the agent stops before it is made.
+     * The agent and the home change at once, the model, reasoning and language once the turns queued at the chat's key
+     * before the call have ended. An update of the model, reasoning or language throws [IllegalStateException] when
+     * called in a turn, changing nothing, and when the agent stops before it is made, with the agent and home changed.
      */
     public suspend fun updateSettings(
         chat: ChatAddress,
@@ -86,6 +95,16 @@ public interface AgentControl {
 
     /** The trusted folders, each covering the folders below it. */
     public fun trustedFolders(): List<TrustedFolder>
+
+    /** The model endpoints the agents can use. */
+    public fun endpoints(): List<EndpointId>
+
+    /**
+     * The models of [endpoint] from the listing that a chat's model is checked against.
+     *
+     * Throws [ControlRefusedException] for an endpoint that [endpoints] leaves out.
+     */
+    public suspend fun models(endpoint: EndpointId): List<ModelInfo>
 }
 
 /** A trusted folder. */
@@ -190,27 +209,36 @@ public value class TurnPhase internal constructor(public val id: String) {
     }
 }
 
-/** The settings of a chat, where null is the default of the agent that serves it. */
+/**
+ * The settings of a chat, where the chat's own ones are null when it has none and the default ones are null when
+ * [agent] is configured with none.
+ */
 @Poko
 public class ChatSettingsSnapshot private constructor(
     public val agent: AgentId,
     public val model: ModelRef?,
     public val reasoning: ReasoningEffort?,
     public val language: LanguageTag?,
-    /** Whether the chat is the home chat of [agent] on its channel instance. */
+    /** Whether the chat, or the chat of its thread, is the home chat of [agent] on its channel instance. */
     public val home: Boolean,
     /** Why [agent] serves the chat. */
     public val agentSource: AgentSource,
-    /** The settings [agent] is configured with. */
-    public val defaults: AgentDefaults,
+    public val defaultModel: ModelRef?,
+    public val defaultReasoning: ReasoningEffort?,
+    public val defaultLanguage: LanguageTag?,
 ) {
+    /** The language [agent] answers the chat in, null when the host's default language applies. */
+    public val effectiveLanguage: LanguageTag? get() = language ?: defaultLanguage
+
     public fun toBuilder(): Builder = Builder(agent)
         .model(model)
         .reasoning(reasoning)
         .language(language)
         .home(home)
         .agentSource(agentSource)
-        .defaults(defaults)
+        .defaultModel(defaultModel)
+        .defaultReasoning(defaultReasoning)
+        .defaultLanguage(defaultLanguage)
 
     public class Builder internal constructor(private var agent: AgentId) {
         private var model: ModelRef? = null
@@ -218,7 +246,9 @@ public class ChatSettingsSnapshot private constructor(
         private var language: LanguageTag? = null
         private var home: Boolean = false
         private var agentSource: AgentSource = AgentSource.DEFAULT
-        private var defaults: AgentDefaults = AgentDefaults()
+        private var defaultModel: ModelRef? = null
+        private var defaultReasoning: ReasoningEffort? = null
+        private var defaultLanguage: LanguageTag? = null
 
         public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
@@ -232,10 +262,25 @@ public class ChatSettingsSnapshot private constructor(
 
         public fun agentSource(agentSource: AgentSource): Builder = apply { this.agentSource = agentSource }
 
-        public fun defaults(defaults: AgentDefaults): Builder = apply { this.defaults = defaults }
+        public fun defaultModel(defaultModel: ModelRef?): Builder = apply { this.defaultModel = defaultModel }
 
-        public fun build(): ChatSettingsSnapshot =
-            ChatSettingsSnapshot(agent, model, reasoning, language, home, agentSource, defaults)
+        public fun defaultReasoning(defaultReasoning: ReasoningEffort?): Builder =
+            apply { this.defaultReasoning = defaultReasoning }
+
+        public fun defaultLanguage(defaultLanguage: LanguageTag?): Builder =
+            apply { this.defaultLanguage = defaultLanguage }
+
+        public fun build(): ChatSettingsSnapshot = ChatSettingsSnapshot(
+            agent,
+            model,
+            reasoning,
+            language,
+            home,
+            agentSource,
+            defaultModel,
+            defaultReasoning,
+            defaultLanguage,
+        )
     }
 
     public companion object {
@@ -270,14 +315,6 @@ public value class AgentSource internal constructor(public val id: String) {
     }
 }
 
-/** The settings an agent is configured with. */
-@Poko
-public class AgentDefaults(
-    public val model: ModelRef? = null,
-    public val reasoning: ReasoningEffort? = null,
-    public val language: LanguageTag? = null,
-)
-
 /** Changes to the settings of a chat, which keep each setting a builder leaves alone. */
 @Poko
 public class ChatSettingsUpdate private constructor(
@@ -287,10 +324,12 @@ public class ChatSettingsUpdate private constructor(
     public val reasoning: SettingChange<ReasoningEffort>,
     public val language: SettingChange<LanguageTag>,
     /**
-     * True to make the chat the home chat of its agent on its channel instance, false to leave the instance without
-     * one, null to keep it.
+     * Whether the chat is the home chat of its agent on its channel instance, where a reset brings back the configured
+     * home.
+     *
+     * False and a reset change nothing unless the chat, or the chat of its thread, is the home.
      */
-    public val home: Boolean?,
+    public val home: SettingChange<Boolean>,
 ) {
     public fun toBuilder(): Builder = Builder(agent, model, reasoning, language, home)
 
@@ -299,7 +338,7 @@ public class ChatSettingsUpdate private constructor(
         private var model: SettingChange<ModelRef>,
         private var reasoning: SettingChange<ReasoningEffort>,
         private var language: SettingChange<LanguageTag>,
-        private var home: Boolean?,
+        private var home: SettingChange<Boolean>,
     ) {
         public fun agent(agent: AgentId): Builder = apply { this.agent = SettingChange.SetTo(agent) }
 
@@ -318,16 +357,23 @@ public class ChatSettingsUpdate private constructor(
 
         public fun resetLanguage(): Builder = apply { language = SettingChange.Reset }
 
-        public fun home(): Builder = apply { home = true }
+        public fun home(): Builder = apply { home = SettingChange.SetTo(true) }
 
-        public fun noHome(): Builder = apply { home = false }
+        public fun noHome(): Builder = apply { home = SettingChange.SetTo(false) }
+
+        public fun resetHome(): Builder = apply { home = SettingChange.Reset }
 
         public fun build(): ChatSettingsUpdate = ChatSettingsUpdate(agent, model, reasoning, language, home)
     }
 
     public companion object {
-        public fun builder(): Builder =
-            Builder(SettingChange.Keep, SettingChange.Keep, SettingChange.Keep, SettingChange.Keep, null)
+        public fun builder(): Builder = Builder(
+            agent = SettingChange.Keep,
+            model = SettingChange.Keep,
+            reasoning = SettingChange.Keep,
+            language = SettingChange.Keep,
+            home = SettingChange.Keep,
+        )
     }
 }
 

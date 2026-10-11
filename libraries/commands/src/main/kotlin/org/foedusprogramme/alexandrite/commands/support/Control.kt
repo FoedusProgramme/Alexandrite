@@ -8,11 +8,12 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
+import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 
 /** What [block] returns, or null once the refusal it threw is the reply. */
 internal suspend inline fun <T> CommandContext.refusing(block: () -> T): T? = try {
     block()
-} catch (e: IllegalArgumentException) {
+} catch (e: ControlRefusedException) {
     reply(e.message ?: throw e)
     null
 }

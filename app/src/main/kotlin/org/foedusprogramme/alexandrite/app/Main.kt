@@ -156,12 +156,9 @@ private fun host(
     val config = try {
         RuntimeConfig.builder(locations.dataDir)
             .cacheDir(locations.cacheDir)
-            .configFile(locations.configFile)
-            .environment(environment)
             .apply { install?.let { protect(it) } }
             .zone(settings.zoneId)
             .language(settings.languageTag)
-            .texts(texts.catalog)
             .shutdownGrace(settings.shutdownGraceSeconds.seconds)
             .startTimeout(settings.startTimeoutSeconds.seconds)
             .build()
@@ -169,7 +166,7 @@ private fun host(
         err.println("alexandrite: ${e.message}")
         return ExitCode.CONFIG
     }
-    val spec = RuntimeSpec.builder(config, plugins).pluginConfig(source).build()
+    val spec = RuntimeSpec.builder(config, plugins).pluginConfig(source).texts(texts.catalog).build()
     logger.info(
         "Alexandrite {} starting with config {}, data {}, cache {}",
         alexandriteVersion,

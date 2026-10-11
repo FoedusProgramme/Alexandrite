@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.provider.common.EndpointSettings
 import org.foedusprogramme.alexandrite.provider.common.ModelConfig
 import org.foedusprogramme.alexandrite.provider.common.TimeoutConfig
 import org.foedusprogramme.alexandrite.provider.common.long
+import org.foedusprogramme.alexandrite.provider.common.string
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
@@ -54,8 +55,10 @@ class ChatResponseTest {
     private val custom = ChatFlavor(
         Dialect("custom"),
         reasoning = object : ChatReasoning() {
-            override fun seal(text: String, details: List<JsonObject>, origin: ModelRef): ReasoningSeal =
-                ReasoningSeal(origin, Dialect("custom"), SealKind.PLAIN, text.uppercase())
+            override fun reader(origin: ModelRef): ChatReasoningReader = object : ChatReasoningReader() {
+                override fun seal(text: String): ReasoningSeal =
+                    ReasoningSeal(origin, Dialect("custom"), SealKind.PLAIN, text.uppercase())
+            }
         },
         tools = object : ChatTools() {
             override fun callName(wire: String, offered: List<ToolDefinition>): String = offered.first().name
@@ -124,6 +127,17 @@ class ChatResponseTest {
         val started = events.first() as ModelEvent.ResponseStarted
         assertEquals("resp-1" to "chat-model", started.responseId to started.model)
         assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind })
+    }
+
+    @Test
+    fun `the key goes in the header the settings name, as it is outside authorization`() {
+        server.enqueue(chunks(chunk("stop")), "/v1/chat/completions")
+
+        runBlocking { chatEndpoint(server, ChatFlavor.STANDARD, authHeader = "api-key").use { it.events(request()) } }
+
+        val recorded = server.requests.single()
+        assertEquals(FIXTURE_API_KEY, recorded.header("api-key"))
+        assertNull(recorded.header("authorization"))
     }
 
     @Test
@@ -196,40 +210,42 @@ class ChatResponseTest {
     }
 
     @Test
-    fun `reasoning details merge by index into what the flavor seals`() {
-        fun detail(vararg fields: Pair<String, String>) = buildJsonArray {
-            add(
-                buildJsonObject {
-                    put("type", "reasoning.text")
-                    fields.forEach { (name, value) -> put(name, value) }
-                    put("index", 0)
-                },
-            )
-        }
-        var sealed: List<JsonObject> = emptyList()
+    fun `a flavor's reader sees each raw delta of a reasoning part and seals the part`() {
+        val read = mutableListOf<JsonObject>()
         val flavor = ChatFlavor(
             Dialect("custom"),
             reasoning = object : ChatReasoning() {
-                override fun seal(text: String, details: List<JsonObject>, origin: ModelRef): ReasoningSeal? {
-                    sealed = details
-                    return null
+                override fun reader(origin: ModelRef): ChatReasoningReader = object : ChatReasoningReader() {
+                    private val signatures = StringBuilder()
+
+                    override fun read(delta: JsonObject): ChatReasoningDelta? {
+                        read += delta
+                        val thought = delta.string("thought") ?: return null
+                        delta.string("signature")?.let(signatures::append)
+                        return ChatReasoningDelta(thought.ifEmpty { null }, summary = "s")
+                    }
+
+                    override fun seal(text: String): ReasoningSeal =
+                        ReasoningSeal(origin, Dialect("custom"), SealKind.SIGNATURE, "$signatures")
                 }
             },
         )
 
         val events = respond(
             chunks(
-                chunk { with("reasoning", "Let ").with("reasoning_details", detail("text" to "Let ")) },
-                chunk { with("reasoning", "me.").with("reasoning_details", detail("text" to "me.")) },
-                chunk { with("reasoning_details", detail("signature" to "sig")) },
+                chunk { with("reasoning", "Let ").with("thought", "ignored") },
+                chunk { with("thought", "me.") },
+                chunk { with("thought", "").with("signature", "sig") },
                 chunk { with("content", "Done.") },
                 chunk("stop"),
             ),
             flavor,
         )
 
-        assertEquals("Let me.", (completed(events).message.parts.first() as ReasoningPart).text)
-        assertEquals("""[{"type":"reasoning.text","text":"Let me.","index":0,"signature":"sig"}]""", "$sealed")
+        val reasoning = completed(events).message.parts.first() as ReasoningPart
+        assertEquals("Let me." to "sss", reasoning.text to reasoning.summary)
+        assertEquals("sig", reasoning.seal?.data)
+        assertEquals(listOf("Done.", null), read.takeLast(2).map { it.string("content") })
     }
 
     @Test

@@ -25,9 +25,9 @@ internal class ControlAnswers(private val version: String, private val desks: ()
             ControlReply.Pairings(desks.pending().map(::view), desks.paired().map(::view))
         }
 
-        is ControlRequest.Approve -> withDesks { desks -> decided(desks.approve(request.code)) }
+        is ControlRequest.Approve -> withDesks { desks -> decided(desks.approve(request.code, by = null)) }
 
-        is ControlRequest.Deny -> withDesks { desks -> decided(desks.deny(request.code)) }
+        is ControlRequest.Deny -> withDesks { desks -> decided(desks.deny(request.code, by = null)) }
 
         is ControlRequest.Unpair -> unpair(request.chat)
     }

@@ -4,8 +4,10 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.provider.common.ModelFacts
@@ -14,6 +16,8 @@ import org.foedusprogramme.alexandrite.provider.common.chat.ChatCaching
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatFinishReasons
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatFlavor
 import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoning
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoningDelta
+import org.foedusprogramme.alexandrite.provider.common.chat.ChatReasoningReader
 import org.foedusprogramme.alexandrite.provider.common.long
 import org.foedusprogramme.alexandrite.provider.common.obj
 import org.foedusprogramme.alexandrite.provider.common.positiveInt
@@ -62,18 +66,20 @@ internal object OpenRouterListing : ModelListing() {
             )?.strings("input_modalities")?.mapNotNullTo(mutableSetOf()) { modality ->
                 MediaKind.entries.firstOrNull { it.id == modality }
             },
-            reasoningEfforts = parameters?.let {
-                if ("reasoning" in
-                    it
-                ) {
-                    ReasoningEffort.entries.toSet()
-                } else {
-                    emptySet()
-                }
-            },
+            reasoningEfforts = parameters?.let { if ("reasoning" in it) EFFORTS else emptySet() },
         )
     }
 }
+
+/** The efforts that OpenRouter's `reasoning.effort` takes. */
+private val EFFORTS = setOf(
+    ReasoningEffort.NONE,
+    ReasoningEffort.MINIMAL,
+    ReasoningEffort.LOW,
+    ReasoningEffort.MEDIUM,
+    ReasoningEffort.HIGH,
+    ReasoningEffort.XHIGH,
+)
 
 internal object OpenRouterReasoning : ChatReasoning() {
     override fun request(effort: ReasoningEffort, info: ModelInfo, body: JsonObjectBuilder): Warning? {
@@ -93,7 +99,27 @@ internal object OpenRouterReasoning : ChatReasoning() {
         if (details.isNotEmpty()) message.put("reasoning_details", JsonArray(details))
     }
 
-    override fun seal(text: String, details: List<JsonObject>, origin: ModelRef): ReasoningSeal? {
+    override fun reader(origin: ModelRef): ChatReasoningReader = DetailsReader(origin)
+
+    private fun parseArray(text: String): List<JsonElement> = try {
+        (Json.parseToJsonElement(text) as? JsonArray).orEmpty()
+    } catch (e: SerializationException) {
+        emptyList()
+    }
+}
+
+/** Reads the `reasoning_details` of one reasoning part, merging the fragments of each block. */
+private class DetailsReader(private val origin: ModelRef) : ChatReasoningReader() {
+    private val details = mutableListOf<JsonObject>()
+
+    override fun read(delta: JsonObject): ChatReasoningDelta? {
+        val added = (delta["reasoning_details"] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty()
+        if (added.isEmpty()) return null
+        added.forEach(::merge)
+        return ChatReasoningDelta(joined(added, "text"), joined(added, "summary"))
+    }
+
+    override fun seal(text: String): ReasoningSeal? {
         if (details.isEmpty()) return null
         val types = details.mapNotNull { it.string("type") }
         val kind = when {
@@ -104,12 +130,36 @@ internal object OpenRouterReasoning : ChatReasoning() {
         return ReasoningSeal(origin, OPENROUTER, kind, JsonArray(details).toString())
     }
 
-    private fun parseArray(text: String): List<JsonElement> = try {
-        (Json.parseToJsonElement(text) as? JsonArray).orEmpty()
-    } catch (e: SerializationException) {
-        emptyList()
+    private fun joined(details: List<JsonObject>, field: String): String? =
+        details.mapNotNull { it.string(field) }.joinToString("").ifEmpty { null }
+
+    /** Adds [detail] to the block of the same index and type, or as a block of its own. */
+    private fun merge(detail: JsonObject) {
+        val last = details.lastOrNull()
+        if (last?.get("index") == null || last["index"] != detail["index"] || last["type"] != detail["type"]) {
+            details += detail
+            return
+        }
+        val merged = last.toMutableMap()
+        for ((name, value) in detail) {
+            val before = merged[name].text()
+            val added = value.text()
+            merged[name] = when {
+                value is JsonNull -> merged[name] ?: value
+                name in CONCATENATED && before != null && added != null -> JsonPrimitive(before + added)
+                else -> value
+            }
+        }
+        details[details.lastIndex] = JsonObject(merged)
+    }
+
+    private companion object {
+        /** The fields of a reasoning detail that its stream splits into fragments. */
+        val CONCATENATED = setOf("text", "summary", "data")
     }
 }
+
+private fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 internal object OpenRouterCaching : ChatCaching() {
     override fun key(key: String, body: JsonObjectBuilder) {

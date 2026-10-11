@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.store.Records
 import org.foedusprogramme.alexandrite.sdk.store.collection
+import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.slf4j.LoggerFactory
 
 /** Chats of one agent that share the conversation kept at [anchor]. */
@@ -76,37 +77,31 @@ internal class ChatTopology(private val directory: AgentDirectory, records: Reco
 
     /** Makes [chat] the home of [agent] on [instance] for [by], or leaves the instance without one when null. */
     suspend fun setHome(agent: AgentId, instance: ChannelInstanceId, chat: ChatAddress?, by: ChatUser?) {
-        val before = writing.withLock {
-            val topology = current
+        writing.withLock {
             requireAttached(agent, instance)
-            if (chat != null) {
-                if (chat.instance != instance) {
-                    throw Refused(TextKeys.NOT_A_CHAT_OF, "chat" to chat, "instance" to instance)
-                }
-                val other = topology.homeAgents[chat]
-                if (other != null && other != agent) {
-                    throw Refused(TextKeys.HOME_TAKEN, "chat" to chat, "agent" to other)
-                }
+            if (chat != null && chat.instance != instance) {
+                throw Refused(TextKeys.NOT_A_CHAT_OF, "chat" to chat, "instance" to instance)
             }
-            val before = topology.home(agent, instance)
-            if (before == chat) return
-            val key = "$agent@$instance"
-            if (chat == declared.home(agent, instance)) {
-                homeRecords.remove(key)
-            } else {
-                homeRecords.put(key, HomeRecord(agent, instance, chat), by?.address)
-            }
-            current = topology.withHome(agent, instance, chat)
-            before
+            moveHome(agent, instance, chat, by)
         }
-        logger.info(
-            "The home chat of agent '{}' on {} is changed from {} to {} by {}",
-            agent,
-            instance,
-            before,
-            chat,
-            who(by),
-        )
+    }
+
+    /**
+     * Makes [chat] the home of [agent] on its instance for [by] when [change] sets true, else, while [chat] or the
+     * chat of its thread is the home, leaves the instance without one or brings back the configured one on a reset.
+     */
+    suspend fun changeHome(agent: AgentId, chat: ChatAddress, change: SettingChange<Boolean>, by: ChatUser?) {
+        if (change == SettingChange.Keep) return
+        val instance = chat.instance
+        writing.withLock {
+            requireAttached(agent, instance)
+            when {
+                (change as? SettingChange.SetTo)?.value == true -> moveHome(agent, instance, chat, by)
+                current.homeAgent(chat) != agent -> Unit
+                change == SettingChange.Reset -> moveHome(agent, instance, declared.home(agent, instance), by)
+                else -> moveHome(agent, instance, null, by)
+            }
+        }
     }
 
     /** Links [member] into the group of [chat] for [by], which [chat] anchors when it is in none, and returns it. */
@@ -137,6 +132,30 @@ internal class ChatTopology(private val directory: AgentDirectory, records: Reco
         val shrunk = group.copy(members = group.members - member)
         current = topology.withGroup(agent, group, shrunk.takeIf { it.members.isNotEmpty() })
         true
+    }
+
+    /** Makes [chat] the home of [agent] on [instance] for [by], or none there when null, under [writing]. */
+    private suspend fun moveHome(agent: AgentId, instance: ChannelInstanceId, chat: ChatAddress?, by: ChatUser?) {
+        val topology = current
+        val other = chat?.let { topology.homeAgents[it] }
+        if (other != null && other != agent) throw Refused(TextKeys.HOME_TAKEN, "chat" to chat, "agent" to other)
+        val before = topology.home(agent, instance)
+        if (before == chat) return
+        val key = "$agent@$instance"
+        if (chat == declared.home(agent, instance)) {
+            homeRecords.remove(key)
+        } else {
+            homeRecords.put(key, HomeRecord(agent, instance, chat), by?.address)
+        }
+        current = topology.withHome(agent, instance, chat)
+        logger.info(
+            "The home chat of agent '{}' on {} is changed from {} to {} by {}",
+            agent,
+            instance,
+            before,
+            chat,
+            who(by),
+        )
     }
 
     private fun requireAttached(agent: AgentId, instance: ChannelInstanceId) {

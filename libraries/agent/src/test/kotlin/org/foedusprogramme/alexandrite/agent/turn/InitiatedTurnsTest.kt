@@ -70,6 +70,7 @@ import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -424,6 +425,22 @@ class InitiatedTurnsTest {
             val record = store.conversations.turn(admission.turn)
             assertEquals(anchor to member, record?.key to record?.chat)
             assertEquals(2, stored(anchor).size)
+        }
+    }
+
+    @Test
+    fun `no plugin starts an approval or an agent message, which the agent starts itself`() {
+        harness().execute {
+            for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE)) {
+                val refused = assertFailsWith<IllegalArgumentException> { initiate(turn(kind = kind)) }
+
+                assertEquals(
+                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval and agent message " +
+                        "turns itself.",
+                    refused.message,
+                )
+            }
+            assertEquals(emptyList(), stored())
         }
     }
 

@@ -61,11 +61,8 @@ public open class ChatReasoning {
     /** Adds the reasoning of [parts] that [request]'s model must get back to the assistant [message]. */
     public open fun replay(parts: List<ReasoningPart>, request: ModelRequest, message: JsonObjectBuilder) {}
 
-    /**
-     * The seal of the reasoning [text] that [origin] streamed with the `reasoning_details` [details], null when the
-     * model needs none of it back.
-     */
-    public open fun seal(text: String, details: List<JsonObject>, origin: ModelRef): ReasoningSeal? = null
+    /** A reader of the next reasoning part that [origin] streams. */
+    public open fun reader(origin: ModelRef): ChatReasoningReader = ChatReasoningReader()
 
     /** The warning that [info]'s model takes no [effort], so the request asks for none. */
     protected fun unsupported(effort: ReasoningEffort, info: ModelInfo): Warning = Warning(
@@ -73,6 +70,21 @@ public open class ChatReasoning {
         "Model '${info.id}' takes no reasoning effort '$effort', so the request asks for none.",
     )
 }
+
+/**
+ * Reads one reasoning part from the raw `delta` objects of a response, beyond the text of `reasoning_content` and
+ * `reasoning`.
+ */
+public open class ChatReasoningReader {
+    /** The reasoning that the raw [delta] adds of its own, null when it adds none. */
+    public open fun read(delta: JsonObject): ChatReasoningDelta? = null
+
+    /** The seal of the part's reasoning [text], null when the model needs none of it back. */
+    public open fun seal(text: String): ReasoningSeal? = null
+}
+
+/** Reasoning that one delta adds, whose [text] and [summary] are null where it shows none. */
+public class ChatReasoningDelta(public val text: String? = null, public val summary: String? = null)
 
 /** How a backend takes tools and names the calls of its models. */
 public open class ChatTools {

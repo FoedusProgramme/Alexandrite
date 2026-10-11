@@ -36,15 +36,17 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
@@ -126,7 +128,7 @@ internal class AgentControlImpl(
             checkModel(update.model)
             checkReasoning(update.reasoning)
             if (changes.isNotEmpty()) checkWaiting()
-            update.home?.let { home -> topology.setHome(agent, chat.instance, chat.takeIf { home }, by) }
+            topology.changeHome(agent, chat, update.home, by)
             agent
         }
         if (update.agent != SettingChange.Keep) {
@@ -167,6 +169,13 @@ internal class AgentControlImpl(
 
     override fun trustedFolders(): List<TrustedFolder> = trust.folders()
 
+    override fun endpoints(): List<EndpointId> = endpoints.ids.toList()
+
+    override suspend fun models(endpoint: EndpointId): List<ModelInfo> = refusing(null) {
+        if (endpoints.endpoint(endpoint) == null) throw Refused(TextKeys.UNKNOWN_ENDPOINT, "endpoint" to endpoint)
+        endpoints.models(endpoint)
+    }
+
     override suspend fun language(chat: ChatAddress): LanguageTag? {
         val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
         return states.language(key) ?: directory.agent(key.agent)?.language
@@ -176,14 +185,14 @@ internal class AgentControlImpl(
         router.resolve(chat) as? Resolution.Served ?: throw Refused(TextKeys.NO_AGENT, "chat" to chat)
 
     /**
-     * What [block] returns, where a [Refused] change becomes an [IllegalArgumentException] in the language of the chat
-     * at [key], or in the host's language when it is null.
+     * What [block] returns, where a [Refused] change becomes a [ControlRefusedException] in the language of the chat at
+     * [key], or in the host's language when it is null.
      */
     private suspend fun <T> refusing(key: AgentChatKey?, block: suspend () -> T): T = try {
         block()
     } catch (e: Refused) {
         val text = if (key == null) notices.text(e.key, *e.args) else notices.text(key, e.key, *e.args)
-        throw IllegalArgumentException(text, e)
+        throw ControlRefusedException(text, e)
     }
 
     private suspend fun snapshot(served: Resolution.Served): ChatSettingsSnapshot {
@@ -194,9 +203,11 @@ internal class AgentControlImpl(
             .model(states.model(key))
             .reasoning(states.reasoning(key))
             .language(states.language(key))
-            .home(topology.home(key.agent, chat.instance) == chat)
+            .home(topology.homeAgent(chat) == key.agent)
             .agentSource(served.source)
-            .defaults(AgentDefaults(agent?.model, agent?.reasoning, agent?.language))
+            .defaultModel(agent?.model)
+            .defaultReasoning(agent?.reasoning)
+            .defaultLanguage(agent?.language)
             .build()
     }
 
@@ -223,17 +234,22 @@ internal class AgentControlImpl(
         if (endpoints.endpoint(model.endpoint) == null) {
             throw Refused(TextKeys.UNKNOWN_ENDPOINT, "endpoint" to model.endpoint)
         }
-        val listed = try {
-            withTimeoutOrNull(LISTING_TIMEOUT) { endpoints.models(model.endpoint) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            logger.warn("Cannot list the models of endpoint '{}' to check {}: {}", model.endpoint, model, e.toString())
-            null
-        }
-        if (listed != null && listed.none { it.id == model.model }) {
+        val listed = listing(model, fresh = false)
+        if (listed == null || listed.any { it.id == model.model }) return
+        val relisted = listing(model, fresh = true)
+        if (relisted != null && relisted.none { it.id == model.model }) {
             throw Refused(TextKeys.UNKNOWN_MODEL, "endpoint" to model.endpoint, "model" to model.model)
         }
+    }
+
+    /** The models of the endpoint of [model], listed anew when [fresh], null when they cannot be listed in time. */
+    private suspend fun listing(model: ModelRef, fresh: Boolean): List<ModelInfo>? = try {
+        withTimeoutOrNull(LISTING_TIMEOUT) { endpoints.models(model.endpoint, fresh) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.warn("Cannot list the models of endpoint '{}' to check {}: {}", model.endpoint, model, e.toString())
+        null
     }
 
     private fun checkReasoning(change: SettingChange<ReasoningEffort>) {

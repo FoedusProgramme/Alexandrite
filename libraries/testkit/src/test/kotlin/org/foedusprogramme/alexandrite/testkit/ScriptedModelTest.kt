@@ -274,7 +274,37 @@ class ScriptedModelTest {
         assertEquals(1, model.remaining)
     }
 
+    @Test
+    fun `a request that offers tools to a model that takes none fails as an endpoint fails it`() {
+        val plain = ScriptedModel.modelInfo("plain").toBuilder().nativeTools(false).parallelToolCalls(false).build()
+        val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo(), plain))
+        model.reply { text("kept") }
+        val request = request(model).rebuild {
+            model(ModelRef(model.id, "plain"))
+            tools(listOf(testToolDefinition()))
+        }
+
+        val error = assertFailsWith<ModelException> { model.collect(request) }
+
+        assertEquals(ModelErrorKind.UNSUPPORTED, error.error.kind)
+        assertFalse(error.error.outputStarted || error.error.retryable)
+        assertEquals(emptyList(), model.problems)
+        assertEquals(1, model.remaining)
+        assertEquals(1, model.requests.size)
+    }
+
     // Errors and cancellation.
+
+    @Test
+    fun `a scripted failure is thrown before any event, as one before the output even when it says otherwise`() {
+        val started = ModelError.builder(ModelErrorKind.SERVER_ERROR, "Gone.").outputStarted(true).build()
+        model.fail(started)
+
+        val thrown = assertFailsWith<ModelException> { model.collect(request(model)) }
+
+        assertEquals(started.rebuild { outputStarted(false) }, thrown.error)
+        assertStreamContract(request(model), emptyList(), thrown)
+    }
 
     @Test
     fun `a scripted failure is thrown before any event`() {

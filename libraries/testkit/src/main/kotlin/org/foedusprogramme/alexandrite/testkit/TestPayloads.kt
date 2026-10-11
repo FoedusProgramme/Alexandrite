@@ -20,7 +20,6 @@ import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
-import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryRecord
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -48,9 +47,9 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStart
 import java.time.Instant
 
 /** The model of a default [ScriptedModel], which the test helpers' requests and replies name. */
-public val TEST_MODEL: ModelRef = ModelRef(EndpointId("scripted"), "test-model")
+public val TEST_MODEL: ModelRef = ModelRef(ScriptedModel.DEFAULT_ENDPOINT, ScriptedModel.DEFAULT_MODEL)
 
-/** A tool that takes an object of arguments. */
+/** A tool that takes an object of arguments, of [ToolDefinition]'s default risk unless [risk] says otherwise. */
 public fun testToolDefinition(name: String = "test.tool", risk: ToolRisk = ToolRisk.EXEC): ToolDefinition =
     ToolDefinition(name, "A tool of the test.", JsonObject(mapOf("type" to JsonPrimitive("object"))), risk)
 

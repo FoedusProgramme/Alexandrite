@@ -45,6 +45,10 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
         val search = Search(regex(arguments))
         val filter = arguments.string("glob")?.let(::filter)
         val path = context.searched(arguments.string("path"))
+        blocking { grep(search, filter, path, context) }
+    }
+
+    private fun grep(search: Search, filter: ((String) -> Boolean)?, path: Path, context: ToolContext): ToolResult {
         val root = floor.allowed(path, context)
         val attributes = attributes(root)
         if (attributes.isDirectory) {
@@ -55,16 +59,15 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
                 !search.full
             }
             search.files.forEach(context::touched)
-            ToolResult(search.result(path, walk.notes))
-        } else {
-            checkReadable(root, path, attributes)
-            if (attributes.size() > MAX_GREP_FILE_BYTES) {
-                throw Refusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
-            }
-            context.touched(root)
-            if (!search.file(root)) throw Refusal("$path is no UTF-8 text (it looks binary): fs.grep searches text.")
-            ToolResult(search.result(path, emptyList()))
+            return ToolResult(search.result(path, walk.notes))
         }
+        checkReadable(root, path, attributes)
+        if (attributes.size() > MAX_GREP_FILE_BYTES) {
+            throw Refusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
+        }
+        context.touched(root)
+        if (!search.file(root)) throw Refusal("$path is no UTF-8 text (it looks binary): fs.grep searches text.")
+        return ToolResult(search.result(path, emptyList()))
     }
 
     private fun regex(arguments: JsonObject): Regex {

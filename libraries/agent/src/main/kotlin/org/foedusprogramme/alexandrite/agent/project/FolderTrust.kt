@@ -94,7 +94,7 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
 
     private fun check(folder: Path): FloorCheck {
         if (!folder.isAbsolute) throw Refused(TextKeys.FOLDER_NOT_ABSOLUTE, "folder" to folder)
-        return floor.check(folder)
+        return floor.checkRead(folder)
     }
 
     /** The folder that [grant] trusts, null when the floor now refuses it. */
@@ -104,7 +104,7 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
         } catch (e: InvalidPathException) {
             null
         }
-        val check = path?.let(floor::check)
+        val check = path?.let(floor::checkRead)
         if (check !is FloorCheck.Allowed) {
             val reason = (check as? FloorCheck.Denied)?.reason ?: "no absolute path"
             logger.warn("The grant of folder {} is ignored: {}", grant.key, reason)
@@ -143,7 +143,7 @@ private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor
         "the trusted folder '$entry' is relative, but the host read no config file to resolve it against: " +
             "give an absolute path",
     )
-    when (val check = floor.check(path)) {
+    when (val check = floor.checkRead(path)) {
         is FloorCheck.Allowed -> check.canonical
 
         is FloorCheck.Denied -> throw ConfigException(

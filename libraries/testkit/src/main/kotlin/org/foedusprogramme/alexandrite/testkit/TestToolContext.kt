@@ -1,8 +1,11 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -23,6 +26,12 @@ public class TestToolContext internal constructor(
 
     /** The paths that the call reported as touched, in order. */
     public val touchedPaths: List<Path> get() = reported.toList()
+
+    /** [workspace], created with the directories on the way when it does not exist. */
+    override suspend fun openWorkspace(): Path {
+        val path = checkNotNull(workspace) { "The tool context of call $call has no workspace." }
+        return withContext(Dispatchers.IO) { Files.createDirectories(path) }
+    }
 
     override fun touched(path: Path) {
         reported.add(path)

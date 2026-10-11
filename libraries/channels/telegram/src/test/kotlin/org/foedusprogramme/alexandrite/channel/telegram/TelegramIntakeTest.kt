@@ -22,7 +22,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
@@ -166,7 +165,7 @@ class TelegramIntakeTest {
     @Test
     fun `a full queue is told once a minute, in the chat's language`() {
         val chinese = LanguageTag("zh-CN")
-        telegram.control.scriptAgent(AgentId.MAIN, defaults = AgentDefaults(language = chinese))
+        telegram.control.scriptAgent(AgentId.MAIN, language = chinese)
         val texts = TextCatalog.builder()
             .text(PLUGIN, chinese, "refused.queue_full", "队列已满（最多 {capacity} 条）。")
             .build()

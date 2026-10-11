@@ -4,7 +4,12 @@ import kotlinx.serialization.json.JsonElement
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.di.PluginLocal
 
-/** Writes changes below the plugin's config root into the config file, leaving the rest of the file as it is. */
+/**
+ * Writes changes below the plugin's config root into the config file, leaving the rest of the file as it is.
+ *
+ * An owner that applies what it wrote holds a lock of its own from the edit to the apply, so that its changes take
+ * effect in the order they reach the file.
+ */
 @PluginLocal
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ConfigEditor {

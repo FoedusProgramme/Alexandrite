@@ -178,12 +178,13 @@ internal class Assembly(
         val infos = enabled.map { it.member.plugin.info }
         val initiation = key<TurnInitiation>()
         val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
-        texts.install(spec.config.texts.value)
-        CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.config.texts.collect(texts::install) }
-        val writer = ConfigWriter(spec.config.configFile, spec.config.environment, name)
+        texts.install(spec.texts.value)
+        CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.texts.collect(texts::install) }
+        val writer = ConfigWriter(spec.configFile, spec.environment, name)
         val editors = enabled.associate { it.id to PluginConfigEditor(it, writer) }
         val runtime = runtimeBindings(
             spec.config,
+            spec.configFile,
             infos,
             hookFailures,
             hookDecisions,

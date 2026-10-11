@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.testkit.testRecords
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,8 +33,8 @@ class PairingDesksTest {
         val forCarol = assertNotNull(mailPairing.request(carol, ChatKind.DIRECT, null, null))
 
         assertEquals(listOf(bob, carol), desks.pending().map { it.chat })
-        assertEquals(carol, assertIs<PairingDecision.Denied>(desks.deny(forCarol.text)).request.chat)
-        assertEquals(bob, assertIs<PairingDecision.Approved>(desks.approve(forBob.text)).request.chat)
+        assertEquals(carol, assertIs<PairingDecision.Denied>(desks.deny(forCarol.text, null)).request.chat)
+        assertEquals(bob, assertIs<PairingDecision.Approved>(desks.approve(forBob.text, null)).request.chat)
 
         assertEquals(listOf("holds", "holds", "approve"), first.calls)
         assertEquals(listOf("holds", "deny"), second.calls)
@@ -43,8 +44,8 @@ class PairingDesksTest {
 
     @Test
     fun `a code no desk holds is unknown or malformed at once, and no desk decides on it`() = runTest {
-        assertEquals(PairingDecision.Unknown, desks.approve("AAAA-AAAA"))
-        assertEquals(PairingDecision.Malformed, desks.deny("hello"))
+        assertEquals(PairingDecision.Unknown, desks.approve("AAAA-AAAA", null))
+        assertEquals(PairingDecision.Malformed, desks.deny("hello", null))
 
         assertEquals(listOf("holds", "holds"), first.calls)
         assertEquals(listOf("holds", "holds"), second.calls)
@@ -53,7 +54,7 @@ class PairingDesksTest {
     @Test
     fun `a chat is unpaired by the desk that pairs it`() = runTest {
         val carol = ChatAddress(mail, "43")
-        desks.approve(assertNotNull(mailPairing.request(carol, ChatKind.DIRECT, null, null)).text)
+        desks.approve(assertNotNull(mailPairing.request(carol, ChatKind.DIRECT, null, null)).text, null)
 
         assertEquals(Unpairing.Unpaired, desks.unpair(ChatAddress(mail, "43", "3")))
 
@@ -72,14 +73,14 @@ class PairingDesksTest {
             return pairings.holds(code)
         }
 
-        override suspend fun approve(code: String): PairingDecision {
+        override suspend fun approve(code: String, by: ChatUser?): PairingDecision {
             calls += "approve"
-            return pairings.approve(code)
+            return pairings.approve(code, by)
         }
 
-        override suspend fun deny(code: String): PairingDecision {
+        override suspend fun deny(code: String, by: ChatUser?): PairingDecision {
             calls += "deny"
-            return pairings.deny(code)
+            return pairings.deny(code, by)
         }
 
         override suspend fun unpair(chat: ChatAddress): Unpairing {

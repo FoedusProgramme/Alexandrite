@@ -14,7 +14,6 @@ import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
-import org.foedusprogramme.alexandrite.sdk.turn.AgentDefaults
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
@@ -86,7 +85,7 @@ class RuntimeChangesTest {
         block: ChatSettingsSnapshot.Builder.() -> Unit = {},
     ): ChatSettingsSnapshot = ChatSettingsSnapshot.builder(agent)
         .agentSource(source)
-        .defaults(AgentDefaults(model.ref))
+        .defaultModel(model.ref)
         .apply(block)
         .build()
 
@@ -233,7 +232,7 @@ class RuntimeChangesTest {
                 listed,
             )
             assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, reset)
-            assertEquals(snapshot(helper, AgentSource.HOME), thread)
+            assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, thread)
             assertEquals(snapshot(coder, AgentSource.DEFAULT), left)
             assertEquals(listOf(null, null), control.agents(chat.instance).map { it.home })
             assertEquals(emptyList(), stored("homes"))

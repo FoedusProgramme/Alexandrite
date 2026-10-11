@@ -76,25 +76,28 @@ public open class Pairings(
 
     final override fun holds(code: String): Boolean = synchronized(lock) { codes.holds(PURPOSE, code) }
 
-    final override suspend fun approve(code: String): PairingDecision = decide(code) { request, pairing ->
+    final override suspend fun approve(code: String, by: ChatUser?): PairingDecision =
+        decide(code) { request, pairing -> pair(request, pairing, by) }
+
+    final override suspend fun deny(code: String, by: ChatUser?): PairingDecision = decide(code) { request, _ ->
+        logger.info("The request of chat {} to be paired is denied by {}", request.chat, who(by))
+        PairingDecision.Denied(request)
+    }
+
+    private suspend fun pair(request: PairingRequest, pairing: InstancePairing, by: ChatUser?): PairingDecision {
         val approval = Approval(request.kind, request.title, request.requester?.let(::Requester))
         val record = try {
-            approvals.put("${request.chat}", approval, null)
+            approvals.put("${request.chat}", approval, by?.address)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             val waiting = reissue(request)
             logger.warn("Cannot pair chat {}, whose request now holds a new code: {}", request.chat, e.toString())
-            return@decide PairingDecision.Failed(waiting, e.message ?: e.toString())
+            return PairingDecision.Failed(waiting, e.message ?: e.toString())
         }
         synchronized(lock) { pairing.approved[request.chat] = record }
-        logger.info("Chat {} is paired", request.chat)
-        PairingDecision.Approved(request)
-    }
-
-    final override suspend fun deny(code: String): PairingDecision = decide(code) { request, _ ->
-        logger.info("The request of chat {} to be paired is denied", request.chat)
-        PairingDecision.Denied(request)
+        logger.info("Chat {} is paired by {}", request.chat, who(by))
+        return PairingDecision.Approved(request)
     }
 
     final override fun paired(): List<PairedChat> = synchronized(lock) {
@@ -260,6 +263,8 @@ internal class Requester(
 
     fun user(): ChatUser = ChatUser(address, name, username, bot, admin)
 }
+
+private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 
 private fun approval(record: StoredRecord<Approval>): PairingApproval = PairingApproval(
     record.value.kind,

@@ -20,7 +20,10 @@ public object ConfigFile {
 
     private const val BYTE_ORDER_MARK = "\uFEFF"
 
-    /** The config in [file], with each `${env:NAME}` replaced from [environment] and each `$${` by `${`. */
+    /**
+     * The config in [file], with each `${env:NAME}` replaced from [environment] and each `$${` by `${`, which a
+     * [RuntimeSpec] writes changes back to.
+     */
     public fun read(file: Path, environment: Map<String, String> = System.getenv()): ConfigSource {
         val text = try {
             Files.readString(file)
@@ -29,7 +32,8 @@ public object ConfigFile {
         } catch (e: IOException) {
             throw ConfigFileException.Invalid(file, "cannot be read: $e", e)
         }
-        return JsonConfigSource(resolved(file, parsed(file, text), environment))
+        val environment = environment.toMap()
+        return FileConfigSource(file, environment, JsonConfigSource(resolved(file, parsed(file, text), environment)))
     }
 
     /** The object that [text], the content of [file], holds, with its `${env:NAME}` references as written. */
@@ -174,3 +178,7 @@ public object ConfigFile {
         return resolved.toString()
     }
 }
+
+/** The config that [ConfigFile.read] read from [file] with [environment]. */
+internal class FileConfigSource(val file: Path, val environment: Map<String, String>, source: ConfigSource) :
+    ConfigSource by source

@@ -8,7 +8,6 @@ import org.foedusprogramme.alexandrite.commands.support.TextKeys
 import org.foedusprogramme.alexandrite.commands.support.commandWord
 import org.foedusprogramme.alexandrite.commands.support.groupOf
 import org.foedusprogramme.alexandrite.commands.support.isKeyword
-import org.foedusprogramme.alexandrite.commands.support.languageInForce
 import org.foedusprogramme.alexandrite.commands.support.refusing
 import org.foedusprogramme.alexandrite.commands.support.replies
 import org.foedusprogramme.alexandrite.commands.support.spec
@@ -18,10 +17,9 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
-import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
-import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
@@ -35,11 +33,7 @@ import kotlin.time.Duration.Companion.seconds
 /** `/model`, `/reasoning`, `/language` and `/settings`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class SettingCommands(
-    private val control: AgentControl,
-    private val providers: List<ModelProvider>,
-    private val texts: Texts,
-) : CommandHandler {
+internal class SettingCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(MODEL, REASONING, LANGUAGE, SETTINGS).map(texts::spec)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
@@ -89,7 +83,7 @@ internal class SettingCommands(
         context: CommandContext,
         replies: Replies,
     ) {
-        val endpoint = providers.flatMap { it.endpoints }.firstOrNull { it.id.value == endpointId }
+        val endpoint = control.endpoints().firstOrNull { it.value == endpointId }
         if (endpoint == null) {
             val text = replies.text(
                 TextKeys.MODEL_NO_ENDPOINT,
@@ -102,36 +96,36 @@ internal class SettingCommands(
         val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
         val models = listing(endpoint)
         if (models == null) {
-            context.reply(replies.text(TextKeys.MODEL_LIST_FAILED, "endpoint" to endpoint.id))
+            context.reply(replies.text(TextKeys.MODEL_LIST_FAILED, "endpoint" to endpoint))
             return
         }
         val ids = models.map { it.id }.distinct().sorted()
         if (ids.isEmpty()) {
-            context.reply(replies.text(TextKeys.MODEL_LIST_EMPTY, "endpoint" to endpoint.id))
+            context.reply(replies.text(TextKeys.MODEL_LIST_EMPTY, "endpoint" to endpoint))
             return
         }
-        val current = (snapshot.model ?: snapshot.defaults.model)?.takeIf { it.endpoint == endpoint.id }?.model
+        val current = (snapshot.model ?: snapshot.defaultModel)?.takeIf { it.endpoint == endpoint }?.model
         val shown = ids.take(MAX_LISTED).map { id ->
             if (id == current) "$id ${replies.text(TextKeys.MODEL_CURRENT_MARK)}" else id
         }
         val lines = listOfNotNull(
-            replies.text(TextKeys.MODEL_LIST, "endpoint" to endpoint.id, "models" to replies.list(shown)),
+            replies.text(TextKeys.MODEL_LIST, "endpoint" to endpoint, "models" to replies.list(shown)),
             (ids.size - MAX_LISTED).takeIf { it > 0 }?.let { replies.text(TextKeys.MODEL_LIST_MORE, "count" to it) },
         )
         context.reply(lines.joinToString("\n"))
     }
 
-    /** The models of [endpoint], null when it does not list them in time. */
-    private suspend fun listing(endpoint: ModelEndpoint): List<ModelInfo>? {
+    /** The models of [endpoint] as the agent lists them, null when it cannot list them in time. */
+    private suspend fun listing(endpoint: EndpointId): List<ModelInfo>? {
         val models = try {
-            withTimeoutOrNull(LISTING_TIMEOUT) { endpoint.models() }
+            withTimeoutOrNull(LISTING_TIMEOUT) { control.models(endpoint) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logger.warn("Cannot list the models of endpoint '{}': {}", endpoint.id, e.toString())
+            logger.warn("Cannot list the models of endpoint '{}': {}", endpoint, e.toString())
             return null
         }
-        if (models == null) logger.warn("Endpoint '{}' did not list its models within {}", endpoint.id, LISTING_TIMEOUT)
+        if (models == null) logger.warn("Endpoint '{}' did not list its models within {}", endpoint, LISTING_TIMEOUT)
         return models
     }
 
@@ -147,12 +141,12 @@ internal class SettingCommands(
             return
         }
         val snapshot = context.updateSettings(control, invocation) { model(model) } ?: return
-        context.reply(texts.replies(snapshot.languageInForce).text(TextKeys.MODEL_SET, "model" to model))
+        context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.MODEL_SET, "model" to model))
     }
 
     private suspend fun resetModel(invocation: CommandInvocation, context: CommandContext) {
         val snapshot = context.updateSettings(control, invocation) { resetModel() } ?: return
-        val replies = texts.replies(snapshot.languageInForce)
+        val replies = texts.replies(snapshot.effectiveLanguage)
         val model = replies.model(snapshot)
         context.reply(replies.text(TextKeys.MODEL_RESET, "model" to model.value, "source" to model.source))
     }
@@ -181,12 +175,12 @@ internal class SettingCommands(
             return
         }
         val snapshot = context.updateSettings(control, invocation) { reasoning(effort) } ?: return
-        context.reply(texts.replies(snapshot.languageInForce).text(TextKeys.REASONING_SET, "effort" to effort))
+        context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.REASONING_SET, "effort" to effort))
     }
 
     private suspend fun resetReasoning(invocation: CommandInvocation, context: CommandContext) {
         val snapshot = context.updateSettings(control, invocation) { resetReasoning() } ?: return
-        val replies = texts.replies(snapshot.languageInForce)
+        val replies = texts.replies(snapshot.effectiveLanguage)
         val effort = replies.reasoning(snapshot)
         context.reply(replies.text(TextKeys.REASONING_RESET, "effort" to effort.value, "source" to effort.source))
     }
@@ -211,12 +205,12 @@ internal class SettingCommands(
             return
         }
         val snapshot = context.updateSettings(control, invocation) { language(language) } ?: return
-        context.reply(texts.replies(snapshot.languageInForce).text(TextKeys.LANGUAGE_SET, "language" to language))
+        context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.LANGUAGE_SET, "language" to language))
     }
 
     private suspend fun resetLanguage(invocation: CommandInvocation, context: CommandContext) {
         val snapshot = context.updateSettings(control, invocation) { resetLanguage() } ?: return
-        val replies = texts.replies(snapshot.languageInForce)
+        val replies = texts.replies(snapshot.effectiveLanguage)
         val language = replies.language(snapshot)
         val text = replies.text(TextKeys.LANGUAGE_RESET, "language" to language.value, "source" to language.source)
         context.reply(text)
@@ -272,9 +266,8 @@ internal class SettingCommands(
         context.reply(lines.joinToString("\n"))
     }
 
-    private fun endpointIds(replies: Replies): String = providers.flatMap {
-        it.endpoints
-    }.joinToString(", ") { it.id.value }.ifEmpty { replies.text(TextKeys.VALUE_NONE) }
+    private fun endpointIds(replies: Replies): String =
+        control.endpoints().joinToString(", ") { it.value }.ifEmpty { replies.text(TextKeys.VALUE_NONE) }
 
     private companion object {
         const val MODEL = "model"

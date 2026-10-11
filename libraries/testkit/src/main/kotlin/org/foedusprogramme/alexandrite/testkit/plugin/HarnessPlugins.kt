@@ -23,6 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
@@ -41,6 +42,7 @@ import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnInitiator
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
+import org.foedusprogramme.alexandrite.testkit.testHardFloor
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** A plugin of the harness, whose config root is that of a third-party plugin. */
@@ -64,6 +66,8 @@ internal class DoublesPlugin(
     store: MemoryStore?,
     chatStates: ChatStateStore?,
     floor: HardFloor?,
+    /** Whether to bind the test floor over the run's host paths. */
+    hostFloor: Boolean,
 ) : HarnessPlugin(ID, "Test doubles") {
     private val bindings = buildList {
         if (models.isNotEmpty()) {
@@ -96,6 +100,14 @@ internal class DoublesPlugin(
         }
         chatStates?.let { add(instanceBinding(key<ChatStateStore>(), it, ID, "MemoryStore.chatStates")) }
         floor?.let { add(instanceBinding(key<HardFloor>(), it, ID, "HardFloor")) }
+        if (hostFloor) {
+            val paths = Dependency(key<HostPaths>(), DependencyKind.INSTANCE, "paths")
+            add(
+                binding(key<HardFloor>(), ID, "HardFloor of the host's places", dependencies = listOf(paths)) { r ->
+                    testHardFloor(r.get(key<HostPaths>()))
+                },
+            )
+        }
     }
 
     val empty: Boolean get() = bindings.isEmpty()

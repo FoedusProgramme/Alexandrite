@@ -2,8 +2,8 @@ package org.foedusprogramme.alexandrite.provider.common.chat
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.provider.common.long
@@ -36,9 +36,9 @@ internal class ChunkWire(
 @Serializable
 internal class ChoiceWire(
     val index: Int = 0,
-    val delta: DeltaWire? = null,
+    val delta: JsonObject? = null,
     /** The whole message of a response that is not streamed. */
-    val message: DeltaWire? = null,
+    val message: JsonObject? = null,
     @SerialName("finish_reason") val finishReason: String? = null,
 )
 
@@ -47,7 +47,6 @@ internal class DeltaWire(
     val content: JsonElement? = null,
     @SerialName("reasoning_content") val reasoningContent: String? = null,
     val reasoning: JsonElement? = null,
-    @SerialName("reasoning_details") val reasoningDetails: List<JsonObject>? = null,
     @SerialName("tool_calls") val toolCalls: List<ToolCallWire>? = null,
 )
 
@@ -124,12 +123,18 @@ internal class ChatResponse(
         return listOf(ModelEvent.ResponseStarted(responseId, model, warnings)) + events
     }
 
-    private fun delta(delta: DeltaWire, events: MutableList<ModelEvent>) {
+    private fun delta(raw: JsonObject, events: MutableList<ModelEvent>) {
+        val delta = try {
+            DELTAS.decodeFromJsonElement(DeltaWire.serializer(), raw)
+        } catch (e: IllegalArgumentException) {
+            throw failure(ModelErrorKind.PROTOCOL, "The response sent a delta that does not read.")
+        }
         val reasoning = delta.reasoningContent ?: delta.reasoning.text()
-        val details = delta.reasoningDetails.orEmpty()
-        if (!reasoning.isNullOrEmpty() || details.isNotEmpty()) {
-            val builder = current as? ReasoningBuilder ?: open(ReasoningBuilder(parts.size), events)
-            builder.add(reasoning, details, events)
+        val reader = (current as? ReasoningBuilder)?.reader ?: flavor.reasoning.reader(request.model)
+        val own = reader.read(raw)
+        if (!reasoning.isNullOrEmpty() || own != null) {
+            val builder = current as? ReasoningBuilder ?: open(ReasoningBuilder(parts.size, reader), events)
+            builder.add(reasoning, own, events)
         }
         delta.content.text()?.takeIf { it.isNotEmpty() }?.let { text ->
             val builder = current as? TextBuilder ?: open(TextBuilder(parts.size), events)
@@ -217,50 +222,22 @@ internal class ChatResponse(
             emptyList<ModelEvent>() to TextPart(text.toString())
     }
 
-    private inner class ReasoningBuilder(index: Int) : PartBuilder(index) {
+    private class ReasoningBuilder(index: Int, val reader: ChatReasoningReader) : PartBuilder(index) {
         private val text = StringBuilder()
         private val summary = StringBuilder()
-        private val details = mutableListOf<JsonObject>()
 
-        fun add(reasoning: String?, added: List<JsonObject>, events: MutableList<ModelEvent>) {
-            added.forEach(::merge)
-            val shown = reasoning?.ifEmpty { null } ?: joined(added, "text")
-            val summarized = joined(added, "summary")
+        fun add(reasoning: String?, own: ChatReasoningDelta?, events: MutableList<ModelEvent>) {
+            val shown = reasoning?.ifEmpty { null } ?: own?.text?.ifEmpty { null }
+            val summarized = own?.summary?.ifEmpty { null }
             shown?.let { text.append(it) }
             summarized?.let { summary.append(it) }
             if (shown != null || summarized != null) events += ModelEvent.ReasoningDelta(index, shown, summarized)
         }
 
         override fun build(): Pair<List<ModelEvent>, AssistantPart> {
-            val seal = flavor.reasoning.seal(text.toString(), details, request.model)
+            val seal = reader.seal(text.toString())
             val part = ReasoningPart(text.toString().ifEmpty { null }, summary.toString().ifEmpty { null }, seal)
             return listOfNotNull(seal?.let { ModelEvent.ReasoningSealed(index, it) }) to part
-        }
-
-        private fun joined(details: List<JsonObject>, field: String): String? =
-            details.mapNotNull { it.string(field) }.joinToString("").ifEmpty { null }
-
-        /** Adds [detail] to the block of the same index and type, or as a block of its own. */
-        private fun merge(detail: JsonObject) {
-            val last = details.lastOrNull()
-            if (last?.get("index") == null || last["index"] != detail["index"] || last["type"] != detail["type"]) {
-                details += detail
-                return
-            }
-            val merged = last.toMutableMap()
-            for ((name, value) in detail) {
-                val before = merged[name].text()
-                merged[name] = when {
-                    value is JsonNull -> merged[name] ?: value
-
-                    name in CONCATENATED && before != null && value.text() != null -> JsonPrimitive(
-                        before + value.text(),
-                    )
-
-                    else -> value
-                }
-            }
-            details[details.lastIndex] = JsonObject(merged)
         }
     }
 
@@ -276,32 +253,26 @@ internal class ChatResponse(
     }
 
     private companion object {
-        /** The fields of a reasoning detail that its stream splits into fragments. */
-        val CONCATENATED = setOf("text", "summary", "data")
+        val DELTAS = Json {
+            ignoreUnknownKeys = true
+            coerceInputValues = true
+            explicitNulls = false
+        }
     }
 }
 
 private fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
-/** The usage that [raw] reports, its cache counts read by [caching] and its inconsistent counts left out. */
+/** The usage that [raw] reports, its cache counts read by [caching] and its negative counts left out. */
 internal fun usage(raw: JsonObject, caching: ChatCaching): Usage {
-    val input = raw.long("prompt_tokens")
-    var cacheRead = caching.cacheReadTokens(raw)
-    var cacheWrite = caching.cacheWriteTokens(raw)
-    val output = raw.long("completion_tokens")
-    var reasoning = raw.obj("completion_tokens_details")?.long("reasoning_tokens")
-    if (input != null && (cacheRead ?: 0) + (cacheWrite ?: 0) > input) {
-        cacheWrite = null
-        if ((cacheRead ?: 0) > input) cacheRead = null
-    }
-    if (output != null && reasoning != null && reasoning > output) reasoning = null
+    val input = raw.long("prompt_tokens")?.takeIf { it >= 0 }
     return Usage.builder()
-        .inputTokens(input?.takeIf { it >= 0 })
-        .cacheReadTokens(cacheRead?.takeIf { it >= 0 })
-        .cacheWriteTokens(cacheWrite?.takeIf { it >= 0 })
-        .outputTokens(output?.takeIf { it >= 0 })
-        .reasoningTokens(reasoning?.takeIf { it >= 0 })
-        .contextTokens(input?.takeIf { it >= 0 })
+        .inputTokens(input)
+        .cacheReadTokens(caching.cacheReadTokens(raw)?.takeIf { it >= 0 })
+        .cacheWriteTokens(caching.cacheWriteTokens(raw)?.takeIf { it >= 0 })
+        .outputTokens(raw.long("completion_tokens")?.takeIf { it >= 0 })
+        .reasoningTokens(raw.obj("completion_tokens_details")?.long("reasoning_tokens")?.takeIf { it >= 0 })
+        .contextTokens(input)
         .raw(raw)
         .build()
 }

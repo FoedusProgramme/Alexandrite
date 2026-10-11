@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.update
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
@@ -299,27 +301,34 @@ public class RecordingChannel(
     }
 
     /** Something that happened on a [RecordingChannel]. */
-    public sealed interface Event {
-        public data class Opened(public val request: ReplyRequest) : Event
+    @SubclassOptInRequired(InternalAlexandriteApi::class)
+    public interface Event {
+        @Poko
+        public class Opened(public val request: ReplyRequest) : Event
 
-        public data class Previewed(public val turn: TurnId, public val segment: Int, public val text: String) : Event
+        @Poko
+        public class Previewed(public val turn: TurnId, public val segment: Int, public val text: String) : Event
 
-        public data class Completed(
+        @Poko
+        public class Completed(
             public val turn: TurnId,
             public val message: OutboundMessage,
             public val delivery: Delivery,
         ) : Event
 
-        public data class Abandoned(public val turn: TurnId, public val end: ReplyEnd) : Event
+        @Poko
+        public class Abandoned(public val turn: TurnId, public val end: ReplyEnd) : Event
 
-        public data class Sent(
+        @Poko
+        public class Sent(
             public val chat: ChatAddress,
             public val message: OutboundMessage,
             public val delivery: Delivery,
         ) : Event
 
         /** A submission the test made through the channel. */
-        public data class Received(public val submission: Submission) : Event
+        @Poko
+        public class Received(public val submission: Submission) : Event
     }
 
     public companion object {
@@ -375,5 +384,6 @@ public class RecordedReply internal constructor(
         return this
     }
 
-    public data class Preview(public val segment: Int, public val text: String)
+    @Poko
+    public class Preview(public val segment: Int, public val text: String)
 }

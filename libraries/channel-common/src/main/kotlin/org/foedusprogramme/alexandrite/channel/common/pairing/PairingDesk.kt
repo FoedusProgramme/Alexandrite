@@ -21,11 +21,11 @@ public interface PairingDesk {
     /** Whether a request of this desk holds [code]. */
     public fun holds(code: String): Boolean
 
-    /** Pairs the chat that got [code] at once. */
-    public suspend fun approve(code: String): PairingDecision
+    /** Pairs the chat that got [code] at once, approved by [by], null for the host. */
+    public suspend fun approve(code: String, by: ChatUser?): PairingDecision
 
-    /** Drops the request of the chat that got [code]. */
-    public suspend fun deny(code: String): PairingDecision
+    /** Drops the request of the chat that got [code], denied by [by], null for the host. */
+    public suspend fun deny(code: String, by: ChatUser?): PairingDecision
 
     public fun paired(): List<PairedChat>
 

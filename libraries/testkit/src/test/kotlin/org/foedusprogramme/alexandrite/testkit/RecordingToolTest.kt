@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import kotlin.test.Test
@@ -31,6 +32,16 @@ class RecordingToolTest {
         assertEquals(testToolDefinition("fs.read", ToolRisk.READ_ONLY), tool.definition)
         assertEquals(ToolRisk.EXEC, recordingTool(risk = ToolRisk.EXEC).definition.risk)
         assertEquals(ToolResult("done"), blocking { recordingTool().execute(arguments, context) })
+    }
+
+    @Test
+    fun `a recording tool takes the definition of the tool it stands in for`() {
+        val definition = ToolDefinition("notes.find", "Finds notes.", arguments, ToolRisk.READ_ONLY)
+        val tool = recordingTool(definition)
+
+        assertEquals(definition, tool.definition)
+        assertEquals(ToolResult("done"), blocking { tool.execute(arguments, testToolContext()) })
+        assertEquals(1, tool.calls.size)
     }
 
     @Test

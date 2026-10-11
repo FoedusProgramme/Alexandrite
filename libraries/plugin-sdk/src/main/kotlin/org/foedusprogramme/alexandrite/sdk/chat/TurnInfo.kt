@@ -152,7 +152,7 @@ public value class ReplyTarget internal constructor(public val id: String) {
         /** The turn's chat. */
         public val CHAT: ReplyTarget = ReplyTarget("chat")
 
-        /** Only the turn's initiator. */
+        /** No sink and no previews: the final reply goes to the turn's initiator and along its route. */
         public val CALLER: ReplyTarget = ReplyTarget("caller")
 
         /** The values this version knows. */

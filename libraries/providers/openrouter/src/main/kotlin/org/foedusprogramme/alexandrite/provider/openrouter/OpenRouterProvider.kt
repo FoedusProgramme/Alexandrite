@@ -14,7 +14,7 @@ internal class OpenRouterProvider(config: OpenRouterConfig) :
     ModelProvider,
     Lifecycle {
     private val chats = config.endpoints.map { (id, endpoint) ->
-        ChatEndpoint(EndpointId(id), endpoint.settings(), OPENROUTER_FLAVOR)
+        ChatEndpoint(EndpointId(id), endpoint.settings(), OPENROUTER_FLAVOR, endpoint.chat())
     }
 
     override val endpoints: List<ModelEndpoint> = chats

@@ -9,5 +9,6 @@ dependencies {
 
     testImplementation(project(":libraries:testkit"))
     testImplementation(testFixtures(project(":libraries:provider-common")))
+    testImplementation(libs.kotlinx.coroutines.test)
     testRuntimeOnly(libs.logback.classic)
 }

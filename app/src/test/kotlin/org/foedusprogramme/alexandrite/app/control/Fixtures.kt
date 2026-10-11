@@ -71,17 +71,17 @@ class FakeDesk(vararg requests: PairingRequest, paired: List<PairedChat> = empty
         return requests.any { it.code == code }
     }
 
-    override suspend fun approve(code: String): PairingDecision {
-        calls += "approve $code"
+    override suspend fun approve(code: String, by: ChatUser?): PairingDecision {
+        calls += "approve $code by ${by?.address ?: "the host"}"
         decision?.let { return it }
         val request = requests.find { it.code == code } ?: return PairingDecision.Unknown
         requests -= request
-        paired += approved(request)
+        paired += approved(request, by?.address)
         return PairingDecision.Approved(request)
     }
 
-    override suspend fun deny(code: String): PairingDecision {
-        calls += "deny $code"
+    override suspend fun deny(code: String, by: ChatUser?): PairingDecision {
+        calls += "deny $code by ${by?.address ?: "the host"}"
         decision?.let { return it }
         val request = requests.find { it.code == code } ?: return PairingDecision.Unknown
         requests -= request

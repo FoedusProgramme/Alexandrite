@@ -57,7 +57,6 @@ class RepositoryQuestionTest {
     fun `an admin asks about a repository and the agent answers from file reads, with a protected read refused`() {
         write(repository.resolve("README.md"), "# Greeter\n")
         write(greeter, "package demo\n\nfun greet(name: String) = \"Hello, \$name!\"\n")
-        write(configFile, "{\"apiKey\": \"not for the model\"}\n")
         val model = ScriptedModel()
             .reply { toolCall("fs.glob", """{"pattern": "**/*.kt", "path": "$repository"}""") }
             .reply { toolCall("fs.grep", """{"pattern": "fun greet", "path": "$repository"}""") }

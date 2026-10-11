@@ -26,7 +26,8 @@ public interface ModelEndpoint {
      *   of [ModelEvent.Completed].
      * - Whether the response calls tools is read from its parts alone.
      * - A failed call throws a [ModelException], and a call is retried only before its first event.
-     * - A tool call's name is [ToolNames.fromWire] of its wire name, or the wire name where that is null.
+     * - A tool call's name is the offered tool's name that the provider maps its wire name back to, by default
+     *   [ToolNames.fromWire] of the wire name, or the wire name where that is null.
      * - A tool call that the backend gives no id gets [RequestIds.callId] of its part index.
      * - A user entry that follows tool results goes after them: into the user message that carries the results
      *   (Anthropic), as a `user` message after the `tool` messages (OpenAI chat), or as a user message item after the

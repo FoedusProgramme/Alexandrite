@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.runtime
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInLayer
 import org.foedusprogramme.alexandrite.runtime.plugin.BuiltInPlugin
 import org.foedusprogramme.alexandrite.runtime.plugin.DisabledPlugin
@@ -10,12 +11,12 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -37,7 +38,7 @@ class SpecTest {
         Case(
             { RuntimeConfig.builder(dataDir).zone(ZONE).build() },
             RuntimeConfig.builder(dataDir).zone(ZONE).name("other").build(),
-            "RuntimeConfig(dataDir=data, cacheDir=data${java.io.File.separator}cache, configFile=null, protected=[], " +
+            "RuntimeConfig(dataDir=data, cacheDir=data${java.io.File.separator}cache, protected=[], " +
                 "zone=Asia/Shanghai, language=en, shutdownGrace=15s, startTimeout=30s, name=alexandrite, " +
                 "dispatcher=Dispatchers.Default)",
         ),
@@ -97,45 +98,32 @@ class SpecTest {
 
         assertEquals(dataDir, config.dataDir)
         assertEquals(dataDir.resolve("cache"), config.cacheDir)
-        assertNull(config.configFile)
         assertEquals(emptyList(), config.protected)
         assertEquals(ZoneId.systemDefault(), config.zone)
         assertEquals(LanguageTag("en"), config.language)
-        assertEquals(TextCatalog.EMPTY, config.texts.value)
         assertEquals(15.seconds, config.shutdownGrace)
         assertEquals(30.seconds, config.startTimeout)
         assertEquals("alexandrite", config.name)
         assertSame(Dispatchers.Default, config.dispatcher)
-        assertEquals(System.getenv(), config.environment)
     }
 
     @Test
     fun `a runtime config keeps what its builder sets`() {
-        val texts = MutableStateFlow(TextCatalog.EMPTY)
         val config = RuntimeConfig.builder(dataDir)
             .cacheDir(Path.of("cache"))
-            .configFile(Path.of("alexandrite.json"))
             .protect(Path.of("logs"))
             .protect(Path.of("install"))
             .zone(ZONE)
             .language(LanguageTag("zh-CN"))
-            .texts(texts)
             .shutdownGrace(Duration.ZERO)
             .startTimeout(5.milliseconds)
             .name("edge")
             .dispatcher(Dispatchers.IO)
             .build()
-        val catalog = TextCatalog.builder().text("notes", LanguageTag("zh-CN"), "saved", "已保存。").build()
 
-        assertSame(texts, config.texts)
-        val environment = RuntimeConfig.builder(dataDir).environment(mapOf("TOKEN" to "s3cret-value")).build()
-        assertEquals(mapOf("TOKEN" to "s3cret-value"), environment.environment)
-        assertFalse("s3cret-value" in environment.toString())
-        assertEquals(catalog, RuntimeConfig.builder(dataDir).texts(catalog).build().texts.value)
         assertEquals(
             listOf(
                 Path.of("cache"),
-                Path.of("alexandrite.json"),
                 listOf(Path.of("logs"), Path.of("install")),
                 ZONE,
                 LanguageTag("zh-CN"),
@@ -145,7 +133,7 @@ class SpecTest {
                 Dispatchers.IO,
             ),
             with(config) {
-                listOf(cacheDir, configFile, protected, zone, language, shutdownGrace, startTimeout, name, dispatcher)
+                listOf(cacheDir, protected, zone, language, shutdownGrace, startTimeout, name, dispatcher)
             },
         )
     }
@@ -205,7 +193,40 @@ class SpecTest {
         assertSame(config, spec.config)
         assertSame(plugins, spec.plugins)
         assertSame(ConfigSource.EMPTY, spec.pluginConfig)
+        assertNull(spec.configFile)
+        assertEquals(TextCatalog.EMPTY, spec.texts.value)
         spec.listener.onEvent(RuntimeEvent.Started)
+    }
+
+    @Test
+    fun `a runtime spec reads its config file once, with the environment it is given, and writes back to it`() {
+        val file = Files.createTempFile("alexandrite-spec-", ".json")
+        try {
+            Files.writeString(file, "{\"plugins\": {\"notes\": {\"token\": \"\${env:TOKEN}\"}}}")
+            val environment = mapOf("TOKEN" to "s3cret-value")
+            val builder = RuntimeSpec.builder(RuntimeConfig.builder(dataDir).build(), PluginSet.of())
+
+            val spec = builder.configFile(file, environment).build()
+            Files.writeString(file, "{}")
+
+            assertEquals(file, spec.configFile)
+            assertEquals(environment, spec.environment)
+            assertEquals(JsonPrimitive("s3cret-value"), spec.pluginConfig.tree("plugins.notes")?.get("token"))
+            assertNull(builder.pluginConfig(ConfigSource.EMPTY).build().configFile)
+            assertFailsWith<ConfigFileException.Missing> { builder.configFile(file.resolveSibling("missing.json")) }
+        } finally {
+            Files.delete(file)
+        }
+    }
+
+    @Test
+    fun `a runtime spec keeps the texts it is given`() {
+        val texts = MutableStateFlow(TextCatalog.EMPTY)
+        val catalog = TextCatalog.builder().text("notes", LanguageTag("zh-CN"), "saved", "已保存。").build()
+        val builder = RuntimeSpec.builder(RuntimeConfig.builder(dataDir).build(), PluginSet.of())
+
+        assertSame(texts, builder.texts(texts).build().texts)
+        assertEquals(catalog, builder.texts(catalog).build().texts.value)
     }
 
     // Values.
