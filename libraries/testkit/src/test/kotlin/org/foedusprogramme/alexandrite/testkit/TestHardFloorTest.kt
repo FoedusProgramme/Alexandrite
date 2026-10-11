@@ -61,5 +61,7 @@ class TestHardFloorTest {
         override val pluginDataRoot: Path = dataRoot.resolve("plugins")
         override val cacheRoot: Path = dataRoot.resolve("cache")
         override val protected: List<Path> = emptyList()
+        override val configTarget: Path? = configFile
+        override val configBackup: Path? = configFile?.resolveSibling("${configFile.fileName}.bak")
     }
 }

@@ -349,8 +349,9 @@ internal class AgentControlImpl(
             after(value)
         }
         workers.control(key, job)
+        val command = currentCoroutineContext()[RunningCommand]
         try {
-            job.done.await()
+            if (command == null) job.done.await() else command.waitingOnWorker { job.done.await() }
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
             if (!result.isCompleted) throw IllegalStateException("The agent stopped before the change was made.", e)

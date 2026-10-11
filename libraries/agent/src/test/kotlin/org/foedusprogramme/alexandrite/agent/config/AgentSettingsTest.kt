@@ -134,7 +134,6 @@ class AgentSettingsTest {
             """{"maxMediaBytes": 0}""" to "maxMediaBytes must be positive",
             """{"queue": {"perKey": 0}}""" to "queue.perKey must be positive",
             """{"queue": {"commandsPerChat": 0}}""" to "queue.commandsPerChat must be positive",
-            """{"queue": {"commandsRunning": 0}}""" to "queue.commandsRunning must be positive",
             """{"queue": {"commandGateSeconds": 0}}""" to "queue.commandGateSeconds must be positive",
             """{"shutdown": {"turnGraceSeconds": -1}}""" to "shutdown.turnGraceSeconds may not be negative",
             """{"shutdown": {"cancelJoinSeconds": -1}}""" to "shutdown.cancelJoinSeconds may not be negative",
@@ -278,6 +277,14 @@ class AgentSettingsTest {
         assertConfigFails(
             agents(""""coder": {"instructions": ["Hi", " "]}"""),
             "agents.coder.instructions holds a blank entry",
+        )
+    }
+
+    @Test
+    fun `the queue reads no commandsRunning`() {
+        assertConfigFails(
+            """{"queue": {"commandsRunning": 4}}""",
+            "Encountered an unknown key 'commandsRunning' at path: $",
         )
     }
 

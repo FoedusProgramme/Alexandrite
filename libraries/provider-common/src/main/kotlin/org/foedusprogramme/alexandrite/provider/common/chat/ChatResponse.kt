@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.provider.common.chat
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,6 +21,8 @@ import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.model.Warning
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantPart
+import org.foedusprogramme.alexandrite.sdk.transcript.Dialect
+import org.foedusprogramme.alexandrite.sdk.transcript.ProviderData
 import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningPart
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
@@ -141,10 +144,13 @@ internal class ChatResponse(
             builder.text.append(text)
             events += ModelEvent.TextDelta(builder.index, text)
         }
-        delta.toolCalls?.forEachIndexed { position, call -> call(call, position, events) }
+        val raws = raw["tool_calls"] as? JsonArray
+        delta.toolCalls?.forEachIndexed { position, call ->
+            call(call, raws?.getOrNull(position) as? JsonObject, position, events)
+        }
     }
 
-    private fun call(wire: ToolCallWire, position: Int, events: MutableList<ModelEvent>) {
+    private fun call(wire: ToolCallWire, raw: JsonObject?, position: Int, events: MutableList<ModelEvent>) {
         val index = wire.index
         val call = if (index != null) {
             indexed.getOrPut(index) { newCall(events) }
@@ -159,6 +165,7 @@ internal class ChatResponse(
                 it.isNotEmpty()
             }?.let { call.name = flavor.tools.callName(it, request.tools) }
         }
+        raw?.let(flavor.tools::readCall)?.let { call.data = JsonObject(call.data.orEmpty() + it) }
         val fragment = wire.function?.arguments.orEmpty()
         call.arguments.append(fragment)
         val name = call.name ?: return
@@ -178,17 +185,18 @@ internal class ChatResponse(
 
     private fun newCall(events: MutableList<ModelEvent>): CallBuilder {
         close(events)
-        return CallBuilder(parts.size).also {
+        return CallBuilder(parts.size, flavor.dialect).also {
             parts += it
             calls += it
         }
     }
 
-    /** Whether [wire], which names no index, starts a call after [call] rather than going on with it. */
+    /** Whether [wire], which names no index, starts a call after [call]: by its id, else by a second name. */
     private fun startsAnother(wire: ToolCallWire, call: CallBuilder): Boolean {
         val id = wire.id?.takeIf { it.isNotEmpty() }
+        if (id != null && call.wireId != null) return id != call.wireId
         val name = wire.function?.name?.takeIf { it.isNotEmpty() }
-        return (id != null && call.wireId != null && id != call.wireId) || (name != null && call.name != null)
+        return name != null && call.name != null
     }
 
     private fun <T : PartBuilder> open(builder: T, events: MutableList<ModelEvent>): T {
@@ -241,15 +249,20 @@ internal class ChatResponse(
         }
     }
 
-    private class CallBuilder(index: Int) : PartBuilder(index) {
+    private class CallBuilder(index: Int, private val dialect: Dialect) : PartBuilder(index) {
         var id: String? = null
         var wireId: String? = null
         var name: String? = null
         var started = false
         val arguments = StringBuilder()
 
-        override fun build(): Pair<List<ModelEvent>, AssistantPart> =
-            emptyList<ModelEvent>() to ToolCallPart(ToolCallId(id!!), name!!, arguments.toString())
+        /** What the flavor keeps of the call's raw fragments. */
+        var data: JsonObject? = null
+
+        override fun build(): Pair<List<ModelEvent>, AssistantPart> {
+            val kept = data?.let { ProviderData.EMPTY.with(dialect, it) } ?: ProviderData.EMPTY
+            return emptyList<ModelEvent>() to ToolCallPart(ToolCallId(id!!), name!!, arguments.toString(), kept)
+        }
     }
 
     private companion object {

@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.TestIndex
 import org.foedusprogramme.alexandrite.runtime.execute
 import org.foedusprogramme.alexandrite.runtime.explicit
+import org.foedusprogramme.alexandrite.runtime.logged
 import org.foedusprogramme.alexandrite.runtime.spec
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -22,8 +23,10 @@ import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
+import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import java.time.Clock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -54,6 +57,8 @@ class StoreBackendsTest {
     private fun store(id: String, vararg ports: Binding<*>): TestIndex = TestIndex(id, bindings = ports.toList())
 
     private fun failing(): ConversationStore = error("never created")
+
+    private fun records(): RecordStore = MemoryRecordStore(Clock.systemUTC())
 
     @Test
     fun `two enabled plugins that bind store ports fail CONFIG, naming both, before anything is created`() {
@@ -99,6 +104,30 @@ class StoreBackendsTest {
         }
 
         assertEquals(mapOf("probe mode $chat" to "\"rich\""), kept.rows)
+    }
+
+    @Test
+    fun `a store plugin that binds no RecordStore starts and warns that records live in memory`() {
+        val partial = explicit(store("files", port("files", key<ChatStateStore>(), ::States)), TestIndex("probe"))
+        val whole = explicit(
+            store(
+                "files",
+                port("files", key<ChatStateStore>(), ::States),
+                port("files", key<RecordStore>(), ::records),
+            ),
+            TestIndex("probe"),
+        )
+
+        val lines = logged { spec(partial, dataDir).execute() } + logged { spec(whole, dataDir).execute() }
+
+        val warnings = lines.filter { it.startsWith("WARN ") && "provides the store" in it }
+        assertEquals(
+            listOf(
+                "plugin 'files' provides the store but binds no RecordStore: the plugins' records, runtime grants " +
+                    "among them, live in memory and are lost at a restart",
+            ),
+            warnings.map { it.substringAfter(": ") },
+        )
     }
 
     @Test

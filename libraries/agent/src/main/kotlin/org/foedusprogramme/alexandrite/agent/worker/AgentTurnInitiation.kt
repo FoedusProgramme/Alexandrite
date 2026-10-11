@@ -15,7 +15,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
-import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -25,6 +24,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
+import org.foedusprogramme.alexandrite.sdk.turn.requireInitiable
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
@@ -52,10 +52,7 @@ internal class AgentTurnInitiation(
     private val held = HashMap<ChatAddress, ArrayDeque<Initiation>>()
 
     override fun initiate(plugin: String, turn: InitiatedTurn): Admission {
-        require(turn.kind != TurnKind.APPROVAL && turn.kind != TurnKind.AGENT_MESSAGE) {
-            "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval and agent " +
-                "message turns itself."
-        }
+        requireInitiable(plugin, turn)
         val now = clock.instant()
         val id = newTurnId(now)
         return try {

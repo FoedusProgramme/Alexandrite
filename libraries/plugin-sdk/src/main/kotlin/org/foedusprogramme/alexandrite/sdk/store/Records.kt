@@ -13,6 +13,8 @@ public interface Records {
     /**
      * The collection [name] of this plugin, whose values [serializer] reads and writes. A name is lowercase words of
      * letters, digits and `_`, joined by dots.
+     *
+     * A type may drop fields and gain fields with defaults.
      */
     public fun <T : Any> collection(name: String, serializer: KSerializer<T>): RecordCollection<T>
 }

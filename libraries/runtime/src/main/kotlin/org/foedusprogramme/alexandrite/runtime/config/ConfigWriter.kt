@@ -35,6 +35,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
 
 /** [value] set at [path] below a plugin's config root, or that member removed when [value] is null. */
 internal class ConfigChange(val path: List<String>, val value: JsonElement?)
@@ -173,6 +174,8 @@ internal class ConfigWriter(
 
         val REFERENCE = Regex("\\$\\{env:[A-Za-z_][A-Za-z0-9_]*}")
 
+        val OWNER_ONLY = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+
         val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
         fun isReference(value: JsonElement): Boolean =
@@ -217,15 +220,30 @@ internal class ConfigWriter(
             }
         }
 
-        /** Keeps [previous] as the backup of [target], then puts [next] in its place. */
+        /** Puts [next] in the place of [target] through its backup, which then keeps [previous]. */
         fun replace(target: Path, previous: ByteArray, next: ByteArray) {
             val permissions = try {
                 Files.getPosixFilePermissions(target)
             } catch (e: UnsupportedOperationException) {
                 null
             }
-            writeAtomically(configBackup(target), previous, permissions)
-            writeAtomically(target, next, permissions)
+            val backup = configBackup(target)
+            try {
+                create(backup, next, permissions)
+                Files.move(backup, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (e: Throwable) {
+                try {
+                    Files.deleteIfExists(backup)
+                } catch (cleanup: IOException) {
+                    e.addSuppressed(cleanup)
+                }
+                throw e
+            }
+            try {
+                create(backup, previous, permissions)
+            } catch (e: IOException) {
+                logger.warn("Cannot keep the previous config file as {}: {}", backup, e.toString())
+            }
             val directory = checkNotNull(target.parent)
             try {
                 FileChannel.open(directory, StandardOpenOption.READ).use { it.force(true) }
@@ -234,24 +252,17 @@ internal class ConfigWriter(
             }
         }
 
-        private fun writeAtomically(destination: Path, bytes: ByteArray, permissions: Set<PosixFilePermission>?) {
-            val temporary = Files.createTempFile(destination.parent, ".${destination.fileName}.", ".tmp")
-            try {
-                permissions?.let { Files.setPosixFilePermissions(temporary, it) }
-                FileChannel.open(temporary, StandardOpenOption.WRITE).use { channel ->
-                    val buffer = ByteBuffer.wrap(bytes)
-                    while (buffer.hasRemaining()) channel.write(buffer)
-                    channel.force(true)
-                }
-                Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (e: Throwable) {
-                try {
-                    Files.deleteIfExists(temporary)
-                } catch (cleanup: IOException) {
-                    e.addSuppressed(cleanup)
-                }
-                throw e
+        /** Writes [bytes] to a new file at [destination] with [permissions], in the place of what is there. */
+        private fun create(destination: Path, bytes: ByteArray, permissions: Set<PosixFilePermission>?) {
+            Files.deleteIfExists(destination)
+            val owner = permissions?.let { arrayOf(PosixFilePermissions.asFileAttribute(OWNER_ONLY)) }.orEmpty()
+            val options = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+            FileChannel.open(destination, options, *owner).use { channel ->
+                val buffer = ByteBuffer.wrap(bytes)
+                while (buffer.hasRemaining()) channel.write(buffer)
+                channel.force(true)
             }
+            permissions?.let { Files.setPosixFilePermissions(destination, it) }
         }
     }
 }

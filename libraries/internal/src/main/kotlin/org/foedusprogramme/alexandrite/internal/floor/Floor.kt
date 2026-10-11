@@ -5,6 +5,8 @@ import org.foedusprogramme.alexandrite.internal.path.NameCase
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
 import org.foedusprogramme.alexandrite.internal.path.isAtOrUnder
 import org.foedusprogramme.alexandrite.internal.path.nameKey
+import java.io.File
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /** A protected place: [path] and everything under it, except what lies in its [carveOuts]. */
@@ -41,16 +43,18 @@ public data class Overlap(val kind: String, val placement: Placement, val root: 
 /**
  * The hard floor: refuses every path in a protected place, however it is spelled.
  *
- * Beside [places], every floor protects the credential stores and `.claude*` entries of [home], `/dev`, the sensitive
- * `/proc/<pid>` entries and the macOS magic root entries.
+ * Beside [places], every floor protects the credential stores and `.claude*` entries of [home], the credential stores
+ * that [environment] moves, `/dev`, the sensitive `/proc/<pid>` entries and the macOS magic root entries.
  */
 public class Floor(
     places: List<DenyRoot>,
     /** Null when the home directory is unknown. */
     home: Path?,
     private val canonicalizer: PathCanonicalizer = PathCanonicalizer(),
+    environment: Map<String, String> = emptyMap(),
 ) {
-    private val roots: List<Root> = standardRoots(home).map { Root(it, null) } + places.map { Root(it, it) }
+    private val roots: List<Root> =
+        standardRoots(home, environment).map { Root(it, null) } + places.map { Root(it, it) }
     private val home: CanonicalPath? = home?.let(canonicalizer::canonicalize)
 
     /** [path] (absolute) made canonical and checked, a refusal naming the innermost place it lies in. */
@@ -146,9 +150,34 @@ private fun isMagic(path: CanonicalPath): Boolean {
     }
 }
 
-private fun standardRoots(home: Path?): List<DenyRoot> =
+private fun standardRoots(home: Path?, environment: Map<String, String>): List<DenyRoot> =
     home?.let { CREDENTIAL_STORES.map { (name, kind) -> DenyRoot(home.resolve(name), kind) } }.orEmpty() +
+        movedStores(environment) +
         DenyRoot(Path.of("/dev"), "devices")
+
+/** The credential stores at the absolute places that the variables of [environment] name. */
+private fun movedStores(environment: Map<String, String>): List<DenyRoot> {
+    fun places(variable: String): List<Path> {
+        val value = environment[variable] ?: return emptyList()
+        val parts = if (variable in PATH_LISTS) value.split(File.pathSeparatorChar) else listOf(value)
+        return parts.mapNotNull(::absolute)
+    }
+    val bases = XDG_BASES.flatMap { (variable, prefix) ->
+        places(variable).flatMap { base ->
+            CREDENTIAL_STORES.filter { it.first.startsWith(prefix) }
+                .map { (name, kind) -> DenyRoot(base.resolve(name.removePrefix(prefix)), kind) }
+        }
+    }
+    return bases + MOVED_STORES.flatMap { (variable, entry, kind) ->
+        places(variable).map { DenyRoot(if (entry.isEmpty()) it else it.resolve(entry), kind) }
+    }
+}
+
+private fun absolute(text: String): Path? = try {
+    text.takeIf { it.isNotBlank() }?.let { Path.of(it) }?.takeIf { it.isAbsolute }?.normalize()
+} catch (e: InvalidPathException) {
+    null
+}
 
 private val CREDENTIAL_STORES = listOf(
     ".ssh" to "SSH keys",
@@ -191,7 +220,44 @@ private val CREDENTIAL_STORES = listOf(
     "AppData/Roaming/Microsoft/Credentials" to "Windows credentials",
     "AppData/Local/Microsoft/Credentials" to "Windows credentials",
     "AppData/Roaming/Microsoft/Protect" to "Windows credentials",
+    "Library/Application Support/sops" to "encryption keys",
+    "Library/Application Support/doctl" to "cloud credentials",
+    ".config/github-copilot" to "AI assistant credentials",
+    ".codex" to "AI assistant credentials",
+    ".gemini" to "AI assistant credentials",
 )
+
+/** The variables that move the stores of [CREDENTIAL_STORES] below a home-relative prefix to another directory. */
+private val XDG_BASES = listOf("XDG_CONFIG_HOME" to ".config/", "XDG_DATA_HOME" to ".local/share/")
+
+/** A variable that names a credential store, or the directory that holds [entry]. */
+private data class MovedStore(val variable: String, val entry: String, val kind: String)
+
+private val MOVED_STORES = listOf(
+    MovedStore("CLOUDSDK_CONFIG", "", "cloud credentials"),
+    MovedStore("AWS_SHARED_CREDENTIALS_FILE", "", "cloud credentials"),
+    MovedStore("AWS_CONFIG_FILE", "", "cloud credentials"),
+    MovedStore("AZURE_CONFIG_DIR", "", "cloud credentials"),
+    MovedStore("BOTO_CONFIG", "", "cloud credentials"),
+    MovedStore("RCLONE_CONFIG", "", "cloud credentials"),
+    MovedStore("TF_CLI_CONFIG_FILE", "", "infrastructure credentials"),
+    MovedStore("GNUPGHOME", "", "GPG keys"),
+    MovedStore("SOPS_AGE_KEY_FILE", "", "encryption keys"),
+    MovedStore("GH_CONFIG_DIR", "", "GitHub credentials"),
+    MovedStore("DOCKER_CONFIG", "", "container credentials"),
+    MovedStore("NPM_CONFIG_USERCONFIG", "", "package registry credentials"),
+    MovedStore("CARGO_HOME", "credentials", "package registry credentials"),
+    MovedStore("CARGO_HOME", "credentials.toml", "package registry credentials"),
+    MovedStore("GRADLE_USER_HOME", "gradle.properties", "build credentials"),
+    MovedStore("PGPASSFILE", "", "database credentials"),
+    MovedStore("KUBECONFIG", "", "cluster credentials"),
+    MovedStore("PASSWORD_STORE_DIR", "", "password stores"),
+    MovedStore("CODEX_HOME", "", "AI assistant credentials"),
+    MovedStore("CLAUDE_CONFIG_DIR", "", CLAUDE),
+)
+
+/** The variables that hold a list of paths. */
+private val PATH_LISTS = setOf("KUBECONFIG")
 
 private const val CLAUDE = "Claude credentials"
 private const val CLAUDE_PREFIX = ".claude"

@@ -141,4 +141,7 @@ private const val LOCK_STRIPES = 64
 
 private val NAME = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*")
 
-private val JSON = Json { encodeDefaults = true }
+private val JSON = Json {
+    encodeDefaults = true
+    ignoreUnknownKeys = true
+}

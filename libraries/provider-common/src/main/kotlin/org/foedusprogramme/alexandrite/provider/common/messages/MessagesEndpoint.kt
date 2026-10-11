@@ -43,7 +43,8 @@ public class MessagesSettings(
 
 /**
  * An endpoint that speaks the Messages API in [flavor] at `{baseUrl}/v1/messages`, which describes each model by the
- * last listing it read.
+ * last listing it read. Settings that name [PROVIDER_HEADERS] in [EndpointSettings.providerHeaders] keep the operator
+ * from setting them.
  */
 public class MessagesEndpoint(
     override val id: EndpointId,
@@ -58,6 +59,7 @@ public class MessagesEndpoint(
         flavor.listing,
         flavor.dialect,
         mapOf("anthropic-version" to flavor.version),
+        AUTH_HEADER,
     )
 
     override suspend fun models(): List<ModelInfo> = core.models()
@@ -127,7 +129,7 @@ public class MessagesEndpoint(
     }
 
     public companion object {
-        /** The header that carries the API key of the standard API. */
+        /** The header that carries the API key unless [EndpointSettings.authHeader] names another. */
         public const val AUTH_HEADER: String = "x-api-key"
 
         /** The headers that a Messages endpoint sets on every request itself. */

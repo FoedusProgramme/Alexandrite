@@ -13,34 +13,41 @@ public class RuntimeSpec private constructor(
     public val plugins: PluginSet,
     /** The config of every plugin, read below each plugin's config root. */
     public val pluginConfig: ConfigSource,
-    /** The file that [ConfigFile.read] read [pluginConfig] from, which changes are written back to, null for none. */
+    /** The host's config file, null when the host names none. */
     public val configFile: Path?,
     /** Texts that take the place of the plugins' own, followed while the runtime runs. */
     public val texts: StateFlow<TextCatalog>,
     public val listener: RuntimeListener,
+    /** The file that changes are written back to, null for none. */
+    internal val writableFile: Path?,
     internal val environment: Map<String, String>,
 ) {
     public class Builder internal constructor(private val config: RuntimeConfig, private val plugins: PluginSet) {
         private var pluginConfig: ConfigSource = ConfigSource.EMPTY
         private var configFile: Path? = null
+        private var writableFile: Path? = null
         private var environment: Map<String, String> = emptyMap()
         private var texts: StateFlow<TextCatalog> = NO_TEXTS
         private var listener = RuntimeListener {}
 
         /**
-         * Reads the config of every plugin from [file] now with [ConfigFile.read], which the runtime then writes
-         * changes back to.
+         * Reads the config of every plugin from [file] now with [ConfigFile.read], and names [file] the host's config
+         * file.
          *
          * Throws [ConfigFileException] when the file cannot be read.
          */
         public fun configFile(file: Path, environment: Map<String, String> = System.getenv()): Builder =
-            pluginConfig(ConfigFile.read(file, environment))
+            pluginConfig(ConfigFile.read(file, environment), file)
 
-        /** The config of every plugin, whose file the runtime writes changes back to when [ConfigFile.read] read it. */
-        public fun pluginConfig(pluginConfig: ConfigSource): Builder = apply {
+        /**
+         * The config of every plugin and the host's config file, which the runtime writes changes back to while
+         * [pluginConfig] is what [ConfigFile.read] read from it.
+         */
+        public fun pluginConfig(pluginConfig: ConfigSource, configFile: Path? = null): Builder = apply {
             this.pluginConfig = pluginConfig
-            val read = pluginConfig as? FileConfigSource
-            configFile = read?.file
+            this.configFile = configFile
+            val read = (pluginConfig as? FileConfigSource)?.takeIf { configFile != null && it.file.same(configFile) }
+            writableFile = read?.file
             environment = read?.environment.orEmpty()
         }
 
@@ -51,7 +58,7 @@ public class RuntimeSpec private constructor(
         public fun listener(listener: RuntimeListener): Builder = apply { this.listener = listener }
 
         public fun build(): RuntimeSpec =
-            RuntimeSpec(config, plugins, pluginConfig, configFile, texts, listener, environment)
+            RuntimeSpec(config, plugins, pluginConfig, configFile, texts, listener, writableFile, environment)
     }
 
     public companion object {
@@ -60,3 +67,5 @@ public class RuntimeSpec private constructor(
 }
 
 private val NO_TEXTS: StateFlow<TextCatalog> = MutableStateFlow(TextCatalog.EMPTY).asStateFlow()
+
+private fun Path.same(other: Path): Boolean = toAbsolutePath().normalize() == other.toAbsolutePath().normalize()

@@ -108,6 +108,40 @@ class SecretMaskingTest {
     }
 
     @Test
+    fun `settings without an auth header send the key in the wire API's own and keep its headers`() {
+        fun plain(baseUrl: String) = EndpointSettings(
+            baseUrl = baseUrl,
+            apiKey = Secret(FIXTURE_API_KEY),
+            headers = mapOf("Anthropic-Version" to Secret("1999-01-01")),
+            models = mapOf("m" to ModelConfig()),
+            discover = false,
+            timeouts = FIXTURE_TIMEOUTS,
+        )
+        server.enqueue(chunks(chunk { with("content", "Hi.") }, chunk("stop")))
+        server.enqueue(sse(*textEvents(listOf("Hi."))))
+
+        runBlocking {
+            ChatEndpoint(EndpointId("test"), plain("${server.baseUrl}/v1"), ChatFlavor.STANDARD).use {
+                it.stream(request()).toList()
+            }
+            MessagesEndpoint(EndpointId("test"), plain(server.baseUrl), MessagesFlavor.STANDARD).use {
+                it.stream(request()).toList()
+            }
+        }
+
+        val (chat, messages) = server.requests
+        assertEquals("Bearer $FIXTURE_API_KEY", chat.header("authorization"))
+        assertEquals(
+            listOf(FIXTURE_API_KEY, null, MessagesFlavor.STANDARD.version),
+            listOf(
+                messages.header("x-api-key"),
+                messages.header("authorization"),
+                messages.header("anthropic-version"),
+            ),
+        )
+    }
+
+    @Test
     fun `a status error that echoes the key or a configured header is masked`() {
         val body = """{"error":{"message":"$echo","type":"bad_$TEAM"}}"""
 

@@ -178,6 +178,7 @@ internal class ChatRequest(
                         put("name", flavor.tools.wireName(call.name))
                         put("arguments", call.arguments.ifEmpty { "{}" })
                     }
+                    call.providerData.entries[flavor.dialect]?.let { flavor.tools.writeCall(call, it, this) }
                 }
             }
         }

@@ -12,8 +12,10 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.BotIndex
+import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.runtime.Events
 import org.foedusprogramme.alexandrite.runtime.Probe
 import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
@@ -45,7 +47,11 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
+import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
+import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import org.foedusprogramme.alexandrite.sdk.di.Key
 import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
@@ -80,9 +86,11 @@ import java.time.Clock
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -253,6 +261,53 @@ class GraphTest {
         assertEquals(listOf(dataDir, dataDir.resolve("cache")), listOf(paths.dataRoot, paths.cacheRoot))
         assertEquals(listOf(null, null, null), listOf(paths.configFile, paths.configTarget, paths.configBackup))
         assertEquals(emptyList(), paths.protected)
+    }
+
+    @Test
+    fun `a host names its config file beside a source it derives from it, which edits do not write back to`() {
+        val directory = dataDir.toRealPath()
+        val file = Files.writeString(directory.resolve("alexandrite.json"), "{}")
+        val config = RuntimeConfig.builder(directory.resolve("root")).build()
+        val probe = probe("probe", "paths" to key<HostPaths>(), "editor" to key<ConfigEditor>("probe"))
+        val plugins = explicit(TestIndex("probe", bindings = listOf(probe)))
+        val derived = JsonConfigSource(checkNotNull(ConfigFile.read(file).tree("")))
+        lateinit var named: HostPaths
+        lateinit var refusal: ConfigEditException
+        lateinit var unnamed: HostPaths
+
+        RuntimeSpec.builder(config, plugins).pluginConfig(derived, file).build().execute {
+            val values = services.get(key<Probe>()).values
+            named = values.getValue("paths") as HostPaths
+            val editor = values.getValue("editor") as ConfigEditor
+            refusal = assertFailsWith<ConfigEditException> { editor.edit { set("note", JsonPrimitive("x")) } }
+        }
+        RuntimeSpec.builder(config, plugins).pluginConfig(ConfigFile.read(file)).build().execute {
+            unnamed = services.get(key<Probe>()).values.getValue("paths") as HostPaths
+        }
+
+        assertEquals(file to file, named.configFile to named.configTarget)
+        assertEquals(ConfigEditRefusal.NO_FILE, refusal.refusal)
+        assertEquals("{}", Files.readString(file))
+        assertNull(unnamed.configFile)
+    }
+
+    @Test
+    fun `a config file that is gone when the paths are bound leaves every config path absolute`() {
+        val given = Path.of("gone", "alexandrite.json")
+        val config = RuntimeConfig.builder(dataDir.resolve("root")).build()
+        val probe = probe("probe", "paths" to key<HostPaths>())
+        lateinit var paths: HostPaths
+
+        RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe))))
+            .pluginConfig(ConfigSource.EMPTY, given)
+            .build()
+            .execute { paths = services.get(key<Probe>()).values.getValue("paths") as HostPaths }
+
+        val file = given.toAbsolutePath()
+        assertEquals(
+            listOf(file, file, file.resolveSibling("alexandrite.json.bak")),
+            listOf(paths.configFile, paths.configTarget, paths.configBackup),
+        )
     }
 
     @Test

@@ -33,6 +33,8 @@ class SubclassOptInTest {
             override val pluginDataRoot get() = TODO()
             override val cacheRoot get() = TODO()
             override val configFile get() = TODO()
+            override val configTarget get() = TODO()
+            override val configBackup get() = TODO()
             override val protected get() = TODO()
         }
 

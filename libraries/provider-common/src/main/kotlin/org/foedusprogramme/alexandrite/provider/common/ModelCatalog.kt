@@ -14,14 +14,18 @@ import org.slf4j.LoggerFactory
 import java.net.URI
 
 /**
- * The HTTP side of one endpoint, which sends the API key of [settings] in its [EndpointSettings.authHeader] and the
- * headers [own] with every request.
+ * The HTTP side of one endpoint, which sends the API key of [settings] in its [EndpointSettings.authHeader], else in
+ * [authHeader], and the headers [own] with every request.
  */
-internal class EndpointConnection(settings: EndpointSettings, own: Map<String, String> = emptyMap()) : AutoCloseable {
+internal class EndpointConnection(
+    settings: EndpointSettings,
+    own: Map<String, String> = emptyMap(),
+    authHeader: String = "authorization",
+) : AutoCloseable {
     val base: String = settings.baseUrl.trimEnd('/')
     val transport: HttpTransport = HttpTransport(settings.timeouts.timeouts())
-    private val own = auth(settings) + own
-    private val headers = settings.headers.mapValues { it.value.reveal() }
+    private val own = auth(settings, settings.authHeader ?: authHeader) + own
+    private val headers = settings.headers.entries.associate { it.key.lowercase() to it.value.reveal() }
     private val secrets = listOfNotNull(settings.apiKey?.reveal()) + headers.values
 
     fun call(
@@ -32,11 +36,11 @@ internal class EndpointConnection(settings: EndpointSettings, own: Map<String, S
         extra: Map<String, String> = emptyMap(),
     ): HttpCall {
         val all = buildMap {
+            putAll(headers)
             put("accept", accept)
             put("content-type", "application/json")
             putAll(own)
             putAll(extra)
-            putAll(headers)
         }
         return HttpCall(method, URI(url), all, body, secrets)
     }
@@ -46,11 +50,11 @@ internal class EndpointConnection(settings: EndpointSettings, own: Map<String, S
     }
 }
 
-/** The API key of [settings] in its header, after `Bearer` in `authorization`. */
-private fun auth(settings: EndpointSettings): Map<String, String> {
+/** The API key of [settings] in [header], after `Bearer` in `authorization`. */
+private fun auth(settings: EndpointSettings, header: String): Map<String, String> {
     val key = settings.apiKey?.reveal() ?: return emptyMap()
-    val header = settings.authHeader.lowercase()
-    return mapOf(header to if (header == "authorization") "Bearer $key" else key)
+    val name = header.lowercase()
+    return mapOf(name to if (name == "authorization") "Bearer $key" else key)
 }
 
 /** The models of the endpoint [id], each described by the config, the last listing [models] read and [listing]. */
@@ -74,10 +78,7 @@ internal class ModelCatalog(
     fun describe(model: String): ModelInfo =
         modelInfo(model, dialect, settings.models[model]?.facts(model), listed[model], listing.defaults)
 
-    /**
-     * The models the backend lists, else those it listed last, null when it has no listing or never listed one and the
-     * config names models.
-     */
+    /** The models the backend lists, null when it has no listing or never listed one and the config names models. */
     private suspend fun discover(): List<ModelFacts>? {
         var failure: HttpException? = null
         val urls = try {
@@ -95,12 +96,7 @@ internal class ModelCatalog(
             }
         }
         val error = failure?.toModelException(false) ?: return null
-        val last = listed
-        if (last.isNotEmpty()) {
-            log.warn("Endpoint '{}' cannot list its models, so it keeps its last listing: {}", id, error.message)
-            return last.values.toList()
-        }
-        if (settings.models.isEmpty()) throw error
+        if (listed.isNotEmpty() || settings.models.isEmpty()) throw error
         log.warn("Endpoint '{}' cannot list its models, so it describes the configured ones: {}", id, error.message)
         return null
     }

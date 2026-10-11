@@ -21,6 +21,7 @@ import org.foedusprogramme.alexandrite.runtime.i18n.RuntimeTexts
 import org.foedusprogramme.alexandrite.runtime.plugin.pluginProblems
 import org.foedusprogramme.alexandrite.runtime.startFailure
 import org.foedusprogramme.alexandrite.runtime.store.UnreadableRecordListener
+import org.foedusprogramme.alexandrite.runtime.store.partialStore
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -147,6 +148,9 @@ internal class Assembly(
             logger.warn("{}: ignoring the config at '{}': no plugin of the plugin set reads it", name, it)
         }
         if (resolution.problems.isNotEmpty()) throw startFailure(name, StartStage.CONFIG, resolution.problems)
+        partialStore(resolution.enabled.map { it.member }, resolution.enabled.associate { it.id to it.bindings })?.let {
+            logger.warn("{}: {}", name, it)
+        }
         logger.info(
             "{}: loading plugins [{}], disabled [{}]",
             name,
@@ -180,7 +184,7 @@ internal class Assembly(
         val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
         texts.install(spec.texts.value)
         CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.texts.collect(texts::install) }
-        val writer = ConfigWriter(spec.configFile, spec.environment, name)
+        val writer = ConfigWriter(spec.writableFile, spec.environment, name)
         val editors = enabled.associate { it.id to PluginConfigEditor(it, writer) }
         val runtime = runtimeBindings(
             spec.config,

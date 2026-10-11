@@ -5,7 +5,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
-import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
@@ -14,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
 import org.foedusprogramme.alexandrite.sdk.turn.TurnTicket
+import org.foedusprogramme.alexandrite.sdk.turn.requireInitiable
 
 /** A turn whose outcome the test decides. */
 public class TestTurnTicket(override val turn: TurnId = TurnId("test-turn")) : TurnTicket {
@@ -93,10 +93,7 @@ public class RecordingTurnInitiator(
     override fun initiate(turn: InitiatedTurn): Admission = record(plugin, turn)
 
     internal fun record(plugin: String, turn: InitiatedTurn): Admission {
-        require(turn.kind != TurnKind.APPROVAL && turn.kind != TurnKind.AGENT_MESSAGE) {
-            "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval and agent " +
-                "message turns itself."
-        }
+        requireInitiable(plugin, turn)
         return admissions.admit(Initiated(plugin, turn))
     }
 

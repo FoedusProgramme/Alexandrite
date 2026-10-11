@@ -168,7 +168,10 @@ private fun host(
         err.println("alexandrite: ${e.message}")
         return ExitCode.CONFIG
     }
-    val spec = RuntimeSpec.builder(config, plugins).pluginConfig(source).texts(texts.catalog).build()
+    val spec = RuntimeSpec.builder(config, plugins)
+        .pluginConfig(source, locations.configFile)
+        .texts(texts.catalog)
+        .build()
     logger.info(
         "Alexandrite {} starting with config {}, data {}, cache {}",
         alexandriteVersion,

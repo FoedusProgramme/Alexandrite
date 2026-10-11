@@ -23,6 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.Dialect
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningSeal
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 
 /**
  * How a family of backends speaks Chat Completions: its wire dialect and, one part per concern, what it does its own
@@ -55,7 +56,7 @@ public open class ChatReasoning {
         return null
     }
 
-    /** Adds the fields of a request that asks [info]'s model for no effort to [body]. */
+    /** Adds to [body] the fields of a request that sets no effort and so leaves [info]'s model its default. */
     public open fun requestNoEffort(info: ModelInfo, body: JsonObjectBuilder) {}
 
     /** Adds the reasoning of [parts] that [request]'s model must get back to the assistant [message]. */
@@ -110,14 +111,21 @@ public open class ChatTools {
         return null
     }
 
-    /** The tool that a call naming [wire] calls, given the [offered] tools. */
-    public open fun callName(wire: String, offered: List<ToolDefinition>): String = ToolNames.fromWire(wire) ?: wire
+    /** The tool that a call naming [wire] calls, given the [offered] tools: the inverse of [wireName]. */
+    public open fun callName(wire: String, offered: List<ToolDefinition>): String =
+        offered.firstOrNull { wireName(it.name) == wire }?.name ?: ToolNames.fromWire(wire) ?: wire
 
     /** The name that the tool [name] and its stored calls go out with, one for each name. */
     public open fun wireName(name: String): String = wireToolName(name)
 
     /** The id that the stored call [id] and its result go out with, one for each id. */
     public open fun wireCallId(id: ToolCallId): String = CHAT_CALL_IDS.of(id.value)
+
+    /** The fields of the raw tool call [call] that the model needs back with it, null when it needs none. */
+    public open fun readCall(call: JsonObject): JsonObject? = null
+
+    /** Adds to [element], the object of [call] in a request's `tool_calls`, the fields that [readCall] [kept]. */
+    public open fun writeCall(call: ToolCallPart, kept: JsonObject, element: JsonObjectBuilder) {}
 }
 
 /** How a backend keeps requests on one prompt cache and counts what the cache held. */

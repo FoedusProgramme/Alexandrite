@@ -31,7 +31,7 @@ public fun testHardFloor(
     protected: List<Path> = emptyList(),
     home: Path? = Path.of(System.getProperty("user.home")),
 ): HardFloor {
-    val configurations = listOfNotNull(paths.configFile?.parent, paths.configTarget?.parent, paths.configBackup)
+    val configurations = listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup)
         .distinct()
         .map { DenyRoot(it, "Alexandrite's configuration") }
     val places = configurations +

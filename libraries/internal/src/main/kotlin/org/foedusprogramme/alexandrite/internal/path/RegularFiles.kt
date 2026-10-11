@@ -22,15 +22,22 @@ public fun hardLinks(file: Path): Int = try {
     1
 }
 
-/** Opens [file] to read without following a link at its end, once it is a regular file with one hard link. */
+/** Opens [file] to read, checked as a regular file with one hard link before the open and after it. */
 public fun openRegularFile(file: Path): InputStream {
+    val before = regular(file)
     val channel = Files.newByteChannel(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
     try {
-        val attributes = Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-        if (!attributes.isRegularFile || hardLinks(file) > 1) throw NotRegularFileException(file)
+        if (regular(file).fileKey() != before.fileKey()) throw NotRegularFileException(file)
         return Channels.newInputStream(channel)
     } catch (e: Throwable) {
         channel.close()
         throw e
     }
+}
+
+/** The attributes of [file], once it is a regular file with one hard link. */
+private fun regular(file: Path): BasicFileAttributes {
+    val attributes = Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+    if (!attributes.isRegularFile || hardLinks(file) > 1) throw NotRegularFileException(file)
+    return attributes
 }

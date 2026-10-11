@@ -13,7 +13,6 @@ import org.foedusprogramme.alexandrite.provider.common.string
 import org.foedusprogramme.alexandrite.provider.common.strings
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
-import org.foedusprogramme.alexandrite.sdk.tool.ToolNames
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 
 internal val LMSTUDIO_FLAVOR: ChatFlavor =
@@ -54,8 +53,8 @@ internal object LmStudioTools : ChatTools() {
 
     /** The tool of [wire], also when the model wrote its name in snake case. */
     override fun callName(wire: String, offered: List<ToolDefinition>): String {
-        offered.firstOrNull { ToolNames.wire(it.name) == wire }?.let { return it.name }
-        val matches = offered.filter { snake(ToolNames.wire(it.name)) == snake(wire) }
+        offered.firstOrNull { wireName(it.name) == wire }?.let { return it.name }
+        val matches = offered.filter { snake(wireName(it.name)) == snake(wire) }
         return matches.singleOrNull()?.name ?: super.callName(wire, offered)
     }
 

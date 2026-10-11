@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
@@ -41,6 +42,20 @@ internal class AgentCommandContext(
 
 /** The command whose handler the coroutine runs. */
 internal class RunningCommand(val turn: TurnInfo) : AbstractCoroutineContextElement(Key) {
+    private val waits = AtomicInteger()
+
+    /** Whether the handler waits for a change it queued at a worker. */
+    val onWorker: Boolean get() = waits.get() > 0
+
+    suspend fun <T> waitingOnWorker(block: suspend () -> T): T {
+        waits.incrementAndGet()
+        try {
+            return block()
+        } finally {
+            waits.decrementAndGet()
+        }
+    }
+
     companion object Key : CoroutineContext.Key<RunningCommand>
 }
 

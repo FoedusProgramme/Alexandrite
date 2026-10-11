@@ -145,15 +145,16 @@ class ModelDiscoveryTest {
     }
 
     @Test
-    fun `a listing that fails keeps the models the endpoint listed last`() {
+    fun `a listing that fails after one that succeeded fails, also when the config names models`() {
         server.enqueue(fakeResponse { body(listing(model("a"))) }, "/v1/models")
         server.enqueue(FakeResponse.builder(503).body("{}").build(), "/v1/models")
-        val endpoint = chatEndpoint(server, ChatFlavor.STANDARD, emptyMap())
+        chatEndpoint(server, ChatFlavor.STANDARD, mapOf("mine" to ModelConfig())).use { endpoint ->
+            val first = runBlocking { endpoint.models() }
+            val error = assertFailsWith<ModelException> { runBlocking { endpoint.models() } }.error
 
-        val (first, second) = runBlocking { endpoint.use { listOf(it.models(), it.models()) } }
-
-        assertEquals(listOf("a"), first.map { it.id })
-        assertEquals(first, second)
+            assertEquals(listOf("a", "mine"), first.map { it.id })
+            assertEquals(ModelErrorKind.OVERLOADED, error.kind)
+        }
         assertEquals(2, server.requests.size)
     }
 

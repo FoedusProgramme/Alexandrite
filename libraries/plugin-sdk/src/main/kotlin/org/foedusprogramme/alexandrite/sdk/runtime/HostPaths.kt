@@ -15,14 +15,14 @@ public interface HostPaths {
     /** The root of every plugin's cache directory. */
     public val cacheRoot: Path
 
-    /** The config file the host read, null when it read none. */
+    /** The host's config file, null when the host names none. */
     public val configFile: Path?
 
     /** The file [configFile] names with its links followed. */
-    public val configTarget: Path? get() = configFile
+    public val configTarget: Path?
 
-    /** The copy of the config file that the host keeps when it writes the file. */
-    public val configBackup: Path? get() = null
+    /** The copy of the config file that the host keeps beside [configTarget] when it writes the file. */
+    public val configBackup: Path?
 
     /** The places the host declares off-limits. */
     public val protected: List<Path>

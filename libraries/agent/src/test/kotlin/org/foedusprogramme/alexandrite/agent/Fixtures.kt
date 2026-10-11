@@ -214,5 +214,7 @@ fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths =
     override val pluginDataRoot: Path = dataRoot.resolve("plugins")
     override val cacheRoot: Path = dataRoot.resolve("cache")
     override val configFile = configFile
+    override val configTarget = configFile
+    override val configBackup = configFile?.let { it.resolveSibling("${it.fileName}.bak") }
     override val protected = emptyList<Path>()
 }

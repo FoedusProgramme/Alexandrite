@@ -31,10 +31,10 @@ class CommandLanesTest {
     private val model = ScriptedModel()
     private val commands = TestCommands()
 
-    private fun harness(perChat: Int = 10, running: Int = 4, gateSeconds: Int = 30): PluginHarness = agentHarness(
+    private fun harness(perChat: Int = 10, gateSeconds: Int = 30): PluginHarness = agentHarness(
         """
         {
-          "queue": {"commandsPerChat": $perChat, "commandsRunning": $running, "commandGateSeconds": $gateSeconds},
+          "queue": {"commandsPerChat": $perChat, "commandGateSeconds": $gateSeconds},
           "shutdown": {"turnGraceSeconds": 0, "cancelJoinSeconds": 2},
           "agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}
         }
@@ -52,7 +52,7 @@ class CommandLanesTest {
 
     @Test
     fun `a lane admits commandsPerChat counted invocations and runs them one at a time, in submit order`() {
-        harness(perChat = 2, running = 1).execute {
+        harness(perChat = 2).execute {
             commands.control = get()
             val channel = channel()
             val first = channel.receiveCommand("wait", "a").accepted
@@ -117,7 +117,7 @@ class CommandLanesTest {
             hang()
         }
 
-        harness(running = 1).execute {
+        harness().execute {
             commands.control = get()
             val channel = channel()
             val running = channel.receive("Hi").accepted
@@ -187,6 +187,44 @@ class CommandLanesTest {
         }
 
         assertEquals(1, lines.count { it.startsWith("WARN Command ") && "they go on" in it })
+    }
+
+    @Test
+    fun `commands queued behind one that runs commandGateSeconds off a worker hold no messages until it ends`() {
+        model.reply { text("One.") }.reply { text("Two.") }.reply { text("Three.") }
+
+        val lines = logged {
+            harness(gateSeconds = 1).execute {
+                commands.control = get()
+                val channel = channel()
+                val hung = channel.receiveCommand("wait", "a").accepted
+                val queued = channel.receiveCommand("wait", "b").accepted
+                awaitStarted(1)
+                val held = channel.receive("Hi").accepted
+                assertTrue(held.ticket.outcome() is TurnOutcome.Completed)
+                val later = channel.receiveCommand("wait", "c").accepted
+                val passing = channel.receive("Again").accepted
+                assertTrue(passing.ticket.outcome() is TurnOutcome.Completed)
+
+                assertEquals(listOf("wait a"), commands.started.toList())
+                commands.gate("a").complete(Unit)
+                awaitStarted(2)
+                val waiting = channel.receive("Third").accepted
+                delay(200)
+                assertFalse(waiting.ended)
+                commands.gate("b").complete(Unit)
+                awaitStarted(3)
+                delay(200)
+                assertFalse(waiting.ended)
+                commands.gate("c").complete(Unit)
+
+                assertTrue(waiting.ticket.outcome() is TurnOutcome.Completed)
+                listOf(hung, queued, later).forEach { assertTrue(it.ticket.outcome() is TurnOutcome.Completed) }
+            }
+        }
+
+        assertEquals(1, lines.count { it.startsWith("WARN Command ") && "queued behind it" in it })
+        assertEquals(1, lines.count { it.startsWith("WARN Command ") && "waits in" in it })
     }
 
     @Test

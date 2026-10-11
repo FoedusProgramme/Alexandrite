@@ -75,6 +75,15 @@ class PluginRecordsTest {
     }
 
     @Test
+    fun `a stored value with keys its type does not know reads`() = runBlocking {
+        val grants = records.collection<Grant>("trusted_folders")
+        store.put("notes", "trusted_folders", "/srv/repo", """{"folder":"/srv/repo","scope":"tree"}""", ada)
+
+        assertEquals(listOf(Grant("/srv/repo")), grants.list().map { it.value })
+        assertEquals(emptyList(), unreadable)
+    }
+
+    @Test
     fun `plugins and collections are apart`() = runBlocking {
         val other = PluginRecords("other", store) { _, _, _, _ -> }
         records.collection<Int>("counters").put("a", 1, null)

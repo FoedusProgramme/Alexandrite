@@ -17,10 +17,18 @@ public interface TurnInitiator {
     /**
      * Queues [turn] with the queue, capacity and outcome rules of a submission, and returns at once.
      *
-     * Throws [IllegalArgumentException] for a turn of a kind that the agent starts itself: [TurnKind.APPROVAL] and
-     * [TurnKind.AGENT_MESSAGE].
+     * Throws [IllegalArgumentException] for a turn of a kind in [TurnKind.agentStarted].
      */
     public fun initiate(turn: InitiatedTurn): Admission
+}
+
+/** Throws the [IllegalArgumentException] of [TurnInitiator.initiate] when [plugin] may not initiate [turn]. */
+@InternalAlexandriteApi
+public fun requireInitiable(plugin: String, turn: InitiatedTurn) {
+    require(turn.kind !in TurnKind.agentStarted) {
+        "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval and agent message " +
+            "turns itself."
+    }
 }
 
 /** The agent's side of every plugin's [TurnInitiator]. */

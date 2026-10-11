@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.provider.common.EndpointSettings
 import org.foedusprogramme.alexandrite.provider.common.ModelConfig
 import org.foedusprogramme.alexandrite.provider.common.TimeoutConfig
 import org.foedusprogramme.alexandrite.provider.common.long
+import org.foedusprogramme.alexandrite.provider.common.obj
 import org.foedusprogramme.alexandrite.provider.common.string
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.config.Secret
@@ -183,6 +184,66 @@ class ChatResponseTest {
         assertEquals(
             listOf("a" to "{\"x\":1}", "b" to "{\"y\":2}", "call-test-turn-2-2" to "{}"),
             parts.map { it.id.value to it.arguments },
+        )
+    }
+
+    @Test
+    fun `calls that name no index but repeat their id and name with each fragment stay one call`() {
+        fun unindexed(arguments: String) = JsonObject(call(0, "c1", "notes-add", arguments) - "index")
+        val events = respond(
+            chunks(
+                chunk { with("tool_calls", calls(unindexed("{\"te"))) },
+                chunk { with("tool_calls", calls(unindexed("xt\":1}"))) },
+                chunk("tool_calls"),
+            ),
+            request = request { tools(listOf(testToolDefinition("notes.add"))) },
+        )
+
+        val part = completed(events).message.parts.single() as ToolCallPart
+        assertEquals(Triple("c1", "notes.add", "{\"text\":1}"), Triple(part.id.value, part.name, part.arguments))
+    }
+
+    @Test
+    fun `a flavor that renames tools on the wire gets each call back under its tool's name`() {
+        val snake = ChatFlavor(
+            Dialect("snake"),
+            tools = object : ChatTools() {
+                override fun wireName(name: String): String = name.replace('.', '_')
+            },
+        )
+        val reply = chunks(chunk { with("tool_calls", calls(call(0, "c1", "notes_add", "{}"))) }, chunk("tool_calls"))
+
+        val events = respond(reply, snake, request { tools(listOf(testToolDefinition("notes.add"))) })
+
+        assertEquals("notes.add", (completed(events).message.parts.single() as ToolCallPart).name)
+    }
+
+    @Test
+    fun `a flavor keeps the vendor fields of each call with it`() {
+        val vendor = ChatFlavor(
+            Dialect("vendor"),
+            tools = object : ChatTools() {
+                override fun readCall(call: JsonObject): JsonObject? =
+                    call.obj("extra_content")?.let { JsonObject(mapOf("extra_content" to it)) }
+            },
+        )
+        val signed = buildJsonObject {
+            put("index", 0)
+            put("id", "c1")
+            putJsonObject("function") {
+                put("name", "notes-add")
+                put("arguments", "{}")
+            }
+            putJsonObject("extra_content") { put("signature", "sig-1") }
+        }
+        val reply = chunks(chunk { with("tool_calls", calls(signed)) }, chunk("tool_calls"))
+
+        val events = respond(reply, vendor, request { tools(listOf(testToolDefinition("notes.add"))) })
+
+        val part = completed(events).message.parts.single() as ToolCallPart
+        assertEquals(
+            buildJsonObject { putJsonObject("extra_content") { put("signature", "sig-1") } }.toString(),
+            part.providerData.entries[Dialect("vendor")].toString(),
         )
     }
 

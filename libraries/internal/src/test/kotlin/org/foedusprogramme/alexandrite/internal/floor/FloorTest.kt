@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.io.TempDir
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -186,6 +187,34 @@ class FloorTest {
         assertAllowed(home)
         assertAllowed(home.resolve(".config"))
         assertAllowed(root.resolve("notes.txt"))
+    }
+
+    @Test
+    fun `the credential stores that the environment moves are denied where it moves them`() {
+        val elsewhere = root.resolve("elsewhere")
+        val environment = mapOf(
+            "XDG_CONFIG_HOME" to "$elsewhere/xdg",
+            "XDG_DATA_HOME" to "$elsewhere/share",
+            "AWS_SHARED_CREDENTIALS_FILE" to "$elsewhere/aws-credentials",
+            "KUBECONFIG" to listOf("$elsewhere/kube-a", "$elsewhere/kube-b").joinToString(File.pathSeparator),
+            "CARGO_HOME" to "$elsewhere/cargo",
+            "GNUPGHOME" to "relative/gnupg",
+        )
+        val floor = Floor(places(), home, PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }), environment)
+
+        assertDenied("GitHub credentials", elsewhere.resolve("xdg/gh/hosts.yml"), floor)
+        assertDenied("AI assistant credentials", elsewhere.resolve("xdg/github-copilot/apps.json"), floor)
+        assertDenied("keyrings", elsewhere.resolve("share/keyrings/login.keyring"), floor)
+        assertDenied("cloud credentials", elsewhere.resolve("aws-credentials"), floor)
+        assertDenied("cluster credentials", elsewhere.resolve("kube-a"), floor)
+        assertDenied("cluster credentials", elsewhere.resolve("kube-b"), floor)
+        assertDenied("package registry credentials", elsewhere.resolve("cargo/credentials.toml"), floor)
+        assertAllowed(elsewhere.resolve("xdg/other.txt"), floor)
+        assertAllowed(elsewhere.resolve("cargo/registry/index"), floor)
+        assertAllowed(root.resolve("relative/gnupg/pubring.kbx"), floor)
+        assertDenied("AI assistant credentials", home.resolve(".codex/auth.json"))
+        assertDenied("AI assistant credentials", home.resolve(".gemini/oauth_creds.json"))
+        assertDenied("encryption keys", home.resolve("Library/Application Support/sops/age/keys.txt"))
     }
 
     // Overlaps.

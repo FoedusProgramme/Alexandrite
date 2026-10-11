@@ -115,6 +115,32 @@ class PathCanonicalizerTest {
     }
 
     @Test
+    fun `a directory whose file system keeps no file keys is unknown at once, without a listing`() {
+        val sub = Files.createDirectories(root.resolve("sub"))
+        val probed = mutableListOf<Path>()
+        val probe = NameCaseProbe(fileKey = { null }) { directory, _ ->
+            probed.add(directory)
+            NameCase.SENSITIVE
+        }
+
+        repeat(2) { assertEquals(NameCase.UNKNOWN, probe.nameCase(sub)) }
+        assertEquals(emptyList(), probed)
+    }
+
+    @Test
+    fun `a directory the probe cannot tell about is probed once`() {
+        val sub = Files.createDirectories(root.resolve("sub"))
+        val probed = mutableListOf<Path>()
+        val probe = NameCaseProbe { directory, _ ->
+            probed.add(directory)
+            if (directory == sub) null else NameCase.SENSITIVE
+        }
+
+        repeat(2) { assertEquals(NameCase.UNKNOWN, probe.nameCase(sub)) }
+        assertEquals(probed.distinct(), probed)
+    }
+
+    @Test
     fun `name keys are NFC and fold case fully when asked`() {
         assertEquals("/caf\u00E9", nameKey("/cafe\u0301", ignoreCase = false))
         assertEquals("/Notes", nameKey("/Notes", ignoreCase = false))

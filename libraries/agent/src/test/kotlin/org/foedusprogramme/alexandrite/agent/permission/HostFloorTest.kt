@@ -110,19 +110,25 @@ class HostFloorTest {
     }
 
     @Test
-    fun `a config file that links elsewhere protects the directory of its target and the backup there`() {
+    fun `a config file that links elsewhere protects its target and the backup there, but not their directory`() {
         val target = Files.createDirectories(root.resolve("dotfiles")).resolve("alexandrite.json")
         Files.writeString(target, "{}")
         Files.delete(configFile)
         Files.createSymbolicLink(configFile, target)
         val workspace = configFile.resolveSibling("coder-files")
+        val backup = target.resolveSibling("alexandrite.json.bak")
 
-        val floor = floor("""{"coder": {"workspace": "coder-files"}}""", paths(configTarget = target))
+        val floor = floor(
+            """{"coder": {"workspace": "coder-files"}, "helper": {"workspace": "../dotfiles/helper"}}""",
+            paths(configTarget = target, configBackup = backup),
+        )
 
         assertDenied(CONFIGURATION, target, floor)
-        assertDenied(CONFIGURATION, target.resolveSibling("alexandrite.json.bak"), floor)
+        assertDenied(CONFIGURATION, backup, floor)
         assertDenied(CONFIGURATION, configFile, floor)
         assertAllowed(workspace.resolve("notes.md"), floor)
+        assertAllowed(target.resolveSibling(".zshrc"), floor)
+        assertAllowed(target.resolveSibling("helper/notes.md"), floor)
     }
 
     @Test

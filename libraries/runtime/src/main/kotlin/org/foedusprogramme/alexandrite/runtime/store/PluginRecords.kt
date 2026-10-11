@@ -85,4 +85,7 @@ private fun <T : Any> StoredRecord<*>.holding(value: T): StoredRecord<T> =
 
 private val NAME = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*")
 
-private val JSON = Json { encodeDefaults = true }
+private val JSON = Json {
+    encodeDefaults = true
+    ignoreUnknownKeys = true
+}

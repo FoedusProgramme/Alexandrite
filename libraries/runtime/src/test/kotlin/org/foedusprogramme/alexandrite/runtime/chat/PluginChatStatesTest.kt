@@ -6,6 +6,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -119,6 +120,15 @@ class PluginChatStatesTest {
     }
 
     @Test
+    fun `a stored value with keys its type does not know reads`() = runBlocking {
+        val mode = states.state("mode", Mode("plain"))
+        store.put("mode", chat, """{"name":"rich","width":80}""")
+
+        assertEquals(Mode("rich"), mode.get(chat))
+        assertEquals(emptyList(), unreadable)
+    }
+
+    @Test
     fun `each plugin has states of its own`() = runBlocking {
         val other = PluginChatStates("weather", store) { _, _, _, _ -> }.state("counter", 0)
 
@@ -203,6 +213,9 @@ class PluginChatStatesTest {
             unreadable.map { it.replace("JsonDecodingException", "SerializationException") },
         )
     }
+
+    @Serializable
+    private data class Mode(val name: String)
 
     /** A store that yields on every call, so that unguarded updates would interleave. */
     private class RecordingStore : ChatStateStore {

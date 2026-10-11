@@ -30,8 +30,8 @@ public class EndpointSettings(
     public val discover: Boolean = true,
     public val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
     public val timeouts: TimeoutConfig = TimeoutConfig(),
-    /** The header that carries [apiKey]. */
-    public val authHeader: String = "authorization",
+    /** The header that carries [apiKey], null for the one that the wire API names. */
+    public val authHeader: String? = null,
     /** Headers of the wire API that the provider sets on every request itself. */
     public val providerHeaders: Set<String> = emptySet(),
 ) {
@@ -50,9 +50,9 @@ public class EndpointSettings(
                 "headers.$name holds a control character or one beyond Latin-1"
             }
         }
-        require(apiKey == null || headers.keys.none { it.equals(authHeader, ignoreCase = true) }) {
-            "headers may not set ${authHeader.lowercase()} when apiKey is set"
-        }
+        val keyHeaders = authHeader?.let(::listOf) ?: WIRE_AUTH_HEADERS
+        headers.keys.firstOrNull { name -> apiKey != null && keyHeaders.any { it.equals(name, ignoreCase = true) } }
+            ?.let { throw IllegalArgumentException("headers may not set ${it.lowercase()} when apiKey is set") }
         for (model in models.keys) {
             require(model.isNotEmpty() && model.none(Char::isISOControl)) { "models holds an empty or malformed id" }
         }
@@ -61,6 +61,9 @@ public class EndpointSettings(
     private companion object {
         val RESERVED_HEADERS =
             setOf("accept", "connection", "content-length", "content-type", "expect", "host", "upgrade")
+
+        /** The headers that the wire APIs carry the API key in. */
+        val WIRE_AUTH_HEADERS = listOf("authorization", "x-api-key")
         val TOKEN = ('a'..'z') + ('A'..'Z') + ('0'..'9') + "!#$%&'*+-.^_`|~".toList()
 
         fun isHttpUrl(text: String): Boolean = try {

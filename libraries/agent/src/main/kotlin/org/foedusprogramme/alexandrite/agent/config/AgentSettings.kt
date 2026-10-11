@@ -39,15 +39,12 @@ internal class QueueConfig(
     val perKey: Int = 20,
     /** Command invocations admitted per chat. */
     val commandsPerChat: Int = 10,
-    /** Command handlers that run at once per chat. */
-    val commandsRunning: Int = 4,
     /** How long a chat's messages wait for an earlier command of the chat. */
     val commandGateSeconds: Long = 30,
 ) {
     init {
         require(perKey > 0) { "queue.perKey must be positive" }
         require(commandsPerChat > 0) { "queue.commandsPerChat must be positive" }
-        require(commandsRunning > 0) { "queue.commandsRunning must be positive" }
         require(commandGateSeconds > 0) { "queue.commandGateSeconds must be positive" }
     }
 }

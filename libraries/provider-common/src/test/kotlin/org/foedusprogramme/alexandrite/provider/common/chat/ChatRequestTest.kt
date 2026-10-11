@@ -4,9 +4,11 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
@@ -29,6 +31,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeKind
+import org.foedusprogramme.alexandrite.sdk.transcript.ProviderData
 import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningSeal
 import org.foedusprogramme.alexandrite.sdk.transcript.SealKind
@@ -134,6 +137,33 @@ class ChatRequestTest {
             ),
             messages.map { it.text("role") to it.text("content") },
         )
+    }
+
+    @Test
+    fun `a flavor gives each call back the vendor fields it kept of it, in its own dialect alone`() {
+        val dialect = Dialect("vendor")
+        val vendor = ChatFlavor(
+            dialect,
+            tools = object : ChatTools() {
+                override fun writeCall(call: ToolCallPart, kept: JsonObject, element: JsonObjectBuilder) {
+                    kept["extra_content"]?.let { element.put("extra_content", it) }
+                }
+            },
+        )
+        val kept = buildJsonObject { putJsonObject("extra_content") { put("signature", "sig-1") } }
+        val signed = ToolCallPart(call.id, call.name, "{}", ProviderData.EMPTY.with(dialect, kept))
+        val history = listOf(
+            user("Note milk."),
+            AssistantEntry(null, listOf(signed), model),
+            ToolResultEntry(null, call.id, call.name, listOf(TextPart("Saved.")), ToolOutcome.Succeeded),
+        )
+        val tools: ModelRequest.Builder.() -> Unit = { tools(listOf(testToolDefinition("notes.add"))) }
+
+        val sent = body(request(history, block = tools), vendor).messages()[1]["tool_calls"]!!.jsonArray.single()
+        val other = body(request(history, block = tools)).messages()[1]["tool_calls"]!!.jsonArray.single()
+
+        assertEquals(kept["extra_content"], sent.jsonObject["extra_content"])
+        assertNull(other.jsonObject["extra_content"])
     }
 
     @Test

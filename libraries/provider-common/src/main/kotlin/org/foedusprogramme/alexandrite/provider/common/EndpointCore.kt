@@ -16,8 +16,10 @@ internal class EndpointCore(
     listing: ModelListing,
     dialect: Dialect,
     own: Map<String, String> = emptyMap(),
+    /** The header that the wire API carries the API key in. */
+    authHeader: String = "authorization",
 ) : AutoCloseable {
-    private val connection = EndpointConnection(settings, own)
+    private val connection = EndpointConnection(settings, own, authHeader)
     private val catalog = ModelCatalog(id, settings, listing, dialect, connection)
 
     suspend fun models(): List<ModelInfo> = catalog.models()

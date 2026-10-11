@@ -23,7 +23,13 @@ import java.nio.file.Path
 @Singleton
 @Binds(HardFloor::class)
 internal class AgentFloor(paths: HostPaths, workspaces: Workspaces, settings: AgentSettings) : HardFloor {
-    private val floor = hostFloor(paths, workspaces.paths, userHome(), operatorPlaces(paths, settings.protectedPaths))
+    private val floor = hostFloor(
+        paths,
+        workspaces.paths,
+        userHome(),
+        operatorPlaces(paths, settings.protectedPaths),
+        environment = System.getenv(),
+    )
 
     override fun checkRead(path: Path, agent: AgentId?): FloorCheck = when (val decision = floor.check(path, agent)) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
@@ -44,9 +50,9 @@ internal class HostFloor(
 }
 
 /**
- * The floor over the host's places in [paths], the [operator]'s places and the credential stores of [home], with each
- * of [workspaces] carved out of the data root or the config directory that holds it, and each agent's persona
- * directory carved out for that agent alone.
+ * The floor over the host's places in [paths], the [operator]'s places and the credential stores of [home] and
+ * [environment], with each of [workspaces] carved out of the data root or the config directory that holds it, and each
+ * agent's persona directory carved out for that agent alone.
  *
  * Throws a [ConfigException] for a workspace that is a protected place, holds one, or lies in one that keeps no
  * workspace.
@@ -57,20 +63,20 @@ internal fun hostFloor(
     home: Path?,
     operator: List<Path> = emptyList(),
     canonicalizer: PathCanonicalizer = PathCanonicalizer(),
+    environment: Map<String, String> = emptyMap(),
 ): HostFloor {
     val directory = paths.configFile?.parent
-    val configurations = listOfNotNull(directory, paths.configTarget?.parent).distinct()
-        .map { DenyRoot(it, "Alexandrite's configuration") }
+    val configuration = directory?.let { DenyRoot(it, CONFIGURATION) }
     val data = DenyRoot(paths.dataRoot, "Alexandrite's data")
-    val places = configurations +
+    val places = listOfNotNull(configuration) +
+        listOfNotNull(paths.configTarget, paths.configBackup).map { DenyRoot(it, CONFIGURATION) } +
         DenyRoot(paths.pluginDataRoot, "plugin data") +
         data +
         DenyRoot(paths.cacheRoot, "Alexandrite's cache") +
-        listOfNotNull(paths.configBackup).map { DenyRoot(it, "Alexandrite's configuration") } +
         paths.protected.map { DenyRoot(it, "a place the host protects") } +
         operator.map { DenyRoot(it, "a place the operator protects") }
-    val keepsCarveOuts = configurations.toSet() + data
-    val plain = Floor(places, home, canonicalizer)
+    val keepsCarveOuts = setOfNotNull(configuration, data)
+    val plain = Floor(places, home, canonicalizer, environment)
     val personas = directory?.let { workspaces.keys.associateWith { id -> it.resolve(PERSONAS).resolve(id.value) } }
         .orEmpty()
     val personaPlaces = Floor(
@@ -92,7 +98,7 @@ internal fun hostFloor(
         logger.error("The home directory is unknown: the hard floor refuses every path")
         return HostFloor(null, emptyMap())
     }
-    plain.overlaps(home).firstOrNull { it.root in configurations && it.placement != Placement.HOLDS }?.let { overlap ->
+    plain.overlaps(home).firstOrNull { it.root == configuration && it.placement != Placement.HOLDS }?.let { overlap ->
         logger.warn(
             "The config file {} lies in {}, which is the home directory or holds it: the hard floor keeps the file " +
                 "tools out of all of it. Keep the config file in a directory of its own",
@@ -104,6 +110,7 @@ internal fun hostFloor(
         places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty() + listOfNotNull(extra[it])) },
         home,
         canonicalizer,
+        environment,
     )
     val own = personas.mapValues { (_, persona) ->
         floor(
@@ -153,6 +160,8 @@ private fun userHome(): Path? = try {
 } catch (e: InvalidPathException) {
     null
 }
+
+private const val CONFIGURATION = "Alexandrite's configuration"
 
 /** Where the agents' persona directories lie in the config directory. */
 private const val PERSONAS = "agents"

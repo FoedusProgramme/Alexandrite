@@ -294,6 +294,17 @@ class HttpTransportTest {
     }
 
     @Test
+    fun `a secret that the error body's limit cuts is masked whole`() = runBlocking {
+        val key = "sk-test-secret"
+        val start = "é".repeat(4) + "y".repeat(HttpTransport.ERROR_BODY_LIMIT - 13)
+        server.handle { it.status(500).chunk(start + key + "x".repeat(100)).end() }
+
+        val error = assertFailsWith<HttpException> { transport.send(post(key = key)) }
+
+        assertEquals(start + "***", error.body)
+    }
+
+    @Test
     fun `a media type is read in lower case without its parameters, and a blank one is none`() = runBlocking {
         val types = listOf("Text/Event-Stream; charset=utf-8", " Application/JSON ", ";charset=utf-8", "", null)
         types.forEach { type -> server.handle { it.header("content-type", type).end() } }

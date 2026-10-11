@@ -158,11 +158,11 @@ private class PluginDirectories(private val data: Path, private val cache: Path)
     override val cacheDir: Path get() = cache.also(::createOwnerOnly)
 }
 
-private class RuntimeHostPaths(config: RuntimeConfig, configFile: Path?) : HostPaths {
+private class RuntimeHostPaths(config: RuntimeConfig, given: Path?) : HostPaths {
     override val dataRoot: Path = config.dataDir.absolute()
     override val pluginDataRoot: Path = dataRoot.resolve(PLUGINS_DIRECTORY)
     override val cacheRoot: Path = config.cacheDir.absolute()
-    override val configFile: Path? = configFile?.absolute()
+    override val configFile: Path? = given?.absolute()
     override val configTarget: Path? = configFile?.let(::followed)
     override val configBackup: Path? = configTarget?.let(::configBackup)
     override val protected: List<Path> = config.protected.map { it.absolute() }.distinct()

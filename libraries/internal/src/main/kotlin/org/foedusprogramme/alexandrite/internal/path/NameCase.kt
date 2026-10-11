@@ -6,7 +6,6 @@ import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
-import java.util.concurrent.ConcurrentHashMap
 
 /** How the directories of a path compare names. */
 public enum class NameCase {
@@ -21,10 +20,14 @@ public enum class NameCase {
 
 /** Finds how the directories of a real path compare names, by probing each directory once. */
 public class NameCaseProbe(
+    /** The file key of [entry], read without following a link, null where the file system keeps none. */
+    private val fileKey: (entry: Path) -> Any? = { attributes(it).fileKey() },
     /** How [directory] compares names, looked up through [entry] in it, null when that cannot tell. */
     private val directoryCase: (directory: Path, entry: Path?) -> NameCase? = ::directoryCase,
 ) {
-    private val known = ConcurrentHashMap<Any, NameCase>()
+    private val known = object : LinkedHashMap<Path, Probed>(INITIAL, LOAD_FACTOR, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Path, Probed>): Boolean = size > MAX_KNOWN
+    }
 
     /** How the directories from the root down to [existing], an existing real path, compare names. */
     public fun nameCase(existing: Path): NameCase {
@@ -40,23 +43,28 @@ public class NameCaseProbe(
         return probes.map { (directory, entry) -> case(directory, entry) }.toSet().singleOrNull() ?: NameCase.UNKNOWN
     }
 
+    /** The case of [directory], answered by path where its file system keeps no file keys. */
     private fun case(directory: Path, entry: Path?): NameCase {
+        cached(directory)?.takeIf { it.key == null }?.let { return it.case }
         val key = try {
-            attributes(directory).fileKey()
+            fileKey(directory)
         } catch (e: IOException) {
             return NameCase.UNKNOWN
         }
-        key?.let { known[it] }?.let { return it }
-        val found = directoryCase(directory, entry) ?: return NameCase.UNKNOWN
-        if (key != null) {
-            if (known.size >= MAX_KNOWN) known.clear()
-            known[key] = found
-        }
+        cached(directory)?.takeIf { it.key == key }?.let { return it.case }
+        val found = if (key == null) NameCase.UNKNOWN else directoryCase(directory, entry) ?: NameCase.UNKNOWN
+        synchronized(known) { known[directory] = Probed(key, found) }
         return found
     }
 
+    private fun cached(directory: Path): Probed? = synchronized(known) { known[directory] }
+
+    private class Probed(val key: Any?, val case: NameCase)
+
     private companion object {
         const val MAX_KNOWN = 4096
+        const val INITIAL = 16
+        const val LOAD_FACTOR = 0.75f
     }
 }
 

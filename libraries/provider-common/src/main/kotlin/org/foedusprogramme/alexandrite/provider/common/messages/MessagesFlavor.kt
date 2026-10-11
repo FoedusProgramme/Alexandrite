@@ -245,8 +245,9 @@ public open class MessagesTools {
         return warnings
     }
 
-    /** The tool that a call naming [wire] calls, given the [offered] tools. */
-    public open fun callName(wire: String, offered: List<ToolDefinition>): String = ToolNames.fromWire(wire) ?: wire
+    /** The tool that a call naming [wire] calls, given the [offered] tools: the inverse of [wireName]. */
+    public open fun callName(wire: String, offered: List<ToolDefinition>): String =
+        offered.firstOrNull { wireName(it.name) == wire }?.name ?: ToolNames.fromWire(wire) ?: wire
 
     /** The name that the tool [name] and its stored calls go out with, one for each name. */
     public open fun wireName(name: String): String = wireToolName(name)

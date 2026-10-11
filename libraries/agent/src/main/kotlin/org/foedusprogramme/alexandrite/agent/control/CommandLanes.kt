@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.control
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,6 +43,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Runs the command invocations that a handler claims, in a lane per chat beside the chat's turns.
@@ -65,6 +67,7 @@ internal class CommandLanes(
     private val clock: Clock,
 ) {
     private val perChat = settings.queue.commandsPerChat
+    private val gateTimeout = settings.queue.commandGateSeconds.seconds
     private val lanes = HashMap<ChatAddress, Lane>()
 
     /** Admits [command], which [handler] claims, and holds its chat's messages until the handler ends. */
@@ -90,7 +93,18 @@ internal class CommandLanes(
                         it.runsAlongside && it.name.equals(command.invocation.name, ignoreCase = true)
                     }
                     target.waiting.addLast(Invocation(turn, command.invocation, handler, queuedAt, ticket, alongside))
-                    intakes.gate(chat, turn)
+                    val overdue = target.running.firstOrNull { it.overdue }
+                    if (overdue == null) {
+                        intakes.gate(chat, turn)
+                    } else if (!alongside) {
+                        logger.warn(
+                            "Command {} waits in {} behind command {}, which runs past {}: the chat's messages go on",
+                            turn,
+                            chat,
+                            overdue.turn,
+                            gateTimeout,
+                        )
+                    }
                     startNext(target)
                     Admission.Accepted(ticket)
                 }
@@ -183,10 +197,31 @@ internal class CommandLanes(
         lane.waiting.removeAll(starting)
         lane.running += starting
         for (invocation in starting) {
+            intakes.gate(lane.chat, invocation.turn)
             intakes.arm(lane.chat, invocation.turn)
             val job = lock.launch { run(invocation) }
             invocation.job = job
+            if (!invocation.alongside) invocation.watch = lock.launch { watch(lane, invocation) }
             job.invokeOnCompletion { error -> ended(lane, invocation, error) }
+        }
+    }
+
+    /** Releases the gates of the invocations queued behind [invocation] once it ran the gate time off a worker. */
+    private suspend fun watch(lane: Lane, invocation: Invocation) {
+        do {
+            delay(gateTimeout)
+        } while (lock.locked { invocation.running?.onWorker == true })
+        lock.locked {
+            if (invocation !in lane.running) return@locked
+            invocation.overdue = true
+            if (lane.waiting.isEmpty()) return@locked
+            logger.warn(
+                "Command {} in {} runs past {}: the commands queued behind it let the chat's messages go on",
+                invocation.turn,
+                lane.chat,
+                gateTimeout,
+            )
+            lane.waiting.forEach { intakes.release(lane.chat, it.turn) }
         }
     }
 
@@ -194,9 +229,13 @@ internal class CommandLanes(
         lock.locked { invocation.startedAt = clock.instant() }
         val outcome = try {
             val turn = turn(invocation)
-            lock.locked { invocation.info = turn }
+            val running = RunningCommand(turn)
+            lock.locked {
+                invocation.info = turn
+                invocation.running = running
+            }
             val context = AgentCommandContext(turn, invocation.command.trigger, channels)
-            withContext(RunningCommand(turn)) { invocation.handler.handle(invocation.command, context) }
+            withContext(running) { invocation.handler.handle(invocation.command, context) }
             TurnOutcome.Completed(null, context.deliveries)
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
@@ -252,6 +291,8 @@ internal class CommandLanes(
     private fun ended(lane: Lane, invocation: Invocation, error: Throwable?) {
         if (error != null) invocation.ticket.complete(interrupted(invocation, error))
         lock.locked {
+            invocation.watch?.cancel()
+            if (invocation.overdue) lane.waiting.forEach { intakes.gate(lane.chat, it.turn) }
             lane.running.remove(invocation)
             intakes.release(lane.chat, invocation.turn)
             startNext(lane)
@@ -290,11 +331,16 @@ private class Invocation(
     val alongside: Boolean,
 ) {
     var job: Job? = null
+    var watch: Job? = null
     var startedAt: Instant? = null
 
     /** The invocation's turn, null until its agent and conversation are read. */
     var info: TurnInfo? = null
+    var running: RunningCommand? = null
     var cause: CancellationException? = null
+
+    /** Whether it ran the gate time off a worker. */
+    var overdue = false
 
     fun status(): TurnStatus? {
         val turn = info ?: return null

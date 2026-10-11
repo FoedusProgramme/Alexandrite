@@ -53,6 +53,11 @@ public class HttpCall(
     /** The first-byte timeout of this call, null for the transport's. */
     public val firstByte: Duration? = null,
 ) {
+    private val masked = secrets.filter { it.length >= MIN_SECRET }.distinct().sortedByDescending { it.length }
+
+    /** The UTF-8 bytes of the longest secret that [mask] masks. */
+    internal val longestSecret: Int = masked.maxOfOrNull { it.toByteArray(Charsets.UTF_8).size } ?: 0
+
     init {
         require(uri.scheme == "http" || uri.scheme == "https") { "No HTTP URI: ${mask(printable(uri))}." }
         require(firstByte == null || (firstByte.isPositive() && firstByte.isFinite())) {
@@ -61,10 +66,22 @@ public class HttpCall(
     }
 
     /** [text] with [secrets] masked. */
-    public fun mask(text: String): String =
-        secrets.filter { it.length >= MIN_SECRET }.sortedByDescending { it.length }.fold(text) { masked, secret ->
-            masked.replace(secret, MASK)
+    public fun mask(text: String): String = mask(text, text.length)
+
+    /** The first [length] characters of [text] with [secrets] masked, one that starts before the cut masked whole. */
+    internal fun mask(text: String, length: Int): String = buildString {
+        var index = 0
+        while (index < length) {
+            val secret = masked.firstOrNull { text.startsWith(it, index) }
+            if (secret == null) {
+                append(text[index])
+                index++
+            } else {
+                append(MASK)
+                index += secret.length
+            }
         }
+    }
 
     override fun toString(): String = "$method ${mask(printable(uri))}"
 
@@ -225,19 +242,12 @@ public class HttpResponseStream internal constructor(
     }
 
     /** The body as text, its first [limit] bytes at most. */
-    public suspend fun text(limit: Int): String {
-        val out = ByteArrayOutputStream()
-        while (out.size() < limit) {
-            val bytes = read() ?: break
-            out.write(bytes, 0, minOf(bytes.size, limit - out.size()))
-        }
-        return out.toString(Charsets.UTF_8)
-    }
+    public suspend fun text(limit: Int): String = bytes(limit).toString(Charsets.UTF_8)
 
     /** The failure that this response's status means. */
     internal suspend fun failure(clock: Clock): HttpException {
         val text = try {
-            text(HttpTransport.ERROR_BODY_LIMIT).ifBlank { null }?.let(call::mask)
+            errorBody()
         } catch (e: HttpException) {
             null
         }
@@ -249,6 +259,22 @@ public class HttpResponseStream internal constructor(
             requestId = requestId(headers),
             body = text,
         )
+    }
+
+    private suspend fun bytes(limit: Int): ByteArrayOutputStream {
+        val out = ByteArrayOutputStream()
+        while (out.size() < limit) {
+            val bytes = read() ?: break
+            out.write(bytes, 0, minOf(bytes.size, limit - out.size()))
+        }
+        return out
+    }
+
+    /** The body's first [HttpTransport.ERROR_BODY_LIMIT] bytes, masked before the cut, null when blank. */
+    private suspend fun errorBody(): String? {
+        val text = bytes(HttpTransport.ERROR_BODY_LIMIT + call.longestSecret).toString(Charsets.UTF_8)
+        if (text.isBlank()) return null
+        return call.mask(text, prefixWithin(text, HttpTransport.ERROR_BODY_LIMIT))
     }
 
     private inline fun <T> parsed(parse: () -> T): T = try {
@@ -331,6 +357,24 @@ internal class BodyChannel : Subscriber<List<ByteBuffer>> {
             pieces.cancel()
         }
     }
+}
+
+/** The length of the longest prefix of [text] that takes at most [bytes] bytes in UTF-8. */
+private fun prefixWithin(text: String, bytes: Int): Int {
+    var used = 0
+    var index = 0
+    while (index < text.length) {
+        val point = text.codePointAt(index)
+        used += when {
+            point < 0x80 -> 1
+            point < 0x800 -> 2
+            point < 0x10000 -> 3
+            else -> 4
+        }
+        if (used > bytes) break
+        index += Character.charCount(point)
+    }
+    return index
 }
 
 private fun unwrap(error: Throwable): Throwable {
