@@ -17,12 +17,14 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationKind
 import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.store.ForkPoint
 import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.store.TurnRecord
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import java.sql.ResultSet
+import java.time.Instant
 
 @Singleton
 @Binds(ConversationStore::class)
@@ -133,6 +135,23 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
 
     override suspend fun unendedTurns(): List<TurnRecord> = database.transaction {
         query(UNENDED_TURNS) { turnRecord() }
+    }
+
+    override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean =
+        database.transaction {
+            execute(
+                "UPDATE conversations SET tainted_at = ?, taint_reason = ? WHERE id = ? AND tainted_at IS NULL",
+                at,
+                reason,
+                conversation.value,
+            ) == 1
+        }
+
+    override suspend fun taint(conversation: ConversationId): ConversationTaint? = database.transaction {
+        queryOne(
+            "SELECT tainted_at, taint_reason FROM conversations WHERE id = ? AND tainted_at IS NOT NULL",
+            conversation.value,
+        ) { ConversationTaint(instant("tainted_at"), getString("taint_reason").orEmpty()) }
     }
 
     private fun Tx.currentOf(key: AgentChatKey, kind: ConversationKind): ConversationInfo {

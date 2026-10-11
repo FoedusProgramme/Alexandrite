@@ -107,7 +107,13 @@ class PersonaEditTurnsTest {
 
             val offered = listOf("coder", "helper").map { id -> tools.offered(AgentId(id)).map { it.definition.name } }
 
-            assertEquals(listOf(listOf("persona.edit", "web.fetch"), listOf("web.fetch")), offered)
+            assertEquals(
+                listOf(
+                    listOf("permission.status", "persona.edit", "web.fetch"),
+                    listOf("permission.status", "web.fetch"),
+                ),
+                offered,
+            )
         }
     }
 

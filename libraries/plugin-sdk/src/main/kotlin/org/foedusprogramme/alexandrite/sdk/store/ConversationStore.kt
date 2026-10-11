@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
 import org.foedusprogramme.alexandrite.sdk.di.BoundSpi
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
+import java.time.Instant
 
 /**
  * The conversations of each agent and chat, which of them are current, and the turns that ran in them.
@@ -18,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
  * - Every call is atomic, and a call that throws changes nothing.
  * - The store mints each [ConversationId], unique and opaque.
  * - A chat's address may change later: the store keeps it in one place per chat, so a move rewrites that place alone.
+ * - Times are kept to the millisecond.
  */
 @BoundSpi
 public interface ConversationStore {
@@ -65,6 +67,15 @@ public interface ConversationStore {
 
     /** The turns that started and never ended, oldest first. */
     public suspend fun unendedTurns(): List<TurnRecord>
+
+    /**
+     * Records that [conversation] took in untrusted content at [at] for [reason], false when it was marked before or the
+     * store has no such conversation.
+     */
+    public suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean
+
+    /** The first mark of [conversation], null when it has none or the store has no such conversation. */
+    public suspend fun taint(conversation: ConversationId): ConversationTaint?
 }
 
 /** What [ConversationStore.newConversation] did. */
@@ -78,3 +89,7 @@ public class Rotation(
 /** The entries of [conversation] up to [through], which a conversation starts from. */
 @Poko
 public class ForkPoint(public val conversation: ConversationId, public val through: EntryId)
+
+/** That a conversation took in untrusted content, first at [at] for [reason]. */
+@Poko
+public class ConversationTaint(public val at: Instant, public val reason: String)

@@ -173,7 +173,10 @@ class InitiatedTurnsTest {
                 listOf(turn.chat, turn.key, turn.kind, turn.actor, turn.replyTarget, turn.conversation),
             )
             val request = model.requests.single()
-            assertEquals(listOf("fs.read") to ToolChoice.Auto, request.tools.map { it.name } to request.toolChoice)
+            assertEquals(
+                listOf("fs.read", "permission.status") to ToolChoice.Auto,
+                request.tools.map { it.name } to request.toolChoice,
+            )
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.turn)?.end)
         }
     }
@@ -532,8 +535,10 @@ class InitiatedTurnsTest {
         }
 
         val (untrusted, trusted) = turns
-        assertTrue("DEBUG Turn $untrusted of $coder is tainted: its untrusted prompt" in lines)
+        val reason = "an untrusted prompt of plugin 'beat'"
+        assertTrue("DEBUG Turn $untrusted of $coder is tainted: $reason" in lines)
         assertTrue(lines.none { it.startsWith("DEBUG Turn $trusted") && "tainted" in it })
+        assertEquals(reason, blocking { store.conversations.taint(store.conversations.current(coder).id)?.reason })
         assertOpening(blocking { stored() }[2], "Remind them to stretch.", trust = "trusted")
     }
 

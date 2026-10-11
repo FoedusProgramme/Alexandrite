@@ -38,6 +38,8 @@ internal class PlannedRun(
     val readOnly: Boolean,
     val snapshot: String,
     val rule: RuleSubject?,
+    /** The existing paths that the arguments of a vetted program name, canonical. */
+    val reached: List<Path>,
 ) {
     /** The program as the call names it. */
     val name: String get() = argv.first()
@@ -76,6 +78,7 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
         val system = resolved.parent in SYSTEM_DIRECTORIES
         val vetted = !opaque && system && program in VETTED_READ_ONLY
         val parsed = CommandOptions.parse(argv, withTable = vetted)
+        val reached = mutableListOf<Path>()
         if (vetted) {
             if (parsed.readsFromFile) {
                 throw FloorRefusal(
@@ -84,7 +87,10 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
                 )
             }
             val candidates = parsed.operands + parsed.optionValues
-            for (candidate in candidates) checkVetted(candidate, directory, parsed.isRecursive)
+            for (candidate in candidates) {
+                val canonical = checkVetted(candidate, directory, parsed.isRecursive)
+                if (Files.exists(canonical, LinkOption.NOFOLLOW_LINKS)) reached.add(canonical)
+            }
         } else {
             for (candidate in parsed.operands) checkUnparsed(candidate, directory, glued = false)
             for (candidate in gluedValues(argv)) checkUnparsed(candidate, directory, glued = true)
@@ -100,10 +106,12 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
             readOnly = vetted && operator && !parsed.isRecursive && program !in NEVER_READ_ONLY,
             snapshot = snapshot(executable, system, parsed.operands, directory),
             rule = if (opaque) null else rule(name, executable, parsed.operands.firstOrNull()),
+            reached = reached.distinct(),
         )
     }
 
-    private fun checkVetted(candidate: String, directory: Path, recursive: Boolean) {
+    /** The canonical path of [candidate], which the floor allows. */
+    private fun checkVetted(candidate: String, directory: Path, recursive: Boolean): Path {
         val path = candidatePath(candidate, directory)
         val check = if (recursive) floor.checkTree(path, agent) else floor.checkRead(path, agent)
         val canonical = allowed(check) { "'$candidate' reaches $it" }
@@ -113,6 +121,7 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
                     "command.exec does not run this call.",
             )
         }
+        return canonical
     }
 
     /** Checks [candidate] as a tree, or as a plain write when it is a [glued] value naming the root. */

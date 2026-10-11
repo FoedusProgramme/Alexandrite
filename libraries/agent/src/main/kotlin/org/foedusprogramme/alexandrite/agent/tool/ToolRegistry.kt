@@ -16,6 +16,9 @@ internal interface AgentScopedTool : Tool {
     fun usableBy(agent: AgentId): Boolean
 }
 
+/** A tool of the agent plugin that an agent is offered only beside other tools. */
+internal interface CompanionTool : Tool
+
 /** The contributed tools by name, and the ones each agent selects. */
 @Singleton
 internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origins: PluginOrigins) {
@@ -45,11 +48,12 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origin
         selected = directory.agents.associate { agent ->
             val allow = agent.config.tools.allow.map(ToolGlob::of)
             val deny = agent.config.tools.deny.map(ToolGlob::of)
-            agent.id to named.values.filter { tool ->
+            val chosen = named.values.filter { tool ->
                 val name = tool.definition.name
                 allow.any { it.matches(name) } && deny.none { it.matches(name) } &&
                     (tool as? AgentScopedTool)?.usableBy(agent.id) != false
             }
+            agent.id to chosen.takeIf { tools -> tools.any { it !is CompanionTool } }.orEmpty()
         }
     }
 

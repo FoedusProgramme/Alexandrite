@@ -154,8 +154,7 @@ internal class PersonaEditTool(
         return Edit(file, shown, current, snapshot, text)
     }
 
-    private fun directory(agent: AgentId): Path? =
-        paths.configFile?.parent?.resolve(PERSONAS)?.resolve(agent.value)?.normalize()
+    private fun directory(agent: AgentId): Path? = personaDirectory(paths, agent)
 
     private class Edit(
         val file: Path,
@@ -253,7 +252,6 @@ private fun sha256(bytes: ByteArray): String =
 
 private const val REPLACE = "replace"
 private const val APPEND = "append"
-private const val PERSONAS = "agents"
 private const val ABSENT = "absent"
 private const val MAX_PERSONA_BYTES = 1024 * 1024
 

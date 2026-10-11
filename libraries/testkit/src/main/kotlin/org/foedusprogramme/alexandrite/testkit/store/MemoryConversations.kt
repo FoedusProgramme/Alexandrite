@@ -11,12 +11,14 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationKind
 import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.store.ForkPoint
 import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.store.TurnRecord
 import org.foedusprogramme.alexandrite.sdk.store.rebuild
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 internal class MemoryConversations(private val data: MemoryData) : ConversationStore {
     override suspend fun current(key: AgentChatKey): ConversationInfo =
@@ -102,6 +104,14 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
 
     override suspend fun unendedTurns(): List<TurnRecord> =
         data.locked { turns.values.filter { it.endedAt == null }.sortedBy { it.startedAt } }
+
+    override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean = data.locked {
+        if (conversation !in conversations || conversation in taints) return@locked false
+        taints[conversation] = ConversationTaint(at.truncatedTo(ChronoUnit.MILLIS), reason)
+        true
+    }
+
+    override suspend fun taint(conversation: ConversationId): ConversationTaint? = data.locked { taints[conversation] }
 
     private fun MemoryData.currentOf(key: AgentChatKey, kind: ConversationKind, now: Instant): ConversationInfo {
         val id = current[key to kind] ?: insert(kind, key, null, null, now).id.also { current[key to kind] = it }

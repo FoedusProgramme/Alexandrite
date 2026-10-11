@@ -118,7 +118,7 @@ class ToolRoundsTest {
             assertEquals(listOf(0, 0, 0), requests.map { it.turnStart })
             val shared = requests.map { listOf(it.instructions, it.turnContext, it.tools, it.options, it.cacheKey) }
             assertEquals(1, shared.distinct().size)
-            assertEquals(listOf("fs.read"), requests[0].tools.map { it.name })
+            assertEquals(listOf("fs.read", "permission.status"), requests[0].tools.map { it.name })
             assertEquals(List(3) { ToolChoice.Auto }, requests.map { it.toolChoice })
             val calls = entries.filterIsInstance<AssistantEntry>().flatMap { it.parts.filterIsInstance<ToolCallPart>() }
             assertEquals(calls.map { it.id }, read.calls.map { it.call })
@@ -311,7 +311,7 @@ class ToolRoundsTest {
             val entries = stored()
             val requests = model.requests
             assertEquals(listOf(ToolChoice.Auto, ToolChoice.None), requests.map { it.toolChoice })
-            assertEquals(listOf("fs.read"), requests[1].tools.map { it.name })
+            assertEquals(listOf("fs.read", "permission.status"), requests[1].tools.map { it.name })
             assertEquals(1, read.calls.size)
             val last = entries.filterIsInstance<ToolResultEntry>().last()
             assertEquals(
@@ -430,7 +430,7 @@ class ToolRoundsTest {
             member.ticket.outcome()
 
             assertEquals(
-                List(3) { listOf("fs.glob", "fs.read", "fs.write") to ToolChoice.Auto },
+                List(3) { listOf("fs.glob", "fs.read", "fs.write", "permission.status") to ToolChoice.Auto },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             val results = results(store.transcripts.turnEntries(member.ticket.turn))
@@ -455,7 +455,7 @@ class ToolRoundsTest {
 
             val member = model.requests.drop(2)
             assertEquals(
-                List(2) { listOf("fs.read") to ToolChoice.Auto },
+                List(2) { listOf("fs.read", "permission.status") to ToolChoice.Auto },
                 member.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             assertEquals(model.requests[0].tools, member[0].tools)
@@ -475,7 +475,7 @@ class ToolRoundsTest {
             ask().ticket.outcome()
 
             assertEquals(
-                List(2) { listOf("fs.read") to ToolChoice.Auto },
+                List(2) { listOf("fs.read", "permission.status") to ToolChoice.Auto },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             val result = stored().filterIsInstance<ToolResultEntry>().single()

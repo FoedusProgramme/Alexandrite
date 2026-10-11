@@ -110,8 +110,7 @@ internal fun hostFloor(
         operator.map { DenyRoot(it, "a place the operator protects") }
     val keepsCarveOuts = setOfNotNull(configuration, data)
     val plain = Floor(places, home, canonicalizer, environment)
-    val personas = directory?.let { workspaces.keys.associateWith { id -> it.resolve(PERSONAS).resolve(id.value) } }
-        .orEmpty()
+    val personas = workspaces.keys.mapNotNull { id -> personaDirectory(paths, id)?.let { id to it } }.toMap()
     val personaPlaces = Floor(
         personas.map { (id, persona) -> DenyRoot(persona, "the persona directory of agent '$id'") },
         null,
@@ -154,6 +153,10 @@ internal fun hostFloor(
     }
     return HostFloor(floor(emptyMap()), own, personas)
 }
+
+/** The persona directory of [agent] beside the config file in [paths], null when the host read no config file. */
+internal fun personaDirectory(paths: HostPaths, agent: AgentId): Path? =
+    paths.configFile?.parent?.resolve(PERSONAS)?.resolve(agent.value)?.normalize()
 
 /** The places of `agent.protectedPaths`, each absolute or relative to the config file's directory. */
 internal fun operatorPlaces(paths: HostPaths, configured: List<String>): List<Path> = configured.map { entry ->

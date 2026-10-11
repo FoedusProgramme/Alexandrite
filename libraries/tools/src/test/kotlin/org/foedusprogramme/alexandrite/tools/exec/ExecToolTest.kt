@@ -78,6 +78,17 @@ class ExecToolTest {
     }
 
     @Test
+    fun `the existing paths that a vetted program's arguments name count as touched`() {
+        val notes = fs.write("notes/today.txt", "Buy milk.")
+        val context = fs.context()
+
+        val result = run("head -n 1 $notes missing.txt", context)
+
+        assertTrue(result.isError)
+        assertEquals(listOf(fs.workspace, notes), context.touchedPaths)
+    }
+
+    @Test
     fun `vetted programs run without being allowed`() {
         assertEquals("Exit code: 0\n3", run("printf 3").text)
         assertTrue(run("ls /").text.startsWith("Exit code: 0\n"))

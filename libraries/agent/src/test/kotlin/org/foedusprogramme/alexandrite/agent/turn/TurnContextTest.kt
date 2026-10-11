@@ -112,6 +112,8 @@ class TurnContextTest {
             assertEquals(opening.parts, (stored.first() as UserEntry).parts, name)
             val taint = "DEBUG Turn ${admission.ticket.turn} of $key is tainted: untrusted turn context"
             assertEquals(case.tainted, taint in lines, name)
+            val mark = blocking { store.conversations.taint(store.conversations.current(key).id) }
+            assertEquals("untrusted turn context".takeIf { case.tainted }, mark?.reason, name)
         }
     }
 }

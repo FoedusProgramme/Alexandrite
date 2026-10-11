@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import org.foedusprogramme.alexandrite.runtime.chat.MemoryChatStateStore
 import org.foedusprogramme.alexandrite.runtime.store.MemoryRecordStore
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
@@ -22,6 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.RecordStore
+import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.store.StoredRecord
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
@@ -36,6 +38,7 @@ import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
 import java.text.Normalizer
 import java.time.Clock
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -43,6 +46,9 @@ import kotlin.test.assertFailsWith
 /** A way to break the store contract, and the name of the check that catches it. */
 internal enum class StoreFlaw(val check: String) {
     ENDS_TWICE("a turn is recorded with its actor and ends once"),
+    OVERWRITES_TAINT("a conversation's taint is written once, and the first mark is kept"),
+    FORGETS_TAINT("a taint outlives the store"),
+    INHERITS_TAINT("a new conversation starts untainted, and the ones it keeps or seals keep their marks"),
     LOSES_ENTRIES("every entry is read back as it was stored, with its record"),
     REORDERS_TAIL("a tail holds the last entries in order"),
     IGNORES_SEALING("a sealed conversation takes no entries"),
@@ -67,6 +73,7 @@ private class FlawedStore(private val flaw: StoreFlaw?, private val pretty: Bool
     /** A harness whose plugin under test binds these ports. */
     fun harness(): PluginHarness.Builder {
         val records = if (flaw == StoreFlaw.FORGETS_RECORDS) Records(MemoryRecordStore()) else records
+        if (flaw == StoreFlaw.FORGETS_TAINT) data.locked { taints.clear() }
         val bindings = listOf(
             instanceBinding(key<ConversationStore>(), conversations, ID, "conversations"),
             instanceBinding(key<TranscriptStore>(), transcripts, ID, "transcripts"),
@@ -80,6 +87,20 @@ private class FlawedStore(private val flaw: StoreFlaw?, private val pretty: Bool
     private inner class Conversations(private val delegate: ConversationStore) : ConversationStore by delegate {
         override suspend fun endTurn(id: TurnId, end: TurnEndKind): Boolean =
             delegate.endTurn(id, end) || flaw == StoreFlaw.ENDS_TWICE
+
+        override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean {
+            if (flaw == StoreFlaw.OVERWRITES_TAINT) data.locked { taints.remove(conversation) }
+            return delegate.markTainted(conversation, reason, at)
+        }
+
+        override suspend fun newConversation(key: AgentChatKey): Rotation {
+            val rotation = delegate.newConversation(key)
+            val sealed = rotation.sealed
+            if (flaw == StoreFlaw.INHERITS_TAINT && sealed != null) {
+                data.locked { taints[sealed.id]?.let { taints[rotation.successor.id] = it } }
+            }
+            return rotation
+        }
     }
 
     private inner class Transcripts(private val delegate: TranscriptStore) : TranscriptStore by delegate {

@@ -130,7 +130,7 @@ class TelegramRepositoryTest {
         assertEquals(listOf(0, 1, 2, 3), requests.map { it.ids.round })
         assertEquals("What does greet do?", requests.first().asked)
         assertEquals(
-            listOf("command.exec", "fs.edit", "fs.glob", "fs.grep", "fs.read", "fs.write"),
+            listOf("command.exec", "fs.edit", "fs.glob", "fs.grep", "fs.read", "fs.write", "permission.status"),
             requests.first().tools.map { it.name },
         )
         assertEquals(requests.first().ids.conversation, conversation)

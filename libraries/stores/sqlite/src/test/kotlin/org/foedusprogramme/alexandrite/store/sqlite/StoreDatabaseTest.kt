@@ -8,9 +8,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 import kotlin.test.Test
@@ -89,9 +91,31 @@ class StoreDatabaseTest {
         assertEquals(main, conversation)
         assertEquals(member.address, record.createdBy)
         connect(file).use {
-            assertEquals(4, STORE_MIGRATIONS.size)
             assertEquals(STORE_MIGRATIONS.size, it.userVersion())
             assertContains(it.tables(), "records")
+        }
+    }
+
+    @Test
+    fun `a store of version 4 keeps its conversations, which start untainted and take a mark`() {
+        storeWithTurn(version = 4)
+        val at = Instant.parse("2026-01-02T03:04:05.678Z")
+
+        val (before, marked, after) = withStore(directory) {
+            val conversation = ConversationId("c1")
+            Triple(
+                conversations.taint(conversation),
+                conversations.markTainted(conversation, "a forwarded message", at),
+                conversations.taint(conversation),
+            )
+        }
+
+        assertEquals(null, before)
+        assertEquals(true, marked)
+        assertEquals(ConversationTaint(at, "a forwarded message"), after)
+        connect(file).use {
+            assertEquals(5, STORE_MIGRATIONS.size)
+            assertEquals(STORE_MIGRATIONS.size, it.userVersion())
         }
     }
 

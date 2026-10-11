@@ -1,4 +1,4 @@
-PRAGMA user_version = 4;
+PRAGMA user_version = 5;
 
 CREATE TABLE chat_states (
     plugin TEXT NOT NULL,
@@ -33,7 +33,7 @@ CREATE TABLE conversations (
     depth INTEGER NOT NULL,
     forked_from TEXT REFERENCES conversations (id),
     forked_through_entry INTEGER
-);
+    , tainted_at INTEGER, taint_reason TEXT);
 
 CREATE INDEX conversations_chat ON conversations (chat_id, agent);
 

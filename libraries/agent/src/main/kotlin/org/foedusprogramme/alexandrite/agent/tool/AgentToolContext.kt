@@ -17,7 +17,7 @@ internal class AgentToolContext(
     call: ToolCallId,
     private val workspaces: Workspaces,
     clearance: Clearance?,
-    private val taint: TurnTaint,
+    val taint: TurnTaint,
 ) : ToolContext {
     @Volatile
     private var open = true
@@ -52,7 +52,7 @@ internal class AgentToolContext(
 
     override fun untrusted(reason: String) {
         checkOpen()
-        taint.mark("call $call reported untrusted content: $reason")
+        taint.note("call $call reported untrusted content: $reason")
     }
 
     fun close() {

@@ -38,6 +38,10 @@ internal val STORE_MIGRATIONS: List<Migration> = listOf(
             """,
         )
     },
+    Migration("the first untrusted content of each conversation") {
+        execute("ALTER TABLE conversations ADD COLUMN tainted_at INTEGER")
+        execute("ALTER TABLE conversations ADD COLUMN taint_reason TEXT")
+    },
 )
 
 /** A connection to the store at [file], whose schema [steps] brought to their newest version. */

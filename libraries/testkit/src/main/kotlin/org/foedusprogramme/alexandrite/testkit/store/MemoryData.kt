@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationKind
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.store.MediaInfo
 import org.foedusprogramme.alexandrite.sdk.store.TurnRecord
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryRecord
@@ -21,6 +22,7 @@ internal class MemoryData(private val clock: Clock) {
     private val lock = Any()
 
     val conversations = LinkedHashMap<ConversationId, ConversationInfo>()
+    val taints = HashMap<ConversationId, ConversationTaint>()
     val current = HashMap<Pair<AgentChatKey, ConversationKind>, ConversationId>()
     val turns = LinkedHashMap<TurnId, TurnRecord>()
     val entries = sortedMapOf<Long, StoredEntry>()

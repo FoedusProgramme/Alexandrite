@@ -71,7 +71,7 @@ internal class PermissionGate(
         rules.denied(checked)?.let { return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(it)) }
         val principal = Principal.of(call.turn)
         if (required == null && !isGated(risk, principal, call.taint.tainted)) {
-            return GateResult.Admitted(Clearance(ClearanceKind.NONE, snapshot = review.snapshot))
+            return running(checked, GateResult.Admitted(Clearance(ClearanceKind.NONE, snapshot = review.snapshot)))
         }
         val mode = mode(call.turn)
         if (mode == PermissionMode.PLAN) {
@@ -90,7 +90,7 @@ internal class PermissionGate(
                 }
             }
         }
-        return ask(checked, reason(principal, mode, required))
+        return ask(checked, reason(checked, principal, mode))
     }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
@@ -125,7 +125,7 @@ internal class PermissionGate(
         settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
 
     private suspend fun ask(call: CheckedCall, reason: String): GateResult {
-        val result = approvals.ask(call, reason)
+        val result = running(call, approvals.ask(call, reason))
         val gate = call.call
         when (result) {
             is GateResult.Admitted -> logged(gate, "runs, cleared by ${result.clearance.kind}")
@@ -134,9 +134,19 @@ internal class PermissionGate(
         return result
     }
 
-    private fun admitted(call: CheckedCall, kind: ClearanceKind): GateResult {
+    private suspend fun admitted(call: CheckedCall, kind: ClearanceKind): GateResult {
         logged(call.call, "runs, cleared by $kind")
-        return GateResult.Admitted(Clearance(kind, snapshot = call.review.snapshot))
+        return running(call, GateResult.Admitted(Clearance(kind, snapshot = call.review.snapshot)))
+    }
+
+    /** [result], having marked the turn of [call] tainted when it lets a third-party tool read the network. */
+    private suspend fun running(call: CheckedCall, result: GateResult): GateResult {
+        val gate = call.call
+        val network = ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk)
+        if (result is GateResult.Admitted && network && !tools.isBuiltIn(gate.tool)) {
+            gate.taint.mark("a call of ${gate.tool.definition.name}, which reads the network")
+        }
+        return result
     }
 
     private fun refused(call: GateCall, reason: NotRunReason, text: String): GateResult {
@@ -167,13 +177,19 @@ internal class PermissionGate(
     }
 }
 
-/** Why a person is asked about a gated call of [principal] in [mode], given [required] by a hook. */
-private fun reason(principal: Principal, mode: PermissionMode, required: String?): String = when {
-    required != null -> required
+/** Why a person is asked about the gated [call] of [principal] in [mode]. */
+private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode): String = when {
+    call.requiredApproval != null -> call.requiredApproval
     principal == Principal.MEMBER -> "a member's call"
     principal == Principal.AUTOMATION -> "a call of a turn that nobody sent"
+    call.risk == ToolRisk.PERSISTENT_STATE -> tainted(call.call.taint)
     else -> "the chat is in $mode mode"
 }
+
+/** Why [taint] gates an operator's call that a clean conversation would run. */
+private fun tainted(taint: TurnTaint): String =
+    taint.known?.let { "the conversation took in untrusted content (${it.reason})" }
+        ?: "the conversation counts as tainted, as its mark could not be read"
 
 private const val HOOK_DENIED_RESULT = "A hook denied the call."
 

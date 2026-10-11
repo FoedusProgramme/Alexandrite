@@ -3,7 +3,10 @@ package org.foedusprogramme.alexandrite.testkit.store
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.testkit.StoreCheck
+import org.foedusprogramme.alexandrite.testkit.testChat
+import java.time.Instant
 
 private const val ROUNDS = 5
 
@@ -21,6 +24,13 @@ internal val CANCELLATION_CHECKS: List<StoreCheck> = listOf(
                 val recorded = conversations.turn(turn.id) != null
                 expect(started == recorded) {
                     "A cancelled conversations.startTurn ${outcome(started)}, but the turn ${kept(recorded)}."
+                }
+
+                val target = conversations.current(AgentChatKey(main.agent, testChat(thread = "$round")))
+                val marked = returns { conversations.markTainted(target.id, "round $round", Instant.EPOCH) }
+                val tainted = conversations.taint(target.id) != null
+                expect(marked == tainted) {
+                    "A cancelled conversations.markTainted ${outcome(marked)}, but the mark ${kept(tainted)}."
                 }
             }
         }

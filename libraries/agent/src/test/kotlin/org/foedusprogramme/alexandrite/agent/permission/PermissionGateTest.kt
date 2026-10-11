@@ -181,6 +181,30 @@ class PermissionGateTest {
     }
 
     @Test
+    fun `a call that lets a third-party tool read the network taints the turn, and no other call does`() = runTest {
+        val fetch = recordingTool("web.fetch", ToolRisk.NETWORK_READ)
+        val search = recordingTool("web.search", ToolRisk.NETWORK_READ)
+        val page = reviewedTool("web.page", ToolRisk.READ_ONLY) { CallReview(risk = ToolRisk.NETWORK_READ) }
+        val feed = reviewedTool("web.feed", ToolRisk.NETWORK_READ) { error("Offline.") }
+        val read = recordingTool("fs.read")
+        val gate = gate(listOf(fetch, search, page, feed, read), builtIn = setOf(search))
+
+        suspend fun taints(tool: Tool): Boolean {
+            val taint = TurnTaint(operator.id, operator.key)
+            val call = ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}")
+            val context = testToolContext(operator)
+            gate.admit(GateCall(operator, call, tool, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls))
+            return taint.tainted
+        }
+
+        val ran = listOf(fetch, search, page, feed, read).map { taints(it) }
+        hooks.decide = { Interception.Aborted("Not now.", "test.Hook", null) }
+
+        assertEquals(listOf(true, false, true, false, false), ran)
+        assertEquals(false, taints(fetch))
+    }
+
+    @Test
     fun `an admin's turn of another kind than a message is no operator's`() = runTest {
         val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
         val admin = testUser("admin", isAdmin = true)
@@ -194,23 +218,45 @@ class PermissionGateTest {
     @Test
     fun `a person is asked why the call needs one`() = runTest {
         val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
-        val gate = gate(listOf(write))
+        val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)
+        val gate = gate(listOf(write, persona))
 
         gate.admit(write, operator)
         gate.admit(write, member)
         gate.admit(write, automation)
+        gate.admit(persona, operator, tainted = true)
+        gate.admit(persona, member, tainted = true)
         setMode(operator, PermissionMode.MANUAL)
         gate.admit(write, operator)
+        gate.admit(write, operator, tainted = true)
+        gate.admit(persona, operator, tainted = true)
 
         assertEquals(
             listOf(
                 "the chat is in ask mode",
                 "a member's call",
                 "a call of a turn that nobody sent",
+                "the conversation took in untrusted content (a test)",
+                "a member's call",
                 "the chat is in manual mode",
+                "the chat is in manual mode",
+                "the conversation took in untrusted content (a test)",
             ),
             approvals.reasons,
         )
+    }
+
+    @Test
+    fun `an operator's call held back by a taint that could not be read says so`() = runTest {
+        val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)
+        val taint = TurnTaint(operator.id, operator.key, clock, operator.conversation, unread = true)
+        val call = ToolCallPart(ToolCallId("call-1"), "persona.edit", "{}")
+        val context = testToolContext(operator)
+
+        gate(listOf(persona))
+            .admit(GateCall(operator, call, persona, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls))
+
+        assertEquals(listOf("the conversation counts as tainted, as its mark could not be read"), approvals.reasons)
     }
 
     // Modes.

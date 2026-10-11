@@ -47,7 +47,16 @@ class ToolRegistryTest {
 
             assertEquals(listOf("fs.glob", "fs.read", "fs.write", "notes.find"), offered("coder"))
             assertEquals(
-                listOf("exec.run", "fs.glob", "fs.read", "fs.secret", "fs.write", "notes.add", "notes.find"),
+                listOf(
+                    "exec.run",
+                    "fs.glob",
+                    "fs.read",
+                    "fs.secret",
+                    "fs.write",
+                    "notes.add",
+                    "notes.find",
+                    "permission.status",
+                ),
                 offered("helper"),
             )
             assertEquals(emptyList(), offered("reviewer"))
@@ -73,6 +82,26 @@ class ToolRegistryTest {
                 offered(nativeTools = true).filter { registry.permits(coder, admin = false, it) },
             )
             assertTrue(offered(nativeTools = true).all { registry.permits(coder, admin = true, it) })
+        }
+    }
+
+    @Test
+    fun `an agent is offered permission status only beside other tools`() {
+        val config = """
+            {
+              "agents": {
+                "coder": {"tools": {"allow": ["permission.*"]}},
+                "helper": {"tools": {"allow": ["permission.*", "fs.read"]}}
+              }
+            }
+        """.trimIndent()
+
+        agentHarness(config) { tools.forEach(::tool) }.execute {
+            val registry = get<ToolRegistry>()
+            fun offered(agent: String) = registry.offered(AgentId(agent)).map { it.definition.name }
+
+            assertEquals(emptyList(), offered("coder"))
+            assertEquals(listOf("fs.read", "permission.status"), offered("helper"))
         }
     }
 

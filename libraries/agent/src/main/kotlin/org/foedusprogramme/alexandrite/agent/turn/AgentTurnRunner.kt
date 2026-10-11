@@ -39,6 +39,8 @@ import org.foedusprogramme.alexandrite.agent.model.collectResponse
 import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
+import org.foedusprogramme.alexandrite.agent.permission.ConversationTaints
+import org.foedusprogramme.alexandrite.agent.permission.ReadTaint
 import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.project.InstructionBudget
@@ -134,6 +136,8 @@ internal class AgentTurnRunner(
     private val tools: ToolRegistry,
     private val executor: ToolExecutor,
     private val projects: ProjectInstructions,
+    private val taints: ConversationTaints,
+    private val reads: ReadTaint,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val routes: Routes,
@@ -175,7 +179,7 @@ internal class AgentTurnRunner(
         private var previews: ReplyStream? = null
         private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes)
         private var recorded = false
-        private val taint = TurnTaint(plan.id, plan.key)
+        private lateinit var taint: TurnTaint
         private val tracked = Calls()
 
         /** Whose messages the turn takes as follow-ups, null when it takes none. */
@@ -271,6 +275,7 @@ internal class AgentTurnRunner(
                 conversations.current(key)
             }
             resolved(conversation.id)
+            taint = taints.open(plan.id, key, conversation.id)
             val turn = TurnInfo.builder(plan.id, plan.origin, conversation.id, plan.kind)
                 .actor(plan.actor)
                 .language(language)
@@ -323,10 +328,13 @@ internal class AgentTurnRunner(
             text: String,
             baked: List<ContextPart>,
         ): UserEntry = when (input) {
-            is TurnSource.FromMessage -> entry(turn, input.message, text, baked)
+            is TurnSource.FromMessage -> {
+                markUntrusted(input.message)
+                entry(turn, input.message, text, baked)
+            }
 
             is TurnSource.FromInitiated -> {
-                if (input.trust == Trust.UNTRUSTED) taint.mark("its untrusted prompt")
+                if (input.trust == Trust.UNTRUSTED) taint.mark("an untrusted prompt of plugin '${input.plugin}'")
                 initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
             }
         }
@@ -340,6 +348,14 @@ internal class AgentTurnRunner(
         ): UserEntry {
             val linked = topology.group(turn.agent, message.chat) != null
             return messageEntry(message, text, clock.zone, linked, baked + media.put(message.media))
+        }
+
+        /** Marks the turn tainted where [message] was forwarded or quotes what its channel does not vouch for. */
+        private suspend fun markUntrusted(message: IncomingMessage) {
+            when {
+                message.forwarded != null -> taint.mark("a forwarded message")
+                message.quote?.trust?.content == false -> taint.mark("a quote that its channel does not vouch for")
+            }
         }
 
         /** Runs the turn's rounds from its [opening] entry until the turn ends. */
@@ -445,6 +461,8 @@ internal class AgentTurnRunner(
                             slots.withPermit {
                                 val end =
                                     executor.execute(turn, call, tools.offered, timeout, tools.callable, taint, tracked)
+                                reads.reason(turn.agent, call.name, end.touched)?.let { taint.mark(it) }
+                                taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
                                 untrusted += found.untrusted
@@ -510,6 +528,7 @@ internal class AgentTurnRunner(
                 taken.removeFirst()
                 try {
                     if (entry != null) {
+                        markUntrusted(message)
                         append(entry)
                         followUp.complete(TurnOutcome.Absorbed(turn.id))
                         val absorbed = followUp.plan.id
@@ -689,6 +708,7 @@ internal class AgentTurnRunner(
 
         private suspend fun end(outcome: TurnOutcome, end: TurnEndKind): TurnOutcome {
             val turn = turn
+            if (::taint.isInitialized) taint.record()
             if (turn != null && recorded) {
                 attempt("record its end") { conversations.endTurn(turn.id, end) }
                 hooks.turnCommitted(turn, stored.toList(), outcome, usage)

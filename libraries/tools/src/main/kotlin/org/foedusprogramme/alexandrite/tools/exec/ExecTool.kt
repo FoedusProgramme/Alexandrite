@@ -115,6 +115,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             )
         }
         context.touched(run.cwd)
+        run.reached.forEach(context::touched)
         if (!run.vetted) context.untrusted("command.exec ran ${run.program}")
         val output = outcome.output.trimEnd().ifEmpty { "[no output]" }
         val exitCode = outcome.exitCode
