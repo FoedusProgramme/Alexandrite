@@ -17,7 +17,7 @@ import kotlin.test.assertEquals
 class CommandRulesTest {
     private val kinds = listOf(ChatKind.DIRECT, ChatKind.GROUP, ChatKind.BROADCAST, ChatKind.UNKNOWN)
     private val control = RecordingAgentControl()
-    private val rules = CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("mode")), control)
+    private val rules = CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("purge")), control)
 
     /** The refusal of `/[command] [arguments]` in [chat] of [kind] for a member and for an admin. */
     private fun refusals(
@@ -41,7 +41,7 @@ class CommandRulesTest {
     @Test
     fun `anyone may read the settings anywhere`() {
         assertRow("settings", "", direct = null, others = null)
-        for (command in listOf("agent", "model", "reasoning", "language")) {
+        for (command in listOf("agent", "model", "mode", "reasoning", "language")) {
             assertRow(command, "", direct = null, others = null)
             assertRow(command, "  ", direct = null, others = null)
         }
@@ -63,10 +63,13 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `only admins may change the model, homes, links and trust`() {
+    fun `only admins may change the model, the permission mode, homes, links and trust`() {
         for ((command, arguments) in listOf(
             "model" to "deepseek/deepseek-chat",
             "model" to "reset",
+            "mode" to "plan",
+            "mode" to "bypass 2h",
+            "mode" to "reset",
             "home" to "",
             "home" to "off",
             "link" to "",
@@ -89,7 +92,7 @@ class CommandRulesTest {
 
     @Test
     fun `a claimed command the matrix does not list is for admins alone`() {
-        for ((command, arguments) in listOf("mode" to "", "mode" to "bypass", "Mode" to "plan")) {
+        for ((command, arguments) in listOf("purge" to "", "purge" to "all", "Purge" to "now")) {
             assertRow(command, arguments, direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
         }
     }

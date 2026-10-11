@@ -46,6 +46,7 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class PayloadsTest {
@@ -86,6 +87,20 @@ class PayloadsTest {
         assertEquals(ReplyPreview(turn, 1, "Hello"), longer)
         assertEquals(TurnContext(turn, "Hello", listOf(recall, marker)), context)
         listOf(newSections, narrowed, rewritten, longer, context).forEach { assertSame(turn, it.turn) }
+    }
+
+    @Test
+    fun `a check requires approval only once a hook gives a reason, keeping the rest`() {
+        val check = ToolCallCheck(turn, call("toolu_01"), tool("notes.add"), ToolRisk.PERSISTENT_STATE)
+        val reason = "Lasting changes need a person."
+
+        val required = check.withRequireApproval(reason)
+
+        assertNull(check.requireApproval)
+        assertEquals(
+            ToolCallCheck(turn, call("toolu_01"), tool("notes.add"), ToolRisk.PERSISTENT_STATE, reason),
+            required,
+        )
     }
 
     @Test
@@ -130,6 +145,9 @@ class PayloadsTest {
             ToolCallCheck(turn, call("toolu_01"), tool("notes.find"), ToolRisk.EXEC)
         }
         assertEquals(ToolRisk.EXEC, ToolCallCheck(turn, call("toolu_01"), tool("notes.add"), ToolRisk.EXEC).risk)
+        assertFailsWith<IllegalArgumentException> {
+            ToolCallCheck(turn, call("toolu_01"), tool("notes.add"), ToolRisk.EXEC).withRequireApproval(" ")
+        }
         val finish = FinishReason(FinishKind.END_TURN, null, null)
         val completed = ModelEvent.Completed(reply(TextPart("Hi.")), finish, Usage.builder().build())
         assertFailsWith<IllegalArgumentException> { ModelReply(turn, -1, completed) }

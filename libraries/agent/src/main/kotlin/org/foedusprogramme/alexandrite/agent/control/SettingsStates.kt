@@ -11,9 +11,12 @@ import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
+import java.time.Instant
+import java.time.format.DateTimeParseException
 
 /** The chat settings the agent stores, where null is the default of the agent that serves the chat. */
 @Singleton
@@ -22,6 +25,7 @@ internal class SettingsStates(states: ChatStates) {
     private val model: ChatState<AgentChatKey, Choice<ModelRef>> = states.agentState(MODEL, Choice())
     private val reasoning: ChatState<AgentChatKey, Choice<ReasoningEffort>> = states.agentState(REASONING, Choice())
     private val language: ChatState<AgentChatKey, Choice<LanguageTag>> = states.agentState(LANGUAGE, Choice())
+    private val mode: ChatState<AgentChatKey, ModeChoice> = states.agentState(MODE, ModeChoice())
 
     /** The agents that the [CAPACITY] chats read last switched to. */
     private val selections = object : LinkedHashMap<ChatAddress, Choice<AgentId>>(16, 0.75f, true) {
@@ -58,6 +62,24 @@ internal class SettingsStates(states: ChatStates) {
 
     suspend fun language(key: AgentChatKey): LanguageTag? = language.get(key).value
 
+    /** The permission mode stored at [key] that holds at [now], null when none does. */
+    suspend fun mode(key: AgentChatKey, now: Instant): StoredMode? {
+        val stored = mode.get(key)
+        val value = stored.value?.takeIf { it in PermissionMode.entries } ?: return null
+        if (value != PermissionMode.BYPASS) return StoredMode(value, null)
+        val until = stored.until?.let(::instantOrNull) ?: return null
+        return StoredMode(value, until).takeIf { now.isBefore(until) }
+    }
+
+    /** Stores [change] of the permission mode at [key], where [until] ends a bypass. */
+    suspend fun changeMode(key: AgentChatKey, change: SettingChange<PermissionMode>, until: Instant?) {
+        when (change) {
+            is SettingChange.SetTo -> mode.set(key, ModeChoice(change.value, until?.toString()))
+            SettingChange.Reset -> mode.reset(key)
+            else -> Unit
+        }
+    }
+
     /** Stores the changes of [update] to the model, reasoning and language at [key]. */
     suspend fun update(key: AgentChatKey, update: ChatSettingsUpdate) {
         model.change(key, update.model)
@@ -70,6 +92,7 @@ internal class SettingsStates(states: ChatStates) {
         const val MODEL: String = "settings.model"
         const val REASONING: String = "settings.reasoning"
         const val LANGUAGE: String = "settings.language"
+        const val MODE: String = "settings.mode"
 
         const val CAPACITY: Int = 4096
     }
@@ -78,6 +101,18 @@ internal class SettingsStates(states: ChatStates) {
 /** A stored setting, whose [value] is null where the agent's default applies. */
 @Serializable
 internal data class Choice<T : Any>(val value: T? = null)
+
+/** A stored permission mode, whose bypass ends at the ISO-8601 instant [until]. */
+@Serializable
+internal data class ModeChoice(val value: PermissionMode? = null, val until: String? = null)
+
+private fun instantOrNull(text: String): Instant? = try {
+    Instant.parse(text)
+} catch (e: DateTimeParseException) {
+    null
+}
+
+internal class StoredMode(val mode: PermissionMode, val until: Instant?)
 
 private suspend fun <T : Any> ChatState<AgentChatKey, Choice<T>>.change(key: AgentChatKey, change: SettingChange<T>) {
     when (change) {

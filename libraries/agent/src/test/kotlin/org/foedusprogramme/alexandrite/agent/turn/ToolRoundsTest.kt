@@ -416,7 +416,7 @@ class ToolRoundsTest {
     // Offers.
 
     @Test
-    fun `every turn is offered the agent's read-only tools, and a member may call only those it lists for members`() {
+    fun `every turn is offered the agent's tools, and a member may call only those it lists for members`() {
         val glob = recordingTool("fs.glob")
         val tools = listOf(glob, recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE))
         model.reply { text("To the admin.") }.reply {
@@ -430,7 +430,7 @@ class ToolRoundsTest {
             member.ticket.outcome()
 
             assertEquals(
-                List(3) { listOf("fs.glob", "fs.read") to ToolChoice.Auto },
+                List(3) { listOf("fs.glob", "fs.read", "fs.write") to ToolChoice.Auto },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             val results = results(store.transcripts.turnEntries(member.ticket.turn))

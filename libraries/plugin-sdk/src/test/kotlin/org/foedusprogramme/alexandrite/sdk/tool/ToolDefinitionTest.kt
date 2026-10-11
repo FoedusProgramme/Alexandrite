@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.sdk.tool
 
 import kotlinx.serialization.json.JsonObject
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -39,5 +40,23 @@ class ToolDefinitionTest {
             assertNull(ToolNames.fromWire(wire), wire)
         }
         assertFailsWith<IllegalArgumentException> { ToolNames.wire("notes-add") }
+    }
+
+    @Test
+    fun `a command preview names its program, and a rule subject a well-formed tool and what people see`() {
+        val cwd = Path.of("/srv")
+
+        assertFailsWith<IllegalArgumentException> { ReviewPreview.Command(emptyList(), cwd, null, opaque = false) }
+        assertFailsWith<IllegalArgumentException> { RuleSubject("command-exec", listOf("ls"), "ls") }
+        assertFailsWith<IllegalArgumentException> { RuleSubject("command.exec", listOf("ls"), " ") }
+        assertEquals(listOf("./gradlew", "test"), RuleSubject("command.exec", listOf("./gradlew", "test"), "x").tokens)
+    }
+
+    @Test
+    fun `the risks rise in severity, the ones always gated sharing the highest`() {
+        val severities = ToolRisk.entries.associateWith { it.severity }
+
+        assertEquals(listOf(0, 1, 2, 3, 4, 4, 4), severities.values.toList())
+        assertEquals(ToolRisk.entries, ToolRisk.entries.sortedBy { it.severity })
     }
 }

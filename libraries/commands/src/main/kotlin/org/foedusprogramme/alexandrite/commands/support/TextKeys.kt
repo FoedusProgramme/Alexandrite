@@ -38,6 +38,15 @@ internal object TextKeys {
     const val LANGUAGE_RESET: String = "language.reset"
     const val LANGUAGE_MALFORMED: String = "language.malformed"
 
+    const val MODE_CURRENT: String = "mode.current"
+    const val MODE_CURRENT_BYPASS: String = "mode.current_bypass"
+    const val MODE_SET: String = "mode.set"
+    const val MODE_SET_BYPASS: String = "mode.set_bypass"
+    const val MODE_BYPASS_CAPPED: String = "mode.bypass_capped"
+    const val MODE_RESET: String = "mode.reset"
+    const val MODE_UNKNOWN: String = "mode.unknown"
+    const val MODE_MALFORMED_DURATION: String = "mode.malformed_duration"
+
     const val HOME_SET: String = "home.set"
     const val HOME_CLEARED: String = "home.cleared"
     const val HOME_NOT_HOME: String = "home.not_home"
@@ -67,6 +76,8 @@ internal object TextKeys {
     const val SETTINGS_MODEL: String = "settings.model"
     const val SETTINGS_REASONING: String = "settings.reasoning"
     const val SETTINGS_LANGUAGE: String = "settings.language"
+    const val SETTINGS_MODE: String = "settings.mode"
+    const val SETTINGS_MODE_BYPASS: String = "settings.mode_bypass"
     const val SETTINGS_HOME_HERE: String = "settings.home_here"
     const val SETTINGS_HOME_ELSEWHERE: String = "settings.home_elsewhere"
     const val SETTINGS_HOME_NONE: String = "settings.home_none"
@@ -97,11 +108,16 @@ internal object TextKeys {
     const val SOURCE_NO_MODEL: String = "source.no_model"
     const val SOURCE_MODEL_DEFAULT: String = "source.model_default"
     const val SOURCE_HOST_DEFAULT: String = "source.host_default"
+    const val SOURCE_DEFAULT: String = "source.default"
 
     const val VALUE_DEFAULT: String = "value.default"
     const val VALUE_NONE: String = "value.none"
     const val VALUE_HOST: String = "value.host"
     const val LIST_ITEM: String = "list.item"
+
+    const val DURATION_MINUTES: String = "duration.minutes"
+    const val DURATION_HOURS: String = "duration.hours"
+    const val DURATION_HOURS_MINUTES: String = "duration.hours_minutes"
 
     fun description(command: String): String = "command.$command.description"
 

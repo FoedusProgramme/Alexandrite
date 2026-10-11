@@ -8,10 +8,13 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
+import org.foedusprogramme.alexandrite.testkit.TEST_TIME
 import org.foedusprogramme.alexandrite.testkit.TestChatStates
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -37,6 +40,29 @@ class SettingsStatesTest {
             assertEquals(AgentId("helper"), settings.loadAgent(thread.chat).value)
             assertEquals(AgentId("helper"), settings.loadAgent(ChatAddress.parse("test:main:5")).value)
         }
+    }
+
+    @Test
+    fun `a mode applies to the chat and its threads, a bypass until it ends, an unknown mode never`() {
+        val end = TEST_TIME.plusSeconds(60)
+        fun read(at: AgentChatKey, now: Instant = TEST_TIME) =
+            blocking { settings.mode(at, now) }?.let { it.mode to it.until }
+
+        blocking { settings.changeMode(key, SettingChange.SetTo(PermissionMode.BYPASS), end) }
+        val bypass = listOf(read(thread), read(key, end.minusMillis(1)), read(key, end))
+        blocking { settings.changeMode(key, SettingChange.SetTo(PermissionMode.PLAN), null) }
+        val plan = read(thread)
+        val states = stored.agentState(SettingsStates.MODE, ModeChoice())
+        blocking { states.set(key, ModeChoice(PermissionMode.of("yolo"))) }
+        val unknown = read(key)
+        blocking { states.set(key, ModeChoice(PermissionMode.BYPASS)) }
+        val endless = read(key)
+        blocking { settings.changeMode(key, SettingChange.Reset, null) }
+
+        assertEquals(listOf(PermissionMode.BYPASS to end, PermissionMode.BYPASS to end, null), bypass)
+        assertEquals(PermissionMode.PLAN to null, plan)
+        assertEquals(listOf(null, null, null), listOf(unknown, endless, read(key)))
+        assertNull(blocking { states.getOwn(key) })
     }
 
     @Test

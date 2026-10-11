@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -63,10 +64,10 @@ public interface AgentControl {
     /**
      * Applies [update] at [chat] and returns the settings then.
      *
-     * The agent and the home change at once, the model, reasoning and language once the turns queued at the chat's key
-     * before the call have ended. An update of the model, reasoning or language throws [IllegalStateException] when
-     * called in a turn or in a change of the chat's key or a hook it fires, changing nothing, and when the agent stops
-     * before it is made, with the agent and home changed.
+     * The agent, the home and the permission mode change at once, the model, reasoning and language once the turns
+     * queued at the chat's key before the call have ended. An update of the model, reasoning or language throws
+     * [IllegalStateException] when called in a turn or in a change of the chat's key or a hook it fires, changing
+     * nothing, and when the agent stops before it is made, with the agent, home and mode changed.
      */
     public suspend fun updateSettings(
         chat: ChatAddress,
@@ -263,9 +264,22 @@ public class ChatSettingsSnapshot private constructor(
     public val defaultModel: ModelRef?,
     public val defaultReasoning: ReasoningEffort?,
     public val defaultLanguage: LanguageTag?,
+    public val mode: PermissionMode?,
+    /** When the chat's [PermissionMode.BYPASS] ends. */
+    public val modeUntil: Instant?,
+    public val defaultMode: PermissionMode?,
 ) {
+    init {
+        require(modeUntil == null || mode == PermissionMode.BYPASS) {
+            "Only a bypass ends, was $mode until $modeUntil."
+        }
+    }
+
     /** The language [agent] answers the chat in, null when the host's default language applies. */
     public val effectiveLanguage: LanguageTag? get() = language ?: defaultLanguage
+
+    /** The permission mode of the chat, [PermissionMode.ASK] when neither the chat nor [agent] sets one. */
+    public val effectiveMode: PermissionMode get() = mode ?: defaultMode ?: PermissionMode.ASK
 
     public fun toBuilder(): Builder = Builder(agent)
         .model(model)
@@ -276,6 +290,8 @@ public class ChatSettingsSnapshot private constructor(
         .defaultModel(defaultModel)
         .defaultReasoning(defaultReasoning)
         .defaultLanguage(defaultLanguage)
+        .mode(mode, modeUntil)
+        .defaultMode(defaultMode)
 
     public class Builder internal constructor(private var agent: AgentId) {
         private var model: ModelRef? = null
@@ -286,6 +302,9 @@ public class ChatSettingsSnapshot private constructor(
         private var defaultModel: ModelRef? = null
         private var defaultReasoning: ReasoningEffort? = null
         private var defaultLanguage: LanguageTag? = null
+        private var mode: PermissionMode? = null
+        private var modeUntil: Instant? = null
+        private var defaultMode: PermissionMode? = null
 
         public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
@@ -307,6 +326,13 @@ public class ChatSettingsSnapshot private constructor(
         public fun defaultLanguage(defaultLanguage: LanguageTag?): Builder =
             apply { this.defaultLanguage = defaultLanguage }
 
+        public fun mode(mode: PermissionMode?, until: Instant? = null): Builder = apply {
+            this.mode = mode
+            modeUntil = until
+        }
+
+        public fun defaultMode(defaultMode: PermissionMode?): Builder = apply { this.defaultMode = defaultMode }
+
         public fun build(): ChatSettingsSnapshot = ChatSettingsSnapshot(
             agent,
             model,
@@ -317,6 +343,9 @@ public class ChatSettingsSnapshot private constructor(
             defaultModel,
             defaultReasoning,
             defaultLanguage,
+            mode,
+            modeUntil,
+            defaultMode,
         )
     }
 
@@ -368,8 +397,17 @@ public class ChatSettingsUpdate private constructor(
      * is.
      */
     public val home: SettingChange<Boolean>,
+    public val mode: SettingChange<PermissionMode>,
+    /** When the bypass that [mode] sets ends, at most a day after the update, null for an hour after it. */
+    public val modeUntil: Instant?,
 ) {
-    public fun toBuilder(): Builder = Builder(agent, model, reasoning, language, home)
+    init {
+        require(modeUntil == null || (mode as? SettingChange.SetTo)?.value == PermissionMode.BYPASS) {
+            "Only a bypass ends, was $mode until $modeUntil."
+        }
+    }
+
+    public fun toBuilder(): Builder = Builder(agent, model, reasoning, language, home, mode, modeUntil)
 
     public class Builder internal constructor(
         private var agent: SettingChange<AgentId>,
@@ -377,6 +415,8 @@ public class ChatSettingsUpdate private constructor(
         private var reasoning: SettingChange<ReasoningEffort>,
         private var language: SettingChange<LanguageTag>,
         private var home: SettingChange<Boolean>,
+        private var mode: SettingChange<PermissionMode>,
+        private var modeUntil: Instant?,
     ) {
         public fun agent(agent: AgentId): Builder = apply { this.agent = SettingChange.SetTo(agent) }
 
@@ -401,7 +441,18 @@ public class ChatSettingsUpdate private constructor(
 
         public fun resetHome(): Builder = apply { home = SettingChange.Reset }
 
-        public fun build(): ChatSettingsUpdate = ChatSettingsUpdate(agent, model, reasoning, language, home)
+        public fun mode(mode: PermissionMode, until: Instant? = null): Builder = apply {
+            this.mode = SettingChange.SetTo(mode)
+            modeUntil = until
+        }
+
+        public fun resetMode(): Builder = apply {
+            mode = SettingChange.Reset
+            modeUntil = null
+        }
+
+        public fun build(): ChatSettingsUpdate =
+            ChatSettingsUpdate(agent, model, reasoning, language, home, mode, modeUntil)
     }
 
     public companion object {
@@ -411,6 +462,8 @@ public class ChatSettingsUpdate private constructor(
             reasoning = SettingChange.Keep,
             language = SettingChange.Keep,
             home = SettingChange.Keep,
+            mode = SettingChange.Keep,
+            modeUntil = null,
         )
     }
 }

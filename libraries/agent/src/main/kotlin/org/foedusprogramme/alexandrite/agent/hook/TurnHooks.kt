@@ -126,13 +126,14 @@ internal class TurnHooks(private val hooks: Hooks) {
     suspend fun llmResponse(turn: TurnInfo, round: Int, response: ModelEvent.Completed): Hooked<Unit> =
         hooks.fire(TurnPoints.LLM_RESPONSE, ModelReply(turn, round, response)).map { }
 
-    /** Whether the hooks let [call] run in [turn]. */
+    /** Whether the hooks let [call] run in [turn], and why they require approval, null when they do not. */
     suspend fun toolBefore(
         turn: TurnInfo,
         call: ToolCallPart,
         definition: ToolDefinition,
         risk: ToolRisk,
-    ): Hooked<Unit> = hooks.fire(TurnPoints.TOOL_BEFORE, ToolCallCheck(turn, call, definition, risk)).map { }
+    ): Hooked<String?> =
+        hooks.fire(TurnPoints.TOOL_BEFORE, ToolCallCheck(turn, call, definition, risk)).map { it.requireApproval }
 
     suspend fun toolAfter(turn: TurnInfo, call: ToolCallPart, result: ToolResultEntry) {
         hooks.fire(TurnPoints.TOOL_AFTER, ToolCallDone(turn, call, result))

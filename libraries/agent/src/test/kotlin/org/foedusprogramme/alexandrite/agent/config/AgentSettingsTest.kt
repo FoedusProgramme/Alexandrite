@@ -127,6 +127,17 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `a permission mode that is unknown or a bypass fails the start`() {
+        for (mode in listOf("yolo", "bypass")) {
+            assertConfigFails(
+                agents(""""coder": {"permission": {"mode": "$mode"}}"""),
+                "agents.coder.permission.mode must be one of plan, manual, ask, allowedit, auto: a bypass is set " +
+                    "per chat, for a limited time",
+            )
+        }
+    }
+
+    @Test
     fun `a number out of its range fails the start`() {
         val cases = mapOf(
             """{"maxConcurrentTurns": 0}""" to "maxConcurrentTurns must be positive",

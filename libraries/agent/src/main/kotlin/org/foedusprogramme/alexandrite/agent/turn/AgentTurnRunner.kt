@@ -36,6 +36,7 @@ import org.foedusprogramme.alexandrite.agent.model.collectResponse
 import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
+import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.project.InstructionBudget
 import org.foedusprogramme.alexandrite.agent.project.LoadedFile
 import org.foedusprogramme.alexandrite.agent.project.ProjectInstructions
@@ -160,9 +161,7 @@ internal class AgentTurnRunner(
         private var previews: ReplyStream? = null
         private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes)
         private var recorded = false
-
-        /** Whether untrusted text reaches the model. */
-        private var tainted = false
+        private val taint = TurnTaint(plan.id, plan.key)
 
         /** Whether the sink got its final message. */
         private var replied = false
@@ -295,10 +294,7 @@ internal class AgentTurnRunner(
         ): TurnContextPlan {
             val items = hooks.contextInject(turn, text, emptyList())
             val context = turnContextPlan(items) { model.endpoint.turnContextMode(model.ref.model, options, it) }
-            if (context.tainted) {
-                tainted = true
-                logger.debug("Turn {} of {} is tainted by untrusted turn context", turn.id, turn.key)
-            }
+            if (context.tainted) taint.mark("untrusted turn context")
             return context
         }
 
@@ -312,10 +308,7 @@ internal class AgentTurnRunner(
             is TurnSource.FromMessage -> entry(turn, input.message, text, baked)
 
             is TurnSource.FromInitiated -> {
-                if (input.trust == Trust.UNTRUSTED) {
-                    tainted = true
-                    logger.debug("Turn {} of {} is tainted by its untrusted prompt", turn.id, turn.key)
-                }
+                if (input.trust == Trust.UNTRUSTED) taint.mark("its untrusted prompt")
                 initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
             }
         }
@@ -432,7 +425,7 @@ internal class AgentTurnRunner(
                     for (call in calls) {
                         launch {
                             slots.withPermit {
-                                val end = executor.execute(turn, call, tools.offered, timeout, tools.callable)
+                                val end = executor.execute(turn, call, tools.offered, timeout, tools.callable, taint)
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
                                 untrusted += found.untrusted

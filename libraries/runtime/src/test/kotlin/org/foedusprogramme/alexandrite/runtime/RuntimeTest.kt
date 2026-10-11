@@ -37,6 +37,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorHook
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.problem.Problem
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -413,6 +414,26 @@ class RuntimeTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun `the plugin origins tell the instances that built-in plugins bound from the others`() {
+        val probe = probe(
+            "core",
+            "origins" to key<PluginOrigins>(),
+            "built" to key<Service>("built"),
+            "third" to key<Service>("third"),
+        )
+        val plugins = explicit(OriginsIndex(), TestIndex("core", bindings = listOf(service("third", "core"), probe)))
+        lateinit var builtIn: List<Boolean>
+
+        spec(plugins, dataDir).execute {
+            val values = services.get<Probe>().values
+            val origins = values.getValue("origins") as PluginOrigins
+            builtIn = listOf(values.getValue("built"), values.getValue("third"), origins, Any()).map(origins::isBuiltIn)
+        }
+
+        assertEquals(listOf(true, false, false, false), builtIn)
     }
 
     @Test

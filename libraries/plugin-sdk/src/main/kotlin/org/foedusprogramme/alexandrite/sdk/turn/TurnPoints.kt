@@ -38,9 +38,13 @@ public object TurnPoints {
     public val LLM_RESPONSE: InterceptorPoint<ModelReply> =
         InterceptorPoint("llm.response", setOf(HookEffect.ABORT), FailurePolicy.FAIL_OPEN)
 
-    /** Where an abort denies the call. */
+    /**
+     * Where an abort denies the call and a replacement requires approval.
+     *
+     * The agent reads only [ToolCallCheck.requireApproval] of a replacement and ignores its other fields.
+     */
     public val TOOL_BEFORE: InterceptorPoint<ToolCallCheck> =
-        InterceptorPoint("tool.before", setOf(HookEffect.ABORT), FailurePolicy.FAIL_CLOSED)
+        InterceptorPoint("tool.before", setOf(HookEffect.REPLACE, HookEffect.ABORT), FailurePolicy.FAIL_CLOSED)
 
     public val TOOL_AFTER: ObserverPoint<ToolCallDone> = ObserverPoint("tool.after")
 

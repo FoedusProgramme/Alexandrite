@@ -56,6 +56,7 @@ internal class CommandRules(handlers: List<CommandHandler>, private val control:
             "reasoning" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "language" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "model" to CommandRule(Who.ANYONE, Who.ADMIN),
+            "mode" to CommandRule(Who.ANYONE, Who.ADMIN),
             "new" to CommandRule(Who.UNLINKED_DIRECT),
             "cancel" to CommandRule(Who.DIRECT),
         )

@@ -180,6 +180,7 @@ internal class Assembly(
         channels: ChannelControl,
     ): Container = try {
         val infos = enabled.map { it.member.plugin.info }
+        val builtIns = enabled.filter { it.member.plugin.builtIn }.mapTo(HashSet()) { it.id }
         val initiation = key<TurnInitiation>()
         val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
         texts.install(spec.texts.value)
@@ -190,6 +191,7 @@ internal class Assembly(
             spec.config,
             spec.configFile,
             infos,
+            builtIns,
             hookFailures,
             hookDecisions,
             unreadableStates,

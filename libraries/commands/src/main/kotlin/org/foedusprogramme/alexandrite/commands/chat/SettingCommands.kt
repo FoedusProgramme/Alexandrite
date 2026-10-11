@@ -27,13 +27,15 @@ import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
 import org.slf4j.LoggerFactory
+import java.time.Clock
 import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
 /** `/model`, `/reasoning`, `/language` and `/settings`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class SettingCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+internal class SettingCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
+    CommandHandler {
     override val commands: List<CommandSpec> = listOf(MODEL, REASONING, LANGUAGE, SETTINGS).map(texts::spec)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
@@ -226,6 +228,8 @@ internal class SettingCommands(private val control: AgentControl, private val te
         val model = replies.model(snapshot)
         val effort = replies.reasoning(snapshot)
         val language = replies.language(snapshot)
+        val mode = replies.mode(snapshot)
+        val bypassLeft = replies.bypassLeft(snapshot, clock.instant())
         val home = summary?.home
         val lines = listOf(
             replies.text(TextKeys.SETTINGS_TITLE, "chat" to chat),
@@ -238,6 +242,11 @@ internal class SettingCommands(private val control: AgentControl, private val te
             replies.text(TextKeys.SETTINGS_MODEL, "model" to model.value, "source" to model.source),
             replies.text(TextKeys.SETTINGS_REASONING, "effort" to effort.value, "source" to effort.source),
             replies.text(TextKeys.SETTINGS_LANGUAGE, "language" to language.value, "source" to language.source),
+            if (bypassLeft == null) {
+                replies.text(TextKeys.SETTINGS_MODE, "mode" to mode.value, "source" to mode.source)
+            } else {
+                replies.text(TextKeys.SETTINGS_MODE_BYPASS, "source" to mode.source, "left" to bypassLeft)
+            },
             when {
                 snapshot.home -> replies.text(TextKeys.SETTINGS_HOME_HERE, "agent" to agent, "instance" to instance)
 

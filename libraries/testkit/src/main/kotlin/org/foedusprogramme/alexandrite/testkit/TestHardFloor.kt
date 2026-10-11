@@ -45,11 +45,17 @@ public fun testHardFloor(
 
 /** Refuses every path when [floor] is null. */
 private class TestHardFloor(private val floor: Floor?) : HardFloor {
-    override fun checkRead(path: Path, agent: AgentId?): FloorCheck {
+    override fun checkRead(path: Path, agent: AgentId?): FloorCheck = decide { it.check(path) }
+
+    override fun checkWrite(path: Path, agent: AgentId?): FloorCheck = decide { it.check(path) }
+
+    override fun checkTree(path: Path, agent: AgentId?): FloorCheck = decide { it.checkTree(path) }
+
+    private fun decide(check: (Floor) -> FloorDecision): FloorCheck {
         val floor = floor ?: return FloorCheck.Denied(UNKNOWN_HOME)
-        return when (val decision = floor.check(path)) {
+        return when (val decision = check(floor)) {
             is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
-            is FloorDecision.Denied -> FloorCheck.Denied(decision.kind)
+            is FloorDecision.Denied -> FloorCheck.Denied(decision.reason)
         }
     }
 }

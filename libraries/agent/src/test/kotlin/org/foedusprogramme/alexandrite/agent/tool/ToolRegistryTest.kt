@@ -3,7 +3,6 @@ package org.foedusprogramme.alexandrite.agent.tool
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
 import org.foedusprogramme.alexandrite.agent.execute
-import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
@@ -12,6 +11,7 @@ import org.foedusprogramme.alexandrite.testkit.RecordingTool
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -40,13 +40,16 @@ class ToolRegistryTest {
     """.trimIndent()
 
     @Test
-    fun `an agent is offered the read-only tools its globs allow and do not deny, sorted by name`() {
+    fun `an agent is offered the tools its globs allow and do not deny, whatever their risk, sorted by name`() {
         agentHarness(config) { tools.forEach(::tool) }.execute {
             val registry = get<ToolRegistry>()
             fun offered(agent: String) = registry.offered(AgentId(agent)).map { it.definition.name }
 
-            assertEquals(listOf("fs.glob", "fs.read", "notes.find"), offered("coder"))
-            assertEquals(listOf("fs.glob", "fs.read", "fs.secret", "notes.find"), offered("helper"))
+            assertEquals(listOf("fs.glob", "fs.read", "fs.write", "notes.find"), offered("coder"))
+            assertEquals(
+                listOf("exec.run", "fs.glob", "fs.read", "fs.secret", "fs.write", "notes.add", "notes.find"),
+                offered("helper"),
+            )
             assertEquals(emptyList(), offered("reviewer"))
             assertEquals(emptyList(), offered("other"))
             assertSame(tools.first(), registry.tool("fs.read"))
@@ -63,7 +66,7 @@ class ToolRegistryTest {
             val coder = AgentId("coder")
             fun offered(nativeTools: Boolean) = registry.offered(coder, model, nativeTools).map { it.definition.name }
 
-            assertEquals(listOf("fs.glob", "fs.read", "notes.find"), offered(nativeTools = true))
+            assertEquals(listOf("fs.glob", "fs.read", "fs.write", "notes.find"), offered(nativeTools = true))
             assertEquals(emptyList(), offered(nativeTools = false))
             assertEquals(
                 listOf("fs.glob", "notes.find"),
@@ -74,18 +77,13 @@ class ToolRegistryTest {
     }
 
     @Test
-    fun `the start logs which selected tools are withheld until the permission layer exists`() {
-        val lines = logged { agentHarness(config) { tools.forEach(::tool) }.execute {} }
+    fun `only the tools of built-in plugins count as built in`() {
+        agentHarness(config) { tools.forEach(::tool) }.execute {
+            val registry = get<ToolRegistry>()
 
-        val until = "only READ_ONLY tools are offered until the permission layer exists"
-        assertEquals(
-            listOf(
-                "INFO Agent 'coder' is not offered fs.write (WORKSPACE_WRITE): $until",
-                "INFO Agent 'helper' is not offered exec.run (EXEC), fs.write (WORKSPACE_WRITE), notes.add " +
-                    "(AGENT_STATE): $until",
-            ),
-            lines.filter { "is not offered" in it },
-        )
+            assertEquals(emptyList(), tools.filter(registry::isBuiltIn))
+            assertFalse(registry.isBuiltIn(recordingTool("fs.read")))
+        }
     }
 
     @Test

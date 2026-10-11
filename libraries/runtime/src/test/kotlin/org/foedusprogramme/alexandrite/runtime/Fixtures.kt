@@ -209,6 +209,8 @@ class TwinToolsIndex : TestIndex("alexandrite-tools-twin", "tools")
 
 class AppIndex : TestIndex("alexandrite-app", "app")
 
+class OriginsIndex : TestIndex("alexandrite-origins", "origins", listOf(service("built", "alexandrite-origins")))
+
 class TelegramIndex : TestIndex("alexandrite-channel-telegram", "channels.telegram")
 
 class AnthropicIndex : TestIndex("alexandrite-provider-anthropic", "providers.anthropic")
@@ -253,6 +255,7 @@ val TEST_BUILT_INS: List<BuiltInPlugin> = listOf(
     row(NestedToolsIndex::class, "alexandrite-tools-nested", BuiltInLayer.TOOLS, "tools.nested"),
     row(TwinToolsIndex::class, "alexandrite-tools-twin", BuiltInLayer.TOOLS, "tools"),
     row(AppIndex::class, "alexandrite-app", BuiltInLayer.APP, "app"),
+    row(OriginsIndex::class, "alexandrite-origins", BuiltInLayer.TOOLS, "origins"),
     row(TelegramIndex::class, "alexandrite-channel-telegram", BuiltInLayer.CHANNEL, "channels.telegram"),
     row(AnthropicIndex::class, "alexandrite-provider-anthropic", BuiltInLayer.PROVIDER, "providers.anthropic"),
     row(BotIndex::class, "alexandrite-channel-bot", BuiltInLayer.CHANNEL, "channels.bot"),

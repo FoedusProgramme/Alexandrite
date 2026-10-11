@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.commands.ADMIN
 import org.foedusprogramme.alexandrite.commands.CHINESE
 import org.foedusprogramme.alexandrite.commands.PLUGIN
+import org.foedusprogramme.alexandrite.commands.TestClock
 import org.foedusprogramme.alexandrite.commands.answer
 import org.foedusprogramme.alexandrite.commands.commandTexts
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
@@ -16,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
@@ -27,12 +29,14 @@ import org.foedusprogramme.alexandrite.testkit.ScriptedModel.Companion.modelInfo
 import org.foedusprogramme.alexandrite.testkit.testChat
 import org.foedusprogramme.alexandrite.testkit.testCommand
 import java.io.IOException
+import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class SettingCommandsTest {
-    private val control = RecordingAgentControl().apply {
+    private val clock = TestClock()
+    private val control = RecordingAgentControl(clock = clock).apply {
         scriptAgent(AgentId.MAIN, "Main")
         scriptModels(EndpointId("big"), (1..45).map { modelInfo("m-%02d".format(it)) }.shuffled())
         scriptModels(EndpointId("slow"), emptyList())
@@ -47,7 +51,7 @@ class SettingCommandsTest {
             else -> control.models(endpoint)
         }
     }
-    private val commands = SettingCommands(listing, commandTexts())
+    private val commands = SettingCommands(listing, commandTexts(), clock)
     private val chat = testChat()
 
     // /model.
@@ -95,7 +99,7 @@ class SettingCommandsTest {
     @Test
     fun `an endpoint that lists no models or does not exist is reported`() = runTest {
         val bare = RecordingAgentControl()
-        val commands = SettingCommands(bare, commandTexts())
+        val commands = SettingCommands(bare, commandTexts(), clock)
 
         assertEquals(
             "There is no endpoint 'nowhere'. Endpoints: none.",
@@ -152,7 +156,7 @@ class SettingCommandsTest {
         }
 
         assertFailsWith<IllegalArgumentException> {
-            SettingCommands(failing, commandTexts()).answer(testCommand("model", "big/m-01"))
+            SettingCommands(failing, commandTexts(), clock).answer(testCommand("model", "big/m-01"))
         }
     }
 
@@ -221,7 +225,7 @@ class SettingCommandsTest {
         val catalog = TextCatalog.builder()
             .text(PLUGIN, CHINESE, "language.set", "这个聊天的语言现在是 {language}。")
             .build()
-        val commands = SettingCommands(listing, commandTexts(catalog))
+        val commands = SettingCommands(listing, commandTexts(catalog), clock)
 
         assertEquals("Language: default (the host's language).", commands.answer(testCommand("language")))
         assertEquals("这个聊天的语言现在是 zh-CN。", commands.answer(testCommand("language", "zh_cn")))
@@ -269,6 +273,7 @@ class SettingCommandsTest {
             Model: big/m-01 (the agent's setting)
             Reasoning effort: default (the model decides)
             Language: default (the host's language)
+            Permission mode: ask (the default)
             Home: main has no home chat on test:main
             Linked: no other chat shares the conversation of main
             You are not an admin here.
@@ -287,7 +292,10 @@ class SettingCommandsTest {
             ChatSettingsUpdate.builder().agent(coder).reasoning(ReasoningEffort.HIGH).language(CHINESE).build(),
             ADMIN,
         )
+        val bypass = ChatSettingsUpdate.builder().mode(PermissionMode.BYPASS, clock.now + Duration.ofMinutes(90))
+        control.updateSettings(chat, bypass.build(), ADMIN)
         control.link(coder, testChat("other"), chat, ADMIN)
+        clock.now += Duration.ofMinutes(15)
 
         assertEquals(
             """
@@ -296,6 +304,7 @@ class SettingCommandsTest {
             Model: big/m-02 (the agent's setting)
             Reasoning effort: high (set in this chat)
             Language: zh-CN (set in this chat)
+            Permission mode: bypass (set in this chat) for 1 h 15 min more
             Home: the home chat of coder on test:main is test:main:home
             Linked: shares the conversation of coder with test:main:other (anchor test:main:other)
             You are an admin here.
@@ -311,7 +320,7 @@ class SettingCommandsTest {
         val lines = commands.answer(testCommand("settings")).lines()
 
         assertEquals("Agent: main \"Main\" (this is its home chat)", lines[1])
-        assertEquals("Home: this chat is the home chat of main on test:main", lines[5])
+        assertEquals("Home: this chat is the home chat of main on test:main", lines[6])
     }
 
     @Test

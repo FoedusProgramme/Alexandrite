@@ -75,6 +75,27 @@ class AgentFloorTest {
     }
 
     @Test
+    fun `the floor writes no persona directory and refuses a tree that would reach a protected place`() {
+        harness("""{"coder": {}}""").execute {
+            val floor = get<HardFloor>()
+            val coder = AgentId("coder")
+            val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
+            val workspace = get<HostPaths>().dataRoot.resolve("workspaces/coder")
+            val notes = workspace.resolve("notes.md")
+            val denied = FloorCheck.Denied("Alexandrite's configuration")
+            val reach = FloorCheck.Denied("a recursive operation would reach SSH keys")
+
+            assertEquals(FloorCheck.Allowed(persona), floor.checkRead(persona, coder))
+            assertEquals(denied, floor.checkWrite(persona, coder))
+            assertEquals(denied, floor.checkTree(persona.parent, coder))
+            assertEquals(FloorCheck.Allowed(notes), floor.checkWrite(notes, coder))
+            assertEquals(FloorCheck.Allowed(workspace), floor.checkTree(workspace, coder))
+            assertEquals(reach, floor.checkTree(home))
+            assertEquals(reach, floor.checkTree(Path.of("/")))
+        }
+    }
+
+    @Test
     fun `a workspace that collides with a protected place fails the start`() {
         harness(coder(data)).assertStartFails(
             StartStage.GRAPH,

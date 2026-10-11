@@ -17,9 +17,28 @@ public interface HardFloor {
 
     /** [path] (absolute) made canonical and checked for a read by no agent. */
     public fun checkRead(path: Path): FloorCheck = checkRead(path, null)
+
+    /**
+     * [path] (absolute) made canonical and checked for a write by [agent]: the path to write, or why it is refused.
+     *
+     * Persona directories are refused to every agent.
+     */
+    public fun checkWrite(path: Path, agent: AgentId?): FloorCheck
+
+    /** [path] (absolute) made canonical and checked for a write by no agent. */
+    public fun checkWrite(path: Path): FloorCheck = checkWrite(path, null)
+
+    /**
+     * [path] (absolute) checked as by [checkWrite] for an operation that may reach its whole subtree, and refused as
+     * well when it holds a protected place.
+     */
+    public fun checkTree(path: Path, agent: AgentId?): FloorCheck
+
+    /** [path] (absolute) checked for an operation over its subtree by no agent. */
+    public fun checkTree(path: Path): FloorCheck = checkTree(path, null)
 }
 
-/** What [HardFloor.checkRead] decided. */
+/** What the [HardFloor] decided. */
 public sealed interface FloorCheck {
     @Poko
     public class Allowed(public val canonical: Path) : FloorCheck

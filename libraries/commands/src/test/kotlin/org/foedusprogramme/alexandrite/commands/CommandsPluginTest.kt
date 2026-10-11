@@ -63,6 +63,7 @@ class CommandsPluginTest {
             "home",
             "language",
             "link",
+            "mode",
             "model",
             "new",
             "reasoning",

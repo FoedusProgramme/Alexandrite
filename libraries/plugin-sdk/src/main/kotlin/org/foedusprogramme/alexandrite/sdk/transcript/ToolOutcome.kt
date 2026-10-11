@@ -74,9 +74,46 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The turn offers the tool but may not call it. */
         public val NOT_PERMITTED: NotRunReason = NotRunReason("not_permitted")
 
+        /** The hard floor or the tool's review refused the call. */
+        public val FLOOR: NotRunReason = NotRunReason("floor")
+
+        /** The chat is in plan mode. */
+        public val PLAN_MODE: NotRunReason = NotRunReason("plan_mode")
+
+        /** An approver denied the call. */
+        public val DENIED: NotRunReason = NotRunReason("denied")
+
+        /** A rule, the side model or the lack of an approver refused the call. */
+        public val DENIED_BY_POLICY: NotRunReason = NotRunReason("denied_by_policy")
+
+        /** No approver answered in time. */
+        public val EXPIRED: NotRunReason = NotRunReason("expired")
+
+        /** The user wrote a message instead of answering. */
+        public val DECLINED: NotRunReason = NotRunReason("declined")
+
+        /** The turn was cancelled while the call waited for an approver. */
+        public val CANCELLED: NotRunReason = NotRunReason("cancelled")
+
+        /** The agent stopped while the call waited for an approver. */
+        public val INTERRUPTED: NotRunReason = NotRunReason("interrupted")
+
         /** The values this version knows. */
-        public val entries: List<NotRunReason> =
-            listOf(INVALID_ARGUMENTS, UNKNOWN_TOOL, HOOK_DENIED, ROUND_LIMIT, NOT_PERMITTED)
+        public val entries: List<NotRunReason> = listOf(
+            INVALID_ARGUMENTS,
+            UNKNOWN_TOOL,
+            HOOK_DENIED,
+            ROUND_LIMIT,
+            NOT_PERMITTED,
+            FLOOR,
+            PLAN_MODE,
+            DENIED,
+            DENIED_BY_POLICY,
+            EXPIRED,
+            DECLINED,
+            CANCELLED,
+            INTERRUPTED,
+        )
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): NotRunReason = NotRunReason(id)

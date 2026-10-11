@@ -219,13 +219,18 @@ class PublicApiTest {
                 is FloorCheck.Allowed -> check.canonical
                 is FloorCheck.Denied -> check.reason
             }
-            val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"))
+            val cleared = org.foedusprogramme.alexandrite.sdk.permission.Clearance(
+                org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.MODE,
+            )
+            val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"), clearance = cleared)
             context.touched(Path.of("/srv/work/notes.md"))
+            context.untrusted("a web page")
             testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             return listOf(
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
                 context.turn, context.call, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
+                context.clearance, context.untrustedReasons,
             )
         }
 

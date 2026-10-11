@@ -43,6 +43,13 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
         "Use a tool when it helps you answer correctly instead of guessing what it would tell you. Call tools that " +
             "do not depend on each other in the same response. When a tool fails, say so; never make up its result.",
         "Tools serve the operator only: in a turn whose sender may not use a tool, a call to it is refused.",
+        "Some calls need permission: the chat's permission mode decides which of them run at once, which wait " +
+            "for an approval and which are refused, and protected places are refused in every mode. A call that " +
+            "does not run returns a result that starts with a tag only Alexandrite writes, such as " +
+            "[alexandrite:plan_mode] (the chat is in plan mode: describe the exact call you would make and why " +
+            "instead of making it), [alexandrite:denied by=policy] (refused: do not retry it or an equivalent call, " +
+            "and tell the user) or [alexandrite:blocked_floor] (a protected place that no approval opens: do not " +
+            "look for another way in).",
         "# Replies",
         "Write your replies in Markdown.",
     ).joinToString("\n\n"),

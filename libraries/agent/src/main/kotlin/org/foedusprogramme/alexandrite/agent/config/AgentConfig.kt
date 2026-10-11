@@ -31,6 +31,7 @@ internal class AgentConfig(
     val maxRounds: Int = 25,
     val toolTimeoutSeconds: Int = 120,
     val tools: ToolSelection = ToolSelection(),
+    val permission: PermissionConfig = PermissionConfig(),
     /** The agent's own directory. */
     val workspace: String? = null,
     /** The channel instances the agent serves, by `<type>:<name>`. */
@@ -55,6 +56,12 @@ internal class ToolSelection(
     val deny: List<String> = emptyList(),
     /** The tools offered on turns whose principal is no admin. */
     val forMembers: List<String> = emptyList(),
+)
+
+@Serializable
+internal class PermissionConfig(
+    /** The permission mode of the chats that set none. */
+    val mode: String? = null,
 )
 
 /** A persona file, written as its path or as `{"file": …, "when": […]}`. */

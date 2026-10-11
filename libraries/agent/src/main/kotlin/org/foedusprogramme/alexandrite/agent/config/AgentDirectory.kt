@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.slf4j.LoggerFactory
 
@@ -20,6 +21,8 @@ internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: 
     val reasoning: ReasoningEffort? = config.reasoning?.let(ReasoningEffort::of)
 
     val language: LanguageTag? = config.language?.let(LanguageTag::of)
+
+    val mode: PermissionMode? = config.permission.mode?.let(PermissionMode::of)
 
     val linkedChats: List<List<ChatAddress>> = config.linkedChats.map { group -> group.map(ChatAddress::parse) }
 }

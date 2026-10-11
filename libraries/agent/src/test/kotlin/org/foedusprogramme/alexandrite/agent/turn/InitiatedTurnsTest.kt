@@ -532,7 +532,7 @@ class InitiatedTurnsTest {
         }
 
         val (untrusted, trusted) = turns
-        assertTrue("DEBUG Turn $untrusted of $coder is tainted by its untrusted prompt" in lines)
+        assertTrue("DEBUG Turn $untrusted of $coder is tainted: its untrusted prompt" in lines)
         assertTrue(lines.none { it.startsWith("DEBUG Turn $trusted") && "tainted" in it })
         assertOpening(blocking { stored() }[2], "Remind them to stretch.", trust = "trusted")
     }

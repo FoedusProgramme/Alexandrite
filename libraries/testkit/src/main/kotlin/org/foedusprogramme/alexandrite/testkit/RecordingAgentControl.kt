@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
@@ -30,22 +31,28 @@ import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import java.nio.file.Path
+import java.time.Clock
+import java.time.Duration
+import java.time.ZoneOffset
 
 /**
  * An [AgentControl] and [ChatSettings] that records its calls, lists the [statuses] the test sets, mints conversations
  * `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance, linked groups and
  * trusted folders, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
+ * A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after it at most.
  *
  * Homes, groups and folders that the test declares stand for the config file's, and those changed at runtime over them
  * are set at [TEST_TIME]. It refuses with a [ControlRefusedException] what the agent refuses for the reasons it knows,
  * and the calls that [refuseNext] queues refusals for.
  */
-public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.MAIN) :
-    AgentControl,
+public class RecordingAgentControl(
+    private val defaultAgent: AgentId = AgentId.MAIN,
+    private val clock: Clock = Clock.fixed(TEST_TIME, ZoneOffset.UTC),
+) : AgentControl,
     ChatSettings {
     private val lock = Any()
     private val recorded = mutableListOf<Call>()
-    private val profiles = linkedMapOf(defaultAgent to Profile(defaultAgent.value, null, null, null, null))
+    private val profiles = linkedMapOf(defaultAgent to Profile(defaultAgent.value, null, null, null, null, null))
     private val selected = HashMap<ChatAddress, AgentId>()
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
     private val configuredHomes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
@@ -63,8 +70,8 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
 
     /**
-     * Lists [agent], in its place when it is listed already, with [name], [description] and the [model], [reasoning]
-     * and [language] it is configured with.
+     * Lists [agent], in its place when it is listed already, with [name], [description] and the [model], [reasoning],
+     * [language] and permission [mode] it is configured with.
      */
     public fun scriptAgent(
         agent: AgentId,
@@ -73,8 +80,9 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         model: ModelRef? = null,
         reasoning: ReasoningEffort? = null,
         language: LanguageTag? = null,
+        mode: PermissionMode? = null,
     ) {
-        synchronized(lock) { profiles[agent] = Profile(name, description, model, reasoning, language) }
+        synchronized(lock) { profiles[agent] = Profile(name, description, model, reasoning, language, mode) }
     }
 
     /** Lists [endpoint], in its place when it is listed already, with [models]. */
@@ -162,9 +170,10 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     }
 
     /**
-     * Refuses an agent that is not listed, a model that an endpoint listed with [scriptModels] lacks and a home chat of
-     * another agent, and changes homes as the agent does: true while [chat] is not the home, false while it is, and a
-     * reset from any chat of the instance.
+     * Refuses an agent that is not listed, a model that an endpoint listed with [scriptModels] lacks, a home chat of
+     * another agent, a permission mode this version does not know and a bypass that ends before [clock]'s time, and
+     * changes homes as the agent does: true while [chat] is not the home, false while it is, and a reset from any chat
+     * of the instance.
      */
     override suspend fun updateSettings(
         chat: ChatAddress,
@@ -196,6 +205,12 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         }
         val owner = target?.let(::homeOf)
         refuseIf(owner != null && owner != agent) { "$target is the home chat of agent '$owner'." }
+        val now = clock.instant()
+        val mode = (update.mode as? SettingChange.SetTo)?.value
+        refuseIf(mode != null && mode !in PermissionMode.entries) { "'$mode' is no permission mode." }
+        val given = update.modeUntil
+        refuseIf(given != null && !given.isAfter(now)) { "A bypass cannot end at $given, which has passed." }
+        val until = if (mode == PermissionMode.BYPASS) minOf(given ?: (now + BYPASS), now + MAX_BYPASS) else null
         if (choice == null) selected.remove(chat) else selected[chat] = choice
         when {
             update.home == SettingChange.Reset -> runtimeHomes.remove(instance)
@@ -204,10 +219,12 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         }
         val key = AgentChatKey(agent, chat)
         val stored = settings[key]
+        val modeChanged = update.mode != SettingChange.Keep
         settings[key] = ChatSettingsSnapshot.builder(agent)
             .model(update.model.applyTo(stored?.model))
             .reasoning(update.reasoning.applyTo(stored?.reasoning))
             .language(update.language.applyTo(stored?.language))
+            .mode(if (modeChanged) mode else stored?.mode, if (modeChanged) until else stored?.modeUntil)
             .build()
         snapshot(chat)
     }
@@ -301,12 +318,15 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         }
         val stored = settings[AgentChatKey(agent, chat)] ?: ChatSettingsSnapshot.builder(agent).build()
         val profile = profiles[agent]
+        val ended = stored.modeUntil?.let { !clock.instant().isBefore(it) } == true
         return stored.toBuilder()
             .home(home == agent)
             .agentSource(source)
             .defaultModel(profile?.model)
             .defaultReasoning(profile?.reasoning)
             .defaultLanguage(profile?.language)
+            .apply { if (ended) mode(null) }
+            .defaultMode(profile?.mode)
             .build()
     }
 
@@ -343,6 +363,7 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         val model: ModelRef?,
         val reasoning: ReasoningEffort?,
         val language: LanguageTag?,
+        val mode: PermissionMode?,
     )
 
     /** A call of the control port. */
@@ -390,6 +411,10 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
         public class UntrustFolder(public val folder: Path, public val by: ChatUser?) : Call
     }
 }
+
+private val BYPASS: Duration = Duration.ofHours(1)
+
+private val MAX_BYPASS: Duration = Duration.ofHours(24)
 
 /** Throws [ControlRefusedException] with [message] when [refused]. */
 private inline fun refuseIf(refused: Boolean, message: () -> String) {

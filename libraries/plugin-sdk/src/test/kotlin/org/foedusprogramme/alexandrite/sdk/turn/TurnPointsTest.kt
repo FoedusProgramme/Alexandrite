@@ -46,7 +46,7 @@ class TurnPointsTest {
                 "context.inject" to (setOf(REPLACE) to FAIL_OPEN),
                 "llm.request" to (setOf(REPLACE, ABORT) to FAIL_OPEN),
                 "llm.response" to (setOf(ABORT) to FAIL_OPEN),
-                "tool.before" to (setOf(ABORT) to FAIL_CLOSED),
+                "tool.before" to (setOf(REPLACE, ABORT) to FAIL_CLOSED),
                 "response.preview" to (setOf(REPLACE, ABORT) to FAIL_CLOSED),
                 "response.before" to (setOf(REPLACE) to FAIL_OPEN),
             ),

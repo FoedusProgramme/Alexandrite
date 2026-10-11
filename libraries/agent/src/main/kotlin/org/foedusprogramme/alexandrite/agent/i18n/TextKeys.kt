@@ -57,6 +57,12 @@ internal object TextKeys {
     /** Takes `{effort}` and `{efforts}`. */
     const val UNKNOWN_REASONING: String = "control.unknown_reasoning"
 
+    /** Takes `{mode}` and `{modes}`. */
+    const val UNKNOWN_MODE: String = "control.unknown_mode"
+
+    /** Takes `{until}`. */
+    const val BYPASS_OVER: String = "control.bypass_over"
+
     /** Takes `{chat}` and `{agent}`. */
     const val HOME_TAKEN: String = "control.home_taken"
     const val SELF_LINK: String = "control.self_link"

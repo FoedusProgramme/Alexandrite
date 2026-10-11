@@ -14,6 +14,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class ChildContainerTest {
@@ -34,6 +35,28 @@ class ChildContainerTest {
         assertSame(root.get(svc("a")), c.dependency("a"))
         assertEquals("tg", c.injected["name"])
         assertSame(root.get(svc("a")), child.get(svc("a")))
+    }
+
+    @Test
+    fun `a container names the plugin whose binding created an instance, a child also its parent's`() {
+        val probe = binding(key<String>("probe"), "alpha", "probe", dependencies = listOf(dep("a"))) { r ->
+            r.pluginOf(r.get(svc("a"))) ?: "none"
+        }
+        val root = Container.build(
+            listOf(
+                plugin("alpha", service("a", plugin = "alpha"), probe),
+                plugin("beta", service("c", dep("a"), scope = CHANNEL_INSTANCE, plugin = "beta")),
+            ),
+        )
+
+        val child = root.child("tg", setOf("beta"))
+        val a = root.get(svc("a"))
+        val c = child.get(svc("c"))
+
+        assertEquals("alpha", root.get(key<String>("probe")))
+        assertEquals(listOf("alpha", "alpha", "beta"), listOf(root.pluginOf(a), child.pluginOf(a), child.pluginOf(c)))
+        assertNull(root.pluginOf(c))
+        assertNull(child.pluginOf(Service("a", events, emptyMap())))
     }
 
     @Test

@@ -20,6 +20,7 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
 import org.foedusprogramme.alexandrite.sdk.di.container.PluginBindings
+import org.foedusprogramme.alexandrite.sdk.di.container.Resolver
 import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
@@ -28,6 +29,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
@@ -46,13 +48,14 @@ internal const val RUNTIME_PLUGIN = "alexandrite-runtime"
 internal const val PLUGINS_DIRECTORY = "plugins"
 
 /**
- * What the runtime itself binds for [plugins], where [initiated] tells whether a plugin binds the [TurnInitiation]
- * that every plugin's [TurnInitiator] queues its turns with.
+ * What the runtime itself binds for [plugins], of which [builtIns] are on the built-in list, where [initiated] tells
+ * whether a plugin binds the [TurnInitiation] that every plugin's [TurnInitiator] queues its turns with.
  */
 internal fun runtimeBindings(
     config: RuntimeConfig,
     configFile: Path?,
     plugins: List<PluginInfo>,
+    builtIns: Set<String>,
     hookFailures: HookFailureListener,
     hookDecisions: HookDecisionListener,
     unreadableStates: UnreadableStateListener,
@@ -89,6 +92,9 @@ internal fun runtimeBindings(
         instanceBinding(key<HostPaths>(), paths, RUNTIME_PLUGIN, "HostPaths"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
+        binding(key<PluginOrigins>(), RUNTIME_PLUGIN, "PluginOrigins", managed = false) { r ->
+            ResolvedOrigins(r, builtIns)
+        },
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
@@ -151,6 +157,10 @@ internal fun runtimeBindings(
         )
     }
     return PluginBindings(RUNTIME_PLUGIN, bindings)
+}
+
+private class ResolvedOrigins(private val resolver: Resolver, private val builtIns: Set<String>) : PluginOrigins {
+    override fun isBuiltIn(instance: Any): Boolean = resolver.pluginOf(instance) in builtIns
 }
 
 private class PluginDirectories(private val data: Path, private val cache: Path) : PluginFiles {

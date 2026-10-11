@@ -252,6 +252,60 @@ class FloorTest {
         )
     }
 
+    // Trees.
+
+    private fun assertHeld(kind: String, path: Path, floor: Floor = this.floor) =
+        assertEquals(FloorDecision.Denied(kind, held = true), floor.checkTree(path), "$path")
+
+    @Test
+    fun `a tree check refuses the home directory, its ancestors and the parent of a credential store`() {
+        Files.createSymbolicLink(root.resolve("link"), home)
+
+        assertHeld("SSH keys", home)
+        assertHeld("SSH keys", root.resolve("link"))
+        assertHeld("SSH keys", root.resolve("HOME"))
+        assertHeld("SSH keys", Path.of("/"))
+        assertHeld("cloud credentials", home.resolve(".config"))
+        assertHeld("keyrings", home.resolve(".local/share"))
+        assertAllowed(home.resolve(".local/share"))
+    }
+
+    @Test
+    fun `a tree check refuses the process directories that hold sensitive entries`() {
+        for (path in listOf("/proc", "/proc/self", "/proc/1", "/proc/1/task", "/proc/1/task/2")) {
+            assertHeld("process memory and environment", Path.of(path))
+        }
+        val entry = Path.of("/proc/1/cmdline")
+        assertEquals(FloorDecision.Denied("process memory and environment"), floor.checkTree(entry))
+        assertIs<FloorDecision.Allowed>(floor.checkTree(Path.of("/proc/1/net")))
+    }
+
+    @Test
+    fun `a tree check refuses what a plain check refuses, naming the place itself`() {
+        assertEquals(FloorDecision.Denied("SSH keys"), floor.checkTree(home.resolve(".ssh")))
+        assertEquals(FloorDecision.Denied("configuration"), floor.checkTree(config))
+        assertEquals(FloorDecision.Denied("macOS special paths"), floor.checkTree(Path.of("/.vol")))
+    }
+
+    @Test
+    fun `a tree check allows a carve-out and a subtree beside every protected place`() {
+        assertIs<FloorDecision.Allowed>(floor.checkTree(workspace))
+        assertIs<FloorDecision.Allowed>(floor.checkTree(home.resolve(".config/other.txt")))
+        assertIs<FloorDecision.Allowed>(floor.checkTree(home.resolve("projects")))
+        assertIs<FloorDecision.Allowed>(floor.checkTree(home.resolve(".cargo/registry")))
+    }
+
+    @Test
+    fun `a tree check refuses the ancestors of a place with a carve-out, and a carve-out that holds a place`() {
+        val outer = root.resolve("outer")
+        val inner = outer.resolve("ws/secret")
+        val nested = floor(listOf(DenyRoot(outer, "outer", listOf(outer.resolve("ws"))), DenyRoot(inner, "inner")))
+
+        assertHeld("configuration", root, floor(home = null))
+        assertHeld("inner", outer.resolve("ws"), nested)
+        assertIs<FloorDecision.Allowed>(nested.check(outer.resolve("ws")))
+    }
+
     // Places and carve-outs.
 
     @Test
@@ -356,6 +410,7 @@ class FloorTest {
 
         assertDenied("SSH keys", Path.of("/System/Volumes/Data/Users/nobody-alexandrite-test/.ssh/id_rsa"), mac)
         assertContains(mac.overlaps(Path.of("/System/Volumes/Data/Users")), Overlap("SSH keys", Placement.HOLDS, keys))
+        assertHeld("SSH keys", Path.of("/System/Volumes/Data/Users"), mac)
         assertAllowed(Path.of("/System/Volumes/Data/Users/nobody-alexandrite-test/notes"), mac)
     }
 

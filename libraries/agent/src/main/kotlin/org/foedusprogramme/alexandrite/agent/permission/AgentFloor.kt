@@ -31,9 +31,15 @@ internal class AgentFloor(paths: HostPaths, workspaces: Workspaces, settings: Ag
         environment = System.getenv(),
     )
 
-    override fun checkRead(path: Path, agent: AgentId?): FloorCheck = when (val decision = floor.check(path, agent)) {
-        is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
-        is FloorDecision.Denied -> FloorCheck.Denied(decision.kind)
+    override fun checkRead(path: Path, agent: AgentId?): FloorCheck = floor.checkRead(path, agent).toCheck()
+
+    override fun checkWrite(path: Path, agent: AgentId?): FloorCheck = floor.checkWrite(path).toCheck()
+
+    override fun checkTree(path: Path, agent: AgentId?): FloorCheck = floor.checkTree(path).toCheck()
+
+    private fun FloorDecision.toCheck(): FloorCheck = when (this) {
+        is FloorDecision.Allowed -> FloorCheck.Allowed(canonical)
+        is FloorDecision.Denied -> FloorCheck.Denied(reason)
     }
 }
 
@@ -43,10 +49,14 @@ internal class HostFloor(
     private val shared: Floor?,
     private val own: Map<AgentId, Floor>,
 ) {
-    fun check(path: Path, agent: AgentId? = null): FloorDecision {
+    fun checkRead(path: Path, agent: AgentId? = null): FloorDecision {
         val floor = agent?.let(own::get) ?: shared ?: return FloorDecision.Denied(UNKNOWN_HOME)
         return floor.check(path)
     }
+
+    fun checkWrite(path: Path): FloorDecision = shared?.check(path) ?: FloorDecision.Denied(UNKNOWN_HOME)
+
+    fun checkTree(path: Path): FloorDecision = shared?.checkTree(path) ?: FloorDecision.Denied(UNKNOWN_HOME)
 }
 
 /**

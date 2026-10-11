@@ -40,6 +40,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
@@ -58,6 +59,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.time.Clock
+import java.time.Duration
+import java.time.Instant
 import kotlin.time.Duration.Companion.seconds
 
 /** The agent's control port and the chat settings it shows other plugins. */
@@ -135,17 +138,29 @@ internal class AgentControlImpl(
     ): ChatSettingsSnapshot {
         val current = refusing(null) { served(chat).key }
         val changes = settingChanges(update)
-        val agent = refusing(current) {
+        val (agent, until) = refusing(current) {
             val agent = agentAfter(chat, current.agent, update.agent)
             checkModel(update.model)
             checkReasoning(update.reasoning)
+            val until = bypassEnd(update, clock.instant())
             if (changes.isNotEmpty()) checkWaiting(topology.key(agent, chat))
             topology.changeHome(agent, chat, update.home, by)
-            agent
+            agent to until
         }
         if (update.agent != SettingChange.Keep) {
             states.selectAgent(chat, update.agent)
             logger.info("Chat {} is switched to agent '{}' by {}", chat, agent, who(by))
+        }
+        if (update.mode != SettingChange.Keep) {
+            val key = topology.key(agent, chat)
+            states.changeMode(key, update.mode, until)
+            val set = (update.mode as? SettingChange.SetTo)?.value
+            val mode = when {
+                set == null -> "reset"
+                until == null -> "$set"
+                else -> "$set until $until"
+            }
+            logger.info("The permission mode of {} is changed by {}: {}", key, who(by), mode)
         }
         if (changes.isNotEmpty()) {
             val key = topology.key(agent, chat)
@@ -215,6 +230,7 @@ internal class AgentControlImpl(
         val key = served.key
         val chat = served.origin
         val agent = directory.agent(key.agent)
+        val mode = states.mode(key, clock.instant())
         return ChatSettingsSnapshot.builder(key.agent)
             .model(states.model(key))
             .reasoning(states.reasoning(key))
@@ -224,6 +240,8 @@ internal class AgentControlImpl(
             .defaultModel(agent?.model)
             .defaultReasoning(agent?.reasoning)
             .defaultLanguage(agent?.language)
+            .mode(mode?.mode, mode?.until)
+            .defaultMode(agent?.mode)
             .build()
     }
 
@@ -274,6 +292,18 @@ internal class AgentControlImpl(
             val efforts = ReasoningEffort.entries.joinToString()
             throw Refused(TextKeys.UNKNOWN_REASONING, "effort" to effort, "efforts" to efforts)
         }
+    }
+
+    /** When the bypass that [update] sets at [now] ends, null when it sets none. */
+    private fun bypassEnd(update: ChatSettingsUpdate, now: Instant): Instant? {
+        val mode = (update.mode as? SettingChange.SetTo)?.value ?: return null
+        if (mode !in PermissionMode.entries) {
+            throw Refused(TextKeys.UNKNOWN_MODE, "mode" to mode, "modes" to PermissionMode.entries.joinToString())
+        }
+        if (mode != PermissionMode.BYPASS) return null
+        val until = update.modeUntil ?: return now + DEFAULT_BYPASS
+        if (!until.isAfter(now)) throw Refused(TextKeys.BYPASS_OVER, "until" to until)
+        return minOf(until, now + MAX_BYPASS)
     }
 
     /** [group] of [agent] as the control port shows it. */
@@ -364,6 +394,8 @@ internal class AgentControlImpl(
 
     private companion object {
         val LISTING_TIMEOUT = 5.seconds
+        val DEFAULT_BYPASS: Duration = Duration.ofHours(1)
+        val MAX_BYPASS: Duration = Duration.ofHours(24)
     }
 }
 

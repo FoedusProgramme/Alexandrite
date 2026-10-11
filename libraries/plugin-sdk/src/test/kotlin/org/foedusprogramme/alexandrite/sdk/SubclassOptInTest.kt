@@ -54,12 +54,22 @@ class SubclassOptInTest {
             override val turn get() = TODO()
             override val call get() = TODO()
             override val workspace get() = TODO()
+            override val clearance get() = TODO()
             override suspend fun openWorkspace() = TODO()
             override fun touched(path: java.nio.file.Path) = TODO()
+            override fun untrusted(reason: String) = TODO()
         }
+
+        class Preview : org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
             override fun checkRead(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
+                TODO()
+
+            override fun checkWrite(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
+                TODO()
+
+            override fun checkTree(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
                 TODO()
         }
 
@@ -415,6 +425,32 @@ class SubclassOptInTest {
             org.foedusprogramme.alexandrite.sdk.store.ConversationState.SEALED -> 1
             ELSE
         }
+
+        fun mode(mode: org.foedusprogramme.alexandrite.sdk.permission.PermissionMode): Int = when (mode) {
+            org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.PLAN -> 0
+            org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.MANUAL -> 1
+            org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.ASK -> 2
+            org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.ALLOW_EDIT -> 3
+            org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.AUTO -> 4
+            org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.BYPASS -> 5
+            ELSE
+        }
+
+        fun clearance(kind: org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind): Int = when (kind) {
+            org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.NONE -> 0
+            org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.MODE -> 1
+            org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.RULE -> 2
+            org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.JUDGE -> 3
+            org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.HUMAN -> 4
+            ELSE
+        }
+
+        fun preview(preview: org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview): Int = when (preview) {
+            is org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview.Diff -> 0
+            is org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview.Command -> 1
+            is org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview.Text -> 2
+            ELSE
+        }
     """.trimIndent()
 
     /** A channel as a third-party plugin writes it. */
@@ -612,6 +648,11 @@ class SubclassOptInTest {
                 if (settings.effectiveLanguage == null && models.isEmpty()) return
                 val chosenDefault = settings.agentSource == AgentSource.SELECTED && described?.default == true
                 if (chosenDefault) context.reply("${'$'}model")
+                if (settings.effectiveMode == org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.ASK) {
+                    val bypass = org.foedusprogramme.alexandrite.sdk.permission.PermissionMode.BYPASS
+                    val until = java.time.Instant.now().plusSeconds(600)
+                    control.updateSettings(invocation.chat, ChatSettingsUpdate.builder().mode(bypass, until).build(), null)
+                }
                 val group: ChatLinkGroup = control.link(agent, invocation.chat, invocation.chat, invocation.issuer)
                 if (group in control.links(agent)) control.unlink(agent, group.members.first(), null)
             }
@@ -622,6 +663,17 @@ class SubclassOptInTest {
 
             override suspend fun intercept(payload: TurnStart): HookDecision<TurnStart> =
                 HookDecision.Replace(payload.withTools(payload.tools.filter { it.risk == ToolRisk.READ_ONLY }))
+        }
+
+        class Careful : InterceptorHook<ToolCallCheck> {
+            override val point = TurnPoints.TOOL_BEFORE
+
+            override suspend fun intercept(payload: ToolCallCheck): HookDecision<ToolCallCheck> =
+                if (payload.risk.severity < ToolRisk.PERSISTENT_STATE.severity) {
+                    HookDecision.Continue
+                } else {
+                    HookDecision.Replace(payload.withRequireApproval("Lasting changes need a person."))
+                }
         }
 
         class Recall : InterceptorHook<TurnContext> {
@@ -639,6 +691,7 @@ class SubclassOptInTest {
     private val fileTool = """
         import kotlinx.serialization.json.JsonObject
         import kotlinx.serialization.json.jsonPrimitive
+        import org.foedusprogramme.alexandrite.sdk.chat.AgentId
         import org.foedusprogramme.alexandrite.sdk.tool.*
         import java.nio.file.Files
         import java.nio.file.Path
@@ -661,6 +714,36 @@ class SubclassOptInTest {
         }
 
         fun allowedToAll(floor: HardFloor, path: Path): Boolean = floor.checkRead(path) is FloorCheck.Allowed
+
+        class Write(private val floor: HardFloor) : ReviewedTool {
+            override val definition =
+                ToolDefinition("files.write", "Writes a file.", JsonObject(emptyMap()), ToolRisk.WORKSPACE_WRITE)
+
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
+                val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
+                val check = floor.checkWrite(path, context.turn.agent)
+                if (check is FloorCheck.Denied) return CallReview(refusal = "Refused: ${'$'}{check.reason}.")
+                val risk = if (Files.exists(path)) ToolRisk.WORKSPACE_WRITE else ToolRisk.EXEC
+                val rule = RuleSubject("files.write", listOf("${'$'}path"), "writes to ${'$'}path")
+                return CallReview(risk, preview = ReviewPreview.Diff(path, "+text"), snapshot = "absent", rule = rule)
+            }
+
+            override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+                val clearance = context.clearance ?: return ToolResult("Not cleared.", isError = true)
+                if (clearance.kind == org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind.NONE) {
+                    context.untrusted("wrote without a clearance")
+                }
+                return ToolResult("Written after ${'$'}{clearance.snapshot}.")
+            }
+        }
+
+        val previews = listOf(
+            ReviewPreview.Command(listOf("ls"), Path.of("/srv"), Path.of("/bin/ls"), opaque = false),
+            ReviewPreview.Text("Sends a message."),
+        )
+
+        fun writable(floor: HardFloor, path: Path, agent: AgentId?): Boolean =
+            floor.checkWrite(path, agent) is FloorCheck.Allowed && floor.checkTree(path) is FloorCheck.Allowed
     """.trimIndent()
 
     /** A plugin that writes its own settings back into the config file. */

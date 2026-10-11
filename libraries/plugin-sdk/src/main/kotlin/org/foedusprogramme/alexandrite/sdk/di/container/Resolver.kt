@@ -20,4 +20,7 @@ public interface Resolver {
 
     /** A function that resolves [key] on every call. */
     public fun <T : Any> provider(key: Key<T>): () -> T
+
+    /** The id of the plugin whose binding created [instance], null when no binding of the container did. */
+    public fun pluginOf(instance: Any): String?
 }

@@ -2,15 +2,23 @@ package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** The context of the call [call] in [turn], which holds only until [close]. */
-internal class AgentToolContext(turn: TurnInfo, call: ToolCallId, private val workspaces: Workspaces) : ToolContext {
+/** The context of the call [call] in [turn], cleared by [clearance], which holds only until [close]. */
+internal class AgentToolContext(
+    turn: TurnInfo,
+    call: ToolCallId,
+    private val workspaces: Workspaces,
+    clearance: Clearance?,
+    private val taint: TurnTaint,
+) : ToolContext {
     @Volatile
     private var open = true
 
@@ -25,6 +33,9 @@ internal class AgentToolContext(turn: TurnInfo, call: ToolCallId, private val wo
     override val workspace: Path?
         get() = workspaces.paths[turn.agent]
 
+    override val clearance: Clearance? = clearance
+        get() = field.also { checkOpen() }
+
     override suspend fun openWorkspace(): Path {
         val agent = turn.agent
         val path = withContext(Dispatchers.IO) { workspaces.open(agent) }
@@ -37,6 +48,11 @@ internal class AgentToolContext(turn: TurnInfo, call: ToolCallId, private val wo
     override fun touched(path: Path) {
         checkOpen()
         reported.add(path)
+    }
+
+    override fun untrusted(reason: String) {
+        checkOpen()
+        taint.mark("call $call reported untrusted content: $reason")
     }
 
     fun close() {

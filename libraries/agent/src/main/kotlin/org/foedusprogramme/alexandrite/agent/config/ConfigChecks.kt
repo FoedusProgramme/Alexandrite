@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.InvalidPathException
@@ -14,6 +15,8 @@ import java.nio.file.Path
 
 /** The ids that an instruction file's `when` may name. */
 internal val CONDITION_IDS: List<String> = ChatKind.entries.map { it.id } + TurnKind.entries.map { it.id }
+
+private val CONFIGURABLE_MODES = PermissionMode.entries - PermissionMode.BYPASS
 
 /** Throws when [agents] break a rule that the config alone decides. */
 internal fun checkAgents(agents: Map<String, AgentConfig>) {
@@ -58,6 +61,11 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     require(agent.language == null || isLanguageTag(agent.language)) {
         "$path.language is no BCP 47 language tag, such as \"zh-CN\""
+    }
+    val mode = agent.permission.mode
+    require(mode == null || CONFIGURABLE_MODES.any { it.id == mode }) {
+        "$path.permission.mode must be one of ${CONFIGURABLE_MODES.joinToString()}: a bypass is set per chat, " +
+            "for a limited time"
     }
     require(agent.maxOutputTokens == null || agent.maxOutputTokens > 0) { "$path.maxOutputTokens must be positive" }
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {

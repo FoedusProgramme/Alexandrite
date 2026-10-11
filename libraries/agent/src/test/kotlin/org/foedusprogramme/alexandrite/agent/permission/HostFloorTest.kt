@@ -66,10 +66,10 @@ class HostFloorTest {
     private fun coder(workspace: Path) = """{"coder": {"workspace": ${JsonPrimitive(workspace.toString())}}}"""
 
     private fun assertDenied(kind: String, path: Path, floor: HostFloor, agent: AgentId? = null) =
-        assertEquals(FloorDecision.Denied(kind), floor.check(path, agent), "$path for $agent")
+        assertEquals(FloorDecision.Denied(kind), floor.checkRead(path, agent), "$path for $agent")
 
     private fun assertAllowed(path: Path, floor: HostFloor, agent: AgentId? = null) =
-        assertEquals(FloorDecision.Allowed(path), floor.check(path, agent), "$path for $agent")
+        assertEquals(FloorDecision.Allowed(path), floor.checkRead(path, agent), "$path for $agent")
 
     private fun assertCollides(
         workspace: Path,
@@ -251,6 +251,8 @@ class HostFloorTest {
             assertDenied(UNKNOWN_HOME, root.resolve("notes.txt"), floor, agent)
             assertDenied(UNKNOWN_HOME, data.resolve("workspaces/coder/notes.md"), floor, agent)
         }
+        assertEquals(FloorDecision.Denied(UNKNOWN_HOME), floor.checkWrite(root.resolve("notes.txt")))
+        assertEquals(FloorDecision.Denied(UNKNOWN_HOME), floor.checkTree(root.resolve("notes")))
     }
 
     @Test
@@ -307,6 +309,53 @@ class HostFloorTest {
             "lies in a protected place (the persona directory of agent 'coder')",
         )
         assertCollides(personas, "holds a protected place (the persona directory of agent 'coder')")
+    }
+
+    // Writes and trees.
+
+    @Test
+    fun `an agent reads its own persona directory but cannot write it`() {
+        val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
+
+        val floor = floor("""{"coder": {}}""")
+
+        assertAllowed(persona, floor, AgentId("coder"))
+        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkWrite(persona))
+        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkTree(persona.parent))
+    }
+
+    @Test
+    fun `a workspace in the data root or the config directory is writable and walkable, but not its parent`() {
+        val inConfig = configFile.resolveSibling("coder-files")
+        val inData = data.resolve("workspaces/helper")
+
+        val floor = floor("""{"coder": {"workspace": "coder-files"}, "helper": {}}""")
+
+        for (workspace in listOf(inConfig, inData)) {
+            val notes = workspace.resolve("notes.md")
+            assertEquals(FloorDecision.Allowed(notes), floor.checkWrite(notes))
+            assertEquals(FloorDecision.Allowed(workspace), floor.checkTree(workspace))
+        }
+        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkTree(configFile.parent))
+        assertEquals(FloorDecision.Denied("Alexandrite's data"), floor.checkTree(data.resolve("workspaces")))
+        assertEquals(FloorDecision.Denied("Alexandrite's data"), floor.checkWrite(data.resolve("workspaces/x.md")))
+    }
+
+    @Test
+    fun `a tree check refuses the home, the root and the parents of protected places that a write may reach`() {
+        val share = home.resolve(".local/share")
+        val projects = root.resolve("projects")
+
+        val floor = floor(protectedPaths = listOf("$projects/vault"))
+
+        assertEquals(FloorDecision.Denied("SSH keys", held = true), floor.checkTree(home))
+        assertEquals(FloorDecision.Denied("SSH keys", held = true), floor.checkTree(Path.of("/")))
+        assertEquals(FloorDecision.Denied("keyrings", held = true), floor.checkTree(share))
+        assertEquals(FloorDecision.Denied("a place the operator protects", held = true), floor.checkTree(projects))
+        assertEquals(FloorDecision.Allowed(share), floor.checkWrite(share))
+        assertEquals(FloorDecision.Allowed(projects), floor.checkWrite(projects))
+        assertEquals(FloorDecision.Denied("SSH keys"), floor.checkWrite(home.resolve(".ssh/id_rsa")))
+        assertEquals(FloorDecision.Denied("a place the operator protects"), floor.checkWrite(projects.resolve("vault")))
     }
 
     // The config directory and the home.

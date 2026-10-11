@@ -134,10 +134,15 @@ public class ToolCallCheck @InternalAlexandriteApi constructor(
     public val definition: ToolDefinition,
     /** The call's effective risk. */
     public val risk: ToolRisk,
+    /** Why a human must approve the call, null when the permission mode decides. */
+    public val requireApproval: String? = null,
 ) : TurnScoped {
     init {
         require(call.name == definition.name) { "A call of '${call.name}' is checked as '${definition.name}'." }
+        require(requireApproval == null || requireApproval.isNotBlank()) { "A required approval gives a reason." }
     }
+
+    public fun withRequireApproval(reason: String): ToolCallCheck = ToolCallCheck(turn, call, definition, risk, reason)
 }
 
 /** A tool call and its result. */

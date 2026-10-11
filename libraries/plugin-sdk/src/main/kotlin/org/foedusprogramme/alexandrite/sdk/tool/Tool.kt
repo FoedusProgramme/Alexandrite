@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
+import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import java.nio.file.Path
@@ -54,6 +55,12 @@ public interface ToolContext {
 
     /** Reports that the call read or listed [path]. */
     public fun touched(path: Path)
+
+    /** What let the call run, null while it is being reviewed. */
+    public val clearance: Clearance?
+
+    /** Reports that the call brought untrusted content into the conversation, for [reason]. */
+    public fun untrusted(reason: String)
 }
 
 /** What a tool call returns to the model. */

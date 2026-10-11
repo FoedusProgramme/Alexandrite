@@ -110,7 +110,7 @@ class TurnContextTest {
             val baked = case.baked.map { ContextPart(it.source, it.text) }
             assertEquals(baked + TextPart("Hi"), opening.parts.drop(1), name)
             assertEquals(opening.parts, (stored.first() as UserEntry).parts, name)
-            val taint = "DEBUG Turn ${admission.ticket.turn} of $key is tainted by untrusted turn context"
+            val taint = "DEBUG Turn ${admission.ticket.turn} of $key is tainted: untrusted turn context"
             assertEquals(case.tainted, taint in lines, name)
         }
     }

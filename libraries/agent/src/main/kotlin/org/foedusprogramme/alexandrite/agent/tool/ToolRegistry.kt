@@ -3,19 +3,19 @@ package org.foedusprogramme.alexandrite.agent.tool
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
-import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
-import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
 /** The contributed tools by name, and the ones each agent selects. */
 @Singleton
-internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory) : Lifecycle {
+internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origins: PluginOrigins) {
     private val tools: Map<String, Tool>
     private val selected: Map<AgentId, List<Tool>>
+    private val builtIn: Set<String> = tools.filter(origins::isBuiltIn).mapTo(HashSet()) { it.definition.name }
     private val forMembers: Map<AgentId, List<ToolGlob>> =
         directory.agents.associate { agent -> agent.id to agent.config.tools.forMembers.map(ToolGlob::of) }
 
@@ -48,8 +48,14 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory) : Life
 
     fun tool(name: String): Tool? = tools[name]
 
-    /** The tools [agent] selects that may be offered before the permission layer exists, sorted by name. */
-    fun offered(agent: AgentId): List<Tool> = selected[agent].orEmpty().filter { it.definition.risk == OFFERED_RISK }
+    /** Whether a built-in plugin contributed [tool]. */
+    fun isBuiltIn(tool: Tool): Boolean {
+        val name = tool.definition.name
+        return tools[name] === tool && name in builtIn
+    }
+
+    /** The tools [agent] selects, sorted by name. */
+    fun offered(agent: AgentId): List<Tool> = selected[agent].orEmpty()
 
     /** The tools that every turn of [agent] offers [model]. */
     fun offered(agent: AgentId, model: ModelRef, nativeTools: Boolean): List<Tool> {
@@ -62,23 +68,6 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory) : Life
     /** Whether a turn of [agent] may call [tool]: an [admin]'s any, anyone else's those of `tools.forMembers`. */
     fun permits(agent: AgentId, admin: Boolean, tool: String): Boolean =
         admin || forMembers[agent].orEmpty().any { it.matches(tool) }
-
-    override suspend fun onStart() {
-        for ((agent, tools) in selected) {
-            val withheld = tools.filter { it.definition.risk != OFFERED_RISK }
-            if (withheld.isEmpty()) continue
-            logger.info(
-                "Agent '{}' is not offered {}: only {} tools are offered until the permission layer exists",
-                agent,
-                withheld.joinToString { "${it.definition.name} (${it.definition.risk})" },
-                OFFERED_RISK,
-            )
-        }
-    }
-
-    private companion object {
-        val OFFERED_RISK = ToolRisk.READ_ONLY
-    }
 }
 
 private val logger = LoggerFactory.getLogger(ToolRegistry::class.java)

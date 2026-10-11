@@ -52,6 +52,8 @@ public class RuntimeServices internal constructor(
         override fun <T : Any> lazy(key: Key<T>): Lazy<T> = resolve { it.lazy(key) }
 
         override fun <T : Any> provider(key: Key<T>): () -> T = resolve { it.provider(key) }
+
+        override fun pluginOf(instance: Any): String? = resolve { it.pluginOf(instance) }
     }
 }
 

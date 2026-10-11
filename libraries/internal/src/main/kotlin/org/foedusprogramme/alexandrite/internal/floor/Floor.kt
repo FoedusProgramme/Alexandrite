@@ -17,12 +17,16 @@ public class DenyRoot(
     public val carveOuts: List<Path> = emptyList(),
 )
 
-/** What [Floor.check] decided. */
+/** What [Floor.check] or [Floor.checkTree] decided. */
 public sealed interface FloorDecision {
     /** [canonical] is the path to open. */
     public data class Allowed(val canonical: Path) : FloorDecision
 
-    public data class Denied(val kind: String) : FloorDecision
+    /** [held] when the path is refused only because it holds the place. */
+    public data class Denied(val kind: String, val held: Boolean = false) : FloorDecision {
+        /** The kind of place, or that a recursive operation would reach it when [held]. */
+        val reason: String get() = if (held) "a recursive operation would reach $kind" else kind
+    }
 }
 
 /** How a path meets a protected place. */
@@ -58,8 +62,21 @@ public class Floor(
     private val home: CanonicalPath? = home?.let(canonicalizer::canonicalize)
 
     /** [path] (absolute) made canonical and checked, a refusal naming the innermost place it lies in. */
-    public fun check(path: Path): FloorDecision {
+    public fun check(path: Path): FloorDecision = check(canonicalizer.canonicalize(path))
+
+    /** [path] (absolute) checked as by [check] and refused as well when it holds a protected place. */
+    public fun checkTree(path: Path): FloorDecision {
         val candidate = canonicalizer.canonicalize(path)
+        val decision = check(candidate)
+        if (decision is FloorDecision.Denied) return decision
+        val held = overlaps(candidate).firstOrNull { it.placement == Placement.HOLDS }
+        return held?.let { FloorDecision.Denied(it.kind, held = true) } ?: decision
+    }
+
+    /** The protected places that [path] (absolute) is, lies in or holds, their carve-outs ignored. */
+    public fun overlaps(path: Path): List<Overlap> = overlaps(canonicalizer.canonicalize(path))
+
+    private fun check(candidate: CanonicalPath): FloorDecision {
         if (isMagic(candidate)) return FloorDecision.Denied(MAGIC)
         roots.filter { root ->
             meetings(candidate, root.path).any { it != Placement.HOLDS } && root.carveOuts.none { isIn(candidate, it) }
@@ -69,9 +86,7 @@ public class Floor(
         return FloorDecision.Allowed(candidate.real)
     }
 
-    /** The protected places that [path] (absolute) is, lies in or holds, their carve-outs ignored. */
-    public fun overlaps(path: Path): List<Overlap> {
-        val candidate = canonicalizer.canonicalize(path)
+    private fun overlaps(candidate: CanonicalPath): List<Overlap> {
         val keys = denyKeys(candidate)
         return buildList {
             if (isMagic(candidate)) add(Overlap(MAGIC, Placement.INSIDE, null))

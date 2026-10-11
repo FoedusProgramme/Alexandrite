@@ -58,6 +58,9 @@ public class Container private constructor(
         return { get(key) }
     }
 
+    override fun pluginOf(instance: Any): String? =
+        instances.entries.firstOrNull { it.value === instance }?.key?.plugin ?: parent?.pluginOf(instance)
+
     /** Calls [Lifecycle.onStart] on the managed instances in creation order. */
     public suspend fun start() {
         enter(START) {
@@ -324,6 +327,8 @@ public class Container private constructor(
 
         override fun <T : Any> provider(key: Key<T>): () -> T =
             this@Container.provider(declared(key, DependencyKind.PROVIDER))
+
+        override fun pluginOf(instance: Any): String? = this@Container.pluginOf(instance)
 
         private fun <T : Any> declared(key: Key<T>, kind: DependencyKind): Key<T> {
             check(binding.dependencies.any { it.key == key && it.kind == kind }) {

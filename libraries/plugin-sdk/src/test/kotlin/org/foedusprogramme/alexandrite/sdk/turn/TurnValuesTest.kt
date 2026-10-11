@@ -19,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.model.Trust
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -260,6 +261,37 @@ class TurnValuesTest {
         val set = listOf(SettingChange.SetTo(true), SettingChange.SetTo(false))
 
         assertEquals(set + SettingChange.Reset + SettingChange.SetTo(false), homes.map { it.home })
+    }
+
+    @Test
+    fun `a settings update ends only a bypass, and a reset of the mode drops its end`() {
+        val until = Instant.parse("2026-01-01T01:00:00Z")
+        val keep = ChatSettingsUpdate.builder().build()
+
+        val bypass = keep.rebuild { mode(PermissionMode.BYPASS, until) }
+        val reset = bypass.rebuild { resetMode() }
+
+        assertEquals(SettingChange.Keep to null, keep.mode to keep.modeUntil)
+        assertEquals(SettingChange.SetTo(PermissionMode.BYPASS) to until, bypass.mode to bypass.modeUntil)
+        assertEquals(SettingChange.Reset to null, reset.mode to reset.modeUntil)
+        assertEquals(bypass, bypass.toBuilder().build())
+        assertEquals(SettingChange.SetTo(PermissionMode.PLAN), keep.rebuild { mode(PermissionMode.PLAN) }.mode)
+        assertFailsWith<IllegalArgumentException> { keep.rebuild { mode(PermissionMode.AUTO, until) } }
+    }
+
+    @Test
+    fun `a settings snapshot is in ask mode until the chat or its agent sets one, and only a bypass ends`() {
+        val until = Instant.parse("2026-01-01T01:00:00Z")
+        val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
+        val configured = snapshot.rebuild { defaultMode(PermissionMode.MANUAL) }
+        val bypass = configured.rebuild { mode(PermissionMode.BYPASS, until) }
+
+        assertEquals(listOf(null, null, null), listOf(snapshot.mode, snapshot.modeUntil, snapshot.defaultMode))
+        assertEquals(PermissionMode.ASK, snapshot.effectiveMode)
+        assertEquals(PermissionMode.MANUAL, configured.effectiveMode)
+        assertEquals(PermissionMode.BYPASS to until, bypass.effectiveMode to bypass.modeUntil)
+        assertEquals(bypass, bypass.toBuilder().build())
+        assertFailsWith<IllegalArgumentException> { snapshot.rebuild { mode(PermissionMode.PLAN, until) } }
     }
 
     @Test

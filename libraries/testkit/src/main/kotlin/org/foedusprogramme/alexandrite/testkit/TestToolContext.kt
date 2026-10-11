@@ -4,22 +4,33 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.CopyOnWriteArrayList
 
-/** By default, a message turn of a member who is no admin, in chat `test:main:chat` and conversation `test`. */
+/**
+ * By default, a message turn of a member who is no admin, in chat `test:main:chat` and conversation `test`, whose call
+ * is being reviewed.
+ */
 public fun testToolContext(
     turn: TurnInfo = testTurn(),
     call: ToolCallId = ToolCallId("test-call"),
     workspace: Path? = null,
-): TestToolContext = TestToolContext(turn, call, workspace)
+    clearance: Clearance? = null,
+): TestToolContext = TestToolContext(turn, call, workspace, clearance)
 
-/** A tool context that records the paths its call reports, valid until [end]. */
-public class TestToolContext internal constructor(turn: TurnInfo, call: ToolCallId, workspace: Path?) : ToolContext {
+/** A tool context that records the paths and the untrusted content its call reports, valid until [end]. */
+public class TestToolContext internal constructor(
+    turn: TurnInfo,
+    call: ToolCallId,
+    workspace: Path?,
+    clearance: Clearance?,
+) : ToolContext {
     private val reported = CopyOnWriteArrayList<Path>()
+    private val reasons = CopyOnWriteArrayList<String>()
 
     @Volatile
     private var open = true
@@ -33,8 +44,14 @@ public class TestToolContext internal constructor(turn: TurnInfo, call: ToolCall
     override val workspace: Path? = workspace
         get() = field.also { checkOpen() }
 
+    override val clearance: Clearance? = clearance
+        get() = field.also { checkOpen() }
+
     /** The paths that the call reported as touched, in order. */
     public val touchedPaths: List<Path> get() = reported.toList()
+
+    /** Why the call reported untrusted content, in order. */
+    public val untrustedReasons: List<String> get() = reasons.toList()
 
     /** [workspace], created owner-only with the directories on the way when it does not exist. */
     override suspend fun openWorkspace(): Path {
@@ -52,6 +69,11 @@ public class TestToolContext internal constructor(turn: TurnInfo, call: ToolCall
     override fun touched(path: Path) {
         checkOpen()
         reported.add(path)
+    }
+
+    override fun untrusted(reason: String) {
+        checkOpen()
+        reasons.add(reason)
     }
 
     /** Ends the call, after which the context's members throw [IllegalStateException]. */

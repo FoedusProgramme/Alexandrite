@@ -20,6 +20,9 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
+import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.store.collection
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -45,6 +48,11 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -599,11 +607,56 @@ class FakesTest {
     }
 
     @Test
-    fun `the test tool context runs in the default test turn`() {
+    fun `a recording agent control keeps a chat's mode and ends a bypass as the agent does`() {
+        var now = TEST_TIME
+        val clock = object : Clock() {
+            override fun getZone() = ZoneOffset.UTC
+
+            override fun withZone(zone: ZoneId?) = this
+
+            override fun instant(): Instant = now
+        }
+        val control = RecordingAgentControl(clock = clock)
+        control.scriptAgent(AgentId.MAIN, mode = PermissionMode.MANUAL)
+        val chat = testChat()
+        fun update(block: ChatSettingsUpdate.Builder.() -> Unit) =
+            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().apply(block).build(), null) }
+
+        val bypass = update { mode(PermissionMode.BYPASS) }
+        val capped = update { mode(PermissionMode.BYPASS, now + Duration.ofDays(2)) }
+        now += Duration.ofDays(1)
+        val ended = blocking { control.settings(chat) }
+        val plan = update { mode(PermissionMode.PLAN) }
+        val reset = update { resetMode() }
+
+        assertEquals(PermissionMode.BYPASS to TEST_TIME + Duration.ofHours(1), bypass.mode to bypass.modeUntil)
+        assertEquals(TEST_TIME + Duration.ofDays(1), capped.modeUntil)
+        assertEquals(listOf(null, PermissionMode.MANUAL), listOf(ended.mode, ended.effectiveMode))
+        assertEquals(PermissionMode.PLAN to null, plan.mode to plan.modeUntil)
+        assertEquals(null to PermissionMode.MANUAL, reset.mode to reset.defaultMode)
+        assertFailsWith<ControlRefusedException> { update { mode(PermissionMode.BYPASS, now) } }
+        assertFailsWith<ControlRefusedException> { update { mode(PermissionMode.of("yolo")) } }
+    }
+
+    @Test
+    fun `the test tool context runs in the default test turn, being reviewed unless cleared`() {
         val context = testToolContext()
+        val cleared = testToolContext(clearance = Clearance(ClearanceKind.HUMAN, testUser("admin", isAdmin = true)))
 
         assertEquals(testTurn(), context.turn)
         assertEquals(ToolCallId("test-call"), context.call)
+        assertNull(context.clearance)
+        assertEquals(ClearanceKind.HUMAN, cleared.clearance?.kind)
+    }
+
+    @Test
+    fun `a test tool context records the untrusted content its call reports`() {
+        val context = testToolContext()
+
+        context.untrusted("a web page")
+        context.untrusted("a forwarded file")
+
+        assertEquals(listOf("a web page", "a forwarded file"), context.untrustedReasons)
     }
 
     @Test
@@ -619,6 +672,8 @@ class FakesTest {
             { context.workspace },
             { context.touched(Path.of("/srv/other.md")) },
             { blocking { context.openWorkspace() } },
+            { context.clearance },
+            { context.untrusted("late") },
         )
         for (call in calls) {
             val error = assertFailsWith<IllegalStateException> { call() }
