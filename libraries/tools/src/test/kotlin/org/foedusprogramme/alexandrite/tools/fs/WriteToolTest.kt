@@ -1,0 +1,176 @@
+package org.foedusprogramme.alexandrite.tools.fs
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
+import org.foedusprogramme.alexandrite.sdk.tool.CallReview
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.readBytes
+import kotlin.io.path.readText
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+
+class WriteToolTest {
+    @TempDir
+    lateinit var directory: Path
+
+    private lateinit var fs: FsFixture
+    private lateinit var ledger: ReadLedger
+    private lateinit var tool: WriteTool
+
+    @BeforeEach
+    fun setUp() {
+        fs = FsFixture(directory)
+        ledger = ReadLedger()
+        tool = WriteTool(fs.floor, ledger)
+    }
+
+    private fun read(file: Path) {
+        val result = runBlocking { ReadTool(fs.floor, ledger).execute(arguments("path" to file), fs.context()) }
+        assertFalse(result.isError, result.text)
+    }
+
+    private fun write(file: Any, content: String): String =
+        fs.reviewedRun(tool, arguments("path" to file, "content" to content))
+
+    @Test
+    fun `a new file needs no read and is shown whole in the review`() {
+        val file = fs.repository.resolve("NOTES.md")
+        fs.repository.createDirectories()
+
+        val review = runBlocking { tool.review(arguments("path" to file, "content" to "a\nb\n"), fs.context()) }
+        val result = write(file, "a\nb\n")
+
+        assertEquals(
+            CallReview(
+                preview = ReviewPreview.Diff(file, "--- /dev/null\n+++ $file\n@@ -0,0 +1,2 @@\n+a\n+b\n"),
+                snapshot = "absent",
+            ),
+            review,
+        )
+        assertEquals("Created $file: +2 -0 lines." to "a\nb\n", result to file.readText())
+    }
+
+    @Test
+    fun `a new file goes only into an existing directory, and a relative path into the workspace`() {
+        val missing = fs.workspace.resolve("notes/todo.md")
+
+        val refused = write("notes/todo.md", "Tea.\n")
+        fs.workspace.resolve("notes").createDirectories()
+        val written = write("notes/todo.md", "Tea.\n")
+
+        assertEquals(
+            listOf(
+                "problem: ${missing.parent} is no existing directory: files are written only in existing directories.",
+                "Created $missing: +1 -0 lines.",
+            ),
+            listOf(refused, written),
+        )
+        assertEquals("Tea.\n", missing.readText())
+    }
+
+    @Test
+    fun `an existing file is replaced only once this conversation read it as it is`() {
+        val file = fs.write("repo/notes.md", "Old.\n")
+
+        val unread = write(file, "New.\n")
+        read(file)
+        val same = write(file, "Old.\n")
+        val replaced = write(file, "New.\n")
+
+        assertEquals(
+            listOf(
+                "problem: You have not read $file in this conversation: read it with fs.read first, then write it.",
+                "problem: $file holds this text already.",
+                "Wrote $file: +1 -1 lines.",
+            ),
+            listOf(unread, same, replaced),
+        )
+        assertEquals("New.\n", file.readText())
+    }
+
+    @Test
+    fun `a written file can be edited without reading it again`() {
+        val file = fs.repository.resolve("plan.md").also { it.parent.createDirectories() }
+        write(file, "Step one.\n")
+        val edits = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("old", "one")
+                    put("new", "two")
+                },
+            ),
+        )
+
+        val edited = fs.reviewedRun(EditTool(fs.floor, ledger), arguments("path" to file, "edits" to edits))
+
+        assertEquals("Edited $file: +1 -1 lines." to "Step two.\n", edited to file.readText())
+    }
+
+    @Test
+    fun `the text takes the line breaks and the byte order mark of the file it replaces`() {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val file = fs.bytes("repo/win.txt", bom + "one\r\ntwo\r\n".toByteArray())
+        read(file)
+
+        assertEquals("Wrote $file: +2 -2 lines.", write(file, "uno\ndos\n"))
+        assertContentEquals(bom + "uno\r\ndos\r\n".toByteArray(), file.readBytes())
+    }
+
+    @Test
+    fun `protected places, directories and files that are no UTF-8 are refused`() {
+        val dangling = fs.link("workspace/key", fs.secret.resolve("new.txt"))
+        val latin = fs.bytes("repo/latin.txt", "café".toByteArray(Charsets.ISO_8859_1))
+
+        assertEquals(
+            listOf(
+                "refused: ${fs.secret.resolve("key.txt")} is protected (a place the test protects): no file tool may " +
+                    "write it.",
+                "refused: $dangling is protected (a place the test protects): no file tool may write it.",
+                "problem: ${fs.workspace} is a directory.",
+                "problem: $latin is no UTF-8 text (it looks binary): the write tools change text files only.",
+                "problem: Give 'content' as a string, the whole text of the file.",
+            ),
+            listOf(
+                write(fs.secret.resolve("key.txt"), "x"),
+                write("key", "x"),
+                write(fs.workspace, "x"),
+                write(latin, "x"),
+                fs.reviewedRun(tool, arguments("path" to latin)),
+            ),
+        )
+        assertEquals(
+            "SECRET" to false,
+            fs.secret.resolve("key.txt").readText() to fs.secret.resolve("new.txt").exists(),
+        )
+    }
+
+    @Test
+    fun `a file created after the review is not replaced`() {
+        val file = fs.repository.resolve("new.md").also { it.parent.createDirectories() }
+        val arguments = arguments("path" to file, "content" to "Mine.\n")
+        val review = runBlocking { tool.review(arguments, fs.context()) }
+        Files.writeString(file, "Theirs.\n")
+
+        val result = runBlocking {
+            tool.execute(arguments, fs.context(clearance = Clearance(ClearanceKind.MODE, null, review.snapshot)))
+        }
+
+        assertEquals(
+            "$file changed since this call was reviewed: read it again with fs.read, then repeat the call.",
+            result.text,
+        )
+        assertEquals("Theirs.\n", file.readText())
+    }
+}

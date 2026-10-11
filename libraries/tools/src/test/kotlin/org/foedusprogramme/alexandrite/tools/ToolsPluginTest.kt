@@ -20,7 +20,7 @@ class ToolsPluginTest {
     lateinit var directory: Path
 
     @Test
-    fun `the plugin contributes the read-only fs tools, which check paths against the bound floor`() {
+    fun `the plugin contributes the fs tools, which check paths against the bound floor`() {
         val root = directory.toRealPath()
         val secret = Files.createDirectories(root.resolve("secret")).resolve("key.txt")
         Files.writeString(secret, "SECRET")
@@ -38,7 +38,13 @@ class ToolsPluginTest {
         }
 
         assertEquals(
-            mapOf("fs.glob" to ToolRisk.READ_ONLY, "fs.grep" to ToolRisk.READ_ONLY, "fs.read" to ToolRisk.READ_ONLY),
+            mapOf(
+                "fs.edit" to ToolRisk.WORKSPACE_WRITE,
+                "fs.glob" to ToolRisk.READ_ONLY,
+                "fs.grep" to ToolRisk.READ_ONLY,
+                "fs.read" to ToolRisk.READ_ONLY,
+                "fs.write" to ToolRisk.WORKSPACE_WRITE,
+            ),
             risks,
         )
         assertEquals("$secret is protected (a place the test protects): no file tool may read it.", refused)

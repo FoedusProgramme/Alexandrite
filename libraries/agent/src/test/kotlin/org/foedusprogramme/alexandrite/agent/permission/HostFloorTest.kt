@@ -325,6 +325,63 @@ class HostFloorTest {
     }
 
     @Test
+    fun `the persona route writes only the Markdown files directly in the agent's own persona directory`() {
+        val personas = configFile.resolveSibling("agents")
+        Files.createDirectories(personas.resolve("coder/notes"))
+        Files.createSymbolicLink(personas.resolve("coder/away.md"), root.resolve("away.md"))
+        Files.createSymbolicLink(personas.resolve("coder/config.md"), configFile)
+        val inward = Files.createSymbolicLink(root.resolve("inward.md"), personas.resolve("coder/PERSONA.md"))
+        val coder = AgentId("coder")
+        val outside = FloorDecision.Denied("a place outside the persona directory of agent 'coder'")
+
+        val floor = floor("""{"coder": {}, "helper": {}}""")
+
+        for (name in listOf("PERSONA.md", "Notes.MD")) {
+            val file = personas.resolve("coder/$name")
+            assertEquals(FloorDecision.Allowed(file), floor.checkPersonaWrite(file, coder))
+        }
+        assertEquals(
+            FloorDecision.Allowed(personas.resolve("coder/PERSONA.md")),
+            floor.checkPersonaWrite(inward, coder),
+        )
+        assertEquals(
+            listOf(
+                FloorDecision.Denied(CONFIGURATION),
+                FloorDecision.Denied(CONFIGURATION),
+                outside,
+                FloorDecision.Denied("a persona file that is no Markdown file"),
+                FloorDecision.Denied(CONFIGURATION),
+                FloorDecision.Denied(CONFIGURATION),
+                outside,
+            ),
+            listOf(
+                personas.resolve("helper/PERSONA.md"),
+                configFile.resolveSibling("shared.md"),
+                personas.resolve("coder/notes/a.md"),
+                personas.resolve("coder/settings.json"),
+                personas.resolve("coder/away.md"),
+                personas.resolve("coder/config.md"),
+                root.resolve("notes.md"),
+            ).map { floor.checkPersonaWrite(it, coder) },
+        )
+        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkWrite(personas.resolve("coder/PERSONA.md")))
+    }
+
+    @Test
+    fun `the persona route refuses every path without a persona directory or a home`() {
+        val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
+
+        val decisions = listOf(
+            floor("""{"coder": {}}""", paths(configFile = null)).checkPersonaWrite(persona, AgentId("coder")),
+            floor("""{"coder": {}}""").checkPersonaWrite(persona, AgentId("helper")),
+            floor("""{"coder": {}}""", home = null).checkPersonaWrite(persona, AgentId("coder")),
+        )
+
+        val none = FloorDecision.Denied("every path, as the agent has no persona directory")
+        assertEquals(listOf(none, none, FloorDecision.Denied(UNKNOWN_HOME)), decisions)
+    }
+
+    @Test
     fun `a workspace in the data root or the config directory is writable and walkable, but not its parent`() {
         val inConfig = configFile.resolveSibling("coder-files")
         val inData = data.resolve("workspaces/helper")

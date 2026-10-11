@@ -29,7 +29,7 @@ import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 
 /** Ends a file tool's call with [message] as its failed result. */
-internal class Refusal(override val message: String) : Exception(message)
+internal open class Refusal(override val message: String) : Exception(message)
 
 /** What [block] returns, or the failed result that a [Refusal] or a read error makes. */
 internal suspend fun refusing(block: suspend () -> ToolResult): ToolResult = try {

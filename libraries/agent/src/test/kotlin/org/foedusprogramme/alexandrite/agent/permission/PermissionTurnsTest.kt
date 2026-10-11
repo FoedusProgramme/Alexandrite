@@ -144,9 +144,9 @@ class PermissionTurnsTest {
             context.untrusted("a web page")
             ToolResult("Page.")
         }
-        val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)
-        model.reply { toolCall("persona.edit") }.reply { text("Edited.") }
-            .reply { toolCall("web.fetch") }.reply { toolCall("persona.edit") }.reply { text("Not edited.") }
+        val persona = recordingTool("profile.save", ToolRisk.PERSISTENT_STATE)
+        model.reply { toolCall("profile.save") }.reply { text("Edited.") }
+            .reply { toolCall("web.fetch") }.reply { toolCall("profile.save") }.reply { text("Not edited.") }
 
         harness { tool(fetch).tool(persona) }.execute {
             ask().ticket.outcome()

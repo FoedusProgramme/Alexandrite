@@ -90,7 +90,10 @@ class RepositoryQuestionTest {
         }
 
         val requests = model.requests
-        assertEquals(listOf("fs.glob", "fs.grep", "fs.read"), requests.first().tools.map { it.name })
+        assertEquals(
+            listOf("fs.edit", "fs.glob", "fs.grep", "fs.read", "fs.write"),
+            requests.first().tools.map { it.name },
+        )
         assertEquals(true, requests.first().instructions.any { it.id == "workspace" })
         val conversation = runBlocking { store.conversations.current(AgentChatKey.parse("coder@test:main:chat")).id }
         val entries = runBlocking { store.transcripts.entries(conversation) }

@@ -1,16 +1,23 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.testkit.TestToolContext
 import org.foedusprogramme.alexandrite.testkit.testHardFloor
 import org.foedusprogramme.alexandrite.testkit.testToolContext
+import org.foedusprogramme.alexandrite.testkit.testTurn
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
@@ -39,7 +46,26 @@ class FsFixture(directory: Path) {
     fun link(relative: String, target: Path): Path =
         root.resolve(relative).also { it.parent.createDirectories() }.also { Files.createSymbolicLink(it, target) }
 
-    fun context(workspace: Path? = this.workspace): TestToolContext = testToolContext(workspace = workspace)
+    fun context(
+        workspace: Path? = this.workspace,
+        conversation: String = "test",
+        clearance: Clearance? = null,
+    ): TestToolContext = testToolContext(
+        testTurn { conversation(ConversationId(conversation)) },
+        workspace = workspace,
+        clearance = clearance,
+    )
+
+    /** `refused: …` or `problem: …` from the review of the call, else its result, run with the review's snapshot. */
+    fun reviewedRun(tool: ReviewedTool, arguments: JsonObject, conversation: String = "test"): String {
+        val review = runBlocking { tool.review(arguments, context(conversation = conversation)) }
+        review.refusal?.let { return "refused: $it" }
+        review.problem?.let { return "problem: $it" }
+        val cleared =
+            context(conversation = conversation, clearance = Clearance(ClearanceKind.NONE, null, review.snapshot))
+        val result = runBlocking { tool.execute(arguments, cleared) }
+        return if (result.isError) "failed: ${result.text}" else result.text
+    }
 }
 
 fun arguments(vararg values: Pair<String, Any>): JsonObject = JsonObject(
@@ -49,6 +75,7 @@ fun arguments(vararg values: Pair<String, Any>): JsonObject = JsonObject(
             is Number -> JsonPrimitive(value)
             is Boolean -> JsonPrimitive(value)
             is Path -> JsonPrimitive(value.toString())
+            is JsonElement -> value
             else -> error("No JSON for $value")
         }
     },
@@ -61,4 +88,9 @@ val ToolResult.text: String get() = content.joinToString("") { (it as TextPart).
 
 fun assertRefused(expected: String, result: ToolResult) {
     assertEquals(true to expected, result.isError to result.text)
+}
+
+fun hashOf(file: Path): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file))
+    return "sha256:" + digest.joinToString("") { "%02x".format(it) }
 }

@@ -24,6 +24,8 @@ public class CallReview(
     public val snapshot: String? = null,
     /** What allowing such calls for good would cover, null when it may not be offered. */
     public val rule: RuleSubject? = null,
+    /** Why the call cannot run as asked, null when it can. */
+    public val problem: String? = null,
 )
 
 /** What an approver is shown of a call. */

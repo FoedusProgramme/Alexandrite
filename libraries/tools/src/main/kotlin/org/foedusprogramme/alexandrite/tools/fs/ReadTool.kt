@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.internal.path.openRegularFile
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -9,11 +10,14 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import java.io.InputStream
 import java.nio.file.Path
+import java.security.DigestInputStream
+import java.security.MessageDigest
 
 @Singleton
 @Contribute(Tool::class)
-internal class ReadTool(private val floor: HardFloor) : Tool {
+internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLedger) : Tool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "fs.read",
         description = "Reads a UTF-8 text file and returns its lines, each after its line number and a tab. " +
@@ -32,16 +36,37 @@ internal class ReadTool(private val floor: HardFloor) : Tool {
         val path = context.absolute(arguments.requiredString("path"))
         val offset = arguments.count("offset") ?: 1
         val limit = minOf(arguments.count("limit") ?: MAX_LINES, MAX_LINES)
+        val conversation = context.turn.conversation
         blocking {
             val file = floor.allowed(path, context)
-            checkReadable(file, path, attributes(file))
+            val attributes = attributes(file)
+            checkReadable(file, path, attributes)
             context.touched(file)
-            try {
-                TextLines(file, MAX_LINE_CHARS, MAX_READ_BYTES).use { ToolResult(rendered(it, path, offset, limit)) }
-            } catch (e: NotText) {
-                throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+            val digest = MessageDigest.getInstance("SHA-256")
+            DigestInputStream(openRegularFile(file), digest).use { input ->
+                val text = try {
+                    rendered(TextLines(input, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
+                } catch (e: NotText) {
+                    throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+                }
+                if (attributes.size() <= MAX_WRITE_BYTES && drained(input)) {
+                    ledger.record(conversation, file, hashText(digest.digest()))
+                }
+                ToolResult(text)
             }
         }
+    }
+
+    /** Whether [input] ends within [MAX_WRITE_BYTES] more bytes, which it reads. */
+    private fun drained(input: InputStream): Boolean {
+        val buffer = ByteArray(DRAIN_BUFFER_BYTES)
+        var left = MAX_WRITE_BYTES
+        while (left >= 0) {
+            val read = input.read(buffer)
+            if (read < 0) return true
+            left -= read
+        }
+        return false
     }
 
     /** Lines [offset] to [offset] + [limit] of [lines], numbered, with notes on what was left out. */
@@ -98,6 +123,8 @@ internal const val MAX_LINE_CHARS = 2000
 internal const val MAX_OUTPUT_CHARS = 100_000
 
 internal const val MIB: Long = 1024 * 1024
+
+private const val DRAIN_BUFFER_BYTES = 64 * 1024
 
 /** The bytes of a file that `fs.read` reads at most. */
 internal const val MAX_READ_BYTES: Long = 64L * MIB

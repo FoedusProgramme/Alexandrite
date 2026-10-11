@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.hook.Hooked
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
+import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.GateResult
 import org.foedusprogramme.alexandrite.agent.tool.ToolGate
@@ -54,6 +55,7 @@ internal class PermissionGate(
             is Reviewed.Failed -> return refused(call, NotRunReason.DENIED_BY_POLICY, reviewed.text)
         }
         review.refusal?.let { return refused(call, NotRunReason.FLOOR, Refusals.blockedFloor(it)) }
+        review.problem?.let { return refused(call, NotRunReason.INVALID_ARGUMENTS, Escaper.HEADERS.text(it)) }
         val definition = call.tool.definition
         val risk = effectiveRisk(definition.risk, review.risk, tools.isBuiltIn(call.tool))
         val required = when (val check = hooks.toolBefore(call.turn, call.call, definition, risk)) {

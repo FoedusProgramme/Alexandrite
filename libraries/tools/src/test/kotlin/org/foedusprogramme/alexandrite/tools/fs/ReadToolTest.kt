@@ -20,7 +20,7 @@ class ReadToolTest {
     @BeforeEach
     fun setUp() {
         fs = FsFixture(directory)
-        tool = ReadTool(fs.floor)
+        tool = ReadTool(fs.floor, ReadLedger())
     }
 
     @Test

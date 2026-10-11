@@ -47,6 +47,9 @@ internal class Persona(directory: AgentDirectory, settings: AgentSettings, paths
         val persona = requireNotNull(personas[agent]) { "No agent '$agent' is configured." }
         return withContext(Dispatchers.IO) { persona.sections(conditions) }
     }
+
+    /** The paths of the instruction files that [agent] reads. */
+    fun files(agent: AgentId): List<Path> = personas[agent]?.sources.orEmpty()
 }
 
 private class AgentPersona(agent: Agent, private val limits: PersonaConfig, paths: HostPaths) {
@@ -54,6 +57,8 @@ private class AgentPersona(agent: Agent, private val limits: PersonaConfig, path
     private val inline = agent.config.instructions
     private val files: List<PersonaFile>
     private val lock = Mutex()
+
+    val sources: List<Path> get() = files.mapNotNull { it.path }
 
     init {
         val directory = paths.configFile?.parent
@@ -210,11 +215,11 @@ private class PersonaFile(
     }
 }
 
-private data class Stamp(val modified: FileTime, val size: Long)
+private data class Stamp(val modified: FileTime, val size: Long, val key: Any?)
 
 private fun stampOf(path: Path): Stamp {
     val attributes = Files.readAttributes(path, BasicFileAttributes::class.java)
-    return Stamp(attributes.lastModifiedTime(), attributes.size())
+    return Stamp(attributes.lastModifiedTime(), attributes.size(), attributes.fileKey())
 }
 
 /** How much of [text] fits [limit] characters without splitting a surrogate pair. */

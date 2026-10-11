@@ -129,7 +129,10 @@ class TelegramRepositoryTest {
         val requests = app.model.requests
         assertEquals(listOf(0, 1, 2, 3), requests.map { it.ids.round })
         assertEquals("What does greet do?", requests.first().asked)
-        assertEquals(listOf("fs.glob", "fs.grep", "fs.read"), requests.first().tools.map { it.name })
+        assertEquals(
+            listOf("fs.edit", "fs.glob", "fs.grep", "fs.read", "fs.write"),
+            requests.first().tools.map { it.name },
+        )
         assertEquals(requests.first().ids.conversation, conversation)
         assertEquals(TurnEndKind.COMPLETED, end)
         val grepped = "$greeter\n  3: fun greet(name: String) = \"Hello, \$name!\"\n"

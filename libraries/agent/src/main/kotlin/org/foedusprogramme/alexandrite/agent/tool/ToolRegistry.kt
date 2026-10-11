@@ -10,6 +10,12 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
+/** A tool of the agent plugin that only some agents can use. */
+internal interface AgentScopedTool : Tool {
+    /** Whether [agent] can use the tool, asked once at the start. */
+    fun usableBy(agent: AgentId): Boolean
+}
+
 /** The contributed tools by name, and the ones each agent selects. */
 @Singleton
 internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origins: PluginOrigins) {
@@ -41,7 +47,8 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origin
             val deny = agent.config.tools.deny.map(ToolGlob::of)
             agent.id to named.values.filter { tool ->
                 val name = tool.definition.name
-                allow.any { it.matches(name) } && deny.none { it.matches(name) }
+                allow.any { it.matches(name) } && deny.none { it.matches(name) } &&
+                    (tool as? AgentScopedTool)?.usableBy(agent.id) != false
             }
         }
     }

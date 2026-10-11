@@ -27,7 +27,7 @@ class PromptAssemblerTest {
     private val config = """
         {
           "agents": {
-            "coder": {"name": "Coder", "instructions": ["Be brief."]},
+            "coder": {"name": "Coder", "instructions": ["Be brief."], "tools": {"deny": ["persona.edit"]}},
             "helper": {"instructionFiles": [{"file": "private.md", "when": ["direct"]}]}
           }
         }

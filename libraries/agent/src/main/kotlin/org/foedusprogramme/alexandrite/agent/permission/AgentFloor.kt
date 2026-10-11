@@ -37,6 +37,9 @@ internal class AgentFloor(paths: HostPaths, workspaces: Workspaces, settings: Ag
 
     override fun checkTree(path: Path, agent: AgentId?): FloorCheck = floor.checkTree(path).toCheck()
 
+    /** [path] (absolute) made canonical and checked for a write by the persona tool of [agent]. */
+    fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck = floor.checkPersonaWrite(path, agent).toCheck()
+
     private fun FloorDecision.toCheck(): FloorCheck = when (this) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(canonical)
         is FloorDecision.Denied -> FloorCheck.Denied(reason)
@@ -48,6 +51,7 @@ internal class HostFloor(
     /** Null to refuse every path. */
     private val shared: Floor?,
     private val own: Map<AgentId, Floor>,
+    private val personas: Map<AgentId, Path> = emptyMap(),
 ) {
     fun checkRead(path: Path, agent: AgentId? = null): FloorDecision {
         val floor = agent?.let(own::get) ?: shared ?: return FloorDecision.Denied(UNKNOWN_HOME)
@@ -57,6 +61,25 @@ internal class HostFloor(
     fun checkWrite(path: Path): FloorDecision = shared?.check(path) ?: FloorDecision.Denied(UNKNOWN_HOME)
 
     fun checkTree(path: Path): FloorDecision = shared?.checkTree(path) ?: FloorDecision.Denied(UNKNOWN_HOME)
+
+    /** [path] checked for a write that only the Markdown files directly in [agent]'s persona directory may take. */
+    fun checkPersonaWrite(path: Path, agent: AgentId): FloorDecision {
+        if (shared == null) return FloorDecision.Denied(UNKNOWN_HOME)
+        val floor = own[agent] ?: return FloorDecision.Denied(NO_PERSONA)
+        val persona = personas[agent] ?: return FloorDecision.Denied(NO_PERSONA)
+        val decision = floor.check(path)
+        if (decision !is FloorDecision.Allowed) return decision
+        val file = decision.canonical
+        val directory = floor.check(persona)
+        return when {
+            directory !is FloorDecision.Allowed || file.parent != directory.canonical ->
+                FloorDecision.Denied("a place outside the persona directory of agent '$agent'")
+
+            !file.fileName.toString().endsWith(MARKDOWN, ignoreCase = true) -> FloorDecision.Denied(NOT_MARKDOWN)
+
+            else -> decision
+        }
+    }
 }
 
 /**
@@ -129,7 +152,7 @@ internal fun hostFloor(
                 .associate { checkNotNull(it.root) to persona },
         )
     }
-    return HostFloor(floor(emptyMap()), own)
+    return HostFloor(floor(emptyMap()), own, personas)
 }
 
 /** The places of `agent.protectedPaths`, each absolute or relative to the config file's directory. */
@@ -177,5 +200,11 @@ private const val CONFIGURATION = "Alexandrite's configuration"
 private const val PERSONAS = "agents"
 
 private const val UNKNOWN_HOME = "every path, as the home directory is unknown"
+
+private const val NO_PERSONA = "every path, as the agent has no persona directory"
+
+private const val NOT_MARKDOWN = "a persona file that is no Markdown file"
+
+private const val MARKDOWN = ".md"
 
 private val logger = LoggerFactory.getLogger(AgentFloor::class.java)

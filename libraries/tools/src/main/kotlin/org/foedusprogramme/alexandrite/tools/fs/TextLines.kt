@@ -15,9 +15,11 @@ internal class Line(val text: String, val cut: Boolean)
 /** Thrown for a file that is no UTF-8 text. */
 internal class NotText : Exception()
 
-/** The UTF-8 lines of [file] within its first [maxBytes] bytes, each kept to [maxChars] characters. */
-internal class TextLines(file: Path, private val maxChars: Int, maxBytes: Long) : Closeable {
-    private val input = BoundedInput(openRegularFile(file), maxBytes)
+/** The UTF-8 lines of [source] within its first [maxBytes] bytes, each kept to [maxChars] characters. */
+internal class TextLines(source: InputStream, private val maxChars: Int, maxBytes: Long) : Closeable {
+    constructor(file: Path, maxChars: Int, maxBytes: Long) : this(openRegularFile(file), maxChars, maxBytes)
+
+    private val input = BoundedInput(source, maxBytes)
     private val reader = InputStreamReader(
         input,
         StandardCharsets.UTF_8.newDecoder()
