@@ -36,6 +36,7 @@ import org.foedusprogramme.alexandrite.agent.model.collectResponse
 import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
+import org.foedusprogramme.alexandrite.agent.project.InstructionBudget
 import org.foedusprogramme.alexandrite.agent.project.LoadedFile
 import org.foedusprogramme.alexandrite.agent.project.ProjectInstructions
 import org.foedusprogramme.alexandrite.agent.project.UntrustedFolder
@@ -417,6 +418,8 @@ internal class AgentTurnRunner(
             val risks = calls.mapNotNull { tools.offered[it.name]?.definition?.risk }
             val slots = Semaphore(if (risks.all { it == ToolRisk.READ_ONLY }) MAX_PARALLEL_CALLS else 1)
             val loading = Collections.synchronizedList(mutableListOf<LoadedFile>())
+            val untrusted = Collections.synchronizedList(mutableListOf<UntrustedFolder>())
+            val budget = InstructionBudget()
             var loaded = false
             try {
                 coroutineScope {
@@ -424,20 +427,21 @@ internal class AgentTurnRunner(
                         launch {
                             slots.withPermit {
                                 val end = executor.execute(turn, call, tools.offered, timeout, tools.callable)
-                                val found = projects.inspect(turn, end.touched)
+                                val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
+                                untrusted += found.untrusted
                                 val result = withContext(NonCancellable) {
                                     appending.withLock {
                                         appendLocked(listOf(media.stored(found.noted(end.result)))).single()
                                     }
                                 }
                                 end.notice?.let { notify(NoticeKind.HOOK_ABORTED, it) }
-                                found.untrusted.forEach { warn(turn, it) }
                                 hooks.toolAfter(turn, call, result as ToolResultEntry)
                             }
                         }
                     }
                 }
+                if (untrusted.isNotEmpty()) warn(turn, untrusted.toList())
                 val entries = entries(loading)
                 if (entries.isNotEmpty()) append(*entries.toTypedArray())
                 loaded = true
@@ -446,15 +450,25 @@ internal class AgentTurnRunner(
             }
         }
 
-        /** Tells the chat that the turn did not load the project instructions of [folder]. */
-        private suspend fun warn(turn: TurnInfo, folder: UntrustedFolder) {
-            val text = notices.text(
-                turn,
-                TextKeys.UNTRUSTED_FOLDER,
-                "agent" to agent.name,
-                "folder" to folder.folder,
-                "files" to folder.files.joinToString(),
-            )
+        /** Tells the chat in one notice that the turn did not load the project instructions of [folders]. */
+        private suspend fun warn(turn: TurnInfo, folders: List<UntrustedFolder>) {
+            val folder = folders.singleOrNull()
+            val text = if (folder != null) {
+                notices.text(
+                    turn,
+                    TextKeys.UNTRUSTED_FOLDER,
+                    "agent" to agent.name,
+                    "folder" to folder.folder,
+                    "files" to folder.files.joinToString(),
+                )
+            } else {
+                notices.text(
+                    turn,
+                    TextKeys.UNTRUSTED_FOLDERS,
+                    "agent" to agent.name,
+                    "folders" to folders.joinToString("; ") { "${it.folder} (${it.files.joinToString()})" },
+                )
+            }
             notify(NoticeKind.UNTRUSTED_FOLDER, text)
         }
 
@@ -528,9 +542,11 @@ internal class AgentTurnRunner(
             return delivery
         }
 
-        /** Sends [text] to each destination of the turn's route. */
+        /** Sends [text] to each destination of the turn's route that it may reach. */
         private suspend fun route(turn: TurnInfo, text: String): Map<ChatAddress, Delivery> =
-            routes.destinations(turn.agent, plan.route).associateWith { send(turn, text, it) }
+            routes.destinations(turn.agent, plan.route).mapValues { (chat, refusal) ->
+                refusal ?: send(turn, text, chat)
+            }
 
         /** Sends [text] to [destination] as the turn's reply. */
         private suspend fun send(turn: TurnInfo, text: String, destination: ChatAddress): Delivery {

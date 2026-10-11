@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -68,9 +69,15 @@ class MemoryConfigEditor(var tree: JsonObject = JsonObject(emptyMap())) : Config
         override fun get(path: String): JsonElement? =
             path.split('.').fold<String, JsonElement?>(tree) { node, key -> (node as? JsonObject)?.get(key) }
 
+        override fun getLiteral(path: String): ConfigLiteral? =
+            throw UnsupportedOperationException("The pairing store reads no literals.")
+
         override fun set(path: String, value: JsonElement) {
             tree = changed(tree, path.split('.'), value)
         }
+
+        override fun setLiteral(path: String, value: ConfigLiteral): Unit =
+            throw UnsupportedOperationException("The pairing store writes no literals.")
 
         override fun remove(path: String) {
             tree = changed(tree, path.split('.'), null)

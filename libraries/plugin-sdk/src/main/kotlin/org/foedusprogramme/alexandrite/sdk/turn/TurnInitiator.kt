@@ -88,7 +88,10 @@ public class InitiatedTurn private constructor(
 public inline fun InitiatedTurn.rebuild(block: InitiatedTurn.Builder.() -> Unit): InitiatedTurn =
     toBuilder().apply(block).build()
 
-/** Where the agent sends an initiated turn's final reply, through `Channel.send`. */
+/**
+ * Where the agent sends an initiated turn's final reply, through `Channel.send`, to the chats that are on instances the
+ * turn's agent is attached to and take proactive messages.
+ */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ReplyRoute {
     /** Nowhere: the reply stays in the transcript. */

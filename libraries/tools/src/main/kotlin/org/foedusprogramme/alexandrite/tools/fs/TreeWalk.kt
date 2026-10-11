@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import java.io.IOException
 import java.nio.file.DirectoryIteratorException
+import java.nio.file.DirectoryStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
@@ -20,6 +21,7 @@ internal class TreeWalk(
     private val floor: HardFloor,
     private val agent: AgentId,
     private val maxEntries: Int = MAX_ENTRIES,
+    private val list: (Path) -> DirectoryStream<Path> = { Files.newDirectoryStream(it) },
 ) {
     /** Each entry the floor refused, with the kind of protected place it lies in. */
     private val protected = mutableListOf<Pair<Path, String>>()
@@ -75,8 +77,11 @@ internal class TreeWalk(
         }
     }
 
+    /** The entries of [directory] in name order, as many as the walk may still visit and one more. */
     private fun children(directory: Path): Iterator<Path> = try {
-        Files.newDirectoryStream(directory).use { entries -> entries.sortedBy { it.fileName.toString() } }.iterator()
+        list(directory).use { entries ->
+            entries.asSequence().take(maxEntries - visited + 1).sortedBy { it.fileName.toString() }.toList()
+        }.iterator()
     } catch (e: IOException) {
         unreadable.add(directory)
         emptyList<Path>().iterator()

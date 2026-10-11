@@ -18,6 +18,8 @@ internal class AgentSettings(
     val maxMediaBytes: Long = 20_000_000,
     /** Folders whose project instructions load without asking. */
     val trustedFolders: List<String> = emptyList(),
+    /** Places no tool may touch, beside those every floor protects. */
+    val protectedPaths: List<String> = emptyList(),
     /** The agents by their ids. */
     val agents: Map<String, AgentConfig> = emptyMap(),
 ) {
@@ -26,6 +28,7 @@ internal class AgentSettings(
         require(previewIntervalMillis >= 0) { "previewIntervalMillis may not be negative" }
         require(maxMediaBytes > 0) { "maxMediaBytes must be positive" }
         require(trustedFolders.all(::isPath)) { "trustedFolders holds a blank or malformed path" }
+        require(protectedPaths.all(::isPath)) { "protectedPaths holds a blank or malformed path" }
         checkAgents(agents)
     }
 }

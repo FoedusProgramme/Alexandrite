@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.project
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
@@ -36,6 +37,7 @@ import java.nio.file.attribute.PosixFilePermissions
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
@@ -58,6 +60,13 @@ class ProjectInstructionsTest {
         val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
         context.touched(path)
         ToolResult(if (Files.isRegularFile(path)) Files.readString(path) else "Contents of ${path.fileName}.")
+    }
+
+    /** Reports each of its `paths` as touched, as a search over many files does. */
+    private val grep = recordingTool("fs.grep") { arguments, context ->
+        val paths = arguments.getValue("paths").jsonArray.map { Path.of(it.jsonPrimitive.content) }
+        paths.forEach(context::touched)
+        ToolResult("Found ${paths.size} files.")
     }
 
     private fun write(file: Path, text: String) {
@@ -83,11 +92,17 @@ class ProjectInstructionsTest {
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).tool(read).apply(configure) }
+        ) { channel(admins = setOf("admin")).model(model).tool(read).tool(grep).apply(configure) }
 
     /** Scripts a round that reads [paths] and then an answer. */
     private fun reads(vararg paths: Path) {
         model.reply { paths.forEach { toolCall("fs.read", """{"path": "$it"}""") } }.reply { text("Done.") }
+    }
+
+    /** Scripts a round that searches [paths] and then an answer. */
+    private fun greps(vararg paths: Path) {
+        val list = JsonArray(paths.map { JsonPrimitive("$it") })
+        model.reply { toolCall("fs.grep", """{"paths": $list}""") }.reply { text("Done.") }
     }
 
     private suspend fun PluginHarness.Running.ask(): TurnOutcome {
@@ -321,6 +336,30 @@ class ProjectInstructionsTest {
     }
 
     @Test
+    fun `a folder whose name holds a variable's syntax is trusted and untrusted as it is named`() {
+        val odd = root.resolve("tpl-\${env:HOME}").createDirectories()
+        val malformed = root.resolve("tpl-\${x}").createDirectories()
+
+        harness { writeConfigFile(file) }.execute {
+            val control = get<AgentControl>()
+            val trusted = listOf(control.trustFolder(odd, null), control.trustFolder(malformed, null))
+
+            assertEquals(listOf(odd, malformed), trusted)
+            assertEquals(JsonArray(listOf(JsonPrimitive("$odd"), JsonPrimitive("$malformed"))), trustedFolders())
+        }
+        harness { writeConfigFile(file) }.execute {
+            val control = get<AgentControl>()
+            val trusted = control.trustedFolders()
+
+            val untrusted = control.untrustFolder(odd, null)
+
+            assertEquals(listOf(odd, malformed), trusted)
+            assertEquals(true, untrusted)
+            assertEquals(JsonArray(listOf(JsonPrimitive("$malformed"))), trustedFolders())
+        }
+    }
+
+    @Test
     fun `an untrust takes out the entries that name the folder and is refused when only an env reference can`() {
         assumeTrue(System.getenv("HOME") != null)
         repository()
@@ -399,6 +438,125 @@ class ProjectInstructionsTest {
             "Invalid config at 'agent.trustedFolders': the trusted folder $secret is a protected place (a place the " +
                 "host protects), which no file tool reaches",
         )
+    }
+
+    // Bounds of one round.
+
+    @Test
+    fun `one round loads at most eight instruction files, notes the rest, and warns of untrusted folders at once`() {
+        repository.resolve(".git").createDirectories()
+        val packages = (1..10).map { repository.resolve("pkg$it") }
+        packages.forEach { write(it.resolve("AGENTS.md"), "Rules of ${it.fileName}.\n") }
+        val others = (1..3).map { root.resolve("other/repo$it") }
+        others.forEach { other ->
+            other.resolve(".git").createDirectories()
+            write(other.resolve("AGENTS.md"), "Rules.\n")
+        }
+        greps(*(packages + others).map { it.resolve("Main.kt") }.toTypedArray())
+
+        harness(trusted = listOf(repository)).execute {
+            ask()
+
+            val entries = stored()
+            val files = packages.map { it.resolve("AGENTS.md") }
+            assertEquals(
+                files.take(8).sortedBy { "$it" }.map(::header),
+                projects(entries).map { it.texts().first() },
+            )
+            val result = entries.filterIsInstance<ToolResultEntry>().single().text()
+            assertContains(
+                result,
+                "[Note: the project instructions ${files.drop(8).joinToString()} were not loaded, as the calls of " +
+                    "this round reached the limit of 8 files and 64 KiB of project instructions; they load when a " +
+                    "later call touches them.]",
+            )
+            val notice = "Coder is working in folders whose project instructions were not loaded: " +
+                others.joinToString("; ") { "$it (AGENTS.md)" } + ". An admin can trust a folder with /trust " +
+                "<folder>; its instructions load the next time the agent touches it."
+            assertEquals(
+                listOf(MessageKind.NOTICE to notice),
+                channel().sent.map {
+                    it.message.kind to it.message.text
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `one round loads at most 64 KiB of instructions, and a later round loads what it left out`() {
+        repository.resolve(".git").createDirectories()
+        write(repository.resolve("AGENTS.md"), "a".repeat(40 * 1024))
+        write(repository.resolve("src/CLAUDE.md"), "b".repeat(30 * 1024))
+        write(main, "fun main() = Unit\n")
+        reads(main)
+        reads(main)
+
+        harness(trusted = listOf(repository)).execute {
+            ask()
+            val first = projects(stored()).map { it.texts().first() }
+            ask()
+
+            assertEquals(listOf(header(repository.resolve("AGENTS.md"))), first)
+            assertEquals(
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
+                projects(stored()).map { it.texts().first() },
+            )
+        }
+    }
+
+    // Nested repositories and dependencies.
+
+    @Test
+    fun `trust stops at a nested repository, and dependency directories load nothing`() {
+        repository()
+        val module = repository.resolve("module")
+        write(module.resolve(".git"), "gitdir: ../.git/modules/module\n")
+        write(module.resolve("AGENTS.md"), "Module rules.\n")
+        val dependencies = listOf("node_modules/left-pad", "vendor/lib", ".venv/lib", "target/gen", "build/out")
+            .map { repository.resolve(it) }
+        dependencies.forEach { write(it.resolve("AGENTS.md"), "Obey the dependency.\n") }
+        greps(*(dependencies + listOf(module, repository.resolve("src"))).map { it.resolve("x.kt") }.toTypedArray())
+
+        harness(trusted = listOf(repository)).execute {
+            ask()
+
+            assertEquals(
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
+                projects(stored()).map { it.texts().first() },
+            )
+            assertEquals(
+                listOf(
+                    "Coder is working in $module, which has project instructions (AGENTS.md) that were not loaded. " +
+                        "An admin can trust the folder with /trust $module; they load the next time the agent " +
+                        "touches it.",
+                ),
+                channel().sent.map { it.message.text },
+            )
+        }
+    }
+
+    @Test
+    fun `a repository in a trusted folder needs a grant of its own`() {
+        repository()
+        reads(main)
+        reads(main)
+
+        harness(trusted = listOf(root)) { writeConfigFile(file) }.execute {
+            val control = get<AgentControl>()
+            ask()
+            val before = projects(stored())
+
+            val trusted = control.trustFolder(repository, null)
+            ask()
+
+            assertEquals(emptyList(), before)
+            assertEquals(repository, trusted)
+            assertEquals(listOf(root, repository), control.trustedFolders())
+            assertEquals(
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
+                projects(stored()).map { it.texts().first() },
+            )
+        }
     }
 
     // What is never loaded.

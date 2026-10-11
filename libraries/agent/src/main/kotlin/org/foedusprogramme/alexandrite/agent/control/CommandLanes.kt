@@ -46,7 +46,8 @@ import java.time.Instant
 /**
  * Runs the command invocations that a handler claims, in a lane per chat beside the chat's turns.
  *
- * A lane admits `queue.commandsPerChat` counted invocations and runs `queue.commandsRunning` of them at once.
+ * A lane admits `queue.commandsPerChat` counted invocations and runs `queue.commandsRunning` of them at once: those
+ * whose command runs alongside as they come, the others one after another in the order they came.
  */
 @Singleton
 internal class CommandLanes(
@@ -86,7 +87,10 @@ internal class CommandLanes(
                 else -> {
                     val ticket = AgentTicket(turn) { cancel(it, TurnCancelled(null)) }
                     val target = lane ?: Lane(chat).also { lanes[chat] = it }
-                    target.waiting.addLast(Invocation(turn, command.invocation, handler, queuedAt, ticket))
+                    val alongside = handler.commands.any {
+                        it.runsAlongside && it.name.equals(command.invocation.name, ignoreCase = true)
+                    }
+                    target.waiting.addLast(Invocation(turn, command.invocation, handler, queuedAt, ticket, alongside))
                     intakes.gate(chat, turn)
                     startNext(target)
                     Admission.Accepted(ticket)
@@ -168,9 +172,19 @@ internal class CommandLanes(
     }
 
     private fun startNext(lane: Lane) {
-        while (lane.running.size < concurrent && lane.waiting.isNotEmpty()) {
-            val invocation = lane.waiting.removeFirst()
-            lane.running += invocation
+        var serial = lane.running.any { !it.alongside }
+        val starting = mutableListOf<Invocation>()
+        for (invocation in lane.waiting) {
+            if (lane.running.size + starting.size == concurrent) break
+            if (!invocation.alongside) {
+                if (serial) continue
+                serial = true
+            }
+            starting += invocation
+        }
+        lane.waiting.removeAll(starting)
+        lane.running += starting
+        for (invocation in starting) {
             val job = lock.launch { run(invocation) }
             invocation.job = job
             job.invokeOnCompletion { error -> ended(lane, invocation, error) }
@@ -273,6 +287,8 @@ private class Invocation(
     val handler: CommandHandler,
     val queuedAt: Instant,
     val ticket: AgentTicket,
+    /** Whether the command runs beside the lane's others. */
+    val alongside: Boolean,
 ) {
     var job: Job? = null
     var startedAt: Instant? = null

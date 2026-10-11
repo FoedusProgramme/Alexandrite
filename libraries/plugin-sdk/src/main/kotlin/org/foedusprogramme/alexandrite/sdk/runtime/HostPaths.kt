@@ -18,6 +18,12 @@ public interface HostPaths {
     /** The config file the host read, null when it read none. */
     public val configFile: Path?
 
+    /** The file [configFile] names with its links followed. */
+    public val configTarget: Path? get() = configFile
+
+    /** The copy of the config file that the host keeps when it writes the file. */
+    public val configBackup: Path? get() = null
+
     /** The places the host declares off-limits. */
     public val protected: List<Path>
 }

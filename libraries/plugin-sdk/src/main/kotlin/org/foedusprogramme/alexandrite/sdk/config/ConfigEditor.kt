@@ -16,6 +16,8 @@ public suspend fun ConfigEditor.set(path: String, value: JsonElement): Unit = ed
 
 public suspend fun ConfigEditor.remove(path: String): Unit = edit { remove(path) }
 
+public fun ConfigEdit.setLiteral(path: String, text: String): Unit = setLiteral(path, ConfigLiteral.Text(text))
+
 /**
  * The changes of one [ConfigEditor.edit], applied in order. A path is the keys of nested objects below the plugin's
  * config root joined by dots, so a list is set as a whole.
@@ -25,8 +27,17 @@ public interface ConfigEdit {
     /** The value at [path] as the file writes it after this edit's changes so far, null when there is none. */
     public fun get(path: String): JsonElement?
 
+    /**
+     * The strings and lists at [path] as the config resolves them after this edit's changes so far, null when there is
+     * none or the value holds anything else.
+     */
+    public fun getLiteral(path: String): ConfigLiteral?
+
     /** Writes [value] at [path] as an operator writes it, creating the objects on the way that are missing. */
     public fun set(path: String, value: JsonElement)
+
+    /** Writes [value] at [path] so that the config reads it back, creating the objects on the way that are missing. */
+    public fun setLiteral(path: String, value: ConfigLiteral)
 
     /** Takes out the member at [path] when there is one. */
     public fun remove(path: String)

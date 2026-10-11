@@ -30,6 +30,7 @@ import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordedReply
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
@@ -222,6 +223,71 @@ class WriteBackTest {
     }
 
     @Test
+    fun `a chat whose id holds a variable's syntax is written so that the config file reads it back as it is`() {
+        val odd = ChatAddress.parse("test:side:\${x}")
+        val home = ChatAddress.parse("test:main:\${env:HOME}")
+
+        harness().execute {
+            val control = get<AgentControl>()
+
+            control.link(coder, anchor, odd, null)
+            control.updateSettings(home, ChatSettingsUpdate.builder().agent(helper).home().build(), null)
+
+            assertEquals(groups(listOf(anchor, odd)), configured(coder, "linkedChats"))
+            assertEquals(JsonPrimitive("\${env:HOME}"), configured(helper, "channels/test:main/home"))
+            assertTrue("\"test:side:\$\${x}\"" in Files.readString(file))
+        }
+        harness().execute {
+            assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(odd))), get<AgentControl>().links(coder))
+            assertEquals(home, get<AgentControl>().agents(home.instance).single { it.id == helper }.home)
+        }
+    }
+
+    @Test
+    fun `a link or unlink of a chat the config file names through a variable is refused and changes nothing`() {
+        val home = System.getenv("HOME")
+        assumeTrue(home != null && ChatAddress.parseOrNull("test:main:$home") != null)
+        val named = ChatAddress.parse("test:main:$home")
+        val namedMember = ChatAddress.parse("test:side:$home")
+        harness().execute {}
+        val linked = "[[\"test:main:\${env:HOME}\", \"$member\"], [\"$anchor\", \"test:side:\${env:HOME}\"]]"
+        val inserted = "$0" + Regex.escapeReplacement("\"linkedChats\": $linked, ")
+        Files.writeString(file, Files.readString(file).replaceFirst(CODER, inserted))
+        val written = Files.readString(file)
+
+        val lines = logged {
+            harness().execute {
+                val control = get<AgentControl>()
+                val before = control.links(coder)
+
+                val refused = listOf(
+                    assertFailsWith<IllegalArgumentException> {
+                        control.link(coder, named, ChatAddress.parse("test:side:3"), null)
+                    },
+                    assertFailsWith<IllegalArgumentException> { control.unlink(coder, namedMember, null) },
+                ).map { it.message }
+
+                val reason = "is in a group that the config file names through an environment variable: edit the " +
+                    "config file to change the group."
+                assertEquals(listOf("$named $reason", "$namedMember $reason"), refused)
+                val groups = listOf(
+                    ChatLinkGroup(coder, named, listOf(member)),
+                    ChatLinkGroup(coder, anchor, listOf(namedMember)),
+                )
+                assertEquals(groups, before)
+                assertEquals(before, control.links(coder))
+                assertEquals(written, Files.readString(file))
+                assertTrue(control.unlink(coder, member, null))
+            }
+        }
+
+        assertEquals(emptyList(), lines.filter { it.startsWith("WARN") && "by hand" in it })
+        harness().execute {
+            assertEquals(listOf(ChatLinkGroup(coder, anchor, listOf(namedMember))), get<AgentControl>().links(coder))
+        }
+    }
+
+    @Test
     fun `a home chat is written into the config file and routes at once`() {
         harness().execute {
             val control = get<AgentControl>()
@@ -291,7 +357,7 @@ class WriteBackTest {
     }
 
     @Test
-    fun `a turn's own call for a change that would wait for the turn is refused, and a link waits for nothing`() {
+    fun `a change that waits for a worker is refused in a turn before it writes, and a link waits for nothing`() {
         model.reply { text("Done.") }
         val calls = SelfControl()
 
@@ -300,13 +366,16 @@ class WriteBackTest {
             val reply = ask(member)
             while (sealed.seen.isEmpty()) delay(5)
 
-            val own =
-                "A turn at coder@test:side:2 cannot wait for a change of its own key, which runs after the turn: " +
-                    "make it outside the turn."
-            assertEquals(listOf(own, own, "linked"), calls.outcomes)
+            val refused = "A turn cannot wait for a change of a chat, which runs after the turns queued at the chat: " +
+                "make it outside the turn."
+            assertEquals(List(5) { refused } + "linked", calls.outcomes)
             assertTrue(reply.completed != null)
             assertEquals(reply.turn.conversation, sealed.seen.single().sealed)
-            assertNull(get<AgentControl>().settings(member).reasoning)
+            val control = get<AgentControl>()
+            assertEquals(listOf(null, null), listOf(member, anchor).map { control.settings(it).reasoning })
+            assertEquals(AgentSource.DEFAULT, control.settings(anchor).agentSource)
+            assertEquals(listOf(null, null), control.agents(anchor.instance).map { it.home })
+            assertNull(configured(helper, "channels/test:main/home"))
         }
     }
 
@@ -321,8 +390,12 @@ class WriteBackTest {
             if (outcomes.isNotEmpty()) return HookDecision.Continue
             val chat = payload.turn.chat
             val effort = ChatSettingsUpdate.builder().reasoning(ReasoningEffort.LOW).build()
+            val elsewhere = ChatSettingsUpdate.builder().agent(helper).home().reasoning(ReasoningEffort.LOW).build()
             outcomes += attempt { control.newConversation(chat, null) }
             outcomes += attempt { control.updateSettings(chat, effort, null) }
+            outcomes += attempt { control.newConversation(anchor, null) }
+            outcomes += attempt { control.updateSettings(anchor, effort, null) }
+            outcomes += attempt { control.updateSettings(anchor, elsewhere, null) }
             outcomes += attempt { control.link(coder, anchor, chat, null) }
             return HookDecision.Continue
         }

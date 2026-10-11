@@ -98,7 +98,10 @@ class SubclassOptInTest {
 
         class Edit : org.foedusprogramme.alexandrite.sdk.config.ConfigEdit {
             override fun get(path: String) = TODO()
+            override fun getLiteral(path: String) = TODO()
             override fun set(path: String, value: kotlinx.serialization.json.JsonElement) = TODO()
+            override fun setLiteral(path: String, value: org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral) =
+                TODO()
             override fun remove(path: String) = TODO()
         }
 
@@ -632,6 +635,9 @@ class SubclassOptInTest {
                     val trusted = get("trustedFolders") as? JsonArray ?: JsonArray(emptyList())
                     set("trustedFolders", JsonArray(trusted + folders.map(::JsonPrimitive)))
                     remove("legacyFolders")
+                    val kept = (getLiteral("folders") as? ConfigLiteral.Items)?.items.orEmpty()
+                    setLiteral("folders", ConfigLiteral.Items(kept + folders.map(ConfigLiteral::Text)))
+                    setLiteral("owner", "\${'$'}{not a variable}")
                 }
                 editor.set("home", JsonPrimitive("123"))
                 editor.remove("home")

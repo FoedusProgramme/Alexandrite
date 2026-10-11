@@ -18,6 +18,9 @@ internal object TextKeys {
     /** Takes `{agent}`, `{folder}` and `{files}`. */
     const val UNTRUSTED_FOLDER: String = "notice.untrusted_folder"
 
+    /** Takes `{agent}` and `{folders}`. */
+    const val UNTRUSTED_FOLDERS: String = "notice.untrusted_folders"
+
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"
 
@@ -66,6 +69,9 @@ internal object TextKeys {
 
     /** Takes `{chat}`. */
     const val ANCHOR_WITH_MEMBERS: String = "control.anchor_with_members"
+
+    /** Takes `{chat}`. */
+    const val LINK_BY_REFERENCE: String = "control.link_by_reference"
 
     /** Takes `{folder}`. */
     const val FOLDER_NOT_ABSOLUTE: String = "control.folder_not_absolute"

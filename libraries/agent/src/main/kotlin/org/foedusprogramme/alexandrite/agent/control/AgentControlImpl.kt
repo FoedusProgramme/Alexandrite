@@ -7,12 +7,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
-import org.foedusprogramme.alexandrite.agent.config.configLiteral
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
@@ -44,6 +40,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
+import org.foedusprogramme.alexandrite.sdk.config.setLiteral
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
@@ -138,10 +136,12 @@ internal class AgentControlImpl(
         by: ChatUser?,
     ): ChatSettingsSnapshot {
         val current = refusing(null) { served(chat).key }
+        val changes = settingChanges(update)
         val agent = refusing(current) {
             val agent = agentAfter(chat, current.agent, update.agent)
             checkModel(update.model)
             checkReasoning(update.reasoning)
+            if (changes.isNotEmpty()) checkWaiting()
             update.home?.let { home -> writing.withLock { changeHome(agent, chat, home, by) } }
             agent
         }
@@ -149,7 +149,6 @@ internal class AgentControlImpl(
             states.selectAgent(chat, update.agent)
             logger.info("Chat {} is switched to agent '{}' by {}", chat, agent, who(by))
         }
-        val changes = settingChanges(update)
         if (changes.isNotEmpty()) {
             val key = topology.key(agent, chat)
             onWorker(key) { states.update(key, update) }
@@ -167,9 +166,9 @@ internal class AgentControlImpl(
                         throw Refused(TextKeys.LINKED_ALREADY, "member" to member, "anchor" to other.anchor)
                     }
                     when {
-                        group == null -> FileGroup(listOf(JsonPrimitive("$anchor"), JsonPrimitive("$member")))
+                        group == null -> FileGroup(listOf("$anchor", "$member").map(ConfigLiteral::Text))
                         member in group.chats -> group
-                        else -> FileGroup(group.elements + JsonPrimitive("$member"))
+                        else -> FileGroup(group.elements + ConfigLiteral.Text("$member"))
                     }
                 }
                 topology.apply(change)
@@ -298,7 +297,7 @@ internal class AgentControlImpl(
         if (after == before) return
         val path = "agents.$agent.channels.${attachmentKey(agent, instance)}.home"
         write {
-            if (after == null) remove(path) else set(path, JsonPrimitive(after.toString().removePrefix("$instance:")))
+            if (after == null) remove(path) else setLiteral(path, after.toString().removePrefix("$instance:"))
         }
         topology.apply(change)
         logger.info(
@@ -317,7 +316,10 @@ internal class AgentControlImpl(
             ChannelInstanceId.parseOrNull(it) == instance
         }
 
-    /** Writes the group of [agent] that holds [chat] in the config file as [change] makes it of the file's groups. */
+    /**
+     * Writes the group of [agent] that holds [chat] in the config file as [change] makes it of the file's groups, and
+     * refuses when [chat] is in a [live] group that the file names only through an environment variable.
+     */
     private suspend fun writeGroup(
         agent: AgentId,
         chat: ChatAddress,
@@ -327,8 +329,12 @@ internal class AgentControlImpl(
         val path = "agents.$agent.linkedChats"
         var before: FileGroup? = null
         write {
-            val groups = (get(path) as? JsonArray).orEmpty().map { FileGroup((it as? JsonArray).orEmpty()) }
+            val groups = (getLiteral(path) as? ConfigLiteral.Items)?.items.orEmpty()
+                .map { FileGroup((it as? ConfigLiteral.Items)?.items.orEmpty()) }
             val index = groups.indexOfFirst { chat in it.chats }
+            if (index < 0 && live != null && groups.any { it.byReference }) {
+                throw Refused(TextKeys.LINK_BY_REFERENCE, "chat" to chat)
+            }
             before = groups.getOrNull(index)
             val after = change(groups, before)?.takeIf { it.elements.size > 1 }
             val next = when {
@@ -337,10 +343,14 @@ internal class AgentControlImpl(
                 else -> groups.mapIndexed { position, group -> if (position == index) after else group }
             }
             if (next.map { it.elements } != groups.map { it.elements }) {
-                if (next.isEmpty()) remove(path) else set(path, JsonArray(next.map { JsonArray(it.elements) }))
+                if (next.isEmpty()) {
+                    remove(path)
+                } else {
+                    setLiteral(path, ConfigLiteral.Items(next.map { ConfigLiteral.Items(it.elements) }))
+                }
             }
         }
-        if (before?.chats.orEmpty() != live?.chats.orEmpty()) {
+        if (before?.byReference != true && before?.chats.orEmpty() != live?.chats.orEmpty()) {
             logger.warn(
                 "The linked chats of agent '{}' in the config file were edited by hand since the start: the change " +
                     "is made to the file's group of {} as the file holds it, and the running groups follow the file " +
@@ -401,14 +411,18 @@ internal class AgentControlImpl(
         return successor
     }
 
-    /**
-     * What [effect] returns, run at [key] once the turns queued there before it have ended; throws
-     * [IllegalStateException] in a turn at [key], which would wait for itself.
-     */
-    private suspend fun <T> onWorker(key: AgentChatKey, effect: suspend () -> T): T {
-        check(currentCoroutineContext()[RunningTurn]?.workerKey != key) {
-            "A turn at $key cannot wait for a change of its own key, which runs after the turn: make it outside the turn."
+    /** Throws [IllegalStateException] where a change cannot wait for a worker: in a turn, or once the agent stops. */
+    private suspend fun checkWaiting() {
+        check(currentCoroutineContext()[RunningTurn] == null) {
+            "A turn cannot wait for a change of a chat, which runs after the turns queued at the chat: make it " +
+                "outside the turn."
         }
+        check(workers.accepting) { "The agent is not running." }
+    }
+
+    /** What [effect] returns, run at [key] once the turns queued there before it have ended. */
+    private suspend fun <T> onWorker(key: AgentChatKey, effect: suspend () -> T): T {
+        checkWaiting()
         val result = CompletableDeferred<T>()
         val job = WorkerJob.Control { result.complete(effect()) }
         workers.control(key, job)
@@ -427,12 +441,16 @@ internal class AgentControlImpl(
 }
 
 /** A linked group as the config file writes it. */
-private class FileGroup(val elements: List<JsonElement>) {
+private class FileGroup(val elements: List<ConfigLiteral>) {
     /** The chat of each element, null for one that names an environment variable. */
-    val chats: List<ChatAddress?> = elements.map { element -> configLiteral(element)?.let(ChatAddress::parseOrNull) }
+    val chats: List<ChatAddress?> = elements.map { (it as? ConfigLiteral.Text)?.text?.let(ChatAddress::parseOrNull) }
+
+    /** Whether an element names an environment variable. */
+    val byReference: Boolean get() = elements.any { it !is ConfigLiteral.Text }
 
     /** The first chat, or the first element as the file writes it when that names an environment variable. */
-    val anchor: String get() = chats.first()?.toString() ?: elements.first().toString()
+    val anchor: String
+        get() = chats.first()?.toString() ?: (elements.first() as? ConfigLiteral.Reference)?.written.orEmpty()
 }
 
 /** The changes of [update] to the settings kept per agent and chat, as a log shows them. */

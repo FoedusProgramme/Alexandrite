@@ -157,6 +157,19 @@ class GrepToolTest {
     }
 
     @Test
+    fun `a file that vanishes during the walk is named as unreadable and the search goes on`() {
+        val gone = fs.write("repo/gone.kt", "fun gone() {}\n")
+        val entry = Entry(gone, "gone.kt", attributes(gone))
+        Files.delete(gone)
+        val search = Search(Regex("fun"))
+
+        search.entry(entry)
+        search.entry(Entry(main, "src/Main.kt", attributes(main)))
+
+        assertEquals("$main\n  3: fun main() {\n[Could not read: $gone.]\n", search.result(fs.repository, emptyList()))
+    }
+
+    @Test
     @Timeout(10)
     fun `a pattern that backtracks without end stops with the call`() {
         val slow = fs.write("repo/slow.txt", "a".repeat(40))

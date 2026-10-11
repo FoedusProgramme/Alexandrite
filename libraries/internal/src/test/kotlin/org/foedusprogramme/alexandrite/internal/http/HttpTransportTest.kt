@@ -257,6 +257,33 @@ class HttpTransportTest {
         }
 
     @Test
+    fun `a header value with a control character is refused naming only the header`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            HttpCall("GET", server.uri, mapOf("authorization" to "Bearer $TOKEN\r"))
+        }
+
+        assertTrue("'authorization'" in error.message.orEmpty(), error.message)
+        assertMasked(error)
+        assertFailsWith<IllegalArgumentException> { HttpCall("GET", server.uri, mapOf("x-key" to "$TOKEN\u200b")) }
+    }
+
+    @Test
+    fun `a request the JDK refuses fails as an HTTP failure that quotes neither the request nor its cause`() =
+        runBlocking {
+            val calls = listOf(
+                HttpCall("GET", URI("http:///bot$TOKEN/getMe"), secrets = listOf(TOKEN)),
+                HttpCall("GET", URI("http://user:$TOKEN@/getMe?key=$TOKEN")),
+                HttpCall("GET", server.uri, mapOf("host" to TOKEN)),
+            )
+
+            for (error in calls.map { call -> assertFailsWith<HttpException> { transport.send(call) } }) {
+                assertEquals(HttpFailureKind.PROTOCOL, error.kind)
+                assertEquals(null, error.cause)
+                assertMasked(error)
+            }
+        }
+
+    @Test
     fun `a call's first-byte timeout replaces the transport's`() = runBlocking {
         server.handle { Thread.sleep(1_000) }
         server.handle { exchange ->

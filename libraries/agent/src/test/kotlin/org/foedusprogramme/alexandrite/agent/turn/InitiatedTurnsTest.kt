@@ -22,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.rebuild
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -64,6 +65,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.sdk.turn.rebuild
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
+import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import kotlin.test.Test
@@ -262,6 +264,33 @@ class InitiatedTurnsTest {
             assertEquals(channel().sent.single().delivery, outcome.deliveries.getValue(home))
             val missed = assertIs<Delivery.NotDelivered>(outcome.deliveries.getValue(sideHome))
             assertEquals(DeliveryFailure.TRANSIENT, missed.kind)
+        }
+    }
+
+    @Test
+    fun `a reply is not sent to a chat on an instance the agent is not attached to, nor where it was not asked for`() {
+        model.reply { text("Psst.") }.reply { text("Good morning.") }
+
+        harness().execute {
+            val lonely = ChatAddress.parse("test:lonely:x")
+            val home = ChatAddress(main, "home")
+            val sideHome = ChatAddress(side, "side-home")
+            channel().scriptCapabilities(RecordingChannel.DEFAULT_CAPABILITIES.rebuild { proactive(false) }, home)
+
+            val elsewhere = initiate(turn(route = ReplyRoute.ToChat(lonely))).outcome() as TurnOutcome.Completed
+            val homes = initiate(turn(route = ReplyRoute.AgentHomes())).outcome() as TurnOutcome.Completed
+
+            assertEquals(
+                Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "Agent 'coder' is not attached to test:lonely."),
+                elsewhere.deliveries.getValue(lonely),
+            )
+            assertEquals(
+                Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "Chat $home takes no messages it did not ask for."),
+                homes.deliveries.getValue(home),
+            )
+            assertIs<Delivery.Delivered>(homes.deliveries.getValue(sideHome))
+            assertTrue(channel("lonely").events.isEmpty())
+            assertEquals(emptyList(), channel().sent)
         }
     }
 

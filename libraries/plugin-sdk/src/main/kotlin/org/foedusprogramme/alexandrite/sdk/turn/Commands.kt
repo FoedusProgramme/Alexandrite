@@ -84,7 +84,12 @@ public interface CommandHandler {
 
 /** A command that a [CommandHandler] claims. */
 @Poko
-public class CommandSpec private constructor(public val name: String, public val description: String) {
+public class CommandSpec private constructor(
+    public val name: String,
+    public val description: String,
+    /** Whether it runs at once beside the chat's other commands. */
+    public val runsAlongside: Boolean,
+) {
     init {
         require(COMMAND_NAME.matches(name)) {
             "Malformed command name '$name': it must be lowercase letters, digits, '_' and '-', start with a letter " +
@@ -93,14 +98,18 @@ public class CommandSpec private constructor(public val name: String, public val
         require(description.isNotBlank()) { "The description of command '$name' may not be blank." }
     }
 
-    public fun toBuilder(): Builder = Builder(name, description)
+    public fun toBuilder(): Builder = Builder(name, description).runsAlongside(runsAlongside)
 
     public class Builder internal constructor(private var name: String, private var description: String) {
+        private var runsAlongside: Boolean = false
+
         public fun name(name: String): Builder = apply { this.name = name }
 
         public fun description(description: String): Builder = apply { this.description = description }
 
-        public fun build(): CommandSpec = CommandSpec(name, description)
+        public fun runsAlongside(runsAlongside: Boolean): Builder = apply { this.runsAlongside = runsAlongside }
+
+        public fun build(): CommandSpec = CommandSpec(name, description, runsAlongside)
     }
 
     public companion object {

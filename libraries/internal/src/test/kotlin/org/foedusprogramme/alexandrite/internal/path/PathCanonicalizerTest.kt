@@ -74,7 +74,7 @@ class PathCanonicalizerTest {
     }
 
     @Test
-    fun `the probe finds how the volume of a directory compares names`() {
+    fun `the probe finds how the directories of a path compare names`() {
         val probe = Files.createFile(root.resolve("Probe"))
         val other = root.resolve("probe")
         val expected = if (Files.exists(other, LinkOption.NOFOLLOW_LINKS) && Files.isSameFile(probe, other)) {
@@ -83,8 +83,35 @@ class PathCanonicalizerTest {
             NameCase.SENSITIVE
         }
 
-        assertEquals(expected, VolumeProbe().nameCase(root))
-        assertEquals(expected, VolumeProbe().nameCase(probe))
+        assertEquals(expected, NameCaseProbe().nameCase(root))
+        assertEquals(expected, NameCaseProbe().nameCase(probe))
+    }
+
+    @Test
+    fun `a directory that folds names makes the paths through it fold on a volume probed sensitive before`() {
+        val plain = Files.createDirectories(root.resolve("plain/Sub"))
+        val inFolded = Files.createDirectories(root.resolve("folded/Sub"))
+        val folded = inFolded.parent
+        val probed = mutableListOf<Path>()
+        val probe = NameCaseProbe { directory, _ ->
+            probed.add(directory)
+            if (directory == folded) NameCase.INSENSITIVE else NameCase.SENSITIVE
+        }
+
+        assertEquals(NameCase.SENSITIVE, probe.nameCase(plain))
+        assertEquals(NameCase.UNKNOWN, probe.nameCase(inFolded))
+        assertEquals(NameCase.UNKNOWN, probe.nameCase(folded))
+        assertEquals(NameCase.SENSITIVE, probe.nameCase(root))
+        assertEquals(probed.distinct(), probed, "each directory is probed once")
+    }
+
+    @Test
+    fun `a directory the probe cannot tell about leaves the path unknown`() {
+        val sub = Files.createDirectories(root.resolve("sub"))
+        val probe = NameCaseProbe { directory, _ -> if (directory == sub) null else NameCase.INSENSITIVE }
+
+        assertEquals(NameCase.UNKNOWN, probe.nameCase(sub))
+        assertEquals(NameCase.INSENSITIVE, probe.nameCase(root))
     }
 
     @Test

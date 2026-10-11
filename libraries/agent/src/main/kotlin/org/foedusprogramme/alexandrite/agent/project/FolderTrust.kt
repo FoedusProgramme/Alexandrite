@@ -2,17 +2,14 @@ package org.foedusprogramme.alexandrite.agent.project
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
-import org.foedusprogramme.alexandrite.agent.config.configLiteral
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
+import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
@@ -22,7 +19,7 @@ import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
-/** A folder whose project instructions load, with those of the folders below it. */
+/** A folder whose project instructions load, with those below it outside the repositories nested in it. */
 internal class TrustedFolder(
     /** Canonical. */
     val path: Path,
@@ -53,7 +50,7 @@ internal class FolderTrust(
 
     /** The trusted folder nearest to [folder] (canonical) that is it or holds it, null when none does. */
     fun covering(folder: Path): TrustedFolder? =
-        folders.filter { folder.startsWith(it.path) }.maxByOrNull { it.path.nameCount }
+        folders.filter { covers(it.path, folder) }.maxByOrNull { it.path.nameCount }
 
     /** Whether [folder] (canonical) is a trusted folder itself. */
     fun isTrusted(folder: Path): Boolean = folders.any { it.path == folder }
@@ -71,8 +68,8 @@ internal class FolderTrust(
             covering(canonical)?.let { return it.path }
             var found: Path? = null
             edit { entries ->
-                found = entries.mapNotNull(::folderOf).filter(canonical::startsWith).maxByOrNull { it.nameCount }
-                if (found == null) entries + JsonPrimitive("$canonical") else entries
+                found = entries.mapNotNull(::folderOf).filter { covers(it, canonical) }.maxByOrNull { it.nameCount }
+                if (found == null) entries + ConfigLiteral.Text("$canonical") else entries
             }
             folders = folders + (found?.let { TrustedFolder(it, null) } ?: TrustedFolder(canonical, by))
             found
@@ -112,12 +109,12 @@ internal class FolderTrust(
     }
 
     /** Writes the entries that [change] makes of the config file's entries as the file holds them. */
-    private suspend fun edit(change: (List<JsonElement>) -> List<JsonElement>) {
+    private suspend fun edit(change: (List<ConfigLiteral>) -> List<ConfigLiteral>) {
         try {
             editor.edit {
-                val entries = get(KEY) as? JsonArray ?: JsonArray(emptyList())
+                val entries = (getLiteral(KEY) as? ConfigLiteral.Items)?.items.orEmpty()
                 val after = change(entries)
-                if (after != entries) if (after.isEmpty()) remove(KEY) else set(KEY, JsonArray(after))
+                if (after != entries) if (after.isEmpty()) remove(KEY) else setLiteral(KEY, ConfigLiteral.Items(after))
             }
         } catch (e: ConfigEditException) {
             logger.warn("The config file did not take a change of the trusted folders: {}", e.message)
@@ -126,8 +123,8 @@ internal class FolderTrust(
     }
 
     /** The canonical folder of the config file's [entry], null when it names an environment variable. */
-    private fun folderOf(entry: JsonElement): Path? {
-        val path = configLiteral(entry)?.let { absolute(it, paths) } ?: return null
+    private fun folderOf(entry: ConfigLiteral): Path? {
+        val path = (entry as? ConfigLiteral.Text)?.let { absolute(it.text, paths) } ?: return null
         return (floor.check(path) as? FloorCheck.Allowed)?.canonical ?: path
     }
 }
@@ -153,6 +150,10 @@ private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor
             )
         }
     }
+
+/** Whether [folder] is [trusted] or lies in it outside every repository nested in it. */
+private fun covers(trusted: Path, folder: Path): Boolean = folder.startsWith(trusted) &&
+    generateSequence(folder) { it.parent }.takeWhile { it != trusted }.none(::isRepository)
 
 /** [entry] made absolute against the directory of the config file in [paths], null when it cannot be. */
 private fun absolute(entry: String, paths: HostPaths): Path? {

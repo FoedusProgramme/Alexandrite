@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.runtime.config
 
 import kotlinx.serialization.json.JsonElement
+import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 
 internal class PluginConfigEditor(private val plugin: EnabledPlugin, private val writer: ConfigWriter) : ConfigEditor {
@@ -31,8 +33,14 @@ internal class PluginEdit(private val root: String, private val open: () -> Open
         return at("read", keys) { opened().get(keys) }
     }
 
+    override fun getLiteral(path: String): ConfigLiteral? = get(path)?.let(ConfigFile::literal)
+
     override fun set(path: String, value: JsonElement) {
         change(ConfigChange(changeable(path), value))
+    }
+
+    override fun setLiteral(path: String, value: ConfigLiteral) {
+        set(path, ConfigFile.written(value))
     }
 
     override fun remove(path: String) {

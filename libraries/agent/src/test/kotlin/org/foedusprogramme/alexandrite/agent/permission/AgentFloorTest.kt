@@ -92,11 +92,35 @@ class AgentFloorTest {
     }
 
     @Test
+    fun `the operator's protected paths are denied, and a relative one fails the start without a config file`() {
+        val config = """{"protectedPaths": ["vault", ${JsonPrimitive("$root/keys")}], "agents": {"coder": {}}}"""
+
+        agentHarness(config) {
+            dataRoot(data)
+            configFile(configFile)
+        }.execute {
+            val floor = get<HardFloor>()
+
+            assertEquals(FloorCheck.Denied(OPERATOR), floor.check(configFile.resolveSibling("vault/notes.md")))
+            assertEquals(FloorCheck.Denied(OPERATOR), floor.check(root.resolve("keys/api.env")))
+        }
+        agentHarness("""{"protectedPaths": ["vault"]}""") { dataRoot(data) }.assertStartFails(
+            StartStage.GRAPH,
+            "Invalid config at 'agent.protectedPaths': the protected path 'vault' is relative, but the host read no " +
+                "config file to resolve it against: give an absolute path",
+        )
+    }
+
+    @Test
     fun `a relative workspace fails the start when the host read no config file`() {
         harness("""{"coder": {"workspace": "notes"}}""", configFile = null).assertStartFails(
             StartStage.GRAPH,
             "Invalid config at 'agent.agents.coder.workspace': the workspace 'notes' is relative, but the host read " +
                 "no config file to resolve it against: give an absolute path",
         )
+    }
+
+    private companion object {
+        const val OPERATOR = "a place the operator protects"
     }
 }

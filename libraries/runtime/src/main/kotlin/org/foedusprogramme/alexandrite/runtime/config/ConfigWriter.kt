@@ -169,8 +169,6 @@ internal class ConfigWriter(
         /** Serializes every config change of the process. */
         val LOCK = Mutex()
 
-        const val BACKUP_SUFFIX = ".bak"
-
         val SECRET_NAME = Secret.serializer().descriptor.serialName
 
         val REFERENCE = Regex("\\$\\{env:[A-Za-z_][A-Za-z0-9_]*}")
@@ -226,7 +224,7 @@ internal class ConfigWriter(
             } catch (e: UnsupportedOperationException) {
                 null
             }
-            writeAtomically(target.resolveSibling("${target.fileName}$BACKUP_SUFFIX"), previous, permissions)
+            writeAtomically(configBackup(target), previous, permissions)
             writeAtomically(target, next, permissions)
             val directory = checkNotNull(target.parent)
             try {
@@ -257,6 +255,9 @@ internal class ConfigWriter(
         }
     }
 }
+
+/** Where the writer keeps the previous text of the config file [target]. */
+internal fun configBackup(target: Path): Path = target.resolveSibling("${target.fileName}.bak")
 
 internal fun refused(refusal: ConfigEditRefusal, message: String, cause: Throwable? = null): ConfigEditException =
     ConfigEditException(refusal, message, cause)

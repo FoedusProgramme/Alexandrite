@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.project
 
+import org.foedusprogramme.alexandrite.internal.path.hardLinks
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -51,12 +52,13 @@ internal class ProjectFolders(
 
         /**
          * The project of [start]: the nearest directory from it up that holds `.git` or is a trusted folder, else
-         * [start] itself, with the instruction files from there down to [start].
+         * [start] itself, with the instruction files from there down to [start] or the first dependency directory.
          */
         private fun project(start: Path): Project {
             val folder = marked(start) ?: start
-            val below = generateSequence(start) { it.parent }.takeWhile { it != folder }.toList()
-            return Project(folder, below.plusElement(folder).asReversed().flatMap(::files))
+            val below = generateSequence(start) { it.parent }.takeWhile { it != folder }.toList().asReversed()
+                .takeWhile { it.fileName.toString() !in DEPENDENCIES }
+            return Project(folder, (listOf(folder) + below).flatMap(::files))
         }
 
         /** The nearest marked directory from [start] up, stopping below the first directory the floor refuses. */
@@ -70,7 +72,7 @@ internal class ProjectFolders(
                     break
                 }
                 walked.add(current)
-                if (trusted(current) || Files.exists(current.resolve(GIT), LinkOption.NOFOLLOW_LINKS)) {
+                if (trusted(current) || isRepository(current)) {
                     mark = current
                     break
                 }
@@ -90,7 +92,7 @@ internal class ProjectFolders(
             val single = try {
                 val attributes =
                     Files.readAttributes(canonical, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-                attributes.isRegularFile && links(canonical) == 1
+                attributes.isRegularFile && hardLinks(canonical) == 1
             } catch (e: IOException) {
                 false
             }
@@ -101,16 +103,14 @@ internal class ProjectFolders(
     }
 }
 
-/** How many hard links [file] has, 1 where the file system does not tell. */
-private fun links(file: Path): Int = try {
-    Files.getAttribute(file, "unix:nlink", LinkOption.NOFOLLOW_LINKS) as Int
-} catch (e: UnsupportedOperationException) {
-    1
-} catch (e: IllegalArgumentException) {
-    1
-}
+/** Whether [directory] holds `.git`. */
+internal fun isRepository(directory: Path): Boolean = Files.exists(directory.resolve(GIT), LinkOption.NOFOLLOW_LINKS)
 
 /** The names of the instruction files, in the order they load. */
 private val NAMES = listOf("AGENTS.md", "CLAUDE.md")
+
+/** Directories of third-party code and build output. */
+private val DEPENDENCIES =
+    setOf("node_modules", "bower_components", "vendor", ".venv", "venv", "site-packages", "target", "build")
 
 private const val GIT = ".git"

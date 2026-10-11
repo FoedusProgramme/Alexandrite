@@ -106,5 +106,6 @@ private fun characterClass(content: String): String {
     val members = content.removePrefix("!").map { char ->
         if (char == '-' || char.isLetterOrDigit()) char.toString() else "\\" + char
     }
-    return "[" + (if (negated) "^" else "") + members.joinToString("") + "&&[^/]]"
+    val set = members.joinToString("")
+    return if (negated) "[[^$set]&&[^/]]" else "[$set&&[^/]]"
 }

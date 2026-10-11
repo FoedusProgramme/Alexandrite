@@ -1,7 +1,11 @@
 package org.foedusprogramme.alexandrite.agent.delivery
 
+import kotlinx.coroutines.CancellationException
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.Delivery
+import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -16,9 +20,16 @@ internal class Routes(
     private val directory: AgentDirectory,
     private val topology: ChatTopology,
     private val conversations: ConversationStore,
+    private val channels: ChannelDirectory,
 ) {
-    /** The chats, each once, that [route] sends a reply of [agent] to. */
-    suspend fun destinations(agent: AgentId, route: ReplyRoute): List<ChatAddress> = when (route) {
+    /**
+     * The chats, each once, that [route] sends a reply of [agent] to, each with why the reply may not go there, null
+     * where it may.
+     */
+    suspend fun destinations(agent: AgentId, route: ReplyRoute): Map<ChatAddress, Delivery.NotDelivered?> =
+        chats(agent, route).associateWith { refusal(agent, it) }
+
+    private suspend fun chats(agent: AgentId, route: ReplyRoute): List<ChatAddress> = when (route) {
         ReplyRoute.None -> emptyList()
 
         is ReplyRoute.ToChat -> listOf(route.chat)
@@ -37,6 +48,26 @@ internal class Routes(
             logger.warn("An initiated turn of agent '{}' names the unknown route {}: it is sent nowhere", agent, route)
             emptyList()
         }
+    }
+
+    /** Why a reply of [agent] may not go to [chat], null when it may. */
+    private suspend fun refusal(agent: AgentId, chat: ChatAddress): Delivery.NotDelivered? {
+        val detail = when {
+            chat.instance !in instances(agent, null) -> "Agent '$agent' is not attached to ${chat.instance}."
+            !proactive(chat) -> "Chat $chat takes no messages it did not ask for."
+            else -> return null
+        }
+        logger.warn("A routed reply of agent '{}' is not sent to {}: {}", agent, chat, detail)
+        return Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, detail)
+    }
+
+    /** Whether [chat] takes proactive messages, true when its channel is closed or cannot tell. */
+    private suspend fun proactive(chat: ChatAddress): Boolean = try {
+        channels.channel(chat.instance)?.capabilities(chat)?.proactive != false
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        true
     }
 
     /** The instances of [channels] that [agent] serves, all it serves when [channels] is null. */

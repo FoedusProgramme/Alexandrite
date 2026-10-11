@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.foedusprogramme.alexandrite.internal.path.hardLinks
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
@@ -83,21 +84,12 @@ internal fun HardFloor.allowed(path: Path, context: ToolContext): Path =
 internal fun attributes(path: Path): BasicFileAttributes =
     Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
 
-/** How many hard links [file] has, 1 where the file system does not tell. */
-internal fun links(file: Path): Int = try {
-    Files.getAttribute(file, "unix:nlink", LinkOption.NOFOLLOW_LINKS) as Int
-} catch (e: UnsupportedOperationException) {
-    1
-} catch (e: IllegalArgumentException) {
-    1
-}
-
 /** Refuses [file], shown as [shown], unless it is a regular file with one hard link. */
 internal fun checkReadable(file: Path, shown: Path, attributes: BasicFileAttributes) {
     when {
         attributes.isDirectory -> throw Refusal("$shown is a directory: list it with fs.glob.")
         !attributes.isRegularFile -> throw Refusal("$shown is no regular file, so it is not read.")
-        links(file) > 1 -> throw Refusal(multiLinked(shown))
+        hardLinks(file) > 1 -> throw Refusal(multiLinked(shown))
     }
 }
 

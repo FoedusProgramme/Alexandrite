@@ -43,6 +43,7 @@ class AgentSettingsTest {
             },
         )
         assertEquals(emptyList(), settings.trustedFolders)
+        assertEquals(emptyList(), settings.protectedPaths)
         assertEquals(emptyMap(), settings.agents)
     }
 
@@ -304,12 +305,13 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `workspaces, trusted folders and instruction files are paths that are not blank`() {
+    fun `workspaces, trusted folders, protected paths and instruction files are paths that are not blank`() {
         assertConfigFails(
             agents(""""coder": {"workspace": " "}"""),
             "agents.coder.workspace is a blank or malformed path",
         )
         assertConfigFails("""{"trustedFolders": ["/srv", ""]}""", "trustedFolders holds a blank or malformed path")
+        assertConfigFails("""{"protectedPaths": [" "]}""", "protectedPaths holds a blank or malformed path")
         assertConfigFails(
             agents(""""coder": {"instructionFiles": [""]}"""),
             "agents.coder.instructionFiles holds a blank or malformed path",

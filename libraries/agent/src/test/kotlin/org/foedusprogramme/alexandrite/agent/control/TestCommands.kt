@@ -16,8 +16,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Commands that call the agent's [control] as a command plugin does: `/new`, `/cancel`, `/agent <id>`,
- * `/tune <model> <effort> <language>`, `/home`, `/nohome`, `/wait <gate>` and `/boom`, which throws.
+ * Commands that call the agent's [control] as a command plugin does: `/new`, `/cancel` (which runs alongside),
+ * `/agent <id>`, `/tune <model> <effort> <language>`, `/home`, `/nohome`, `/wait <gate>` and `/boom`, which throws.
  */
 internal class TestCommands : CommandHandler {
     lateinit var control: AgentControl
@@ -30,7 +30,7 @@ internal class TestCommands : CommandHandler {
     val snapshots: MutableList<ChatSettingsSnapshot> = CopyOnWriteArrayList()
 
     override val commands: List<CommandSpec> = "new cancel agent tune home nohome wait boom".split(' ')
-        .map { CommandSpec.builder(it, "Test command /$it.").build() }
+        .map { CommandSpec.builder(it, "Test command /$it.").runsAlongside(it == "cancel").build() }
 
     /** The gate that `/wait <name>` waits for. */
     fun gate(name: String): CompletableDeferred<Unit> = gates.computeIfAbsent(name) { CompletableDeferred() }

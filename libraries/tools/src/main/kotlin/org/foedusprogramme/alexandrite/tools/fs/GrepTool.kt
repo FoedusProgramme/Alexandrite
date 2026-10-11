@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.internal.path.hardLinks
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -85,7 +86,7 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
 }
 
 /** The lines that match [regex], by file. */
-private class Search(private val regex: Regex) {
+internal class Search(private val regex: Regex) {
     private val found = StringBuilder()
     private var matches = 0
     private var binary = 0
@@ -101,16 +102,17 @@ private class Search(private val regex: Regex) {
 
     /** Searches the file of [entry] unless a walk skips it. */
     fun entry(entry: Entry) {
-        when {
-            entry.attributes.size() > MAX_GREP_FILE_BYTES -> large++
-
-            links(entry.path) > 1 -> multiLinked.add("${entry.path}")
-
-            else -> try {
-                if (!file(entry.path)) binary++
-            } catch (e: IOException) {
-                unreadable.add("${entry.path}")
+        if (entry.attributes.size() > MAX_GREP_FILE_BYTES) {
+            large++
+            return
+        }
+        try {
+            when {
+                hardLinks(entry.path) > 1 -> multiLinked.add("${entry.path}")
+                !file(entry.path) -> binary++
             }
+        } catch (e: IOException) {
+            unreadable.add("${entry.path}")
         }
     }
 

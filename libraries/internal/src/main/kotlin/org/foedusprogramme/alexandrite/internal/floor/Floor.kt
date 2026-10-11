@@ -107,7 +107,7 @@ public class Floor(
     }
 }
 
-/** How [path] meets [place] in any spelling that the volumes of either may give them. */
+/** How [path] meets [place] in any spelling that the directories of either may give them. */
 private fun meetings(path: CanonicalPath, place: CanonicalPath): Set<Placement> =
     pairs(path, place).mapNotNullTo(mutableSetOf()) { (key, placeKey) ->
         when {
@@ -118,7 +118,7 @@ private fun meetings(path: CanonicalPath, place: CanonicalPath): Set<Placement> 
         }
     }
 
-/** The keys of [path] beside those of [other]: verbatim, and case-folded unless both lie on case-sensitive volumes. */
+/** The keys of [path] beside those of [other]: verbatim, and case-folded unless all their directories heed case. */
 private fun pairs(path: CanonicalPath, other: CanonicalPath): List<Pair<String, String>> {
     val fold = path.nameCase != NameCase.SENSITIVE || other.nameCase != NameCase.SENSITIVE
     val spellings = if (fold) listOf(false, true) else listOf(false)
@@ -127,7 +127,7 @@ private fun pairs(path: CanonicalPath, other: CanonicalPath): List<Pair<String, 
     }
 }
 
-/** Whether the real form of [path] lies in [carveOut], case-folded only when both lie on case-insensitive volumes. */
+/** Whether the real form of [path] lies in [carveOut], case-folded only when all their directories ignore case. */
 private fun isIn(path: CanonicalPath, carveOut: CanonicalPath): Boolean {
     if (isAtOrUnder(path.realKey(false), carveOut.realKey(false))) return true
     val fold = path.nameCase == NameCase.INSENSITIVE && carveOut.nameCase == NameCase.INSENSITIVE
@@ -153,14 +153,44 @@ private fun standardRoots(home: Path?): List<DenyRoot> =
 private val CREDENTIAL_STORES = listOf(
     ".ssh" to "SSH keys",
     ".aws" to "cloud credentials",
+    ".azure" to "cloud credentials",
+    ".oci" to "cloud credentials",
+    ".config/gcloud" to "cloud credentials",
+    "AppData/Roaming/gcloud" to "cloud credentials",
+    ".boto" to "cloud credentials",
+    ".s3cfg" to "cloud credentials",
+    ".config/rclone" to "cloud credentials",
+    ".config/doctl" to "cloud credentials",
+    ".terraform.d/credentials.tfrc.json" to "infrastructure credentials",
+    ".terraformrc" to "infrastructure credentials",
+    ".vault-token" to "secret store tokens",
     ".gnupg" to "GPG keys",
+    ".config/sops" to "encryption keys",
     ".netrc" to "network credentials",
     ".config/gh" to "GitHub credentials",
     ".docker" to "container credentials",
     ".git-credentials" to "git credentials",
+    ".config/git/credentials" to "git credentials",
     ".npmrc" to "package registry credentials",
+    ".pypirc" to "package registry credentials",
+    ".cargo/credentials" to "package registry credentials",
+    ".cargo/credentials.toml" to "package registry credentials",
+    ".gem/credentials" to "package registry credentials",
+    ".m2/settings.xml" to "package registry credentials",
+    ".m2/settings-security.xml" to "package registry credentials",
+    ".gradle/gradle.properties" to "build credentials",
+    ".pgpass" to "database credentials",
+    ".my.cnf" to "database credentials",
     ".kube" to "cluster credentials",
+    ".password-store" to "password stores",
+    ".config/op" to "password manager credentials",
+    ".op" to "password manager credentials",
+    ".local/share/keyrings" to "keyrings",
+    ".local/share/kwalletd" to "keyrings",
     "Library/Keychains" to "keychains",
+    "AppData/Roaming/Microsoft/Credentials" to "Windows credentials",
+    "AppData/Local/Microsoft/Credentials" to "Windows credentials",
+    "AppData/Roaming/Microsoft/Protect" to "Windows credentials",
 )
 
 private const val CLAUDE = "Claude credentials"

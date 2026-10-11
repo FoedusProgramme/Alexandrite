@@ -171,8 +171,9 @@ class PersonaTest {
             }
         """.trimIndent()
 
-        lateinit var persona: Persona
-        val lines = logged { persona = persona(config) }
+        val persona = persona(config)
+        lateinit var texts: List<String>
+        val lines = logged { repeat(2) { texts = persona.texts() } }
 
         assertEquals(
             listOf(
@@ -180,7 +181,7 @@ class PersonaTest {
                 "agent.instructions.2: abcde" + cutMarker(5, 8),
                 "agent.instructions.3: " + cutMarker(0, 3),
             ),
-            persona.texts(),
+            texts,
         )
         assertEquals(
             "WARN Instruction file $a of agent 'coder' has 13 characters: the prompt takes the first 10 " +
@@ -190,6 +191,26 @@ class PersonaTest {
         assertEquals(3, lines.size, "$lines")
         assertEquals("\n\n[Cut: the first 5 of 8 characters of this file.]", cutMarker(5, 8))
         assertEquals(true, c.toString() in lines.last())
+    }
+
+    @Test
+    fun `the total limit counts only the files a turn loads`() {
+        write("private.md", "p".repeat(12))
+        write("shared.md", "shared")
+        val config = """
+            {
+              "persona": {"maxFileChars": 20, "maxTotalChars": 15},
+              "agents": {"coder": {"instructionFiles": [{"file": "private.md", "when": ["direct"]}, "shared.md"]}}
+            }
+        """.trimIndent()
+
+        val persona = persona(config)
+
+        assertEquals(listOf("agent.instructions.2: shared"), persona.texts(chatKind = ChatKind.GROUP))
+        assertEquals(
+            listOf("agent.instructions.1: " + "p".repeat(12), "agent.instructions.2: sha" + cutMarker(3, 6)),
+            persona.texts(chatKind = ChatKind.DIRECT),
+        )
     }
 
     @Test

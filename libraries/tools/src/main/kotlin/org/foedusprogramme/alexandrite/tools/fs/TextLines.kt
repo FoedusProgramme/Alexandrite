@@ -1,13 +1,12 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
+import org.foedusprogramme.alexandrite.internal.path.openRegularFile
 import java.io.Closeable
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.LinkOption
 import java.nio.file.Path
 
 /** A line of a text file without its line break, [cut] when it held more characters than [text] keeps. */
@@ -18,7 +17,7 @@ internal class NotText : Exception()
 
 /** The UTF-8 lines of [file] within its first [maxBytes] bytes, each kept to [maxChars] characters. */
 internal class TextLines(file: Path, private val maxChars: Int, maxBytes: Long) : Closeable {
-    private val input = BoundedInput(Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS), maxBytes)
+    private val input = BoundedInput(openRegularFile(file), maxBytes)
     private val reader = InputStreamReader(
         input,
         StandardCharsets.UTF_8.newDecoder()

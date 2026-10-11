@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.internal.floor
 
 import org.foedusprogramme.alexandrite.internal.path.DATA_VOLUME
 import org.foedusprogramme.alexandrite.internal.path.NameCase
+import org.foedusprogramme.alexandrite.internal.path.NameCaseProbe
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
@@ -109,6 +110,32 @@ class FloorTest {
     }
 
     @Test
+    fun `cloud, registry, database, password and keyring stores are denied`() {
+        val stores = mapOf(
+            ".config/gcloud/application_default_credentials.json" to "cloud credentials",
+            ".azure/msal_token_cache.json" to "cloud credentials",
+            ".oci/config" to "cloud credentials",
+            ".terraform.d/credentials.tfrc.json" to "infrastructure credentials",
+            ".vault-token" to "secret store tokens",
+            ".pypirc" to "package registry credentials",
+            ".cargo/credentials.toml" to "package registry credentials",
+            ".gem/credentials" to "package registry credentials",
+            ".m2/settings.xml" to "package registry credentials",
+            ".gradle/gradle.properties" to "build credentials",
+            ".pgpass" to "database credentials",
+            ".my.cnf" to "database credentials",
+            ".password-store/bank.gpg" to "password stores",
+            ".local/share/keyrings/login.keyring" to "keyrings",
+            ".config/op/config" to "password manager credentials",
+            "AppData/Roaming/Microsoft/Credentials/blob" to "Windows credentials",
+        )
+
+        for ((path, kind) in stores) assertDenied(kind, home.resolve(path))
+        assertAllowed(home.resolve(".cargo/registry/index"))
+        assertAllowed(home.resolve(".terraform.d/plugins/provider"))
+    }
+
+    @Test
     fun `a case-sensitive volume matches the exact spelling only`() {
         val sensitive = floor(nameCase = NameCase.SENSITIVE)
 
@@ -116,6 +143,19 @@ class FloorTest {
         assertDenied("cluster credentials", home.resolve(".kube/config"), sensitive)
         assertAllowed(home.resolve(".KUBE/config"), sensitive, "another entry on such a volume")
         assertDenied("cluster credentials", home.resolve(".KUBE/config"), floor(nameCase = NameCase.UNKNOWN))
+    }
+
+    @Test
+    fun `a directory that folds names folds the paths through it though the rest of its volume heeds case`() {
+        val home = home
+        val probe = NameCaseProbe { directory, _ ->
+            if (directory == home) NameCase.INSENSITIVE else NameCase.SENSITIVE
+        }
+        val floor = Floor(places(), home, PathCanonicalizer(nameCase = probe::nameCase))
+
+        assertAllowed(root.resolve("other/file"), floor)
+        assertDenied("SSH keys", home.resolve(".SSH/id_rsa"), floor)
+        assertDenied("cluster credentials", home.resolve(".KUBE/config"), floor)
     }
 
     @Test
@@ -155,8 +195,8 @@ class FloorTest {
         assertEquals(listOf(Overlap("SSH keys", Placement.AT, null)), floor.overlaps(home.resolve(".ssh")))
         assertEquals(listOf(Overlap("SSH keys", Placement.INSIDE, null)), floor.overlaps(home.resolve(".ssh/id_rsa")))
         assertEquals(
-            listOf(Overlap("GitHub credentials", Placement.HOLDS, null)),
-            floor.overlaps(home.resolve(".config")),
+            listOf(Overlap("infrastructure credentials", Placement.HOLDS, null)),
+            floor.overlaps(home.resolve(".terraform.d")),
         )
         assertEquals(emptyList(), floor.overlaps(home.resolve(".config/other.txt")))
         assertEquals(

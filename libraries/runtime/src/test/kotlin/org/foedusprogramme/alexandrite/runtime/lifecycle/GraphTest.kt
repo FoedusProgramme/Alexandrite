@@ -209,7 +209,28 @@ class GraphTest {
         assertEquals(paths.pluginDataRoot.resolve("probe"), files.dataDir)
         assertEquals(dataDir.resolve("cache"), paths.cacheRoot)
         assertEquals(Path.of("alexandrite.json").toAbsolutePath(), paths.configFile)
+        assertEquals(paths.configFile, paths.configTarget)
+        assertEquals(Path.of("alexandrite.json.bak").toAbsolutePath(), paths.configBackup)
         assertEquals(listOf(dataDir.resolve("logs"), Path.of("install").toAbsolutePath()), paths.protected)
+    }
+
+    @Test
+    fun `the runtime binds the file a linked config file names and the backup beside it`() {
+        val target = Files.createDirectories(dataDir.resolve("dotfiles")).resolve("alexandrite.json")
+        Files.writeString(target, "{}")
+        val link = Files.createDirectories(dataDir.resolve("config")).resolve("alexandrite.json")
+        Files.createSymbolicLink(link, target)
+        val config = RuntimeConfig.builder(dataDir.resolve("root")).configFile(link).build()
+        val probe = probe("probe", "paths" to key<HostPaths>())
+        lateinit var paths: HostPaths
+
+        RuntimeSpec.builder(config, explicit(TestIndex("probe", bindings = listOf(probe)))).build().execute {
+            paths = services.get(key<Probe>()).values.getValue("paths") as HostPaths
+        }
+
+        assertEquals(link, paths.configFile)
+        assertEquals(target.toRealPath(), paths.configTarget)
+        assertEquals(target.toRealPath().resolveSibling("alexandrite.json.bak"), paths.configBackup)
     }
 
     @Test
@@ -222,7 +243,7 @@ class GraphTest {
         }
 
         assertEquals(listOf(dataDir, dataDir.resolve("cache")), listOf(paths.dataRoot, paths.cacheRoot))
-        assertEquals(null, paths.configFile)
+        assertEquals(listOf(null, null, null), listOf(paths.configFile, paths.configTarget, paths.configBackup))
         assertEquals(emptyList(), paths.protected)
     }
 

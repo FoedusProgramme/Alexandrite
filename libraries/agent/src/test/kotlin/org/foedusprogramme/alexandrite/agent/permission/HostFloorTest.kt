@@ -35,21 +35,33 @@ class HostFloorTest {
         Files.writeString(configFile, "{}")
     }
 
-    private fun paths(configFile: Path? = this.configFile, dataRoot: Path = data): HostPaths = object : HostPaths {
+    private fun paths(
+        configFile: Path? = this.configFile,
+        dataRoot: Path = data,
+        configTarget: Path? = configFile,
+        configBackup: Path? = null,
+    ): HostPaths = object : HostPaths {
         override val dataRoot = dataRoot
         override val pluginDataRoot: Path = dataRoot.resolve("plugins")
         override val cacheRoot: Path = dataRoot.resolve("cache")
         override val configFile = configFile
+        override val configTarget = configTarget
+        override val configBackup = configBackup
         override val protected = listOf(logs)
     }
 
-    private fun floor(agents: String = "{}", paths: HostPaths = paths(), home: Path? = this.home): HostFloor =
-        hostFloor(
-            paths,
-            agentWorkspaces(paths, settings("""{"agents": $agents}""").agents),
-            home,
-            PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
-        )
+    private fun floor(
+        agents: String = "{}",
+        paths: HostPaths = paths(),
+        home: Path? = this.home,
+        protectedPaths: List<String> = emptyList(),
+    ): HostFloor = hostFloor(
+        paths,
+        agentWorkspaces(paths, settings("""{"agents": $agents}""").agents),
+        home,
+        operatorPlaces(paths, protectedPaths),
+        PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
+    )
 
     private fun coder(workspace: Path) = """{"coder": {"workspace": ${JsonPrimitive(workspace.toString())}}}"""
 
@@ -59,8 +71,13 @@ class HostFloorTest {
     private fun assertAllowed(path: Path, floor: HostFloor, agent: AgentId? = null) =
         assertEquals(FloorDecision.Allowed(path), floor.check(path, agent), "$path for $agent")
 
-    private fun assertCollides(workspace: Path, relation: String, paths: HostPaths = paths()) {
-        val error = assertFailsWith<ConfigException> { floor(coder(workspace), paths) }
+    private fun assertCollides(
+        workspace: Path,
+        relation: String,
+        paths: HostPaths = paths(),
+        protectedPaths: List<String> = emptyList(),
+    ) {
+        val error = assertFailsWith<ConfigException> { floor(coder(workspace), paths, protectedPaths = protectedPaths) }
         assertEquals(
             "Invalid config at 'agent.agents.coder.workspace': the workspace $workspace $relation: give the agent " +
                 "another directory",
@@ -90,6 +107,58 @@ class HostFloorTest {
 
         assertDenied("Alexandrite's configuration", custom.resolveSibling("secrets.bak"), floor)
         assertAllowed(configFile, floor)
+    }
+
+    @Test
+    fun `a config file that links elsewhere protects the directory of its target and the backup there`() {
+        val target = Files.createDirectories(root.resolve("dotfiles")).resolve("alexandrite.json")
+        Files.writeString(target, "{}")
+        Files.delete(configFile)
+        Files.createSymbolicLink(configFile, target)
+        val workspace = configFile.resolveSibling("coder-files")
+
+        val floor = floor("""{"coder": {"workspace": "coder-files"}}""", paths(configTarget = target))
+
+        assertDenied(CONFIGURATION, target, floor)
+        assertDenied(CONFIGURATION, target.resolveSibling("alexandrite.json.bak"), floor)
+        assertDenied(CONFIGURATION, configFile, floor)
+        assertAllowed(workspace.resolve("notes.md"), floor)
+    }
+
+    @Test
+    fun `the backup the host keeps of the config file is protected wherever it lies`() {
+        val backup = root.resolve("backups/alexandrite.json.bak")
+
+        val floor = floor(paths = paths(configBackup = backup))
+
+        assertDenied(CONFIGURATION, backup, floor)
+        assertAllowed(backup.resolveSibling("other.bak"), floor)
+    }
+
+    @Test
+    fun `the operator's protected paths are denied, a relative one in the config directory`() {
+        val vault = root.resolve("vault")
+        val protectedPaths = listOf("$vault", "../secrets/./api.env")
+
+        val floor = floor(protectedPaths = protectedPaths)
+
+        assertDenied("a place the operator protects", vault.resolve("notes.md"), floor)
+        assertDenied("a place the operator protects", root.resolve("secrets/api.env"), floor)
+        assertAllowed(root.resolve("secrets/other.env"), floor)
+        assertCollides(vault, "is a protected place (a place the operator protects)", protectedPaths = protectedPaths)
+    }
+
+    @Test
+    fun `a relative protected path is a config error when the host read no config file`() {
+        val error = assertFailsWith<ConfigException> {
+            floor(paths = paths(configFile = null), protectedPaths = listOf("secrets"))
+        }
+
+        assertEquals(
+            "Invalid config at 'agent.protectedPaths': the protected path 'secrets' is relative, but the host read " +
+                "no config file to resolve it against: give an absolute path",
+            error.message,
+        )
     }
 
     @Test

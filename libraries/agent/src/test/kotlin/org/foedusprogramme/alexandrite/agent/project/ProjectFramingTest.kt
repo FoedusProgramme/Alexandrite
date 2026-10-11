@@ -77,4 +77,16 @@ class ProjectFramingTest {
         assertNull(read?.cutFrom)
         assertNull(read(blank))
     }
+
+    @Test
+    fun `a file swapped for a link, a second hard link or a directory after it was found is not read`() {
+        val secret = directory.resolve("id_rsa").also { Files.writeString(it, "KEY") }
+        val linked = Files.createSymbolicLink(directory.resolve("AGENTS.md"), secret)
+        val hardLinked = Files.createLink(directory.resolve("CLAUDE.md"), secret)
+        val folder = Files.createDirectories(directory.resolve("sub/AGENTS.md"))
+
+        assertNull(read(linked))
+        assertNull(read(hardLinked))
+        assertNull(read(folder))
+    }
 }

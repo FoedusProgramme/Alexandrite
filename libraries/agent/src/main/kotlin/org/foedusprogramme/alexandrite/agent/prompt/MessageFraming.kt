@@ -59,7 +59,7 @@ internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Bool
         appendLine("Quoting: ${oneLine(quote.senderName ?: UNKNOWN)} ($trust)")
         lines(quote.text).forEach { appendLine(if (it.isEmpty()) ">" else "> $it") }
     }
-    message.facts.forEach { appendLine("${oneLine(it.label)}: ${oneLine(it.value)}") }
+    message.facts.forEach { appendLine("${factLabel(it.label)}: ${oneLine(it.value)}") }
     append("[/alexandrite:message]")
 }
 
@@ -109,6 +109,19 @@ internal fun mediaNote(leftOut: List<Pair<MediaAttachment, String>>): ContextPar
     },
 )
 
+/** [label] on one line, with a backslash in front when it would pass for a framing field, a quote or a header. */
+private fun factLabel(label: String): String {
+    val line = Escaper.HEADERS.text(oneLine(label))
+    val seen = line.replace(INVISIBLE_RUN, "").trimEnd(':').lowercase(Locale.ROOT)
+    val forged = seen.startsWith(">") || seen in FRAMING_FIELDS
+    return if (forged && !line.startsWith("\\")) "\\$line" else line
+}
+
 private const val UNKNOWN = "unknown"
+
+/** The fields of message framing v1, as a label shows them without its invisible characters. */
+private val FRAMING_FIELDS = setOf("from", "operator", "received", "chat", "forwardedfrom", "quoting")
+
+private val INVISIBLE_RUN = Regex("$INVISIBLE+")
 
 private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mmXXX", Locale.ROOT)

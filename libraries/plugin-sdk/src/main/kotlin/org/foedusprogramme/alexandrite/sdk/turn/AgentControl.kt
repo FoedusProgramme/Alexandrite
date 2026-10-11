@@ -39,7 +39,11 @@ public interface AgentControl {
     /** Cancels [run], and the runs it delegated when [tree] is true. */
     public fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean
 
-    /** Seals the conversation of the chat's agent once its running turn has ended, and returns the new one. */
+    /**
+     * Seals the conversation of the chat's agent once its running turn has ended, and returns the new one.
+     *
+     * Throws [IllegalStateException] when called in a turn, or once the agent stops.
+     */
     public suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId
 
     /** The agents that serve [instance], in config order. */
@@ -48,7 +52,12 @@ public interface AgentControl {
     /** The settings at [chat], of the agent that serves it. */
     public suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot
 
-    /** Applies [update] at [chat] after its running turn and returns the settings then. */
+    /**
+     * Applies [update] at [chat] after its running turn and returns the settings then.
+     *
+     * An update of the model, reasoning or language throws [IllegalStateException] when called in a turn, changing
+     * nothing, and when the agent stops before it is made.
+     */
     public suspend fun updateSettings(
         chat: ChatAddress,
         update: ChatSettingsUpdate,
@@ -68,8 +77,8 @@ public interface AgentControl {
     public fun links(agent: AgentId? = null): List<ChatLinkGroup>
 
     /**
-     * Trusts the folder [folder] (absolute), so that the project instructions in it and below it load, and returns the
-     * trusted folder that covers it, an ancestor when one is trusted already.
+     * Trusts the folder [folder] (absolute), so that the project instructions in it and below it load outside the
+     * repositories nested in it, and returns the trusted folder that covers it, an ancestor when one covers it already.
      */
     public suspend fun trustFolder(folder: Path, by: ChatUser?): Path
 

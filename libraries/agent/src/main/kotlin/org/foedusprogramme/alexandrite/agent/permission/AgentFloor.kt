@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.permission
 
+import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.internal.floor.DenyRoot
 import org.foedusprogramme.alexandrite.internal.floor.Floor
@@ -21,8 +22,8 @@ import java.nio.file.Path
 /** The hard floor of every tool. */
 @Singleton
 @Binds(HardFloor::class)
-internal class AgentFloor(paths: HostPaths, workspaces: Workspaces) : HardFloor {
-    private val floor = hostFloor(paths, workspaces.paths, userHome())
+internal class AgentFloor(paths: HostPaths, workspaces: Workspaces, settings: AgentSettings) : HardFloor {
+    private val floor = hostFloor(paths, workspaces.paths, userHome(), operatorPlaces(paths, settings.protectedPaths))
 
     override fun check(path: Path, agent: AgentId?): FloorCheck = when (val decision = floor.check(path, agent)) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
@@ -43,9 +44,9 @@ internal class HostFloor(
 }
 
 /**
- * The floor over the host's places in [paths] and the credential stores of [home], with each of [workspaces] carved
- * out of the data root or the config directory that holds it, and each agent's persona directory carved out for that
- * agent alone.
+ * The floor over the host's places in [paths], the [operator]'s places and the credential stores of [home], with each
+ * of [workspaces] carved out of the data root or the config directory that holds it, and each agent's persona
+ * directory carved out for that agent alone.
  *
  * Throws a [ConfigException] for a workspace that is a protected place, holds one, or lies in one that keeps no
  * workspace.
@@ -54,17 +55,21 @@ internal fun hostFloor(
     paths: HostPaths,
     workspaces: Map<AgentId, Path>,
     home: Path?,
+    operator: List<Path> = emptyList(),
     canonicalizer: PathCanonicalizer = PathCanonicalizer(),
 ): HostFloor {
     val directory = paths.configFile?.parent
-    val configuration = directory?.let { DenyRoot(it, "Alexandrite's configuration") }
+    val configurations = listOfNotNull(directory, paths.configTarget?.parent).distinct()
+        .map { DenyRoot(it, "Alexandrite's configuration") }
     val data = DenyRoot(paths.dataRoot, "Alexandrite's data")
-    val places = listOfNotNull(configuration) +
+    val places = configurations +
         DenyRoot(paths.pluginDataRoot, "plugin data") +
         data +
         DenyRoot(paths.cacheRoot, "Alexandrite's cache") +
-        paths.protected.map { DenyRoot(it, "a place the host protects") }
-    val keepsCarveOuts = setOfNotNull(configuration, data)
+        listOfNotNull(paths.configBackup).map { DenyRoot(it, "Alexandrite's configuration") } +
+        paths.protected.map { DenyRoot(it, "a place the host protects") } +
+        operator.map { DenyRoot(it, "a place the operator protects") }
+    val keepsCarveOuts = configurations.toSet() + data
     val plain = Floor(places, home, canonicalizer)
     val personas = directory?.let { workspaces.keys.associateWith { id -> it.resolve(PERSONAS).resolve(id.value) } }
         .orEmpty()
@@ -87,14 +92,12 @@ internal fun hostFloor(
         logger.error("The home directory is unknown: the hard floor refuses every path")
         return HostFloor(null, emptyMap())
     }
-    val inHome = configuration != null &&
-        plain.overlaps(home).any { it.root === configuration && it.placement != Placement.HOLDS }
-    if (inHome) {
+    plain.overlaps(home).firstOrNull { it.root in configurations && it.placement != Placement.HOLDS }?.let { overlap ->
         logger.warn(
             "The config file {} lies in {}, which is the home directory or holds it: the hard floor keeps the file " +
                 "tools out of all of it. Keep the config file in a directory of its own",
             paths.configFile,
-            directory,
+            checkNotNull(overlap.root).path,
         )
     }
     fun floor(extra: Map<DenyRoot, Path>) = Floor(
@@ -110,6 +113,18 @@ internal fun hostFloor(
         )
     }
     return HostFloor(floor(emptyMap()), own)
+}
+
+/** The places of `agent.protectedPaths`, each absolute or relative to the config file's directory. */
+internal fun operatorPlaces(paths: HostPaths, configured: List<String>): List<Path> = configured.map { entry ->
+    val path = Path.of(entry)
+    if (path.isAbsolute) return@map path.normalize()
+    val directory = paths.configFile?.parent ?: throw ConfigException(
+        "agent.protectedPaths",
+        "the protected path '$entry' is relative, but the host read no config file to resolve it against: give an " +
+            "absolute path",
+    )
+    directory.resolve(path).normalize()
 }
 
 private fun collision(workspace: Path, overlap: Overlap): String {

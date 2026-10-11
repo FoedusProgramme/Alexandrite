@@ -8,91 +8,95 @@ import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.ConcurrentHashMap
 
-/** How a volume compares names. */
+/** How the directories of a path compare names. */
 public enum class NameCase {
     SENSITIVE,
 
     /** Names that differ only in case name one entry. */
     INSENSITIVE,
 
-    /** No name on the volume could be probed. */
+    /** The directories differ, or one of them could not be probed. */
     UNKNOWN,
 }
 
-/** Finds how the volume of a real path compares names, by probing each volume once. */
-public class VolumeProbe {
+/** Finds how the directories of a real path compare names, by probing each directory once. */
+public class NameCaseProbe(
+    /** How [directory] compares names, looked up through [entry] in it, null when that cannot tell. */
+    private val directoryCase: (directory: Path, entry: Path?) -> NameCase? = ::directoryCase,
+) {
     private val known = ConcurrentHashMap<Any, NameCase>()
 
-    /** How the volume that holds [existing], an existing real path, compares names. */
+    /** How the directories from the root down to [existing], an existing real path, compare names. */
     public fun nameCase(existing: Path): NameCase {
-        val volume = volume(existing) ?: return NameCase.UNKNOWN
-        known[volume]?.let { return it }
-        return probe(existing, volume).also { if (it != NameCase.UNKNOWN) known[volume] = it }
+        val probes = buildList {
+            if (Files.isDirectory(existing, LinkOption.NOFOLLOW_LINKS)) add(existing to null)
+            var entry = existing
+            while (true) {
+                val parent = entry.parent ?: break
+                add(parent to entry)
+                entry = parent
+            }
+        }
+        return probes.map { (directory, entry) -> case(directory, entry) }.toSet().singleOrNull() ?: NameCase.UNKNOWN
     }
 
-    /** Looks up a name stored on [volume] with one letter's case changed: a name on [existing]'s path, else in it. */
-    private fun probe(existing: Path, volume: Any): NameCase {
-        var entry = existing
-        while (true) {
-            val parent = entry.parent ?: break
-            if (volume(parent) == volume) lookUp(entry)?.let { return it }
-            entry = parent
-        }
-        if (!Files.isDirectory(existing, LinkOption.NOFOLLOW_LINKS)) return NameCase.UNKNOWN
-        try {
-            Files.newDirectoryStream(existing).use { entries ->
-                for (child in entries.take(MAX_LISTED)) lookUp(child)?.let { return it }
-            }
+    private fun case(directory: Path, entry: Path?): NameCase {
+        val key = try {
+            attributes(directory).fileKey()
         } catch (e: IOException) {
             return NameCase.UNKNOWN
         }
-        return NameCase.UNKNOWN
-    }
-
-    /** Whether [entry] is found under its name with one ASCII letter's case changed, null when that cannot tell. */
-    private fun lookUp(entry: Path): NameCase? {
-        val name = entry.fileName?.toString() ?: return null
-        val index = name.indexOfFirst { it in 'a'..'z' || it in 'A'..'Z' }
-        if (index < 0) return null
-        val letter = name[index]
-        val flipped = if (letter.isUpperCase()) letter.lowercaseChar() else letter.uppercaseChar()
-        val variant = entry.resolveSibling(name.substring(0, index) + flipped + name.substring(index + 1))
-        val key: Any = try {
-            attributes(entry).fileKey() ?: return null
-        } catch (e: IOException) {
-            return null
+        key?.let { known[it] }?.let { return it }
+        val found = directoryCase(directory, entry) ?: return NameCase.UNKNOWN
+        if (key != null) {
+            if (known.size >= MAX_KNOWN) known.clear()
+            known[key] = found
         }
-        val other = try {
-            attributes(variant).fileKey()
-        } catch (e: NoSuchFileException) {
-            return NameCase.SENSITIVE
-        } catch (e: IOException) {
-            return null
-        }
-        return if (other == key) NameCase.INSENSITIVE else NameCase.SENSITIVE
-    }
-
-    private fun attributes(entry: Path): BasicFileAttributes =
-        Files.readAttributes(entry, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-
-    /** The device of [path], or its file store where the platform has no device numbers. */
-    private fun volume(path: Path): Any? = try {
-        Files.getAttribute(path, "unix:dev", LinkOption.NOFOLLOW_LINKS)
-    } catch (e: UnsupportedOperationException) {
-        fileStore(path)
-    } catch (e: IllegalArgumentException) {
-        fileStore(path)
-    } catch (e: IOException) {
-        null
-    }
-
-    private fun fileStore(path: Path): Any? = try {
-        Files.getFileStore(path)
-    } catch (e: IOException) {
-        null
+        return found
     }
 
     private companion object {
-        const val MAX_LISTED = 64
+        const val MAX_KNOWN = 4096
     }
 }
+
+/** Looks up [entry], or else an entry of [directory]'s listing, with one letter's case changed. */
+private fun directoryCase(directory: Path, entry: Path?): NameCase? {
+    entry?.let(::lookUp)?.let { return it }
+    try {
+        Files.newDirectoryStream(directory).use { entries ->
+            for (child in entries.take(MAX_LISTED)) lookUp(child)?.let { return it }
+        }
+    } catch (e: IOException) {
+        return null
+    }
+    return null
+}
+
+/** Whether [entry] is found under its name with one ASCII letter's case changed, null when that cannot tell. */
+private fun lookUp(entry: Path): NameCase? {
+    val name = entry.fileName?.toString() ?: return null
+    val index = name.indexOfFirst { it in 'a'..'z' || it in 'A'..'Z' }
+    if (index < 0) return null
+    val letter = name[index]
+    val flipped = if (letter.isUpperCase()) letter.lowercaseChar() else letter.uppercaseChar()
+    val variant = entry.resolveSibling(name.substring(0, index) + flipped + name.substring(index + 1))
+    val key: Any = try {
+        attributes(entry).fileKey() ?: return null
+    } catch (e: IOException) {
+        return null
+    }
+    val other = try {
+        attributes(variant).fileKey()
+    } catch (e: NoSuchFileException) {
+        return NameCase.SENSITIVE
+    } catch (e: IOException) {
+        return null
+    }
+    return if (other == key) NameCase.INSENSITIVE else NameCase.SENSITIVE
+}
+
+private fun attributes(entry: Path): BasicFileAttributes =
+    Files.readAttributes(entry, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+
+private const val MAX_LISTED = 64

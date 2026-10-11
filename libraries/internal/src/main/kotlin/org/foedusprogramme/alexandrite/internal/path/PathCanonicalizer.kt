@@ -12,7 +12,7 @@ public class CanonicalPath internal constructor(
     public val lexical: Path,
     /** The real path of the longest existing prefix with the rest appended, dangling links followed. */
     public val real: Path,
-    /** How the volume that holds the existing prefix compares names. */
+    /** How the directories of the existing prefix compare names. */
     public val nameCase: NameCase,
     private val firmlinks: Boolean,
 ) {
@@ -30,8 +30,8 @@ public class CanonicalPath internal constructor(
 
 /** Makes absolute paths canonical, lexically and through the filesystem. */
 public class PathCanonicalizer(
-    /** How the volume that holds an existing real path compares names. */
-    private val nameCase: (Path) -> NameCase = VolumeProbe()::nameCase,
+    /** How the directories of an existing real path compare names. */
+    private val nameCase: (Path) -> NameCase = NameCaseProbe()::nameCase,
     /** Whether `/System/Volumes/Data/…` names `/…` too, as macOS firmlinks make it. */
     private val firmlinks: Boolean = IS_MAC,
     private val pid: Long = ProcessHandle.current().pid(),

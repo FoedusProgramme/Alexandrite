@@ -1,7 +1,5 @@
 package org.foedusprogramme.alexandrite.agent.config
 
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.tool.ToolGlob
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -26,26 +24,6 @@ internal fun checkAgents(agents: Map<String, AgentConfig>) {
 
 /** The home chat [home] on the instance [key] names, null when it names none. */
 internal fun homeChat(key: String, home: String): ChatAddress? = ChatAddress.parseOrNull("$key:$home")
-
-/** The string [element] holds as the config resolves it, null when it is no string or names an environment variable. */
-internal fun configLiteral(element: JsonElement): String? {
-    val text = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
-    val literal = StringBuilder()
-    var index = 0
-    while (index < text.length) {
-        when {
-            text.startsWith("$\${", index) -> {
-                literal.append("\${")
-                index += 3
-            }
-
-            text.startsWith("\${", index) -> return null
-
-            else -> literal.append(text[index++])
-        }
-    }
-    return literal.toString()
-}
 
 internal fun isPath(text: String): Boolean = text.isNotBlank() &&
     try {

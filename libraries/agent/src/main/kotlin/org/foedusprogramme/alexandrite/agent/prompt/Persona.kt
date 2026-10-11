@@ -68,41 +68,48 @@ private class AgentPersona(agent: Agent, private val limits: PersonaConfig, path
         }
     }
 
-    /** The text each file shows in the prompt, null for a file that is not there. */
-    private var shown: List<String?> = files.map { null }
+    /** The text each file shows in the prompt by the files that apply, null for one that is absent or does not apply. */
+    private val shown = HashMap<List<Boolean>, List<String?>>()
+
+    /** The cuts logged since the files last changed, by file index and the characters kept. */
+    private val logged = HashSet<Pair<Int, Int>>()
 
     suspend fun load() {
-        lock.withLock {
-            files.forEach { it.load() }
-            cap()
-        }
+        lock.withLock { files.forEach { it.load() } }
     }
 
     suspend fun sections(conditions: PersonaConditions): List<PromptSection> = lock.withLock {
-        if (files.map { it.refresh() }.any { it }) cap()
-        val texts = inline + files.indices.map { index -> shown[index]?.takeIf { files[index].applies(conditions) } }
+        if (files.map { it.refresh() }.any { it }) {
+            shown.clear()
+            logged.clear()
+        }
+        val applying = files.map { it.applies(conditions) }
+        val texts = inline + shown.getOrPut(applying) { cap(applying) }
         texts.mapIndexedNotNull { index, text ->
             text?.takeIf { it.isNotBlank() }?.let { PromptSection(instructionsSection(index + 1), it, stable = true) }
         }
     }
 
-    private fun cap() {
+    /** The text each of the files [applying] shows, which share the total limit in config order. */
+    private fun cap(applying: List<Boolean>): List<String?> {
         var left = limits.maxTotalChars
-        shown = files.map { file ->
-            val text = file.text ?: return@map null
+        return files.mapIndexed { index, file ->
+            val text = file.text?.takeIf { applying[index] } ?: return@mapIndexed null
             val kept = keptLength(text, minOf(limits.maxFileChars, left))
             left -= kept
-            if (kept == text.length) return@map text
-            logger.warn(
-                "Instruction file {} of agent '{}' has {} characters: the prompt takes the first {} " +
-                    "(agent.persona.maxFileChars {}, maxTotalChars {})",
-                file.path,
-                id,
-                text.length,
-                kept,
-                limits.maxFileChars,
-                limits.maxTotalChars,
-            )
+            if (kept == text.length) return@mapIndexed text
+            if (logged.add(index to kept)) {
+                logger.warn(
+                    "Instruction file {} of agent '{}' has {} characters: the prompt takes the first {} " +
+                        "(agent.persona.maxFileChars {}, maxTotalChars {})",
+                    file.path,
+                    id,
+                    text.length,
+                    kept,
+                    limits.maxFileChars,
+                    limits.maxTotalChars,
+                )
+            }
             text.substring(0, kept) + cutMarker(kept, text.length)
         }
     }

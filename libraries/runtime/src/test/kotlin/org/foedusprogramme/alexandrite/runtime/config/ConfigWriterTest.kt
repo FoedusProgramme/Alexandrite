@@ -19,9 +19,11 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigEdit
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.config.set
+import org.foedusprogramme.alexandrite.sdk.config.setLiteral
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
@@ -132,6 +134,52 @@ class ConfigWriterTest {
 
         assertEquals(original.replace("[\"/srv/a\"]", "[\"/srv/a\", \"/srv/b\"]"), read())
         assertEquals(Notes("42", listOf("/srv/a", "/srv/b"), Secret("s3cret-token")), decoded())
+    }
+
+    @Test
+    fun `literals read strings and lists as the config resolves them and keep a variable opaque`() {
+        write(original.replace("[\"/srv/a\"]", "[\"/srv/a\", \"\$\${x}\", \"$CHAT/sub\"]"))
+        var read: List<ConfigLiteral?> = emptyList()
+
+        editor().change {
+            read = listOf(getLiteral("folders"), getLiteral("home"), getLiteral("limits"), getLiteral("missing"))
+        }
+
+        assertEquals(
+            listOf(
+                ConfigLiteral.Items(
+                    listOf(
+                        ConfigLiteral.Text("/srv/a"),
+                        ConfigLiteral.Text("\${x}"),
+                        ConfigLiteral.Reference("$CHAT/sub"),
+                    ),
+                ),
+                ConfigLiteral.Reference(CHAT),
+                null,
+                null,
+            ),
+            read,
+        )
+    }
+
+    @Test
+    fun `a literal is written so that the config reads it back as it is, and a variable as it was written`() {
+        write(original)
+        val folders = listOf("/srv/\${x}", "/srv/\${env:OTHER}", "/srv/\$\$\${y}")
+        var read: ConfigLiteral? = null
+
+        editor().change {
+            val items = folders.map(ConfigLiteral::Text) + ConfigLiteral.Reference("\${env:OTHER}/z")
+            setLiteral("folders", ConfigLiteral.Items(items))
+            setLiteral("home", "\${env:HOME_CHAT}")
+            read = getLiteral("folders")
+        }
+
+        assertEquals(Notes("\${env:HOME_CHAT}", folders + "x/z", Secret("s3cret-token")), decoded())
+        assertEquals(
+            ConfigLiteral.Items(folders.map(ConfigLiteral::Text) + ConfigLiteral.Reference("\${env:OTHER}/z")),
+            read,
+        )
     }
 
     @Test

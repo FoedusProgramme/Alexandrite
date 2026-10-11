@@ -35,6 +35,13 @@ class GlobTest {
     }
 
     @Test
+    fun `a set matches no slash, negated or not`() {
+        assertEquals(listOf("axc"), matching("a[!b]c", "a/c", "abc", "axc"))
+        assertEquals(emptyList(), matching("src[!x]main/*", "src/main/A.kt"))
+        assertEquals(emptyList(), matching("a[!]]c", "a/c"))
+    }
+
+    @Test
     fun `a blank or absolute pattern is refused`() {
         for (pattern in listOf(" ", "/src/*.kt", "~/notes")) {
             assertFailsWith<Refusal>(pattern) { Glob.of(pattern, "pattern") }

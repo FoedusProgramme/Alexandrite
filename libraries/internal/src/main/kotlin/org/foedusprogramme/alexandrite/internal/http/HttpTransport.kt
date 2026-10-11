@@ -55,6 +55,11 @@ public class HttpCall(
 ) {
     init {
         require(uri.scheme == "http" || uri.scheme == "https") { "No HTTP URI: ${mask(printable(uri))}." }
+        for ((name, value) in headers) {
+            require(value.all(::isHeaderCharacter)) {
+                "The value of the header '$name' holds a control character or one beyond Latin-1."
+            }
+        }
         require(firstByte == null || (firstByte.isPositive() && firstByte.isFinite())) {
             "The first byte timeout is positive and finite, was $firstByte."
         }
@@ -73,6 +78,8 @@ public class HttpCall(
         const val MIN_SECRET = 4
     }
 }
+
+private fun isHeaderCharacter(char: Char): Boolean = char == '\t' || (!char.isISOControl() && char <= '\u00ff')
 
 /** [uri] without user info, query and fragment. */
 public fun printable(uri: URI): String = buildString {
@@ -111,6 +118,11 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
             }
         } catch (e: IllegalStateException) {
             throw HttpException(HttpFailureKind.CONNECTION, "$call failed: the transport is closed.", cause = e)
+        } catch (e: IllegalArgumentException) {
+            throw HttpException(
+                HttpFailureKind.PROTOCOL,
+                "$call cannot be sent: its method, URI or a header is invalid.",
+            )
         }
         future.whenComplete { _, error ->
             if (error != null) {

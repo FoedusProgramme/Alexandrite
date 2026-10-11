@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
 import java.io.IOException
@@ -48,6 +49,45 @@ public object ConfigFile {
     /** [root] with each `${env:NAME}` replaced from [environment] and each `$${` by `${`. */
     internal fun resolved(file: Path, root: JsonObject, environment: Map<String, String>): JsonObject =
         JsonObject(root.mapValues { (key, value) -> value.resolved(file, key, environment) })
+
+    /** The strings and lists of [element] as [resolved] reads them, a string that names a variable as written. */
+    internal fun literal(element: JsonElement): ConfigLiteral? = when (element) {
+        is JsonArray -> ConfigLiteral.Items(element.map { literal(it) ?: return null })
+
+        is JsonPrimitive -> when {
+            !element.isString -> null
+            else -> unescaped(element.content)?.let(ConfigLiteral::Text) ?: ConfigLiteral.Reference(element.content)
+        }
+
+        is JsonObject -> null
+    }
+
+    /** [literal] as the file writes it, so that [resolved] reads it back. */
+    internal fun written(literal: ConfigLiteral): JsonElement = when (literal) {
+        is ConfigLiteral.Text -> JsonPrimitive(literal.text.replace("\${", "$\${"))
+        is ConfigLiteral.Reference -> JsonPrimitive(literal.written)
+        is ConfigLiteral.Items -> JsonArray(literal.items.map(::written))
+    }
+
+    /** [text] with each `$${` made `${`, null when it inserts a variable. */
+    private fun unescaped(text: String): String? {
+        if ('$' !in text) return text
+        val literal = StringBuilder()
+        var index = 0
+        while (index < text.length) {
+            when {
+                text.startsWith("$\${", index) -> {
+                    literal.append("\${")
+                    index += 3
+                }
+
+                text.startsWith("\${", index) -> return null
+
+                else -> literal.append(text[index++])
+            }
+        }
+        return literal.toString()
+    }
 
     /** The JSON path of the first key that the valid JSON [text] repeats within one object, null when none. */
     private fun repeatedKey(text: String): String? {

@@ -15,12 +15,14 @@ import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
+import org.foedusprogramme.alexandrite.sdk.turn.rebuild
 
 /** `/new` and `/cancel`. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class ConversationCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
-    override val commands: List<CommandSpec> = listOf(texts.spec(NEW), texts.spec(CANCEL))
+    override val commands: List<CommandSpec> =
+        listOf(texts.spec(NEW), texts.spec(CANCEL).rebuild { runsAlongside(true) })
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
         val replies = texts.replies(context.turn.language)

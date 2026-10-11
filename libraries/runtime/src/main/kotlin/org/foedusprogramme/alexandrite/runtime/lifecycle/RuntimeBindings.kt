@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.chat.MemoryChatStateStore
 import org.foedusprogramme.alexandrite.runtime.chat.PluginChatStates
 import org.foedusprogramme.alexandrite.runtime.chat.UnreadableStateListener
+import org.foedusprogramme.alexandrite.runtime.config.configBackup
 import org.foedusprogramme.alexandrite.runtime.hook.HookDecisionListener
 import org.foedusprogramme.alexandrite.runtime.hook.HookDispatcher
 import org.foedusprogramme.alexandrite.runtime.hook.HookFailureListener
@@ -30,6 +31,7 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
+import java.io.IOException
 import java.nio.file.Path
 import java.time.Clock
 import kotlin.coroutines.CoroutineContext
@@ -144,7 +146,15 @@ private class RuntimeHostPaths(config: RuntimeConfig) : HostPaths {
     override val pluginDataRoot: Path = dataRoot.resolve(PLUGINS_DIRECTORY)
     override val cacheRoot: Path = config.cacheDir.absolute()
     override val configFile: Path? = config.configFile?.absolute()
+    override val configTarget: Path? = configFile?.let(::followed)
+    override val configBackup: Path? = configTarget?.let(::configBackup)
     override val protected: List<Path> = config.protected.map { it.absolute() }.distinct()
 }
 
 private fun Path.absolute(): Path = toAbsolutePath().normalize()
+
+private fun followed(file: Path): Path = try {
+    file.toRealPath()
+} catch (e: IOException) {
+    file
+}

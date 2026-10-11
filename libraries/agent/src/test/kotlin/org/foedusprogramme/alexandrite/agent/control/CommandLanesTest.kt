@@ -82,6 +82,32 @@ class CommandLanesTest {
     }
 
     @Test
+    fun `a chat's commands run one after another in the order they came, and one that runs alongside at once`() {
+        harness().execute {
+            commands.control = get()
+            val channel = channel()
+            val first = channel.receiveCommand("wait", "a").accepted
+            val second = channel.receiveCommand("wait", "b").accepted
+            val cancel = channel.receiveCommand("cancel").accepted
+            val elsewhere = channel.receiveCommand("wait", "c", channel.chat("other")).accepted
+            awaitStarted(3)
+            delay(50)
+
+            assertEquals(setOf("wait a", "cancel", "wait c"), commands.started.toSet())
+            assertTrue(cancel.ticket.outcome() is TurnOutcome.Completed)
+            commands.gate("a").complete(Unit)
+            awaitStarted(4)
+
+            assertEquals("wait b", commands.started.last())
+            listOf("b", "c").forEach { commands.gate(it).complete(Unit) }
+            assertEquals(
+                List(3) { TurnOutcome.Completed(null) },
+                listOf(first, second, elsewhere).map { it.ticket.outcome() },
+            )
+        }
+    }
+
+    @Test
     fun `a message waits for the command sent before it, and goes on after commandGateSeconds`() {
         model.reply { text("One.") }.reply { text("Two.") }
 
