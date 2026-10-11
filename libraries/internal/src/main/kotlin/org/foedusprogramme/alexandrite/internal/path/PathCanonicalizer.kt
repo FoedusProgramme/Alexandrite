@@ -16,16 +16,28 @@ public class CanonicalPath internal constructor(
     public val nameCase: NameCase,
     private val firmlinks: Boolean,
 ) {
-    /** The comparison keys of both forms, case-folded when [ignoreCase]. */
-    internal fun keys(ignoreCase: Boolean): List<String> =
-        listOf(unalias(nameKey(lexical.toString(), ignoreCase)), unalias(nameKey(real.toString(), ignoreCase)))
-            .distinct()
+    /** The comparison keys of [forms], case-folded when [ignoreCase]. */
+    internal fun keys(ignoreCase: Boolean, forms: Collection<PathForm> = PathForm.entries): List<String> =
+        forms.map { unalias(nameKey(path(it).toString(), ignoreCase)) }.distinct()
 
-    /** The real form as it names an entry: verbatim, or case-folded when [ignoreCase]. */
-    internal fun realKey(ignoreCase: Boolean): String =
-        unalias(if (ignoreCase) nameKey(real.toString(), true) else real.toString())
+    /** [form] as it names an entry: verbatim, or case-folded when [ignoreCase]. */
+    internal fun entryKey(form: PathForm, ignoreCase: Boolean): String {
+        val text = path(form).toString()
+        return unalias(if (ignoreCase) nameKey(text, true) else text)
+    }
+
+    private fun path(form: PathForm): Path = when (form) {
+        PathForm.LEXICAL -> lexical
+        PathForm.REAL -> real
+    }
 
     private fun unalias(key: String): String = if (firmlinks) foldDataVolume(key) else key
+}
+
+/** One of the two forms of a [CanonicalPath]. */
+internal enum class PathForm {
+    LEXICAL,
+    REAL,
 }
 
 /** Makes absolute paths canonical, lexically and through the filesystem. */

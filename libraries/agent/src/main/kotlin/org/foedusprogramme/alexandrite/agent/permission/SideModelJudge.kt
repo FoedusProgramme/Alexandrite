@@ -73,20 +73,20 @@ internal class SideModelJudge(private val endpoints: Endpoints, private val dire
     private suspend fun rule(call: CheckedCall): Ruling {
         val turn = call.call.turn
         val agent = directory.agent(turn.agent) ?: return Ruling.own("no agent '${turn.agent}' is configured")
+        val permission = agent.config.permission
         val words = call.call.calls.ownWords()
             .filter(String::isNotBlank)
             .map { ReviewText.escape(it, keepNewlines = true) }
         if (words.isEmpty()) return Ruling.own("the operator typed nothing in this turn for the judge to go by")
-        if (words.sumOf { it.length } > MAX_FIELD_CHARS) {
+        if (words.sumOf { it.length } > permission.judgeMaxChars) {
             return Ruling.own("the operator's words are too long for the judge to see whole")
         }
         val shown = shown(call)
-        if (shown.fields.any { it.length > MAX_FIELD_CHARS }) {
+        if (shown.fields.sumOf { it.length } > permission.judgeMaxChars) {
             return Ruling.own("the call is too long for the judge to see whole")
         }
         val model = agent.judgeModel ?: return Ruling.own("agent '${agent.id}' has no model for the judge")
-        val timeout = agent.config.permission.judgeTimeoutSeconds.seconds
-        return consult(model, turn, prompt(words, shown), timeout)
+        return consult(model, turn, prompt(words, shown), permission.judgeTimeoutSeconds.seconds)
     }
 
     /** What [model] rules on [prompt] within [timeout]. */
@@ -249,9 +249,6 @@ private const val SOURCE = "permission-judge"
 private const val MAX_ASKS = 3
 
 private const val MAX_OUTPUT_TOKENS = 1024
-
-/** The longest escaped field that the judge is shown. */
-private const val MAX_FIELD_CHARS = 4000
 
 private const val MAX_REASON_CODE_POINTS = 200
 

@@ -1,9 +1,15 @@
 package org.foedusprogramme.alexandrite.tools.exec
 
+import org.foedusprogramme.alexandrite.internal.floor.DenyRoot
+import org.foedusprogramme.alexandrite.internal.floor.Floor
+import org.foedusprogramme.alexandrite.internal.floor.FloorDecision
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
+import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
+import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -418,6 +424,23 @@ class ExecToolTest {
     }
 
     @Test
+    fun `a program linked from a workspace carved out of a protected place to outside every one runs`() {
+        val data = fs.root.resolve("data")
+        val workspace = data.resolve("workspaces/coder")
+        val python = fs.script("opt/bin/python3", "echo ran")
+        workspace.resolve(".venv/bin").createDirectories()
+        Files.createSymbolicLink(workspace.resolve(".venv/bin/python"), python)
+        val tool = fs.tool(floor = carvedFloor(fs.home, DenyRoot(data, "Alexandrite's data", listOf(workspace))))
+        val call = arrayOf<Pair<String, Any>>("command" to ".venv/bin/python -m pytest -q", "cwd" to workspace)
+
+        val review = tool.check(fs.context(), *call)
+
+        assertEquals(null to null, review.problem to review.refusal)
+        assertEquals(python, (review.preview as ReviewPreview.Command).executable)
+        assertEquals("Exit code: 0\nran", tool.run(fs.allowed(), *call).text)
+    }
+
+    @Test
     fun `every path of a program without an option table is checked as a tree`() {
         val key = "${fs.home}/.ssh/id_rsa"
         val real = fs.tool(floor = testHardFloor(listOf(fs.secret)))
@@ -555,4 +578,19 @@ class ExecToolTest {
 
     private fun names(result: ToolResult): List<String> =
         result.text.lines().drop(1).filter { '=' in it }.map { it.substringBefore('=') }
+}
+
+private fun carvedFloor(home: Path, vararg places: DenyRoot): HardFloor {
+    val floor = Floor(places.toList(), home)
+    fun FloorDecision.toCheck(): FloorCheck = when (this) {
+        is FloorDecision.Allowed -> FloorCheck.Allowed(canonical)
+        is FloorDecision.Denied -> FloorCheck.Denied(reason)
+    }
+    return object : HardFloor {
+        override fun checkRead(path: Path, agent: AgentId?): FloorCheck = floor.check(path).toCheck()
+
+        override fun checkWrite(path: Path, agent: AgentId?): FloorCheck = floor.check(path).toCheck()
+
+        override fun checkTree(path: Path, agent: AgentId?): FloorCheck = floor.checkTree(path).toCheck()
+    }
 }

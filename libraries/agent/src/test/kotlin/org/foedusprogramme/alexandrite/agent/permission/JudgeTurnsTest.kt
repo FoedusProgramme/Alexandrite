@@ -285,4 +285,26 @@ class JudgeTurnsTest {
             assertEquals(listOf(Clearance(ClearanceKind.HUMAN, channel().user("admin"))), cleared.toList())
         }
     }
+
+    @Test
+    fun `a call within the configured length goes to the judge, a longer one to an admin`() {
+        val room = 60 - "fs.write".length - """{"content":"","path":"notes.md"}""".length
+        for (length in listOf(room, room + 1)) {
+            model.reply { toolCall("fs.write", """{"path": "notes.md", "content": "${"a".repeat(length)}"}""") }
+                .reply { text("Done.") }
+        }
+        judgeAnswers("""{"verdict":"allow"}""")
+
+        harness(""", "judgeMaxChars": 60""").execute {
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
+            repeat(2) { ask().ticket.outcome() }
+
+            assertEquals(
+                listOf("the call is too long for the judge to see whole"),
+                channel().approvals.map { it.reason },
+            )
+            assertEquals(1, judge.requests.size)
+            assertEquals(listOf(Clearance(ClearanceKind.JUDGE)), cleared.toList())
+        }
+    }
 }

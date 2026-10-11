@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.internal.floor
 import org.foedusprogramme.alexandrite.internal.path.CanonicalPath
 import org.foedusprogramme.alexandrite.internal.path.NameCase
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
+import org.foedusprogramme.alexandrite.internal.path.PathForm
 import org.foedusprogramme.alexandrite.internal.path.isAtOrUnder
 import org.foedusprogramme.alexandrite.internal.path.nameKey
 import java.io.File
@@ -78,9 +79,9 @@ public class Floor(
 
     private fun check(candidate: CanonicalPath): FloorDecision {
         if (isMagic(candidate)) return FloorDecision.Denied(MAGIC)
-        roots.filter { root ->
-            meetings(candidate, root.path).any { it != Placement.HOLDS } && root.carveOuts.none { isIn(candidate, it) }
-        }.maxByOrNull { it.path.real.nameCount }?.let { return FloorDecision.Denied(it.place.kind) }
+        roots.filter { it.denies(candidate) }
+            .maxByOrNull { it.path.real.nameCount }
+            ?.let { return FloorDecision.Denied(it.place.kind) }
         if (claudeEntry(candidate) == Placement.INSIDE) return FloorDecision.Denied(CLAUDE)
         if (denyKeys(candidate).any(PROC_SENSITIVE::matches)) return FloorDecision.Denied(PROCESS)
         return FloorDecision.Allowed(candidate.real)
@@ -111,6 +112,12 @@ public class Floor(
                 }
             }
         }
+
+        /** Whether a form of [candidate] lies in this place and outside each of its carve-outs. */
+        fun denies(candidate: CanonicalPath): Boolean = PathForm.entries.any { form ->
+            meetings(candidate, path, listOf(form)).any { it != Placement.HOLDS } &&
+                carveOuts.none { isIn(candidate, form, it) }
+        }
     }
 
     /** INSIDE for a `.claude*` entry of the home directory or a path in one, HOLDS for the home or an ancestor. */
@@ -126,31 +133,45 @@ public class Floor(
     }
 }
 
-/** How [path] meets [place] in any spelling that the directories of either may give them. */
-private fun meetings(path: CanonicalPath, place: CanonicalPath): Set<Placement> =
-    pairs(path, place).mapNotNullTo(mutableSetOf()) { (key, placeKey) ->
-        when {
-            key == placeKey -> Placement.AT
-            isAtOrUnder(key, placeKey) -> Placement.INSIDE
-            isAtOrUnder(placeKey, key) -> Placement.HOLDS
-            else -> null
-        }
-    }
-
-/** The keys of [path] beside those of [other]: verbatim, and case-folded unless all their directories heed case. */
-private fun pairs(path: CanonicalPath, other: CanonicalPath): List<Pair<String, String>> {
-    val fold = path.nameCase != NameCase.SENSITIVE || other.nameCase != NameCase.SENSITIVE
-    val spellings = if (fold) listOf(false, true) else listOf(false)
-    return spellings.flatMap { ignoreCase ->
-        path.keys(ignoreCase).flatMap { key -> other.keys(ignoreCase).map { key to it } }
+/** How [forms] of [path] meet [place] in any spelling that the directories of either may give them. */
+private fun meetings(
+    path: CanonicalPath,
+    place: CanonicalPath,
+    forms: Collection<PathForm> = PathForm.entries,
+): Set<Placement> = pairs(path, place, forms).mapNotNullTo(mutableSetOf()) { (key, placeKey) ->
+    when {
+        key == placeKey -> Placement.AT
+        isAtOrUnder(key, placeKey) -> Placement.INSIDE
+        isAtOrUnder(placeKey, key) -> Placement.HOLDS
+        else -> null
     }
 }
 
-/** Whether the real form of [path] lies in [carveOut], case-folded only when all their directories ignore case. */
-private fun isIn(path: CanonicalPath, carveOut: CanonicalPath): Boolean {
-    if (isAtOrUnder(path.realKey(false), carveOut.realKey(false))) return true
+/** The keys of [path] beside those of [other]: verbatim, and case-folded unless all their directories heed case. */
+private fun pairs(
+    path: CanonicalPath,
+    other: CanonicalPath,
+    forms: Collection<PathForm> = PathForm.entries,
+): List<Pair<String, String>> {
+    val fold = path.nameCase != NameCase.SENSITIVE || other.nameCase != NameCase.SENSITIVE
+    val spellings = if (fold) listOf(false, true) else listOf(false)
+    return spellings.flatMap { ignoreCase ->
+        path.keys(ignoreCase, forms).flatMap { key -> other.keys(ignoreCase).map { key to it } }
+    }
+}
+
+/**
+ * Whether [form] of [path] lies in [carveOut], case-folded only when all their directories ignore case.
+ *
+ * A lexical form is compared with both forms of [carveOut], a real form with its real form.
+ */
+private fun isIn(path: CanonicalPath, form: PathForm, carveOut: CanonicalPath): Boolean {
     val fold = path.nameCase == NameCase.INSENSITIVE && carveOut.nameCase == NameCase.INSENSITIVE
-    return fold && isAtOrUnder(path.realKey(true), carveOut.realKey(true))
+    val spellings = if (fold) listOf(false, true) else listOf(false)
+    val places = if (form == PathForm.LEXICAL) PathForm.entries else listOf(PathForm.REAL)
+    return spellings.any { ignoreCase ->
+        places.any { isAtOrUnder(path.entryKey(form, ignoreCase), carveOut.entryKey(it, ignoreCase)) }
+    }
 }
 
 private fun denyKeys(path: CanonicalPath): List<String> =

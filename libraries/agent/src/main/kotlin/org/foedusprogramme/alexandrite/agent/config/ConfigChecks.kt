@@ -75,6 +75,7 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
             "\"anthropic/claude-haiku-5-5\""
     }
     require(agent.permission.judgeTimeoutSeconds > 0) { "$path.permission.judgeTimeoutSeconds must be positive" }
+    require(agent.permission.judgeMaxChars > 0) { "$path.permission.judgeMaxChars must be positive" }
     require(agent.maxOutputTokens == null || agent.maxOutputTokens > 0) { "$path.maxOutputTokens must be positive" }
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {
         "$path.temperature must be a number of at least 0"

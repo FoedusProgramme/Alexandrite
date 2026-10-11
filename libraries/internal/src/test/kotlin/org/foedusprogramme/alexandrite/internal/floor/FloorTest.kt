@@ -351,6 +351,56 @@ class FloorTest {
     }
 
     @Test
+    fun `a symlink from a carve-out to a file outside every protected place reaches that file`() {
+        val python = Files.createDirectories(root.resolve("opt/bin")).resolve("python3")
+        Files.writeString(python, "")
+        Files.createDirectories(workspace.resolve(".venv/bin"))
+        Files.createSymbolicLink(workspace.resolve(".venv/bin/python"), python)
+        Files.createSymbolicLink(workspace.resolve("away.md"), root.resolve("away.md"))
+        val respelled = config.resolve("WORKSPACE/.venv/bin/python")
+
+        assertEquals(FloorDecision.Allowed(python), floor.check(workspace.resolve(".venv/bin/python")))
+        assertEquals(FloorDecision.Allowed(root.resolve("away.md")), floor.check(workspace.resolve("away.md")))
+        assertAllowed(respelled)
+        assertDenied("configuration", respelled, floor(nameCase = NameCase.UNKNOWN))
+    }
+
+    @Test
+    fun `a symlink from a carve-out into a credential store is denied`() {
+        Files.createSymbolicLink(workspace.resolve("key"), home.resolve(".ssh/id_rsa"))
+
+        assertDenied("SSH keys", workspace.resolve("key"))
+    }
+
+    @Test
+    fun `a symlink from a carve-out of the data root into the rest of it is denied`() {
+        val coder = Files.createDirectories(data.resolve("workspaces/coder"))
+        Files.createSymbolicLink(coder.resolve("store.db"), data.resolve("store.db"))
+        Files.createSymbolicLink(coder.resolve("all"), data)
+        val floor = floor(listOf(DenyRoot(data, "data", listOf(coder))))
+
+        assertDenied("data", coder.resolve("store.db"), floor)
+        assertDenied("data", coder.resolve("all/store.db-wal"), floor)
+        assertAllowed(coder.resolve("notes.md"), floor)
+    }
+
+    @Test
+    fun `a symlink from outside into a carve-out is allowed`() {
+        Files.createSymbolicLink(root.resolve("identity.md"), workspace.resolve("IDENTITY.md"))
+
+        assertEquals(FloorDecision.Allowed(workspace.resolve("IDENTITY.md")), floor.check(root.resolve("identity.md")))
+    }
+
+    @Test
+    fun `a symlink from a carve-out to an ancestor of its place is refused to a tree check`() {
+        Files.createSymbolicLink(workspace.resolve("up"), root)
+        val floor = floor(home = null)
+
+        assertEquals(FloorDecision.Allowed(root), floor.check(workspace.resolve("up")))
+        assertHeld("configuration", workspace.resolve("up"), floor)
+    }
+
+    @Test
     fun `a carve-out that is not strictly inside its place is refused`() {
         for (carveOut in listOf(config, root, data.resolve("elsewhere"))) {
             assertFailsWith<IllegalArgumentException>("$carveOut") { floor(places(carveOuts = listOf(carveOut))) }

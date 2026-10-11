@@ -189,6 +189,21 @@ class HostFloorTest {
     }
 
     @Test
+    fun `a symlink from a workspace in the data root to a program outside every protected place reaches it`() {
+        val python = Files.createDirectories(root.resolve("opt/bin")).resolve("python3")
+        Files.writeString(python, "")
+        val venv = Files.createDirectories(data.resolve("workspaces/coder/.venv/bin"))
+        Files.createSymbolicLink(venv.resolve("python"), python)
+        Files.createSymbolicLink(venv.resolve("lock"), data.resolve("runtime.lock"))
+
+        val floor = floor("""{"coder": {}}""")
+
+        assertEquals(FloorDecision.Allowed(python), floor.checkRead(venv.resolve("python"), AgentId("coder")))
+        assertEquals(FloorDecision.Allowed(python), floor.checkWrite(venv.resolve("python")))
+        assertDenied("Alexandrite's data", venv.resolve("lock"), floor)
+    }
+
+    @Test
     fun `a workspace outside the host's places is allowed as any other path`() {
         val workspace = root.resolve("notes")
 
@@ -273,11 +288,15 @@ class HostFloorTest {
         val personas = configFile.resolveSibling("agents")
         Files.createDirectories(personas.resolve("coder"))
         Files.createSymbolicLink(personas.resolve("coder/config.json"), configFile)
+        val away = Files.createSymbolicLink(personas.resolve("coder/away.md"), root.resolve("away.md"))
         val coder = AgentId("coder")
         val helper = AgentId("helper")
 
         val floor = floor("""{"coder": {}, "helper": {}}""")
 
+        assertEquals(FloorDecision.Allowed(root.resolve("away.md")), floor.checkRead(away, coder))
+        assertDenied(CONFIGURATION, away, floor, helper)
+        assertDenied(CONFIGURATION, away, floor)
         assertAllowed(personas.resolve("coder/PERSONA.md"), floor, coder)
         assertAllowed(personas.resolve("coder"), floor, coder)
         assertAllowed(personas.resolve("helper/PERSONA.md"), floor, helper)
@@ -350,7 +369,7 @@ class HostFloorTest {
                 FloorDecision.Denied(CONFIGURATION),
                 outside,
                 FloorDecision.Denied("a persona file that is no Markdown file"),
-                FloorDecision.Denied(CONFIGURATION),
+                outside,
                 FloorDecision.Denied(CONFIGURATION),
                 outside,
             ),

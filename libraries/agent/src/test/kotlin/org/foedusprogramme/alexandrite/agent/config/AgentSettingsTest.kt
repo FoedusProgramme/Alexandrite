@@ -162,7 +162,7 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `a judge that is no model reference or a judge timeout that is not positive fails the start`() {
+    fun `a judge that is no model reference or a judge timeout or length that is not positive fails the start`() {
         assertConfigFails(
             agents(""""coder": {"permission": {"judge": "haiku"}}"""),
             "agents.coder.permission.judge is no model reference: write <endpoint>/<model>, such as " +
@@ -171,6 +171,10 @@ class AgentSettingsTest {
         assertConfigFails(
             agents(""""coder": {"permission": {"judgeTimeoutSeconds": 0}}"""),
             "agents.coder.permission.judgeTimeoutSeconds must be positive",
+        )
+        assertConfigFails(
+            agents(""""coder": {"permission": {"judgeMaxChars": 0}}"""),
+            "agents.coder.permission.judgeMaxChars must be positive",
         )
     }
 

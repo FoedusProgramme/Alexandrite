@@ -361,33 +361,51 @@ class SideModelJudgeTest {
     }
 
     @Test
-    fun `arguments longer than the judge can see are asked about without calling the model`() = runTest {
+    fun `a call longer than the judge can see is asked about without calling the model`() = runTest {
         answers("""{"verdict":"allow"}""")
         val judge = judge()
-        val long = """{"c": "${"a".repeat(3993)}"}"""
-        val fits = """{"c": "${"a".repeat(3992)}"}"""
+        val room = 32_000 - "fs.write".length - """{"c":""}""".length
+        val long = """{"c": "${"a".repeat(room + 1)}"}"""
+        val fits = """{"c": "${"a".repeat(room)}"}"""
 
         val verdicts = listOf(long, fits).map { reason(judge.judge(call(arguments = it))) }
 
-        assertEquals(listOf("the call is too long for the judge to see whole", "allow"), verdicts)
+        assertEquals(listOf(CALL_TOO_LONG, "allow"), verdicts)
         assertEquals(1, model.requests.size)
-        assertContains(sent(), "| {\"c\":\"${"a".repeat(3992)}\"}")
+        assertContains(sent(), "| {\"c\":\"${"a".repeat(room)}\"}")
     }
 
     @Test
     fun `the operator's words longer than the judge can see are asked about without calling the model`() = runTest {
         answers("""{"verdict":"allow"}""")
         val judge = judge()
-        val long = listOf("a".repeat(2000), "a".repeat(2000) + " and yes, write it")
+        val long = listOf("a".repeat(16_000), "a".repeat(16_000) + " and yes, write it")
 
         val verdicts = List(4) { reason(judge.judge(call(words = long))) } +
-            reason(judge.judge(call(words = listOf("a".repeat(2000), "a".repeat(2000)))))
+            reason(judge.judge(call(words = listOf("a".repeat(16_000), "a".repeat(16_000)))))
 
-        assertEquals(
-            List(4) { "the operator's words are too long for the judge to see whole" } + "allow",
-            verdicts,
-        )
+        assertEquals(List(4) { WORDS_TOO_LONG } + "allow", verdicts)
         assertEquals(1, model.requests.size)
+    }
+
+    @Test
+    fun `the configured limit holds for the call's fields together and for the operator's words apart`() = runTest {
+        answers("""{"verdict":"allow"}""", """{"verdict":"allow"}""")
+        val judge = judge(""""judgeMaxChars": 100""")
+        val path = Path.of("/srv/notes.md")
+        val body = "+".repeat(100 - "fs.write".length - "$path".length)
+        val words = listOf("a".repeat(50), "a".repeat(50))
+
+        val verdicts = listOf(
+            call(words = words, preview = ReviewPreview.Diff(path, body)),
+            call(words = words + "a", preview = ReviewPreview.Diff(path, body)),
+            call(preview = ReviewPreview.Diff(path, "$body+")),
+            call(preview = ReviewPreview.Diff(path, body), required = "!"),
+            call(preview = ReviewPreview.Diff(path, body)),
+        ).map { reason(judge.judge(it)) }
+
+        assertEquals(listOf("allow", WORDS_TOO_LONG, CALL_TOO_LONG, CALL_TOO_LONG, "allow"), verdicts)
+        assertEquals(2, model.requests.size)
     }
 
     @Test
@@ -395,19 +413,12 @@ class SideModelJudgeTest {
         val judge = judge()
 
         val verdicts = listOf(
-            call(arguments = """{"c": "${"\u202E".repeat(1000)}"}"""),
-            call(words = listOf("\u202E".repeat(1000))),
-            call(required = "\u202E".repeat(1000)),
+            call(arguments = """{"c": "${"\u202E".repeat(6000)}"}"""),
+            call(words = listOf("\u202E".repeat(6000))),
+            call(required = "\u202E".repeat(6000)),
         ).map { reason(judge.judge(it)) }
 
-        assertEquals(
-            listOf(
-                "the call is too long for the judge to see whole",
-                "the operator's words are too long for the judge to see whole",
-                "the call is too long for the judge to see whole",
-            ),
-            verdicts,
-        )
+        assertEquals(listOf(CALL_TOO_LONG, WORDS_TOO_LONG, CALL_TOO_LONG), verdicts)
         assertEquals(emptyList(), model.requests)
     }
 
@@ -467,7 +478,7 @@ class SideModelJudgeTest {
 
         repeat(4) { judge.judge(call()) }
         repeat(4) { judge.judge(call(words = emptyList())) }
-        repeat(4) { judge.judge(call(arguments = """{"c": "${"a".repeat(4000)}"}""")) }
+        repeat(4) { judge.judge(call(arguments = """{"c": "${"a".repeat(32_000)}"}""")) }
         answers(*Array(3) { """{"verdict":"ask"}""" })
         repeat(3) { judge.judge(call()) }
         val requests = model.requests.size
@@ -505,6 +516,8 @@ class SideModelJudgeTest {
 
     private companion object {
         const val WORDS = "Please write hello into notes.md."
+        const val CALL_TOO_LONG = "the call is too long for the judge to see whole"
+        const val WORDS_TOO_LONG = "the operator's words are too long for the judge to see whole"
     }
 }
 
