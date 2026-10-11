@@ -120,9 +120,6 @@ public class TurnStatus private constructor(
     init {
         require(phase != TurnPhase.QUEUED || startedAt == null) { "A queued turn has not started." }
         require(phase != TurnPhase.RUNNING || startedAt != null) { "A running turn has a start time." }
-        require(startedAt == null || !startedAt.isBefore(queuedAt)) {
-            "A turn starts after it is queued, was started at $startedAt and queued at $queuedAt."
-        }
     }
 
     public fun toBuilder(): Builder = Builder(turn, phase, queuedAt).startedAt(startedAt)

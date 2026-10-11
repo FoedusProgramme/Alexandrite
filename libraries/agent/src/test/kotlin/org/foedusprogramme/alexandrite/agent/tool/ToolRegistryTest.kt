@@ -14,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class ToolRegistryTest {
     private val tools = listOf(
@@ -55,16 +56,20 @@ class ToolRegistryTest {
     }
 
     @Test
-    fun `a turn offers a member only what the agent lists for members, and a model that takes no tools nothing`() {
+    fun `turns offer the agent's tools to a model that takes tools, and members may call those listed for them`() {
         agentHarness(config) { tools.forEach(::tool) }.execute {
             val registry = get<ToolRegistry>()
             val model = ModelRef.parse("scripted/test-model")
-            fun offered(admin: Boolean, nativeTools: Boolean = true) =
-                registry.offered(AgentId("coder"), admin, model, nativeTools).map { it.definition.name }
+            val coder = AgentId("coder")
+            fun offered(nativeTools: Boolean) = registry.offered(coder, model, nativeTools).map { it.definition.name }
 
-            assertEquals(listOf("fs.glob", "fs.read", "notes.find"), offered(admin = true))
-            assertEquals(listOf("fs.glob", "notes.find"), offered(admin = false))
-            assertEquals(emptyList(), offered(admin = true, nativeTools = false))
+            assertEquals(listOf("fs.glob", "fs.read", "notes.find"), offered(nativeTools = true))
+            assertEquals(emptyList(), offered(nativeTools = false))
+            assertEquals(
+                listOf("fs.glob", "notes.find"),
+                offered(nativeTools = true).filter { registry.permits(coder, admin = false, it) },
+            )
+            assertTrue(offered(nativeTools = true).all { registry.permits(coder, admin = true, it) })
         }
     }
 

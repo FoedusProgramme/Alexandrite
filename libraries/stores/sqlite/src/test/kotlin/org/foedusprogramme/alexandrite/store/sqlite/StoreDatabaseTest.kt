@@ -1,5 +1,10 @@
 package org.foedusprogramme.alexandrite.store.sqlite
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.junit.jupiter.api.io.TempDir
@@ -232,6 +237,36 @@ class StoreDatabaseTest {
 
         assertTrue(committed)
         assertEquals(setOf("x"), withStore(directory) { rows("SELECT address FROM chats").map { it.single() }.toSet() })
+    }
+
+    @Test
+    fun `a block that began returns to a caller cancelled meanwhile, and one that did not begin changes nothing`() {
+        withStore(directory) {
+            val entered = CompletableDeferred<Unit>()
+            val release = CountDownLatch(1)
+            var returned: String? = null
+            coroutineScope {
+                val caller = launch(Dispatchers.Default) {
+                    returned = database.transaction {
+                        entered.complete(Unit)
+                        release.await()
+                        execute("INSERT INTO chats (address, created_at) VALUES ('began', 0)")
+                        "committed"
+                    }
+                }
+                entered.await()
+                caller.cancel()
+                release.countDown()
+                caller.join()
+                launch(Dispatchers.Default) {
+                    coroutineContext.job.cancel()
+                    database.transaction { execute("INSERT INTO chats (address, created_at) VALUES ('never', 0)") }
+                }.join()
+            }
+
+            assertEquals("committed", returned)
+            assertEquals(listOf(listOf("began")), rows("SELECT address FROM chats"))
+        }
     }
 
     /** A store of schema [version] that holds the unended turn `t1` of [main]. */

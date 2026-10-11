@@ -44,6 +44,7 @@ private val LEVELS = mapOf(
 internal val DEEPSEEK_FLAVOR: ChatFlavor =
     ChatFlavor(DEEPSEEK, DeepSeekListing, DeepSeekReasoning, DeepSeekTools, DeepSeekCaching, DeepSeekFinishReasons)
 
+/** Whether the model thinks on [request]: always, unless its effort is NONE. */
 private fun thinks(request: ModelRequest): Boolean = request.options.reasoning != ReasoningEffort.NONE
 
 internal object DeepSeekListing : ModelListing() {
@@ -69,6 +70,10 @@ internal object DeepSeekListing : ModelListing() {
 }
 
 internal object DeepSeekReasoning : ChatReasoning() {
+    override fun requestNoEffort(info: ModelInfo, body: JsonObjectBuilder) {
+        body.putJsonObject("thinking") { put("type", "enabled") }
+    }
+
     override fun request(effort: ReasoningEffort, info: ModelInfo, body: JsonObjectBuilder): Warning? {
         if (effort == ReasoningEffort.NONE) {
             body.putJsonObject("thinking") { put("type", "disabled") }

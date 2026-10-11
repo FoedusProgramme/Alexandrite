@@ -122,6 +122,37 @@ class FollowUpsTest {
     }
 
     @Test
+    fun `a message the principal sends in another chat of a linked group runs as a turn of its own there`() {
+        model.reply { toolCall("fs.read") }.reply { text("To the group.") }.reply { text("To the DM.") }
+        val config = """
+            {
+              "agents": {
+                "coder": {
+                  "model": "scripted/test-model",
+                  "channels": {"test:main": {}},
+                  "linkedChats": [["test:main:group", "test:main:dm"]]
+                }
+              }
+            }
+        """.trimIndent()
+
+        agentHarness(config, store) { channel(admins = setOf("admin")).model(model).tool(read) }.execute {
+            val admin = channel().user("admin")
+            val group = channel().receive("Read it.", channel().chat("group"), admin) as Admission.Accepted
+            read.awaitCalls(1)
+            val dm = channel().receive("Privately: hi.", channel().chat("dm"), admin) as Admission.Accepted
+            read.release()
+
+            assertIs<TurnOutcome.Completed>(group.ticket.outcome())
+            assertIs<TurnOutcome.Completed>(dm.ticket.outcome())
+            assertEquals("To the group.", channel().reply(group.ticket.turn).completed?.text)
+            val reply = channel().reply(dm.ticket.turn)
+            assertEquals(channel().chat("dm") to "To the DM.", reply.turn.chat to reply.completed?.text)
+            assertEquals(3, model.requests[1].history.size)
+        }
+    }
+
+    @Test
     fun `a message of anyone but the principal waits for its own turn`() {
         model.reply { toolCall("fs.read") }.reply { text("To the admin.") }.reply { text("To the member.") }
 

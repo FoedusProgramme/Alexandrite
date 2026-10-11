@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.foedusprogramme.alexandrite.provider.common.MESSAGES_CALL_IDS
 import org.foedusprogramme.alexandrite.provider.common.ModelFacts
 import org.foedusprogramme.alexandrite.provider.common.ModelListing
 import org.foedusprogramme.alexandrite.provider.common.TurnContextSetting
@@ -13,6 +14,8 @@ import org.foedusprogramme.alexandrite.provider.common.long
 import org.foedusprogramme.alexandrite.provider.common.obj
 import org.foedusprogramme.alexandrite.provider.common.positiveInt
 import org.foedusprogramme.alexandrite.provider.common.string
+import org.foedusprogramme.alexandrite.provider.common.wireToolName
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
@@ -236,7 +239,7 @@ public open class MessagesTools {
         if (type == "auto" && !one) return warnings
         body.putJsonObject("tool_choice") {
             put("type", type)
-            if (choice is ToolChoice.Named) put("name", ToolNames.wire(choice.name))
+            if (choice is ToolChoice.Named) put("name", wireName(choice.name))
             if (one) put("disable_parallel_tool_use", true)
         }
         return warnings
@@ -244,6 +247,12 @@ public open class MessagesTools {
 
     /** The tool that a call naming [wire] calls, given the [offered] tools. */
     public open fun callName(wire: String, offered: List<ToolDefinition>): String = ToolNames.fromWire(wire) ?: wire
+
+    /** The name that the tool [name] and its stored calls go out with, one for each name. */
+    public open fun wireName(name: String): String = wireToolName(name)
+
+    /** The id that the stored call [id] and its result go out with, one for each id. */
+    public open fun wireCallId(id: ToolCallId): String = MESSAGES_CALL_IDS.of(id.value)
 }
 
 /**

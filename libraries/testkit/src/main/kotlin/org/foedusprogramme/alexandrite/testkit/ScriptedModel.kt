@@ -24,8 +24,8 @@ import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptRules
 /**
  * A model endpoint that answers each request with the first queued step that matches it, and records the requests.
  *
- * A request that no step matches, that names another endpoint or whose history breaks [TranscriptRules] throws an
- * [AssertionError] from its stream and fails the [PluginHarness] run that holds the model.
+ * A request that no step matches, that names another endpoint or whose history breaks [TranscriptRules] fails with a
+ * [ModelException] that is not retried, and stops and fails the [PluginHarness] run that holds the model.
  */
 public class ScriptedModel(
     override val id: EndpointId = EndpointId("scripted"),
@@ -38,6 +38,10 @@ public class ScriptedModel(
     private val steps = mutableListOf<Step>()
     private val received = MutableStateFlow<List<ModelRequest>>(emptyList())
     private val problemList = mutableListOf<String>()
+
+    /** Called on each problem the model meets. */
+    @Volatile
+    internal var onProblem: (() -> Unit)? = null
 
     init {
         require(this.models.isNotEmpty()) { "A scripted model serves at least one model." }
@@ -129,7 +133,8 @@ public class ScriptedModel(
             }
             problemList += failure
         }
-        throw AssertionError(failure)
+        onProblem?.invoke()
+        throw ModelException(ModelError.builder(ModelErrorKind.INVALID_REQUEST, failure).retryable(false).build())
     }
 
     private class Step(val match: RequestMatch, val reply: ScriptedReply?, val error: ModelError?)

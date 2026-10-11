@@ -1,6 +1,11 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.control.Choice
@@ -8,6 +13,7 @@ import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.prompt.INITIATED_SOURCE
+import org.foedusprogramme.alexandrite.agent.worker.GatedReads
 import org.foedusprogramme.alexandrite.runtime.chat.standaloneChatStates
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
@@ -32,6 +38,7 @@ import org.foedusprogramme.alexandrite.sdk.di.container.binding
 import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
+import org.foedusprogramme.alexandrite.sdk.model.ToolChoice
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
@@ -46,6 +53,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
+import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute
@@ -74,11 +82,11 @@ class InitiatedTurnsTest {
 
     private fun coder(chat: ChatAddress) = AgentChatKey(AgentId("coder"), chat)
 
-    private fun config(perKey: Int = 20) = """
+    private fun config(perKey: Int = 20, grace: Int = 0) = """
         {
           "previewIntervalMillis": 0,
           "queue": {"perKey": $perKey},
-          "shutdown": {"turnGraceSeconds": 0, "cancelJoinSeconds": 2},
+          "shutdown": {"turnGraceSeconds": $grace, "cancelJoinSeconds": 2},
           "agents": {
             "coder": {
               "name": "Coder",
@@ -161,7 +169,8 @@ class InitiatedTurnsTest {
                 listOf(chat, coder, TurnKind.REMINDER, null, ReplyTarget.CALLER, store.conversations.current(coder).id),
                 listOf(turn.chat, turn.key, turn.kind, turn.actor, turn.replyTarget, turn.conversation),
             )
-            assertEquals(emptyList(), model.requests.single().tools)
+            val request = model.requests.single()
+            assertEquals(listOf("fs.read") to ToolChoice.None, request.tools.map { it.name } to request.toolChoice)
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.turn)?.end)
         }
     }
@@ -318,6 +327,39 @@ class InitiatedTurnsTest {
         }
 
         assertEquals(Admission.Refused(RefusalReason.SHUTTING_DOWN), initiation.initiate("beat", turn()))
+    }
+
+    @Test
+    fun `a turn held while the router reads its chat's agent is cancelled by the control port, and ends at a drain`() {
+        val reads = GatedReads(store.chatStates)
+        val gate = CompletableDeferred<Unit>()
+        model.reply { pause { gate.await() }.text("One.") }
+        lateinit var running: Admission
+        lateinit var drained: Admission.Accepted
+        val watcher = CoroutineScope(Dispatchers.Default)
+
+        agentHarness(config(grace = 5), store = null) {
+            channel().channel("side").channel("third").model(model).plugin(StoreIndex(store, chatStates = reads))
+        }.execute {
+            running = initiate(turn())
+            model.awaitRequests(1)
+            reads.hold()
+            val cancelled =
+                initiate(InitiatedTurn.builder(ChatAddress(main, "held"), TurnKind.REMINDER, "One.").build())
+            drained = initiate(InitiatedTurn.builder(ChatAddress(main, "held"), TurnKind.REMINDER, "Two.").build())
+                as Admission.Accepted
+
+            assertTrue(get<AgentControl>().cancelTurn(cancelled.turn, null))
+            assertEquals(TurnOutcome.Cancelled, cancelled.outcome())
+            watcher.launch {
+                drained.ticket.outcome()
+                gate.complete(Unit)
+            }
+        }
+
+        assertEquals(TurnOutcome.ShutDown(replayable = true), blocking { drained.ticket.outcome() })
+        assertIs<TurnOutcome.Completed>(blocking { running.outcome() })
+        watcher.cancel()
     }
 
     @Test

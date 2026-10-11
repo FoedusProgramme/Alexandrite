@@ -63,10 +63,14 @@ internal class ModelCatalog(
     fun describe(model: String): ModelInfo =
         modelInfo(model, dialect, settings.models[model]?.facts(model), listed[model], listing.defaults)
 
-    /** The models the backend lists, or null when it cannot be asked and the config names models. */
+    /**
+     * The models the backend lists, else those it listed last, null when it has no listing or never listed one and the
+     * config names models.
+     */
     private suspend fun discover(): List<ModelFacts>? {
         var failure: HttpException? = null
-        for (url in listing.urls(connection.base)) {
+        val urls = listing.urls(connection.base)
+        for (url in urls) {
             try {
                 return pages(url)
             } catch (e: HttpException) {
@@ -74,7 +78,12 @@ internal class ModelCatalog(
                 if (e.kind != HttpFailureKind.NOT_FOUND) break
             }
         }
-        val error = failure!!.toModelException(false)
+        val error = failure?.toModelException(false) ?: return null
+        val last = listed
+        if (last.isNotEmpty()) {
+            log.warn("Endpoint '{}' cannot list its models, so it keeps its last listing: {}", id, error.message)
+            return last.values.toList()
+        }
         if (settings.models.isEmpty()) throw error
         log.warn("Endpoint '{}' cannot list its models, so it describes the configured ones: {}", id, error.message)
         return null
@@ -82,6 +91,7 @@ internal class ModelCatalog(
 
     private suspend fun pages(first: String): List<ModelFacts> {
         val models = mutableListOf<ModelFacts>()
+        val origin = URI(first)
         var next: String? = first
         var pages = 0
         while (next != null && pages++ < MAX_PAGES) {
@@ -89,9 +99,23 @@ internal class ModelCatalog(
             models += listing.models(page).map(listing::facts).filter { facts ->
                 facts.id?.let { id -> id.isNotEmpty() && id.none(Char::isISOControl) } == true
             }
-            next = listing.next(page)?.let { URI(first).resolve(it).toString() }
+            next = listing.next(page)?.let { origin.resolve(it) }?.let { resolved ->
+                if (sameOrigin(origin, resolved)) return@let resolved.toString()
+                log.warn("Endpoint '{}' names a next page of its models elsewhere, so its listing ends there", id)
+                null
+            }
         }
         return models.distinctBy { it.id }
+    }
+
+    private fun sameOrigin(origin: URI, other: URI): Boolean = origin.scheme.equals(other.scheme, ignoreCase = true) &&
+        origin.host.equals(other.host, ignoreCase = true) &&
+        port(origin) == port(other)
+
+    private fun port(uri: URI): Int = when {
+        uri.port >= 0 -> uri.port
+        uri.scheme.equals("https", ignoreCase = true) -> HTTPS_PORT
+        else -> HTTP_PORT
     }
 
     private fun page(text: String): JsonObject = try {
@@ -102,6 +126,8 @@ internal class ModelCatalog(
 
     private companion object {
         const val MAX_PAGES = 20
+        const val HTTP_PORT = 80
+        const val HTTPS_PORT = 443
         val log = LoggerFactory.getLogger(ModelCatalog::class.java)
     }
 }

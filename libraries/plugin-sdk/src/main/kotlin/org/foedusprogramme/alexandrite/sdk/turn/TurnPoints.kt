@@ -18,7 +18,7 @@ public object TurnPoints {
     public val PROMPT_SECTIONS: InterceptorPoint<PromptSections> =
         InterceptorPoint("prompt.sections", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
 
-    /** Where a replacement narrows the tools, ignoring those the turn does not offer. */
+    /** Where a replacement narrows the tools the turn may call, ignoring those it does not offer. */
     public val TURN_START: InterceptorPoint<TurnStart> =
         InterceptorPoint("turn.start", setOf(HookEffect.REPLACE, HookEffect.ABORT), FailurePolicy.FAIL_OPEN)
 

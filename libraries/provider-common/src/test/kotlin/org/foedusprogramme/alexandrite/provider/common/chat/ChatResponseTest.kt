@@ -151,6 +151,28 @@ class ChatResponseTest {
     }
 
     @Test
+    fun `calls that name no index are told apart by their ids and names`() {
+        fun unindexed(id: String? = null, name: String? = null, arguments: String? = null) =
+            JsonObject(call(0, id, name, arguments) - "index")
+        val events = respond(
+            chunks(
+                chunk { with("tool_calls", calls(unindexed("a", "notes-add", "{\"x\":"))) },
+                chunk { with("tool_calls", calls(unindexed(arguments = "1}"))) },
+                chunk { with("tool_calls", calls(unindexed("b", "notes-add", "{\"y\":2}"))) },
+                chunk { with("tool_calls", calls(unindexed(name = "notes-add", arguments = "{}"))) },
+                chunk("tool_calls"),
+            ),
+            request = request { tools(listOf(testToolDefinition("notes.add"))) },
+        )
+
+        val parts = completed(events).message.parts.map { it as ToolCallPart }
+        assertEquals(
+            listOf("a" to "{\"x\":1}", "b" to "{\"y\":2}", "call-test-turn-2-2" to "{}"),
+            parts.map { it.id.value to it.arguments },
+        )
+    }
+
+    @Test
     fun `a name that names no tool is kept as it came`() {
         val reply = chunks(chunk { with("tool_calls", calls(call(0, "c1", "Weird Name", "{}"))) }, chunk("tool_calls"))
 

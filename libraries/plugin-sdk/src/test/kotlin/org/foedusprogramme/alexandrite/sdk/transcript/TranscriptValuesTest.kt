@@ -190,4 +190,14 @@ class TranscriptValuesTest {
         assertNull(data.with(anthropic, json("""{"other":1}""")).decode(anthropic, Cached.serializer()))
         assertEquals(mapOf(anthropic to json("""{"id":"msg_1","extra":true}""")), data.entries)
     }
+
+    @Serializable
+    private class Checked(val call: ToolCallId)
+
+    @Test
+    fun `provider data whose value fails its own checks does not decode`() {
+        val data = ProviderData.EMPTY.with(anthropic, json("""{"call":""}"""))
+
+        assertNull(data.decode(anthropic, Checked.serializer()))
+    }
 }

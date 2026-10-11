@@ -128,6 +128,10 @@ internal class RecordingChannelPlugin(
     /** The channels of the run, in the order the runtime created them. */
     val created: MutableList<RecordingChannel> = CopyOnWriteArrayList()
 
+    /** Called on each violation that a channel of the run sees. */
+    @Volatile
+    var onProblem: (() -> Unit)? = null
+
     /** The config below the plugin's root. */
     fun config(): JsonObject = JsonObject(
         mapOf(
@@ -168,8 +172,10 @@ internal class RecordingChannelPlugin(
                 config.admins,
                 config.partLength,
                 r.getOrNull(key<TurnSubmitter>()),
-            )
-                .also(created::add)
+            ).also { channel ->
+                channel.onProblem = { onProblem?.invoke() }
+                created += channel
+            }
         },
         binding(
             key<Channel>(),

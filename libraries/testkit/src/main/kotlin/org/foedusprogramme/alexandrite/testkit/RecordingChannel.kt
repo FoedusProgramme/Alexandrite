@@ -30,8 +30,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
  * A channel of the instance [instance] that records what the agent shows and sends, and submits what a test receives
  * through [submitter].
  *
- * A call that breaks the rules of [Channel] or [ReplySink] throws an [AssertionError] and fails the [PluginHarness] run
- * that holds the channel.
+ * A call that breaks the rules of [Channel] or [ReplySink] throws an [IllegalStateException], and stops and fails the
+ * [PluginHarness] run that holds the channel.
  */
 public class RecordingChannel(
     public val instance: ChannelInstanceId = TEST_INSTANCE,
@@ -53,6 +53,10 @@ public class RecordingChannel(
 
     @Volatile
     internal var stopped: Boolean = false
+
+    /** Called on each violation the channel sees. */
+    @Volatile
+    internal var onProblem: (() -> Unit)? = null
 
     init {
         require(partLength > 0) { "A platform message holds at least one character, was $partLength." }
@@ -215,7 +219,8 @@ public class RecordingChannel(
         if (problem == null) return
         val message = "Recording channel $instance saw $problem"
         violationList += message
-        throw AssertionError(message)
+        onProblem?.invoke()
+        throw IllegalStateException(message)
     }
 
     /** Appends [event] to the log, under the lock so that the log keeps the order of the calls. */

@@ -225,18 +225,19 @@ class ScriptedModelTest {
     }
 
     @Test
-    fun `a request that no step answers fails clearly and is a problem`() {
+    fun `a request that no step answers fails clearly, as no retry repeats, and is a problem`() {
         model.reply(RequestMatch.round(3)) { text("later") }
 
-        val unmatched = assertFailsWith<AssertionError> { model.collect(request(model, 0)) }
-        val exhausted = assertFailsWith<AssertionError> { ScriptedModel().let { it.collect(request(it)) } }
+        val unmatched = assertFailsWith<ModelException> { model.collect(request(model, 0)) }.error
+        val exhausted = assertFailsWith<ModelException> { ScriptedModel().let { it.collect(request(it)) } }.error
 
         assertEquals(
             "Scripted model 'scripted' got request 1 (round 0 of turn test-turn, model scripted/test-model), " +
                 "but none of its 1 step(s) matches it: round 3.",
             unmatched.message,
         )
-        assertContains(exhausted.message!!, "but its script has no step left.")
+        assertEquals(ModelErrorKind.INVALID_REQUEST to false, unmatched.kind to unmatched.retryable)
+        assertContains(exhausted.message, "but its script has no step left.")
         assertEquals(listOf(unmatched.message), model.problems)
         val finished = assertFailsWith<AssertionError> { model.assertFinished() }
         assertEquals(
@@ -252,8 +253,8 @@ class ScriptedModelTest {
         val call = ToolCallPart(ToolCallId("c1"), "notes.add", "{}")
         val broken = request(model, history = listOf(testUserEntry(), AssistantEntry(null, listOf(call), model.ref)))
 
-        assertFailsWith<AssertionError> { model.collect(elsewhere) }
-        assertFailsWith<AssertionError> { model.collect(broken) }
+        assertFailsWith<ModelException> { model.collect(elsewhere) }
+        assertFailsWith<ModelException> { model.collect(broken) }
 
         assertEquals(2, model.problems.size)
         assertContains(model.problems[0], "for endpoint 'elsewhere'")

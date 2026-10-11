@@ -145,6 +145,52 @@ class ModelDiscoveryTest {
     }
 
     @Test
+    fun `a listing that fails keeps the models the endpoint listed last`() {
+        server.enqueue(fakeResponse { body(listing(model("a"))) }, "/v1/models")
+        server.enqueue(FakeResponse.builder(503).body("{}").build(), "/v1/models")
+        val endpoint = chatEndpoint(server, ChatFlavor.STANDARD, emptyMap())
+
+        val (first, second) = runBlocking { endpoint.use { listOf(it.models(), it.models()) } }
+
+        assertEquals(listOf("a"), first.map { it.id })
+        assertEquals(first, second)
+        assertEquals(2, server.requests.size)
+    }
+
+    @Test
+    fun `a listing that names no URL lists nothing`() {
+        val listing = object : ModelListing() {
+            override fun urls(baseUrl: String): List<String> = emptyList()
+        }
+
+        val models = models(ChatFlavor(Dialect("custom"), listing), mapOf("mine" to ModelConfig()))
+
+        assertEquals(setOf("mine"), models.keys)
+        assertTrue(server.requests.isEmpty())
+    }
+
+    @Test
+    fun `a next page on another origin ends the listing`() {
+        val listing = object : ModelListing() {
+            override fun next(page: JsonObject): String? = page.string("next")
+        }
+        for (next in listOf("http://elsewhere.invalid/v1/models?page=2", "https://127.0.0.1:1/v1/models?page=2")) {
+            val page = buildJsonObject {
+                putJsonArray("data") { add(model("a")) }
+                put("next", next)
+            }
+            server.enqueue(fakeResponse { body(page.toString()) }, "/v1/models")
+        }
+
+        val elsewhere = models(ChatFlavor(Dialect("custom"), listing))
+        val otherScheme = models(ChatFlavor(Dialect("custom"), listing))
+
+        assertEquals(listOf("a"), elsewhere.keys.toList())
+        assertEquals(listOf("a"), otherScheme.keys.toList())
+        assertEquals(2, server.requests.size)
+    }
+
+    @Test
     fun `a listing in no JSON object breaks the protocol`() {
         server.enqueue(fakeResponse { body("[]") }, "/v1/models")
 

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Semaphore
@@ -116,7 +117,9 @@ internal class TurnWorkers(
         lock.locked {
             val worker = workers.getOrPut(key) {
                 val created = Worker(key)
-                created.loop = lock.launch { work(created) }
+                val loop = lock.launch { work(created) }
+                loop.invokeOnCompletion { error -> error?.let { stopped(created, it) } }
+                created.loop = loop
                 created
             }
             worker.queue.addLast(job)
@@ -124,15 +127,20 @@ internal class TurnWorkers(
     }
 
     /**
-     * Takes the messages of [principal] queued at [key] since [since] off its queue, in arrival order, up to the first
-     * change of the key's state.
+     * Takes the messages that [principal] sent in [chat] and queued at [key] since [since] off its queue, in arrival
+     * order, up to the first change of the key's state.
      */
-    fun takeFollowUps(key: AgentChatKey, principal: UserAddress, since: Instant): List<WorkerJob.Turn> = lock.locked {
+    fun takeFollowUps(
+        key: AgentChatKey,
+        principal: UserAddress,
+        chat: ChatAddress,
+        since: Instant,
+    ): List<WorkerJob.Turn> = lock.locked {
         val queue = workers[key]?.queue ?: return@locked emptyList()
         val taken = queue.asSequence()
             .takeWhile { it is WorkerJob.Turn }
             .filterIsInstance<WorkerJob.Turn>()
-            .filter { it.plan.isFollowUp(principal, since) }
+            .filter { it.plan.isFollowUp(principal, chat, since) }
             .toList()
         queue.removeAll { job -> taken.any { it === job } }
         taken
@@ -223,9 +231,11 @@ internal class TurnWorkers(
     }
 
     private suspend fun work(worker: Worker) {
-        val loaded = load(worker.key)
-        lock.locked { worker.conversation = loaded }
         while (true) {
+            if (lock.locked { worker.conversation == null && worker.queue.any { it.readsCurrent } }) {
+                val loaded = load(worker.key)
+                lock.locked { worker.conversation = loaded }
+            }
             val current = lock.locked { take(worker) } ?: return
             when (val job = current.job) {
                 is WorkerJob.Control -> control(worker, job)
@@ -270,20 +280,18 @@ internal class TurnWorkers(
                 }
                 runner.run(turn.plan, QueuedFollowUps(turn.plan.key))
             }
-        } catch (e: CancellationException) {
-            if (currentCoroutineContext().isActive) {
-                failed(turn, e)
-            } else {
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            if (e is CancellationException && !currentCoroutineContext().isActive) {
                 turn.ticket.complete(interrupted(current, e))
                 throw e
             }
-        } catch (e: Exception) {
             failed(turn, e)
         }
         turn.ticket.complete(outcome)
     }
 
-    private fun failed(turn: WorkerJob.Turn, error: Exception): TurnOutcome {
+    private fun failed(turn: WorkerJob.Turn, error: Throwable): TurnOutcome {
         logger.error("Turn {} of {} failed", turn.plan.id, turn.plan.key, error)
         return TurnOutcome.Failed(error.toString())
     }
@@ -301,22 +309,43 @@ internal class TurnWorkers(
         try {
             job.effect()
             job.done.complete(Unit)
-        } catch (e: CancellationException) {
+        } catch (e: Throwable) {
             job.done.completeExceptionally(e)
-            throw e
-        } catch (e: Exception) {
-            job.done.completeExceptionally(e)
+            if (e is VirtualMachineError) throw e
+            currentCoroutineContext().ensureActive()
+            if (e !is Exception) logger.error("A change of {} failed", worker.key, e)
         }
+        if (lock.locked { worker.conversation == null }) return
         val loaded = load(worker.key)
         lock.locked { worker.conversation = loaded }
+    }
+
+    /** Removes [worker], whose loop ended with [error], and ends the jobs still queued there. */
+    private fun stopped(worker: Worker, error: Throwable) {
+        lock.locked {
+            if (workers[worker.key] === worker) workers.remove(worker.key)
+            val outcome = if (error is CancellationException) {
+                TurnOutcome.ShutDown(replayable = true)
+            } else {
+                logger.error("The worker of {} stopped", worker.key, error)
+                TurnOutcome.Failed("The worker of its chat stopped: $error")
+            }
+            for (job in worker.queue) {
+                when (job) {
+                    is WorkerJob.Turn -> job.ticket.complete(outcome)
+                    is WorkerJob.Control -> job.done.completeExceptionally(error)
+                }
+            }
+            worker.queue.clear()
+        }
     }
 
     /** The follow-ups queued at [key] for the turn running there. */
     private inner class QueuedFollowUps(private val key: AgentChatKey) : FollowUps {
         private val taken = HashMap<TurnId, WorkerJob.Turn>()
 
-        override fun take(principal: UserAddress, since: Instant): List<FollowUp> =
-            takeFollowUps(key, principal, since).map { job ->
+        override fun take(principal: UserAddress, chat: ChatAddress, since: Instant): List<FollowUp> =
+            takeFollowUps(key, principal, chat, since).map { job ->
                 taken[job.plan.id] = job
                 FollowUp(job.plan) { job.ticket.complete(it) }
             }
@@ -328,18 +357,18 @@ internal class TurnWorkers(
 
     private suspend fun load(key: AgentChatKey): ConversationId? = try {
         store.current(key).id
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
+        if (e is VirtualMachineError) throw e
+        currentCoroutineContext().ensureActive()
         logger.warn("Cannot read the current conversation of {}: {}", key, e.toString())
         null
     }
 
     private suspend fun loadHeartbeatBase(key: AgentChatKey): ConversationId? = try {
         store.heartbeatBase(key).id
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
+    } catch (e: Throwable) {
+        if (e is VirtualMachineError) throw e
+        currentCoroutineContext().ensureActive()
         logger.warn("Cannot read the heartbeat base conversation of {}: {}", key, e.toString())
         null
     }
@@ -368,6 +397,9 @@ private class Worker(val key: AgentChatKey) {
     }
 }
 
+/** Whether this job is a turn that runs in the key's current conversation. */
+private val WorkerJob.readsCurrent: Boolean get() = this is WorkerJob.Turn && plan.kind != TurnKind.HEARTBEAT
+
 /** The job a worker took from its queue. */
 private class Current(val job: WorkerJob) {
     var child: Job? = null
@@ -382,11 +414,13 @@ private class Current(val job: WorkerJob) {
     }
 }
 
-/** Whether this turn answers a message that [principal] queued since [since]. */
-private fun TurnPlan.isFollowUp(principal: UserAddress, since: Instant): Boolean = kind == TurnKind.MESSAGE &&
-    input is TurnSource.FromMessage &&
-    actor?.address == principal &&
-    !queuedAt.isBefore(since)
+/** Whether this turn answers a message that [principal] sent in [chat] and queued since [since]. */
+private fun TurnPlan.isFollowUp(principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =
+    kind == TurnKind.MESSAGE &&
+        input is TurnSource.FromMessage &&
+        actor?.address == principal &&
+        origin == chat &&
+        !queuedAt.isBefore(since)
 
 private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Instant?): TurnStatus {
     val turn = TurnInfo.builder(plan.id, plan.origin, conversation, plan.kind)

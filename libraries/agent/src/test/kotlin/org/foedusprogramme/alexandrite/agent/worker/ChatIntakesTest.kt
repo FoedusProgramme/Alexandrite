@@ -139,6 +139,25 @@ class ChatIntakesTest {
     }
 
     @Test
+    fun `the messages held for a switch whose read throws an error fail`() = runTest {
+        val bench = WorkerBench(this)
+        bench.reads.hold()
+        val held = bench.receive("test:solo:3")
+        bench.reads.failure = NotImplementedError("Not yet.")
+
+        logged {
+            bench.reads.release()
+            runCurrent()
+        }
+
+        assertEquals(
+            TurnOutcome.Failed("Cannot read which agent serves test:solo:3: kotlin.NotImplementedError: Not yet."),
+            held.ticket.outcome(),
+        )
+        assertEquals(emptySet(), bench.intakes.chats)
+    }
+
+    @Test
     fun `a held message is dropped by its ticket`() = runTest {
         val bench = WorkerBench(this)
         bench.intakes.gate(gated, command)

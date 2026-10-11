@@ -10,7 +10,9 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.provider.common.TurnContextSetting
+import org.foedusprogramme.alexandrite.provider.common.callText
 import org.foedusprogramme.alexandrite.provider.common.obj
+import org.foedusprogramme.alexandrite.provider.common.resultHeading
 import org.foedusprogramme.alexandrite.provider.common.string
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
@@ -19,7 +21,6 @@ import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
 import org.foedusprogramme.alexandrite.sdk.model.Warning
-import org.foedusprogramme.alexandrite.sdk.tool.ToolNames
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
@@ -67,6 +68,8 @@ internal class MessagesRequest(
 
     private val breakpoint = flavor.caching.breakpoint.takeIf { settings.promptCaching }
 
+    private val offersTools = request.tools.isNotEmpty()
+
     private val effort = if (request.tools.isEmpty()) request.options.reasoning else flavor.tools.effort(request, info)
 
     private val sent = effort?.takeIf { it in info.reasoningEfforts }
@@ -86,7 +89,7 @@ internal class MessagesRequest(
     private fun build(): JsonObject {
         val tools = request.tools.map { tool ->
             buildJsonObject {
-                put("name", ToolNames.wire(tool.name))
+                put("name", flavor.tools.wireName(tool.name))
                 put("description", tool.description)
                 put("input_schema", tool.parameters)
             }
@@ -120,7 +123,7 @@ internal class MessagesRequest(
 
                 is SummaryEntry -> user(listOf(text(entry.text)))
 
-                is ToolResultEntry -> user(listOf(toolResult(entry)))
+                is ToolResultEntry -> user(if (offersTools) listOf(toolResult(entry)) else resultText(entry))
 
                 is AssistantEntry -> {
                     val current = entry.record?.let { it.turn == request.ids.turn } ?: (index >= request.turnStart)
@@ -223,7 +226,7 @@ internal class MessagesRequest(
             when (part) {
                 is TextPart -> part.text.takeIf { it.isNotEmpty() }?.let(::text)
                 is ReasoningPart -> flavor.reasoning.replay(part, request, flavor.dialect).takeIf { current || !unkept }
-                is ToolCallPart -> toolUse(part)
+                is ToolCallPart -> if (offersTools) toolUse(part) else callBlock(part)
                 is OpaquePart -> part.json.takeIf { part.dialect == flavor.dialect }
                 else -> null
             }
@@ -275,23 +278,32 @@ internal class MessagesRequest(
 
     private fun toolUse(call: ToolCallPart): JsonObject = buildJsonObject {
         put("type", "tool_use")
-        put("id", call.id.value)
-        put("name", if (ToolNames.PATTERN.matches(call.name)) ToolNames.wire(call.name) else call.name)
+        put("id", flavor.tools.wireCallId(call.id))
+        put("name", flavor.tools.wireName(call.name))
         put("input", call.parseArguments() ?: JsonObject(emptyMap()))
     }
 
+    private fun callBlock(call: ToolCallPart): JsonObject = text(callText(call, flavor.tools.wireName(call.name)))
+
     private fun toolResult(entry: ToolResultEntry): JsonObject = buildJsonObject {
         put("type", "tool_result")
-        put("tool_use_id", entry.callId.value)
-        val content = entry.content.mapNotNull { part ->
-            when (part) {
-                is TextPart -> part.text.takeIf { it.isNotEmpty() }?.let(::text)
-                is MediaPart -> media(part)
-                else -> null
-            }
-        }
+        put("tool_use_id", flavor.tools.wireCallId(entry.callId))
+        val content = resultContent(entry)
         if (content.isNotEmpty()) put("content", JsonArray(content))
         if (entry.outcome.isError) put("is_error", true)
+    }
+
+    /** The blocks that stand for the result [entry] in a request that offers no tools. */
+    private fun resultText(entry: ToolResultEntry): List<JsonObject> =
+        listOf(text(resultHeading(flavor.tools.wireName(entry.toolName), entry.outcome.isError))) +
+            resultContent(entry)
+
+    private fun resultContent(entry: ToolResultEntry): List<JsonObject> = entry.content.mapNotNull { part ->
+        when (part) {
+            is TextPart -> part.text.takeIf { it.isNotEmpty() }?.let(::text)
+            is MediaPart -> media(part)
+            else -> null
+        }
     }
 
     /**

@@ -204,7 +204,7 @@ class TurnValuesTest {
     // Control values.
 
     @Test
-    fun `a turn status has a start time exactly when it runs, no earlier than it was queued`() {
+    fun `a turn status has a start time exactly when it runs, also one before its queue time`() {
         val turn = TurnInfo.builder(TurnId("t1"), chat, ConversationId("c1"), TurnKind.MESSAGE).actor(ada).build()
         val queued = TurnStatus.builder(turn, TurnPhase.QUEUED, at).build()
         val running = queued.rebuild {
@@ -216,7 +216,7 @@ class TurnValuesTest {
         assertEquals(at.plusSeconds(1), running.startedAt)
         assertFailsWith<IllegalArgumentException> { queued.rebuild { startedAt(at) } }
         assertFailsWith<IllegalArgumentException> { queued.rebuild { phase(TurnPhase.RUNNING) } }
-        assertFailsWith<IllegalArgumentException> { running.rebuild { startedAt(at.minusSeconds(1)) } }
+        assertEquals(at.minusSeconds(1), running.rebuild { startedAt(at.minusSeconds(1)) }.startedAt)
     }
 
     @Test

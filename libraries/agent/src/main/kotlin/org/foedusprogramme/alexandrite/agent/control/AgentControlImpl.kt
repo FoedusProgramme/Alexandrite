@@ -23,6 +23,7 @@ import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.routing.LinkGroup
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
+import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
 import org.foedusprogramme.alexandrite.agent.worker.RunningTurn
 import org.foedusprogramme.alexandrite.agent.worker.TurnWorkers
@@ -76,6 +77,7 @@ internal class AgentControlImpl(
     private val states: SettingsStates,
     private val workers: TurnWorkers,
     private val intakes: ChatIntakes,
+    private val initiation: AgentTurnInitiation,
     private val lanes: CommandLanes,
     private val conversations: ConversationStore,
     private val endpoints: Endpoints,
@@ -100,7 +102,7 @@ internal class AgentControlImpl(
 
     override fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean {
         val cause = TurnCancelled(by)
-        val found = intakes.cancel(turn, cause) || lanes.cancel(turn, cause)
+        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause)
         if (found) logger.info("Turn {} is cancelled by {}", turn, who(by))
         return found
     }

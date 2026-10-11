@@ -2,7 +2,9 @@ package org.foedusprogramme.alexandrite.agent.worker
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
@@ -161,9 +163,9 @@ internal class ChatIntakes(
             val error = try {
                 router.resolve(intake.chat)
                 null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                if (e is VirtualMachineError) throw e
+                currentCoroutineContext().ensureActive()
                 e
             }
             lock.locked {

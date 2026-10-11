@@ -11,10 +11,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import org.foedusprogramme.alexandrite.provider.common.callText
+import org.foedusprogramme.alexandrite.provider.common.resultHeading
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.Warning
-import org.foedusprogramme.alexandrite.sdk.tool.ToolNames
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
@@ -44,6 +45,8 @@ internal class ChatRequest(
 
     private val messages = mutableListOf<Message>()
 
+    private val offersTools = request.tools.isNotEmpty()
+
     val body: JsonObject = build()
 
     private fun build(): JsonObject {
@@ -59,9 +62,18 @@ internal class ChatRequest(
         for (entry in request.history) {
             when (entry) {
                 is UserEntry -> user(entry.parts.flatMap(::content))
+
                 is SummaryEntry -> user(listOf(Content.Text(entry.text)))
+
                 is AssistantEntry -> messages += Message.Plain(assistant(entry))
-                is ToolResultEntry -> messages += Message.Plain(tool(entry))
+
+                is ToolResultEntry -> if (offersTools) {
+                    messages += Message.Plain(
+                        tool(entry),
+                    )
+                } else {
+                    user(resultText(entry))
+                }
             }
         }
         if (request.turnContext.isNotEmpty()) {
@@ -85,7 +97,7 @@ internal class ChatRequest(
                 addJsonObject {
                     put("type", "function")
                     putJsonObject("function") {
-                        put("name", ToolNames.wire(tool.name))
+                        put("name", flavor.tools.wireName(tool.name))
                         put("description", tool.description)
                         put("parameters", tool.parameters)
                     }
@@ -115,7 +127,12 @@ internal class ChatRequest(
         if (options.stopSequences.isNotEmpty()) {
             putJsonArray("stop") { options.stopSequences.forEach { add(JsonPrimitive(it)) } }
         }
-        options.reasoning?.let { effort -> flavor.reasoning.request(effort, info, this)?.let(warnings::add) }
+        val effort = options.reasoning
+        if (effort == null) {
+            flavor.reasoning.requestNoEffort(info, this)
+        } else {
+            flavor.reasoning.request(effort, info, this)?.let(warnings::add)
+        }
     }
 
     private fun user(contents: List<Content>) {
@@ -143,17 +160,19 @@ internal class ChatRequest(
 
     private fun assistant(entry: AssistantEntry): JsonObject = buildJsonObject {
         put("role", "assistant")
-        put("content", entry.parts.filterIsInstance<TextPart>().joinToString(SEPARATOR) { it.text })
-        flavor.reasoning.replay(entry.parts.filterIsInstance<ReasoningPart>(), request, this)
         val calls = entry.parts.filterIsInstance<ToolCallPart>()
-        if (calls.isEmpty()) return@buildJsonObject
+        val texts = entry.parts.filterIsInstance<TextPart>().map { it.text }
+        val written = if (offersTools) texts else texts + calls.map { callText(it, flavor.tools.wireName(it.name)) }
+        put("content", written.joinToString(SEPARATOR))
+        flavor.reasoning.replay(entry.parts.filterIsInstance<ReasoningPart>(), request, this)
+        if (calls.isEmpty() || !offersTools) return@buildJsonObject
         putJsonArray("tool_calls") {
             for (call in calls) {
                 addJsonObject {
-                    put("id", call.id.value)
+                    put("id", flavor.tools.wireCallId(call.id))
                     put("type", "function")
                     putJsonObject("function") {
-                        put("name", if (ToolNames.PATTERN.matches(call.name)) ToolNames.wire(call.name) else call.name)
+                        put("name", flavor.tools.wireName(call.name))
                         put("arguments", call.arguments.ifEmpty { "{}" })
                     }
                 }
@@ -163,16 +182,24 @@ internal class ChatRequest(
 
     private fun tool(entry: ToolResultEntry): JsonObject = buildJsonObject {
         put("role", "tool")
-        put("tool_call_id", entry.callId.value)
-        val text = entry.content.mapNotNull { part ->
-            when (part) {
-                is TextPart -> part.text
-                is MediaPart -> placeholder(part, "a tool result carries text only")
-                else -> null
-            }
-        }
-        put("content", text.joinToString(SEPARATOR))
+        put("tool_call_id", flavor.tools.wireCallId(entry.callId))
+        put("content", resultContent(entry))
     }
+
+    /** What stands for the result [entry] in a request that offers no tools. */
+    private fun resultText(entry: ToolResultEntry): List<Content> {
+        val heading = resultHeading(flavor.tools.wireName(entry.toolName), entry.outcome.isError)
+        val content = resultContent(entry)
+        return listOf(Content.Text(if (content.isEmpty()) heading else "$heading\n$content"))
+    }
+
+    private fun resultContent(entry: ToolResultEntry): String = entry.content.mapNotNull { part ->
+        when (part) {
+            is TextPart -> part.text
+            is MediaPart -> placeholder(part, "a tool result carries text only")
+            else -> null
+        }
+    }.joinToString(SEPARATOR)
 
     private fun placeholder(part: MediaPart, why: String): String =
         "[${part.kind} ${part.name ?: part.mediaType} not shown: $why]"

@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.model
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
@@ -10,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -48,7 +50,7 @@ internal class Endpoints(providers: List<ModelProvider>, settings: AgentSettings
         val listing = requireNotNull(listings[id]) { "No model endpoint '$id'." }
         return listing.lock.withLock {
             val now = clock.instant()
-            listing.cached(now) ?: listing.endpoint.models().toList().also { listing.store(it, now) }
+            listing.cached(now) ?: listing.list(now)
         }
     }
 
@@ -62,9 +64,30 @@ internal class Endpoints(providers: List<ModelProvider>, settings: AgentSettings
 
         fun cached(now: Instant): List<ModelInfo>? = models?.takeIf { now < listedAt.plus(ttl) }
 
+        /** The models the endpoint lists now, else those it listed last. */
+        suspend fun list(now: Instant): List<ModelInfo> {
+            val listed = try {
+                endpoint.models().toList()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val last = models ?: throw e
+                logger.warn(
+                    "Cannot list the models of endpoint '{}', so it keeps its last listing: {}",
+                    endpoint.id,
+                    e.toString(),
+                )
+                last
+            }
+            store(listed, now)
+            return listed
+        }
+
         fun store(models: List<ModelInfo>, now: Instant) {
             this.models = models
             listedAt = now
         }
     }
 }
+
+private val logger = LoggerFactory.getLogger(Endpoints::class.java)

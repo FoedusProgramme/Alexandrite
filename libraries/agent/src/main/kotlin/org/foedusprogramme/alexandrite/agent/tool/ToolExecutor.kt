@@ -58,10 +58,22 @@ internal class ToolExecutor(
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
 
-    /** How [call] in [turn] ends, where the turn offers [tools] and a tool may run for [timeout]. */
-    suspend fun execute(turn: TurnInfo, call: ToolCallPart, tools: Map<String, Tool>, timeout: Duration): ToolCallEnd {
+    /**
+     * How [call] in [turn] ends, where the turn offers [tools], may call those named in [callable] and a tool may run
+     * for [timeout].
+     */
+    suspend fun execute(
+        turn: TurnInfo,
+        call: ToolCallPart,
+        tools: Map<String, Tool>,
+        timeout: Duration,
+        callable: Set<String> = tools.keys,
+    ): ToolCallEnd {
         val tool = tools[call.name]
             ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL)
+        if (call.name !in callable) {
+            return ended(call, "This turn may not call '${call.name}'.", NotRunReason.NOT_PERMITTED)
+        }
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS)
         val definition = tool.definition
@@ -98,7 +110,8 @@ internal class ToolExecutor(
                 if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
                 stop(running, turn, call, if (turnCause(e) is TurnShutdown) shutdownWait else ABANDON_AFTER)
                 throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                if (e is VirtualMachineError) throw e
                 logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
                 val why = e.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
                 return textResult(call, "The tool failed: $why", ToolOutcome.Failed)

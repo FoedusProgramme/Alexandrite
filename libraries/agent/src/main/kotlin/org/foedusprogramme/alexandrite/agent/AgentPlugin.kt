@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.control.CommandLanes
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.turn.Recovery
+import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
 import org.foedusprogramme.alexandrite.agent.worker.TurnWorkers
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
@@ -21,6 +22,7 @@ public class AgentPlugin internal constructor(
     private val directory: AgentDirectory,
     private val endpoints: Endpoints,
     private val intakes: ChatIntakes,
+    private val initiation: AgentTurnInitiation,
     private val lanes: CommandLanes,
     private val workers: TurnWorkers,
     private val recovery: Recovery,
@@ -41,6 +43,7 @@ public class AgentPlugin internal constructor(
     }
 
     override suspend fun onDrain() {
+        initiation.shutDown()
         intakes.shutDown()
         lanes.shutDown()
         val shutdown = settings.shutdown

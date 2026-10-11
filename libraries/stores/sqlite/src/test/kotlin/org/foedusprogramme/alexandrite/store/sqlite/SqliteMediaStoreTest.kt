@@ -53,12 +53,29 @@ class SqliteMediaStoreTest {
     }
 
     @Test
-    fun `a media file that does not hold the stored bytes is refused`() {
+    fun `a media file that does not hold the stored bytes reads as gone until the bytes are put again`() {
         withStore(directory) {
             val stored = media.put(bytes, MediaKind.IMAGE, "image/png")
             Files.write(mediaDirectory.resolve(sha256.take(2)).resolve(sha256), "another photo".encodeToByteArray())
 
-            assertFailsWith<IllegalStateException> { media.read(stored.id) }
+            assertNull(media.read(stored.id))
+            assertNull(media.read(stored.id))
+            val again = media.put(bytes, MediaKind.IMAGE, "image/png")
+
+            assertEquals(bytes.toList(), media.read(stored.id)?.toList())
+            assertEquals(bytes.toList(), media.read(again.id)?.toList())
+        }
+    }
+
+    @Test
+    fun `a media file cut short is written again when its bytes are put again`() {
+        withStore(directory) {
+            val stored = media.put(bytes, MediaKind.IMAGE, "image/png")
+            Files.write(mediaDirectory.resolve(sha256.take(2)).resolve(sha256), bytes.copyOf(3))
+
+            media.put(bytes, MediaKind.IMAGE, "image/png")
+
+            assertEquals(bytes.toList(), media.read(stored.id)?.toList())
         }
     }
 

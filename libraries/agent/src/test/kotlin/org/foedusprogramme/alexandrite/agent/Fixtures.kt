@@ -4,8 +4,8 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.AppenderBase
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
@@ -163,11 +163,13 @@ class CountingTranscripts(private val store: TranscriptStore) : TranscriptStore 
         store.entriesAfter(conversation, after).also { reads += "entriesAfter $after" }
 }
 
-/** A plugin that binds the store ports of [store], with [conversations] and [transcripts] in place of its own. */
+/** A plugin that binds the store ports of [store], or the ports given in their place. */
 class StoreIndex(
     private val store: MemoryStore,
     private val conversations: ConversationStore = store.conversations,
     private val transcripts: TranscriptStore = store.transcripts,
+    private val media: MediaStore = store.media,
+    private val chatStates: ChatStateStore = store.chatStates,
 ) : PluginIndex {
     override val info = PluginInfo(ID, ID, "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Plugin")
     override val configRoot = PluginIds.thirdPartyRoot(ID)
@@ -175,8 +177,8 @@ class StoreIndex(
     override fun bindings(): List<Binding<*>> = listOf(
         instanceBinding(key<ConversationStore>(), conversations, ID, "conversations"),
         instanceBinding(key<TranscriptStore>(), transcripts, ID, "transcripts"),
-        instanceBinding(key<MediaStore>(), store.media, ID, "media"),
-        instanceBinding(key<ChatStateStore>(), store.chatStates, ID, "chat states"),
+        instanceBinding(key<MediaStore>(), media, ID, "media"),
+        instanceBinding(key<ChatStateStore>(), chatStates, ID, "chat states"),
     )
 
     override fun configSections(): List<ConfigSectionSpec<*>> = emptyList()
@@ -186,9 +188,9 @@ class StoreIndex(
     }
 }
 
-/** The background scope of [test] as a plugin's scope. */
-fun pluginScope(test: TestScope): PluginScope = object : PluginScope {
-    override val coroutineContext: CoroutineContext = test.backgroundScope.coroutineContext
+/** [scope] as a plugin's scope. */
+fun pluginScope(scope: CoroutineScope): PluginScope = object : PluginScope {
+    override val coroutineContext: CoroutineContext = scope.coroutineContext
 }
 
 internal fun settings(json: String): AgentSettings = Json.decodeFromString(AgentSettings.serializer(), json)

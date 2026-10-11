@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.agent.worker
 
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -13,18 +16,22 @@ import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.model.Trust
+import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
+import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -164,10 +171,11 @@ class TurnWorkersTest {
         val behind = bench.receive("test:main:1")
         val followUps = bench.runner.followUps.getValue(running)
 
-        val taken = followUps.take(member, since)
+        val chat = ChatAddress.parse("test:main:1")
+        val taken = followUps.take(member, chat, since)
 
         assertEquals(listOf(late.turn, later.turn), taken.map { it.plan.id })
-        assertEquals(emptyList(), followUps.take(member, since))
+        assertEquals(emptyList(), followUps.take(member, chat, since))
         assertEquals(listOf(running, early.turn, other.turn, behind.turn), bench.phases().map { it.first })
         taken.first().complete(TurnOutcome.Absorbed(running))
         followUps.restore(taken.drop(1))
@@ -179,13 +187,33 @@ class TurnWorkersTest {
     }
 
     @Test
+    fun `a running turn takes no message its principal sent in another chat of its linked group`() = runTest {
+        val bench = bench(perKey = 10)
+        val running = bench.receive("test:main:7").turn
+        runCurrent()
+        val elsewhere = bench.receive("test:main:8")
+        val here = bench.receive("test:main:7")
+        val followUps = bench.runner.followUps.getValue(running)
+
+        val taken = followUps.take(UserAddress.parse("test:main@member"), ChatAddress.parse("test:main:7"), Instant.MIN)
+
+        assertEquals(listOf(here.turn), taken.map { it.plan.id })
+        assertEquals(listOf(running, elsewhere.turn), bench.phases().map { it.first })
+    }
+
+    @Test
     fun `follow-ups put back once the workers closed end as never started`() = runTest {
         val bench = bench(perKey = 10)
         val running = bench.receive("test:main:1").turn
         runCurrent()
         val followUp = bench.receive("test:main:1")
         val followUps = bench.runner.followUps.getValue(running)
-        val taken = followUps.take(UserAddress.parse("test:main@member"), bench.clock.instant())
+        val taken =
+            followUps.take(
+                UserAddress.parse("test:main@member"),
+                ChatAddress.parse("test:main:1"),
+                bench.clock.instant(),
+            )
 
         bench.workers.close()
         followUps.restore(taken)
@@ -245,6 +273,71 @@ class TurnWorkersTest {
         assertEquals(TurnOutcome.Failed("java.lang.IllegalStateException: Broken."), failing.ticket.outcome())
         assertEquals(listOf("ERROR Turn ${failing.turn} of coder@test:main:1 failed"), lines)
         assertEquals(listOf(failing.turn, next.turn), bench.runner.started)
+    }
+
+    @Test
+    fun `a control that throws an error fails and the worker goes on`() = runTest {
+        val bench = bench()
+        val key = AgentChatKey.parse("coder@test:main:1")
+        val control = WorkerJob.Control { TODO("Not yet.") }
+        bench.workers.enqueue(key, control)
+        val next = bench.receive("test:main:1")
+
+        val lines = logged { runCurrent() }
+
+        assertTrue(control.done.getCompletionExceptionOrNull() is NotImplementedError)
+        assertEquals(listOf(next.turn), bench.runner.started)
+        assertEquals(listOf("ERROR A change of coder@test:main:1 failed"), lines)
+    }
+
+    @Test
+    fun `a read of the current conversation that throws an error leaves the worker running`() = runTest {
+        val store = MemoryStore(TestClock())
+        val broken = object : ConversationStore by store.conversations {
+            override suspend fun current(key: AgentChatKey): ConversationInfo = TODO("Not yet.")
+        }
+        val bench = WorkerBench(this, store = store, conversations = broken)
+
+        val turn = bench.receive("test:main:1")
+        logged { runCurrent() }
+
+        assertEquals(listOf(turn.turn), bench.runner.started)
+    }
+
+    @Test
+    fun `a worker whose loop dies is removed and ends what it held, and the key gets a new worker`() = runTest {
+        val scope =
+            CoroutineScope(backgroundScope.coroutineContext + SupervisorJob() + CoroutineExceptionHandler { _, _ -> })
+        val bench = WorkerBench(this, scope = scope)
+        val key = AgentChatKey.parse("coder@test:main:1")
+        val control = WorkerJob.Control {}
+        bench.workers.enqueue(key, WorkerJob.Control { throw FatalError() })
+        val queued = bench.receive("test:main:1")
+        bench.workers.enqueue(key, control)
+
+        logged { runCurrent() }
+
+        assertTrue(queued.ticket.outcome() is TurnOutcome.Failed)
+        assertTrue(control.done.getCompletionExceptionOrNull() is FatalError)
+        assertEquals(emptySet(), bench.workers.keys)
+        val next = bench.receive("test:main:1")
+        runCurrent()
+        assertEquals(listOf(next.turn), bench.runner.started)
+    }
+
+    @Test
+    fun `a key that runs only heartbeats gets no conversation of its users`() = runTest {
+        val bench = bench(perKey = 3)
+        val key = AgentChatKey.parse("coder@test:main:1")
+        val beats = List(2) { bench.heartbeat(key) }
+        runCurrent()
+        beats.forEach {
+            bench.runner.finish(it)
+            runCurrent()
+        }
+
+        assertEquals(beats, bench.runner.started)
+        assertEquals(emptyList(), bench.store.conversations.chats(AgentId("coder")))
     }
 
     @Test
@@ -411,3 +504,6 @@ class TurnWorkersTest {
         assertTrue(bench.receive("test:main:1") is Admission.Accepted)
     }
 }
+
+/** An error that the barriers let through. */
+private class FatalError : VirtualMachineError("Fatal.")

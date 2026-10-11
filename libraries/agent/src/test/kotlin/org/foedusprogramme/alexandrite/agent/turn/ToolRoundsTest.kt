@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.turn
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.jsonPrimitive
+import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
@@ -14,6 +15,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ToolChoice
+import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
@@ -41,6 +43,7 @@ import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordedReply.Preview
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -216,6 +219,35 @@ class ToolRoundsTest {
     }
 
     // Parallel calls.
+
+    @Test
+    fun `the media of results that parallel calls return are stored one at a time`() {
+        val media = OneAtATime(store.media)
+        val returned = CompletableDeferred<Unit>()
+        val started = AtomicInteger()
+        val shots = listOf("screen.one", "screen.two").map { name ->
+            recordingTool(name) { _, _ ->
+                if (started.incrementAndGet() == 2) returned.complete(Unit)
+                returned.await()
+                ToolResult(listOf(MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(name.encodeToByteArray()))))
+            }
+        }
+        model.reply {
+            toolCall("screen.one")
+            toolCall("screen.two")
+        }.reply { text("Seen.") }
+
+        agentHarness(
+            """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}""",
+            store = null,
+        ) {
+            channel(admins = setOf("admin")).model(model).plugin(StoreIndex(store, media = media))
+            shots.forEach(::tool)
+        }.execute { ask().ticket.outcome() }
+
+        assertEquals(2, media.puts)
+        assertEquals(1, media.mostAtOnce)
+    }
 
     @Test
     fun `read-only calls of one response run at most four at once`() {
@@ -410,18 +442,63 @@ class ToolRoundsTest {
     // Offers.
 
     @Test
-    fun `an admin's turn is offered the agent's read-only tools, any other only those it lists for members`() {
-        val tools = listOf(recordingTool("fs.glob"), recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE))
-        model.reply { text("To the admin.") }.reply { text("To the member.") }
+    fun `every turn is offered the agent's read-only tools, and a member may call only those it lists for members`() {
+        val glob = recordingTool("fs.glob")
+        val tools = listOf(glob, recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE))
+        model.reply { text("To the admin.") }.reply {
+            toolCall("fs.glob")
+            toolCall("fs.read", """{"path": "a"}""")
+        }.reply { text("To the member.") }
 
         harness(""", "tools": {"forMembers": ["fs.read"]}""") { tools.forEach(::tool) }.execute {
             ask().ticket.outcome()
-            ask(user = "member").ticket.outcome()
+            val member = ask(user = "member")
+            member.ticket.outcome()
 
             assertEquals(
-                listOf(listOf("fs.glob", "fs.read"), listOf("fs.read")),
-                model.requests.map { request -> request.tools.map { it.name } },
+                List(3) { listOf("fs.glob", "fs.read") to ToolChoice.Auto },
+                model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
+            val results = results(store.transcripts.turnEntries(member.ticket.turn))
+            assertEquals(
+                NotRun(NotRunReason.NOT_PERMITTED) to "This turn may not call 'fs.glob'.",
+                results.getValue("fs.glob").let { it.outcome to text(it) },
+            )
+            assertEquals(ToolOutcome.Succeeded, results.getValue("fs.read").outcome)
+            assertEquals(emptyList(), glob.calls)
+        }
+    }
+
+    @Test
+    fun `a turn that may call none of the tools it offers forbids calls, and its history keeps earlier tool rounds`() {
+        model.reply { toolCall("fs.read", """{"path": "a"}""") }.reply { text("Read.") }.reply { text("Hello.") }
+
+        harness().execute {
+            ask().ticket.outcome()
+            ask(user = "member").ticket.outcome()
+
+            val (_, _, member) = model.requests
+            assertEquals(listOf("fs.read") to ToolChoice.None, member.tools.map { it.name } to member.toolChoice)
+            assertEquals(model.requests[0].tools, member.tools)
+            assertTrue(member.history.any { it is ToolResultEntry })
+        }
+    }
+
+    @Test
+    fun `a call to a tool that turn start leaves out does not run, while the request still offers it`() {
+        val hook = Interceptor(TurnPoints.TURN_START) { HookDecision.Replace(it.withTools(emptyList())) }
+        model.reply { toolCall("fs.read", """{"path": "a"}""") }.reply { text("Done.") }
+
+        harness { hook(hook) }.execute {
+            ask().ticket.outcome()
+
+            assertEquals(
+                List(2) { listOf("fs.read") to ToolChoice.None },
+                model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
+            )
+            val result = stored().filterIsInstance<ToolResultEntry>().single()
+            assertEquals(NotRun(NotRunReason.NOT_PERMITTED), result.outcome)
+            assertEquals(emptyList(), read.calls)
         }
     }
 
@@ -442,5 +519,32 @@ class ToolRoundsTest {
 
         assertEquals(listOf(emptyList(), emptyList()), model.requests.map { it.tools })
         assertEquals(1, lines.count { it.startsWith("WARN Model scripted/plain takes no tools") })
+    }
+}
+
+/** The media of [store], which counts how many puts run at once. */
+private class OneAtATime(private val store: MediaStore) : MediaStore by store {
+    private val running = AtomicInteger()
+
+    @Volatile
+    var mostAtOnce: Int = 0
+        private set
+
+    @Volatile
+    var puts: Int = 0
+        private set
+
+    override suspend fun put(bytes: ByteArray, kind: MediaKind, mediaType: String): StoredMedia {
+        val now = running.incrementAndGet()
+        synchronized(this) {
+            mostAtOnce = maxOf(mostAtOnce, now)
+            puts++
+        }
+        try {
+            delay(200)
+            return store.put(bytes, kind, mediaType)
+        } finally {
+            running.decrementAndGet()
+        }
     }
 }

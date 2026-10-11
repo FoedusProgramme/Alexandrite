@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
+import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -193,7 +194,7 @@ class HarnessDoublesTest {
 
                 assertEquals(InstanceState.STOPPED, get<ChannelControl>().state(work))
                 assertFailsWith<NoSuchElementException> { channel("work") }
-                assertFailsWith<AssertionError> { sink.preview(0, "late") }
+                assertFailsWith<IllegalStateException> { sink.preview(0, "late") }
             }
         }
 
@@ -210,7 +211,7 @@ class HarnessDoublesTest {
         val harness = PluginHarness.builder(probe).model(model)
 
         val caught = assertFailsWith<AssertionError> {
-            harness.execute { assertFailsWith<AssertionError> { model.collect(request(model)) } }
+            harness.execute { assertFailsWith<ModelException> { model.collect(request(model)) } }
         }
         val alone = assertFailsWith<IllegalStateException> { harness.execute { error("the block failed") } }
         val caused = assertFailsWith<AssertionError> {

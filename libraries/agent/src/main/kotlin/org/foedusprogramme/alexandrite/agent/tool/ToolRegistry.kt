@@ -51,14 +51,17 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory) : Life
     /** The tools [agent] selects that may be offered before the permission layer exists, sorted by name. */
     fun offered(agent: AgentId): List<Tool> = selected[agent].orEmpty().filter { it.definition.risk == OFFERED_RISK }
 
-    /** The tools a turn of [agent] offers [model]: all to an [admin], those of `tools.forMembers` to anyone else. */
-    fun offered(agent: AgentId, admin: Boolean, model: ModelRef, nativeTools: Boolean): List<Tool> {
-        val members = forMembers[agent].orEmpty()
-        val tools = offered(agent).filter { tool -> admin || members.any { it.matches(tool.definition.name) } }
+    /** The tools that every turn of [agent] offers [model]. */
+    fun offered(agent: AgentId, model: ModelRef, nativeTools: Boolean): List<Tool> {
+        val tools = offered(agent)
         if (nativeTools || tools.isEmpty()) return tools
         if (toolless.add(model)) logger.warn("Model {} takes no tools, so its turns are offered none", model)
         return emptyList()
     }
+
+    /** Whether a turn of [agent] may call [tool]: an [admin]'s any, anyone else's those of `tools.forMembers`. */
+    fun permits(agent: AgentId, admin: Boolean, tool: String): Boolean =
+        admin || forMembers[agent].orEmpty().any { it.matches(tool) }
 
     override suspend fun onStart() {
         for ((agent, tools) in selected) {

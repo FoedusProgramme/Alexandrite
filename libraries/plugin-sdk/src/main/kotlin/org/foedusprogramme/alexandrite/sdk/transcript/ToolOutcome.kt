@@ -71,8 +71,12 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The turn ran out of rounds before the call could run. */
         public val ROUND_LIMIT: NotRunReason = NotRunReason("round_limit")
 
+        /** The turn offers the tool but may not call it. */
+        public val NOT_PERMITTED: NotRunReason = NotRunReason("not_permitted")
+
         /** The values this version knows. */
-        public val entries: List<NotRunReason> = listOf(INVALID_ARGUMENTS, UNKNOWN_TOOL, HOOK_DENIED, ROUND_LIMIT)
+        public val entries: List<NotRunReason> =
+            listOf(INVALID_ARGUMENTS, UNKNOWN_TOOL, HOOK_DENIED, ROUND_LIMIT, NOT_PERMITTED)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): NotRunReason = NotRunReason(id)

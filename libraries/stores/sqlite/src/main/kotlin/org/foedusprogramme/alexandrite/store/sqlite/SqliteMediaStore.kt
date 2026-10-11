@@ -25,6 +25,7 @@ import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.time.Duration
 import java.util.HexFormat
+import java.util.concurrent.ConcurrentHashMap
 
 /** The bytes of media, in files under `media` in the plugin's data directory named by their SHA-256. */
 @Singleton
@@ -33,6 +34,9 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
     MediaStore,
     Lifecycle {
     private val directory: Path get() = files.dataDir.resolve(DIRECTORY)
+
+    /** The media whose file was found not to hold their bytes. */
+    private val damaged = ConcurrentHashMap.newKeySet<MediaId>()
 
     override suspend fun onStart() {
         sweep()
@@ -47,7 +51,7 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
         val id = MediaId(newId())
         database.transaction {
             val file = fileOf(sha256)
-            if (!Files.exists(file)) writeAtomically(file) { it.write(bytes) }
+            if (!holds(file, bytes.size, sha256)) writeAtomically(file) { it.write(bytes) }
             execute(
                 "INSERT INTO media (id, kind, media_type, size, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 id.value,
@@ -70,7 +74,10 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
                 null
             }
         } ?: return null
-        check(sha256(bytes) == info.sha256) { "The file of media $id does not hold the bytes that were stored." }
+        if (sha256(bytes) != info.sha256) {
+            if (damaged.add(id)) logger.error("The file of media {} does not hold the bytes that were stored", id)
+            return null
+        }
         return bytes
     }
 
@@ -116,6 +123,13 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
     }
 
     private fun fileOf(sha256: String): Path = directory.resolve(sha256.take(2)).resolve(sha256)
+
+    /** Whether [file] holds [size] bytes whose hash is [sha256]. */
+    private fun holds(file: Path, size: Int, sha256: String): Boolean = try {
+        Files.size(file) == size.toLong() && sha256(Files.readAllBytes(file)) == sha256
+    } catch (e: NoSuchFileException) {
+        false
+    }
 
     /** Deletes every file under [directory] other than those of the hashes in [kept], and returns how many. */
     private fun deleteFilesExcept(kept: Set<String>): Int {

@@ -169,9 +169,10 @@ class ChatRequestTest {
         val round0 = body(request(first) { turnContext(listOf(context)) }).messages()
         val afterTools = first + AssistantEntry(null, listOf(call), model) +
             ToolResultEntry(null, call.id, call.name, listOf(TextPart("Saved.")), ToolOutcome.Succeeded)
-        val round1 = body(request(afterTools, round = 1) { turnContext(listOf(context)) }).messages()
+        val tools = listOf(testToolDefinition("notes.add"))
+        val round1 = body(request(afterTools, round = 1) { turnContext(listOf(context)).tools(tools) }).messages()
         val nextTurn = afterTools + AssistantEntry(null, listOf(TextPart("Done.")), model) + user("Thanks.")
-        val next = body(request(nextTurn)).messages()
+        val next = body(request(nextTurn) { tools(tools) }).messages()
 
         assertEquals("Plan the trip.\n\nRecalled: the user likes tea.", round0.single().text("content"))
         assertEquals("Plan the trip.", round1.first().text("content"))
@@ -183,6 +184,47 @@ class ChatRequestTest {
         )
         assertEquals(round1.dropLast(1), next.take(round1.size - 1))
         assertFalse(next.any { "Recalled" in it.toString() })
+    }
+
+    @Test
+    fun `a request that offers no tools carries its tool rounds as text`() {
+        val history = listOf(
+            user("Note milk."),
+            AssistantEntry(null, listOf(TextPart("Saving."), call), model),
+            ToolResultEntry(null, call.id, call.name, listOf(TextPart("Saved.")), ToolOutcome.Failed),
+            user("Also eggs."),
+        )
+
+        val messages = body(request(history)).messages()
+
+        assertEquals(
+            listOf(
+                "user" to "Note milk.",
+                "assistant" to "Saving.\n\n[Called tool notes-add with {}]",
+                "user" to "[Result of tool notes-add, which failed]\nSaved.\n\nAlso eggs.",
+            ),
+            messages.map { it.text("role") to it.text("content") },
+        )
+        assertNull(messages[1]["tool_calls"])
+    }
+
+    @Test
+    fun `ids and names the API does not take go out in one form for a call and its result, each its own`() {
+        val ids = listOf("functions.fs-read:0", "call 1", "a".repeat(41), "X1")
+        val calls = ids.map { ToolCallPart(ToolCallId(it), "Weird Name", "{}") }
+        val history = listOf(user("Go."), AssistantEntry(null, calls, model)) +
+            calls.map { ToolResultEntry(null, it.id, it.name, listOf(TextPart("Done.")), ToolOutcome.Succeeded) }
+
+        val messages = body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).messages()
+
+        val sent = messages[1]["tool_calls"]!!.jsonArray.map { it.jsonObject }
+        val wireIds = sent.map { it.text("id")!! }
+        assertEquals(wireIds, messages.drop(2).map { it.text("tool_call_id") })
+        assertEquals("functions.fs-read:0", wireIds.first())
+        assertEquals(4, wireIds.distinct().size)
+        assertTrue(wireIds.drop(1).all { Regex("X[0-9a-f]{32}").matches(it) }, "$wireIds")
+        val name = sent.map { it["function"]!!.jsonObject.text("name")!! }.distinct().single()
+        assertTrue(Regex("X[0-9a-f]{32}").matches(name), name)
     }
 
     @Test

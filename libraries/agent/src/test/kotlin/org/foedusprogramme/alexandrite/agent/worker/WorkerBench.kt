@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.worker
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.withContext
@@ -47,6 +48,7 @@ internal class WorkerBench(
     perKey: Int = 2,
     val store: MemoryStore = MemoryStore(TestClock()),
     conversations: ConversationStore = store.conversations,
+    scope: CoroutineScope = test.backgroundScope,
 ) {
     val clock = TestClock()
     val runner = FakeRunner()
@@ -70,7 +72,7 @@ internal class WorkerBench(
     )
     private val directory = agentDirectory(settings, INSTANCES, listOf(provider(ScriptedModel())))
     private val router = ChatRouter(channels(), directory, ChatTopology(directory), SettingsStates(states))
-    val lock = SubmitLock(pluginScope(test))
+    val lock = SubmitLock(pluginScope(scope))
     val workers = TurnWorkers(settings, lock, conversations, runner, clock).also { it.open() }
     val intakes = ChatIntakes(settings, lock, workers, router)
 
@@ -144,7 +146,7 @@ internal class GatedReads(private val store: ChatStateStore) : ChatStateStore {
     private var gate: CompletableDeferred<Unit>? = null
 
     @Volatile
-    var failure: Exception? = null
+    var failure: Throwable? = null
 
     fun hold() {
         gate = CompletableDeferred()

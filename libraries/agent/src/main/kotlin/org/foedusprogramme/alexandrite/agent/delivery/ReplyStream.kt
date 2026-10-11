@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.delivery
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
@@ -8,7 +10,6 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.util.TreeMap
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The previews of the reply of [turn], one segment per round, each passed through [preview] before [sink] shows it.
@@ -73,9 +74,9 @@ internal class ReplyStream(
     private suspend fun toSink(what: String, call: suspend () -> Unit) {
         try {
             call()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            currentCoroutineContext().ensureActive()
             logger.warn("{} of turn {} did not reach its chat: {}", what, turn, e.toString())
         }
     }

@@ -182,7 +182,7 @@ class RecordingChannelTest {
 
     private fun assertViolation(expected: String, call: suspend () -> Unit) {
         val before = channel.events
-        val error = assertFailsWith<AssertionError> { blocking { call() } }
+        val error = assertFailsWith<IllegalStateException> { blocking { call() } }
         assertEquals("Recording channel test:main saw $expected", error.message)
         assertEquals(expected, channel.violations.last().removePrefix("Recording channel test:main saw "))
         assertEquals(before, channel.events)

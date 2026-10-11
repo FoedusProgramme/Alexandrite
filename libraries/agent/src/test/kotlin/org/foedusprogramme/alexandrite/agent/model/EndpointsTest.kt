@@ -88,6 +88,24 @@ class EndpointsTest {
     }
 
     @Test
+    fun `a listing that fails once a listing expired keeps the expired one for another time to live`() {
+        blocking {
+            endpoints.models(EndpointId("local"))
+            local.failure = IOException("down")
+            clock.now += Duration.ofSeconds(60)
+
+            assertEquals(listOf("llama", "qwen"), endpoints.models(EndpointId("local")).map { it.id })
+            assertEquals("qwen", endpoints.model(ModelRef.parse("local/qwen"))?.id)
+            assertEquals(2, local.listings)
+
+            local.failure = null
+            local.models = listOf(ScriptedModel.modelInfo("mistral"))
+            clock.now += Duration.ofSeconds(60)
+            assertEquals(listOf("mistral"), endpoints.models(EndpointId("local")).map { it.id })
+        }
+    }
+
+    @Test
     fun `a time to live of zero lists the models every time`() {
         val uncached = Endpoints(listOf(provider(local)), settings("""{"models": {"listingTtlSeconds": 0}}"""), clock)
 

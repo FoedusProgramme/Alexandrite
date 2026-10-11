@@ -1,7 +1,9 @@
 package org.foedusprogramme.alexandrite.store.sqlite
 
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
@@ -138,7 +140,7 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
     private class Row(val record: EntryRecord, val format: Int, val type: String, val body: String) {
         /** The stored entry, an [UnknownEntry] when its format or its content is not one this version reads. */
         fun entry(): TranscriptEntry {
-            val entry = if (format == TranscriptCodec.FORMAT_VERSION) {
+            val entry = if (format <= TranscriptCodec.FORMAT_VERSION) {
                 try {
                     TranscriptCodec.decode(body)
                 } catch (e: IllegalArgumentException) {
@@ -151,8 +153,20 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
             return (entry ?: UnknownEntry(null, type, raw())).withRecord(record)
         }
 
-        private fun raw(): JsonObject = Json.parseToJsonElement(body).jsonObject
+        /** The body as a JSON object, or wrapped in one when it is none. */
+        private fun raw(): JsonObject {
+            val parsed = try {
+                Json.parseToJsonElement(body)
+            } catch (e: SerializationException) {
+                null
+            }
+            return parsed as? JsonObject
+                ?: JsonObject(mapOf("type" to JsonPrimitive(type), BODY to JsonPrimitive(body)))
+        }
     }
 }
+
+/** The field of an unknown entry's JSON that holds a body that is no JSON object. */
+private const val BODY = "body"
 
 private val logger = LoggerFactory.getLogger(SqliteTranscriptStore::class.java)

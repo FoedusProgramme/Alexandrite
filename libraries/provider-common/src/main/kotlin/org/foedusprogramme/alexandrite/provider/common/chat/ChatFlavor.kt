@@ -4,9 +4,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.foedusprogramme.alexandrite.provider.common.CHAT_CALL_IDS
 import org.foedusprogramme.alexandrite.provider.common.ModelListing
 import org.foedusprogramme.alexandrite.provider.common.long
 import org.foedusprogramme.alexandrite.provider.common.obj
+import org.foedusprogramme.alexandrite.provider.common.wireToolName
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
@@ -52,6 +55,9 @@ public open class ChatReasoning {
         return null
     }
 
+    /** Adds the fields of a request that asks [info]'s model for no effort to [body]. */
+    public open fun requestNoEffort(info: ModelInfo, body: JsonObjectBuilder) {}
+
     /** Adds the reasoning of [parts] that [request]'s model must get back to the assistant [message]. */
     public open fun replay(parts: List<ReasoningPart>, request: ModelRequest, message: JsonObjectBuilder) {}
 
@@ -84,7 +90,7 @@ public open class ChatTools {
 
             is ToolChoice.Named -> body.putJsonObject("tool_choice") {
                 put("type", "function")
-                putJsonObject("function") { put("name", ToolNames.wire(choice.name)) }
+                putJsonObject("function") { put("name", wireName(choice.name)) }
             }
 
             else -> return Warning("unsupported_option", "The tool choice $choice is unknown, so the model decides.")
@@ -94,6 +100,12 @@ public open class ChatTools {
 
     /** The tool that a call naming [wire] calls, given the [offered] tools. */
     public open fun callName(wire: String, offered: List<ToolDefinition>): String = ToolNames.fromWire(wire) ?: wire
+
+    /** The name that the tool [name] and its stored calls go out with, one for each name. */
+    public open fun wireName(name: String): String = wireToolName(name)
+
+    /** The id that the stored call [id] and its result go out with, one for each id. */
+    public open fun wireCallId(id: ToolCallId): String = CHAT_CALL_IDS.of(id.value)
 }
 
 /** How a backend keeps requests on one prompt cache and counts what the cache held. */

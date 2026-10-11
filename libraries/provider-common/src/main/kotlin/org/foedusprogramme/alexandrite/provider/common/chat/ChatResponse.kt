@@ -65,7 +65,11 @@ internal class ChatResponse(
 ) {
     private val parts = mutableListOf<PartBuilder>()
     private var current: PartBuilder? = null
-    private val calls = mutableMapOf<Int, CallBuilder>()
+    private val calls = mutableListOf<CallBuilder>()
+    private val indexed = mutableMapOf<Int, CallBuilder>()
+
+    /** The last call at each position of a chunk's calls that name no index. */
+    private val unindexed = mutableMapOf<Int, CallBuilder>()
     private var responseId: String? = null
     private var model: String? = null
     private var finish: String? = null
@@ -102,7 +106,7 @@ internal class ChatResponse(
         val raw = finish ?: throw failure(ModelErrorKind.PROTOCOL, "The response ended without a finish reason.")
         val events = mutableListOf<ModelEvent>()
         close(events)
-        for (call in calls.values.sortedBy { it.index }) {
+        for (call in calls) {
             if (call.name == null) throw failure(ModelErrorKind.PROTOCOL, "Tool call ${call.index} names no tool.")
             events += call.complete()
         }
@@ -136,12 +140,15 @@ internal class ChatResponse(
     }
 
     private fun call(wire: ToolCallWire, position: Int, events: MutableList<ModelEvent>) {
-        val key = wire.index ?: position
-        val call = calls.getOrPut(key) {
-            close(events)
-            CallBuilder(parts.size).also { parts += it }
+        val index = wire.index
+        val call = if (index != null) {
+            indexed.getOrPut(index) { newCall(events) }
+        } else {
+            val last = unindexed[position]?.takeUnless { startsAnother(wire, it) }
+            last ?: newCall(events).also { unindexed[position] = it }
         }
         if (call.id == null) wire.id?.takeIf { it.isNotEmpty() }?.let { call.id = it }
+        if (call.wireId == null) call.wireId = wire.id?.takeIf { it.isNotEmpty() }
         if (call.name == null) {
             wire.function?.name?.takeIf {
                 it.isNotEmpty()
@@ -162,6 +169,21 @@ internal class ChatResponse(
         } else if (fragment.isNotEmpty()) {
             events += ModelEvent.ToolArgumentsDelta(call.index, fragment)
         }
+    }
+
+    private fun newCall(events: MutableList<ModelEvent>): CallBuilder {
+        close(events)
+        return CallBuilder(parts.size).also {
+            parts += it
+            calls += it
+        }
+    }
+
+    /** Whether [wire], which names no index, starts a call after [call] rather than going on with it. */
+    private fun startsAnother(wire: ToolCallWire, call: CallBuilder): Boolean {
+        val id = wire.id?.takeIf { it.isNotEmpty() }
+        val name = wire.function?.name?.takeIf { it.isNotEmpty() }
+        return (id != null && call.wireId != null && id != call.wireId) || (name != null && call.name != null)
     }
 
     private fun <T : PartBuilder> open(builder: T, events: MutableList<ModelEvent>): T {
@@ -244,6 +266,7 @@ internal class ChatResponse(
 
     private class CallBuilder(index: Int) : PartBuilder(index) {
         var id: String? = null
+        var wireId: String? = null
         var name: String? = null
         var started = false
         val arguments = StringBuilder()

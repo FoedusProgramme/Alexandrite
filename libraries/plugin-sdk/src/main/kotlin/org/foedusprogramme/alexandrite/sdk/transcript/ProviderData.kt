@@ -2,7 +2,6 @@ package org.foedusprogramme.alexandrite.sdk.transcript
 
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.DeserializationStrategy
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -14,7 +13,7 @@ public class ProviderData internal constructor(public val entries: Map<Dialect, 
         val data = entries[dialect] ?: return null
         return try {
             LENIENT.decodeFromJsonElement(deserializer, data)
-        } catch (e: SerializationException) {
+        } catch (e: IllegalArgumentException) {
             null
         }
     }

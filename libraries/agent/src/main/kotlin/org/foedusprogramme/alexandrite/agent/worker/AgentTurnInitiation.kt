@@ -127,13 +127,25 @@ internal class AgentTurnInitiation(
         }
     }
 
-    /** Drops [turn] while it is held or queued, cancels it while it runs, and returns whether it was found. */
-    private fun cancel(turn: TurnId): Boolean = lock.locked {
+    /** Drops [turn] while it is held, as [cause] ends it, and returns whether it was held. */
+    fun cancelHeld(turn: TurnId, cause: CancellationException): Boolean = lock.locked {
         val initiation = held.values.firstNotNullOfOrNull { queue -> queue.firstOrNull { it.id == turn } }
-        if (initiation == null) return@locked workers.cancel(turn, TurnCancelled(null))
+            ?: return@locked false
         held.getValue(initiation.turn.chat).remove(initiation)
-        initiation.ticket.complete(TurnOutcome.Cancelled)
+        initiation.ticket.complete(notStarted(cause))
     }
+
+    /** Ends every held turn as never started. */
+    fun shutDown() {
+        lock.locked {
+            held.values.flatten().forEach { it.ticket.complete(TurnOutcome.ShutDown(replayable = true)) }
+            held.clear()
+        }
+    }
+
+    /** Drops [turn] while it is held or queued, cancels it while it runs, and returns whether it was found. */
+    private fun cancel(turn: TurnId): Boolean =
+        cancelHeld(turn, TurnCancelled(null)) || workers.cancel(turn, TurnCancelled(null))
 
     private fun job(initiation: Initiation, key: AgentChatKey): WorkerJob.Turn {
         val turn = initiation.turn

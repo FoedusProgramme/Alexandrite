@@ -80,17 +80,24 @@ class SqliteTranscriptStoreTest {
     }
 
     @Test
-    fun `a row of another format or that cannot be decoded is read as unknown`() {
+    fun `rows of older formats are decoded, and rows of newer formats or that cannot be decoded are unknown`() {
         withStore(directory) {
             val turn = turn(conversations.current(main))
+            val older = """{"type":"notice","text":"Done.","kind":"failed"}"""
             database.transaction {
-                for ((format, body) in listOf(2 to """{"type":"user","v2":true}""", 1 to """{"type":"summary"}""")) {
+                val rows = listOf(
+                    Triple(2, "user", """{"type":"user","v2":true}"""),
+                    Triple(1, "summary", """{"type":"summary"}"""),
+                    Triple(0, "notice", older),
+                    Triple(1, "notice", """["type", "notice"]"""),
+                )
+                for ((format, type, body) in rows) {
                     execute(
                         "INSERT INTO entries (conversation, turn, type, created_at, format, body) " +
                             "VALUES (?, ?, ?, ?, ?, ?)",
                         turn.conversation.value,
                         turn.id.value,
-                        body.substringAfter(":\"").substringBefore('"'),
+                        type,
                         now,
                         format,
                         body,
@@ -104,10 +111,18 @@ class SqliteTranscriptStoreTest {
                 listOf(
                     UnknownEntry(null, "user", json("""{"type":"user","v2":true}""")),
                     UnknownEntry(null, "summary", json("""{"type":"summary"}""")),
+                    NoticeEntry(null, "Done.", NoticeKind.FAILED),
+                    UnknownEntry(null, "notice", json("""{"type":"notice","body":"[\"type\", \"notice\"]"}""")),
                 ),
-                read.map { UnknownEntry(null, (it as UnknownEntry).type, it.json) },
+                read.map { entry ->
+                    when (entry) {
+                        is UnknownEntry -> UnknownEntry(null, entry.type, entry.json)
+                        is NoticeEntry -> NoticeEntry(null, entry.text, entry.kind)
+                        else -> entry
+                    }
+                },
             )
-            assertEquals(listOf(1L, 2L), read.map { it.record!!.id.value })
+            assertEquals(listOf(1L, 2L, 3L, 4L), read.map { it.record!!.id.value })
         }
     }
 

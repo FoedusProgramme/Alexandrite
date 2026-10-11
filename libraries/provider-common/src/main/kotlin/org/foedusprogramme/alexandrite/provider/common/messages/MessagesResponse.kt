@@ -49,6 +49,9 @@ internal class MessagesResponse(
     private var rawUsage: JsonObject? = null
     private var usage: Usage? = null
 
+    /** The events of `message_start`, which go out with the first event of the response's content. */
+    private val held = mutableListOf<ModelEvent>()
+
     /** Whether any event was made. */
     var started: Boolean = false
         private set
@@ -65,8 +68,8 @@ internal class MessagesResponse(
                 val message = data.obj("message")
                 responseId = responseId ?: message?.string("id")
                 model = model ?: message?.string("model")
-                message?.obj("usage")?.let { usage(it, events) }
-                return started(events, force = true)
+                message?.obj("usage")?.let { usage(it, held) }
+                return emptyList()
             }
 
             "content_block_start" -> start(index(data), data.obj("content_block") ?: JsonObject(emptyMap()), events)
@@ -123,10 +126,10 @@ internal class MessagesResponse(
     private fun failure(message: String, kind: ModelErrorKind = ModelErrorKind.PROTOCOL) =
         modelException(kind, message, started)
 
-    private fun started(events: MutableList<ModelEvent>, force: Boolean = false): List<ModelEvent> {
-        if (started || (events.isEmpty() && !force)) return events
+    private fun started(events: MutableList<ModelEvent>): List<ModelEvent> {
+        if (started || events.isEmpty()) return events
         started = true
-        return listOf(ModelEvent.ResponseStarted(responseId, model, warnings)) + events
+        return listOf(ModelEvent.ResponseStarted(responseId, model, warnings)) + held + events
     }
 
     private fun index(data: JsonObject): Int = (data["index"] as? JsonPrimitive)?.takeUnless { it.isString }

@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
+import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
@@ -154,6 +155,26 @@ class ReplyStreamTest {
     }
 
     @Test
+    fun `a preview the sink fails with an error is logged and the stream goes on`() {
+        sink.error = NotImplementedError("Not yet.")
+        val stream = stream(interval = 0)
+
+        val lines = logged { blocking { stream.text("Hel") } }
+
+        assertEquals(
+            listOf("WARN A preview of turn t-1 did not reach its chat: kotlin.NotImplementedError: Not yet."),
+            lines,
+        )
+    }
+
+    @Test
+    fun `a delivery that throws an error is not delivered`() {
+        val delivery = blocking { delivered { throw NotImplementedError("Not yet.") } }
+
+        assertEquals(Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "kotlin.NotImplementedError: Not yet."), delivery)
+    }
+
+    @Test
     fun `a segment start the sink fails is logged and the stream goes on`() {
         sink.failing = true
         val stream = stream(interval = 0) { _, _ -> null }
@@ -179,9 +200,11 @@ private class Sink : ReplySink {
     val previews = mutableListOf<Pair<Int, String>>()
     val calls = mutableListOf<String>()
     var failing = false
+    var error: Error? = null
 
     override suspend fun preview(segment: Int, text: String) {
         check(!failing) { "Gone." }
+        error?.let { throw it }
         previews += segment to text
         calls += "preview $segment $text"
     }

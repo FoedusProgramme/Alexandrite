@@ -21,7 +21,7 @@ public open class ModelListing {
     public open fun models(page: JsonObject): List<JsonObject> =
         (page["data"] as? JsonArray)?.filterIsInstance<JsonObject>().orEmpty()
 
-    /** The URL of the page after [page], relative to the listing's, null when there is none. */
+    /** The URL of the page after [page], relative to the listing's and on its origin, null when there is none. */
     public open fun next(page: JsonObject): String? = null
 
     /** What a listed [model] says about itself, its id null when it names none. */

@@ -273,11 +273,30 @@ class MessagesResponseTest {
         }
 
         val early = fail(sse(overloaded))
+        val beforeContent = fail(sse(messageStart(), buildJsonObject { put("type", "ping") }, overloaded))
         val late = fail(sse(messageStart(), blockStart(0, textBlock()), textDelta(0, "Hi"), overloaded))
 
         assertEquals(ModelErrorKind.OVERLOADED to "overloaded_error", early.kind to early.rawType)
         assertTrue(early.retryable && !early.outputStarted)
+        assertTrue(beforeContent.retryable && !beforeContent.outputStarted)
         assertTrue(late.outputStarted && "Overloaded" in late.message)
+    }
+
+    @Test
+    fun `a stream cut off before its first content block has not started`() {
+        val cut = fail(sse(messageStart(messagesUsage(input = 20, cacheRead = 0, cacheWrite = 0, output = 1))))
+
+        assertEquals(ModelErrorKind.PROTOCOL to false, cut.kind to cut.outputStarted)
+    }
+
+    @Test
+    fun `the start and the usage of message_start come with the first content`() {
+        val events = respond(sse(*textEvents(listOf("Hi"))))
+
+        assertEquals(
+            listOf(ModelEvent.ResponseStarted::class, ModelEvent.UsageUpdated::class, ModelEvent.TextDelta::class),
+            events.take(3).map { it::class },
+        )
     }
 
     @Test

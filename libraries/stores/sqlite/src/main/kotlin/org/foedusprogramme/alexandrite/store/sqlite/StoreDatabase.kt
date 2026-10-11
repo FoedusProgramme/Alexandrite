@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.store.sqlite
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
@@ -41,11 +44,20 @@ internal class StoreDatabase(private val files: PluginFiles, private val clock: 
         }
     }
 
-    /** Runs [block] in a transaction of its own, after the blocks given before it. */
-    suspend fun <T> transaction(block: Tx.() -> T): T = withContext(dispatcher) {
-        val open = connection
-            ?: throw IllegalStateException(if (closed) "The store is closed." else "The store is not open.")
-        open.inTransaction(now(), block)
+    /**
+     * Runs [block] in a transaction of its own, after the blocks given before it.
+     *
+     * A call that has begun returns what [block] returned, even when its caller was cancelled meanwhile.
+     */
+    suspend fun <T> transaction(block: Tx.() -> T): T {
+        currentCoroutineContext().ensureActive()
+        return withContext(NonCancellable) {
+            withContext(dispatcher) {
+                val open = connection
+                    ?: throw IllegalStateException(if (closed) "The store is closed." else "The store is not open.")
+                open.inTransaction(now(), block)
+            }
+        }
     }
 
     private fun now(): Instant = clock.instant().truncatedTo(ChronoUnit.MILLIS)

@@ -87,7 +87,7 @@ class DeepSeekFlavorTest {
     private fun JsonObject.thinking(): String? = (this["thinking"] as? JsonObject)?.text("type")
 
     @Test
-    fun `thinking is off for no effort and on with one of DeepSeek's levels otherwise`() {
+    fun `thinking is off for effort NONE and on otherwise, with one of DeepSeek's levels for an effort`() {
         val levels = mapOf(
             ReasoningEffort.NONE to null,
             ReasoningEffort.MINIMAL to "low",
@@ -108,7 +108,7 @@ class DeepSeekFlavorTest {
             assertEquals(listOfNotNull(warning.takeIf { mapped }), events.warnings(), "$effort")
         }
         val (_, plain) = send(request())
-        assertNull(plain["thinking"] ?: plain["reasoning_effort"])
+        assertEquals("enabled" to null, plain.thinking() to plain.text("reasoning_effort"))
     }
 
     @Test
@@ -138,6 +138,7 @@ class DeepSeekFlavorTest {
         for ((choice, effort) in forced) {
             val (warnings, body) = choose(choice, effort)
             assertNull(body["tool_choice"], "$choice")
+            assertEquals("enabled", body.thinking(), "$choice")
             assertEquals(
                 listOf("Model 'chat-model' takes no forced tool choice while it thinks, so the model decides."),
                 warnings,

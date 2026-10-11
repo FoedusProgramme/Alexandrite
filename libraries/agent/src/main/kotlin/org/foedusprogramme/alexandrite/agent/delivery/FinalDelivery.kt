@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.delivery
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
@@ -10,7 +12,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
-import kotlin.coroutines.cancellation.CancellationException
 
 /** The text of [message] that a chat is shown. */
 internal fun visibleText(message: AssistantEntry): String =
@@ -38,8 +39,8 @@ internal fun replyMessage(
 /** The delivery of [send], a failure of an unknown kind where it throws. */
 internal suspend fun delivered(send: suspend () -> Delivery): Delivery = try {
     send()
-} catch (e: CancellationException) {
-    throw e
-} catch (e: Exception) {
+} catch (e: Throwable) {
+    if (e is VirtualMachineError) throw e
+    currentCoroutineContext().ensureActive()
     Delivery.NotDelivered(DeliveryFailure.UNKNOWN, e.toString())
 }

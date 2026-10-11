@@ -180,12 +180,61 @@ class MessagesRequestTest {
 
     @Test
     fun `a call whose arguments are no object goes back with empty input`() {
-        val broken = ToolCallPart(ToolCallId("toolu_2"), "Weird Name", "{not json")
+        val broken = ToolCallPart(ToolCallId("toolu_2"), "notes.add", "{not json")
         val history = listOf(user("Go."), AssistantEntry(null, listOf(broken), model))
 
-        val use = body(request(history)).messages()[1].blocks().single()
+        val use = body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).messages()[1].blocks()
+            .single()
 
-        assertEquals("Weird Name" to "{}", use.text("name") to use["input"].toString())
+        assertEquals("notes-add" to "{}", use.text("name") to use["input"].toString())
+    }
+
+    @Test
+    fun `ids and names the API does not take go out in one form for a call and its result, each its own`() {
+        val ids = listOf("functions.fs-read:0", "functions.fs-read:1", "X0", "toolu_9")
+        val calls = ids.map { ToolCallPart(ToolCallId(it), "Weird Name", "{}") }
+        val history = listOf(user("Go."), AssistantEntry(null, calls, model)) +
+            calls.map { ToolResultEntry(null, it.id, it.name, listOf(TextPart("Done.")), ToolOutcome.Succeeded) }
+
+        val messages = body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).messages()
+
+        val uses = messages[1].blocks()
+        val results = messages[2].blocks()
+        val sent = uses.map { it.text("id")!! }
+        assertEquals(sent, results.map { it.text("tool_use_id") })
+        assertEquals(4, sent.distinct().size)
+        assertEquals("toolu_9", sent.last())
+        assertTrue(sent.all { Regex("[A-Za-z0-9_-]+").matches(it) }, "$sent")
+        assertTrue(sent.take(3).all { it.startsWith("X") && it.length == 33 }, "$sent")
+        val name = uses.map { it.text("name")!! }.distinct().single()
+        assertTrue(Regex("X[0-9a-f]{32}").matches(name), name)
+    }
+
+    @Test
+    fun `a request that offers no tools carries its tool rounds as text`() {
+        val image = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(byteArrayOf(1, 2, 3)), "dot.png")
+        val history = listOf(
+            user("Note milk."),
+            AssistantEntry(null, listOf(TextPart("Saving."), call), model),
+            ToolResultEntry(null, call.id, call.name, listOf(TextPart("Saved."), image), ToolOutcome.Failed),
+            user("Also eggs."),
+        )
+
+        val messages = body(request(history)).messages()
+
+        assertFalse("tool_use" in messages.toString() || "tool_result" in messages.toString())
+        assertEquals(
+            listOf("Saving.", """[Called tool notes-add with {"text":"milk"}]"""),
+            messages[1].blocks().map { it.text("text") },
+        )
+        assertEquals(
+            listOf("text", "text", "image", "text"),
+            messages[2].blocks().map { it.text("type") },
+        )
+        assertEquals(
+            listOf("[Result of tool notes-add, which failed]", "Saved.", null, "Also eggs."),
+            messages[2].blocks().map { it.text("text") },
+        )
     }
 
     @Test
@@ -194,7 +243,9 @@ class MessagesRequestTest {
         val round0 =
             body(request(listOf(user("Plan the trip."))) { turnContext(listOf(recall)).options(off) }).messages()
         val afterTools = listOf(user("Plan the trip."), AssistantEntry(null, listOf(call), model), result("Saved."))
-        val round1 = body(request(afterTools, round = 1) { turnContext(listOf(recall)).options(off) }).messages()
+        val tools = listOf(testToolDefinition("notes.add"))
+        val round1 =
+            body(request(afterTools, round = 1) { turnContext(listOf(recall)).options(off).tools(tools) }).messages()
 
         val (persisted, context) = round0.single().blocks()
         assertTrue(persisted.cached() && !context.cached())

@@ -36,7 +36,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.ZoneId
 import java.time.ZoneOffset
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
 import kotlin.time.Duration
@@ -44,8 +43,8 @@ import kotlin.time.Duration
 /**
  * Runs the plugin under test and the plugins added to it in a runtime of their own.
  *
- * A run fails when a [ScriptedModel] or a [RecordingChannel] it holds meets a problem or a violation, with what the
- * block threw as the cause.
+ * A run stops at the first problem that a [ScriptedModel] or a [RecordingChannel] it holds meets, and fails with the
+ * doubles' problems, with what the block threw as the cause.
  */
 public class PluginHarness private constructor(
     private val id: String,
@@ -76,8 +75,6 @@ public class PluginHarness private constructor(
         try {
             val termination = try {
                 runIn(root, block)
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Throwable) {
                 throw doubleProblems(known, e) ?: e
             }
@@ -101,14 +98,25 @@ public class PluginHarness private constructor(
         val spec = RuntimeSpec.builder(settings.build(), plugins).pluginConfig(config).build()
         var running: Running? = null
         var finished = false
-        val termination = AlexandriteRuntime.run(spec) {
-            val current = Running(this, id, configFile)
-            running = current
-            current.block()
-            finished = true
+        val termination = try {
+            AlexandriteRuntime.run(spec) {
+                val current = Running(this, id, configFile)
+                running = current
+                watch { current.stop(StopRequest.failure("a test double saw a problem")) }
+                current.block()
+                finished = true
+            }
+        } finally {
+            watch(null)
         }
         if (!inspectTermination) verify(termination, finished || termination.request == running?.requested)
         return termination
+    }
+
+    /** Has the doubles call [stop] on each problem they meet. */
+    private fun watch(stop: (() -> Unit)?) {
+        models.forEach { it.onProblem = stop }
+        channels.forEach { it.onProblem = stop }
     }
 
     /** The config kept in [file], which gets the harness's config first when it does not exist. */

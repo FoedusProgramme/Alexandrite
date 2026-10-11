@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.agent.turn
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -130,11 +132,13 @@ internal class AgentTurnRunner(
         val run = Run(plan, followUps)
         return try {
             run.execute()
-        } catch (e: CancellationException) {
-            val cause = turnCause(e) ?: throw e
-            withContext(NonCancellable) { run.cutOff(cause) }
-        } catch (e: Exception) {
-            withContext(NonCancellable) { run.fail(e) }
+        } catch (e: Throwable) {
+            val cause = (e as? CancellationException)?.let(::turnCause)
+            if (cause != null) return withContext(NonCancellable) { run.cutOff(cause) }
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
+            val failed = withContext(NonCancellable) { run.fail(e) }
+            if (e is VirtualMachineError) throw e
+            failed
         }
     }
 
@@ -176,8 +180,10 @@ internal class AgentTurnRunner(
                 return modelFailed(e.error)
             } ?: return unknownModel()
             val options = requestOptions(agent, selected.info, reasoning)
-            val offered = tools.offered(agent.id, turn.actorIsAdmin, selected.ref, selected.info.nativeTools)
-            val definitions = hooks.turnStart(turn, message, offered.map { it.definition }).or { return stopped(it) }
+            val offered = tools.offered(agent.id, selected.ref, selected.info.nativeTools)
+            val definitions = offered.map { it.definition }
+            val narrowed = hooks.turnStart(turn, message, definitions).or { return stopped(it) }.map { it.name }
+            val callable = narrowed.filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsAdmin, it) }
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
             val opening = opening(turn, input, text, context.baked)
@@ -185,8 +191,7 @@ internal class AgentTurnRunner(
             hooks.contextLoaded(turn, loaded)
             val sections = hooks.promptSections(turn, prompt.sections(turn, message?.chatInfo?.kind))
             val parts = RequestParts(selected, options, loaded.filter(::isSent), sections, definitions, context)
-            val kept = definitions.map { it.name }.toSet()
-            return rounds(parts, opening, offered.associateBy { it.definition.name }.filterKeys { it in kept })
+            return rounds(parts, opening, TurnTools(offered.associateBy { it.definition.name }, callable))
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -206,7 +211,7 @@ internal class AgentTurnRunner(
         }
 
         /** Ends the turn after [error], with a notice where the chat can still get one. */
-        suspend fun fail(error: Exception): TurnOutcome {
+        suspend fun fail(error: Throwable): TurnOutcome {
             logger.error("Turn {} of {} failed", plan.id, plan.key, error)
             outcome?.let { return it }
             val failed = TurnOutcome.Failed(error.toString())
@@ -320,7 +325,7 @@ internal class AgentTurnRunner(
         }
 
         /** Runs the turn's rounds from its [opening] entry until the turn ends. */
-        private suspend fun rounds(parts: RequestParts, opening: UserEntry, offered: Map<String, Tool>): TurnOutcome {
+        private suspend fun rounds(parts: RequestParts, opening: UserEntry, tools: TurnTools): TurnOutcome {
             val turn = checkNotNull(turn)
             var pending: UserEntry? = opening
             var round = 0
@@ -329,7 +334,7 @@ internal class AgentTurnRunner(
             while (true) {
                 if (round > 0) previews?.nextSegment()
                 val final = toolRounds == agent.config.maxRounds
-                val built = request(parts, pending, round, final)
+                val built = request(parts, pending, round, final || tools.forbidden)
                 val request = hooks.llmRequest(turn, round, built).or { return stopped(it) }
                 val response = try {
                     call(parts.model, request)
@@ -370,7 +375,7 @@ internal class AgentTurnRunner(
                     final -> return withContext(NonCancellable) { roundLimit(reply, calls) }
 
                     else -> {
-                        runCalls(turn, calls, offered)
+                        runCalls(turn, calls, tools)
                         absorbFollowUps(turn)
                         toolRounds++
                     }
@@ -383,7 +388,7 @@ internal class AgentTurnRunner(
             parts: RequestParts,
             pending: UserEntry?,
             round: Int,
-            final: Boolean,
+            toolless: Boolean,
         ): ModelRequest {
             val turn = checkNotNull(turn)
             val current = appending.withLock { stored.filter(::isSent) } + listOfNotNull(pending)
@@ -393,7 +398,7 @@ internal class AgentTurnRunner(
                 .instructions(parts.sections)
                 .turnContext(parts.context.kept)
                 .tools(parts.tools)
-                .toolChoice(if (final) ToolChoice.None else ToolChoice.Auto)
+                .toolChoice(if (toolless) ToolChoice.None else ToolChoice.Auto)
                 .options(parts.options)
                 .cacheKey(cacheKey(turn.key))
                 .build()
@@ -404,12 +409,12 @@ internal class AgentTurnRunner(
             retries.retrying(plan.id) { collectResponse(model.endpoint, request) { previews?.event(it) } }
 
         /**
-         * Runs [calls] of the [offered] tools, storing each result as its call ends, and then the project instructions
+         * Runs [calls] of the turn's [tools], storing each result as its call ends, and then the project instructions
          * that the calls reached.
          */
-        private suspend fun runCalls(turn: TurnInfo, calls: List<ToolCallPart>, offered: Map<String, Tool>) {
+        private suspend fun runCalls(turn: TurnInfo, calls: List<ToolCallPart>, tools: TurnTools) {
             val timeout = agent.config.toolTimeoutSeconds.seconds
-            val risks = calls.mapNotNull { offered[it.name]?.definition?.risk }
+            val risks = calls.mapNotNull { tools.offered[it.name]?.definition?.risk }
             val slots = Semaphore(if (risks.all { it == ToolRisk.READ_ONLY }) MAX_PARALLEL_CALLS else 1)
             val loading = Collections.synchronizedList(mutableListOf<LoadedFile>())
             var loaded = false
@@ -418,12 +423,13 @@ internal class AgentTurnRunner(
                     for (call in calls) {
                         launch {
                             slots.withPermit {
-                                val end = executor.execute(turn, call, offered, timeout)
+                                val end = executor.execute(turn, call, tools.offered, timeout, tools.callable)
                                 val found = projects.inspect(turn, end.touched)
                                 loading += found.loaded
                                 val result = withContext(NonCancellable) {
-                                    val stored = media.stored(found.noted(end.result))
-                                    appending.withLock { appendLocked(listOf(stored)).single() }
+                                    appending.withLock {
+                                        appendLocked(listOf(media.stored(found.noted(end.result)))).single()
+                                    }
                                 }
                                 end.notice?.let { notify(NoticeKind.HOOK_ABORTED, it) }
                                 found.untrusted.forEach { warn(turn, it) }
@@ -455,7 +461,7 @@ internal class AgentTurnRunner(
         /** Absorbs the messages that the turn's principal queued since the turn started. */
         private suspend fun absorbFollowUps(turn: TurnInfo) {
             val principal = plan.actor?.address?.takeIf { plan.kind == TurnKind.MESSAGE } ?: return
-            val taken = ArrayDeque(followUps.take(principal, startedAt))
+            val taken = ArrayDeque(followUps.take(principal, plan.origin, startedAt))
             try {
                 while (taken.isNotEmpty()) absorbFirst(turn, taken)
             } finally {
@@ -663,9 +669,9 @@ internal class AgentTurnRunner(
         private suspend fun attempt(what: String, block: suspend () -> Unit) {
             try {
                 block()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                if (e is VirtualMachineError) throw e
+                currentCoroutineContext().ensureActive()
                 logger.warn("Turn {} of {} could not {}: {}", plan.id, plan.key, what, e.toString())
             }
         }
@@ -682,6 +688,12 @@ private class RequestParts(
     val tools: List<ToolDefinition>,
     val context: TurnContextPlan,
 )
+
+/** The tools a turn [offered] the model by name, and the names of those it may call. */
+private class TurnTools(val offered: Map<String, Tool>, val callable: Set<String>) {
+    /** Whether the turn offers tools and may call none of them. */
+    val forbidden: Boolean get() = offered.isNotEmpty() && callable.isEmpty()
+}
 
 /** The message that the turn answers, null for a turn that a plugin started. */
 private val TurnSource.message: IncomingMessage?
