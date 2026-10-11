@@ -360,6 +360,7 @@ class TaintTurnsTest {
             listOf(
                 "Permission status of this chat (only an administrator changes it):",
                 "Mode: ask (the default).",
+                "Allow rules: none.",
                 "Conversation: tainted since $since +08:00 (call call-1 reported " +
                     "untrusted content: a pasted page). Until /new starts a new conversation, calls that change your " +
                     "lasting state, such as persona.edit, need an approval.",

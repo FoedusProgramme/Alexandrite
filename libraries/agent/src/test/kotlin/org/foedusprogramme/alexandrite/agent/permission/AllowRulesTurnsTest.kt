@@ -32,6 +32,7 @@ import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class AllowRulesTurnsTest {
     private val store = MemoryStore()
@@ -159,6 +160,32 @@ class AllowRulesTurnsTest {
         }
     }
 
+    @Test
+    fun `permission status shows the model the declared rules, then those granted here with who and when`() {
+        harness("""{"allow": ["command.exec(git status)"]}""").execute {
+            val admin = channel().user("admin")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(admin, always = true))
+            run("make", "test")
+            model.reply { toolCall("permission.status") }.reply { text("Two rules.") }
+            val asked = channel().receive("What runs unasked?", channel().chat(), admin) as Admission.Accepted
+            asked.ticket.outcome()
+
+            val (outcome, text) = results().last()
+            val lines = text.lines()
+            assertEquals(ToolOutcome.Succeeded, outcome)
+            assertEquals(
+                listOf(
+                    "Allow rules (on an operator's turn, the calls they cover run without asking in every mode but " +
+                        "manual):",
+                    "1. command.exec: git status (declared in the config file)",
+                ),
+                lines.subList(2, 4),
+            )
+            assertTrue(GRANTED.matches(lines[4]), lines[4])
+            assertEquals("Conversation: not tainted.", lines.last())
+        }
+    }
+
     /** `command.exec` reviewed as a run of the `argv` it is given, whose rule is the program and its first word. */
     private class FakeExec : ReviewedTool {
         val cleared = CopyOnWriteArrayList<ClearanceKind?>()
@@ -181,5 +208,11 @@ class AllowRulesTurnsTest {
 
         private fun argv(arguments: JsonObject): List<String> =
             (arguments.getValue("argv") as JsonArray).map { (it as JsonPrimitive).content }
+    }
+
+    private companion object {
+        val GRANTED = Regex(
+            """2\. command\.exec: make test \(allowed by Admin at \d{4}-\d\d-\d\d \d\d:\d\d \S+ until /new\)""",
+        )
     }
 }

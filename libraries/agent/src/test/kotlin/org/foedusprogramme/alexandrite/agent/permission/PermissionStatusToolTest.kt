@@ -2,41 +2,78 @@ package org.foedusprogramme.alexandrite.agent.permission
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
+import org.foedusprogramme.alexandrite.agent.tool.GateCall
+import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
+import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
+import org.foedusprogramme.alexandrite.sdk.tool.CallReview
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
+import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.TestChatStates
+import org.foedusprogramme.alexandrite.testkit.TestRecords
+import org.foedusprogramme.alexandrite.testkit.recordingTool
 import org.foedusprogramme.alexandrite.testkit.testToolContext
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.foedusprogramme.alexandrite.testkit.testUser
+import java.nio.file.Path
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.seconds
 
 class PermissionStatusToolTest {
     private val clock = TestClock()
     private val states = SettingsStates(TestChatStates().of("alexandrite-agent"))
     private val store = MemoryStore(clock)
-    private val operator: TurnInfo = testTurn { actor(testUser("admin", isAdmin = true)) }
+    private val admin = testUser("admin", isAdmin = true)
+    private val operator: TurnInfo = testTurn { actor(admin) }
     private val forwarded = ConversationTaint(clock.now, "a forwarded message")
+    private val exec = recordingTool("command.exec", ToolRisk.EXEC)
+    private val deploy = recordingTool("deploy.run", ToolRisk.EXEC)
+    private lateinit var rules: AgentCallRules
 
-    private fun tool(mode: String? = null): PermissionStatusTool {
-        val agent = mode?.let { """"main": {"permission": {"mode": "$it"}}""" }.orEmpty()
-        val directory = agentDirectory(settings("""{"agents": {$agent}}"""))
-        return PermissionStatusTool(states, directory, store.conversations, clock)
+    /** The tool of agent `main` in the permission [mode] whose config file allows [allow]. */
+    private fun tool(mode: String? = null, allow: List<String> = emptyList()): PermissionStatusTool {
+        val modeField = mode?.let { """"mode": "$it", """ }.orEmpty()
+        val allowed = allow.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
+        val directory = agentDirectory(
+            settings("""{"agents": {"main": {"permission": {$modeField"allow": $allowed}}}}"""),
+        )
+        val registry = ToolRegistry(listOf(exec, deploy), directory, NO_BUILT_INS)
+        val records = TestRecords(store.records).of("alexandrite-agent")
+        rules = AgentCallRules(directory, registry, records, store.conversations, states, clock)
+        return PermissionStatusTool(states, directory, store.conversations, lazyOf(rules), clock)
+    }
+
+    /** Has the admin allow the calls of `command.exec` that start with [argv] in the conversation of [turn] for good. */
+    private suspend fun grant(turn: TurnInfo, vararg argv: String) {
+        val subject = RuleSubject("command.exec", argv.toList(), argv.joinToString(" "))
+        val review =
+            CallReview(preview = ReviewPreview.Command(argv.toList(), Path.of("/srv"), null, false), rule = subject)
+        val call = ToolCallPart(ToolCallId("call-1"), "command.exec", "{}")
+        val context = testToolContext(turn)
+        val taint = TurnTaint(turn.id, turn.key)
+        val gate = GateCall(turn, call, exec, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls)
+        rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), subject, admin)
     }
 
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext =
@@ -54,11 +91,34 @@ class PermissionStatusToolTest {
             listOf(
                 "Permission status of this chat (only an administrator changes it):",
                 "Mode: ask (the default).",
+                "Allow rules: none.",
                 "Conversation: not tainted.",
             ),
             status(),
         )
     }
+
+    @Test
+    fun `the allow rules in force are the declared ones, then those granted in the conversation, by whom and when`() =
+        runTest {
+            val tool = tool(allow = listOf("command.exec(git status)", "deploy.run"))
+            grant(operator, "make", "test")
+            clock.now += Duration.ofMinutes(5)
+            grant(operator, "./gradlew", "build")
+            grant(testTurn { actor(admin).conversation(ConversationId("other")) }, "make", "clean")
+
+            assertEquals(
+                listOf(
+                    "Allow rules (on an operator's turn, the calls they cover run without asking in every mode but " +
+                        "manual):",
+                    "1. command.exec: git status (declared in the config file)",
+                    "2. deploy.run: every call (declared in the config file)",
+                    "3. command.exec: make test (allowed by Admin at 2026-01-01 00:00 Z until /new)",
+                    "4. command.exec: ./gradlew build (allowed by Admin at 2026-01-01 00:05 Z until /new)",
+                ),
+                status(tool).drop(2).dropLast(1),
+            )
+        }
 
     @Test
     fun `the mode says where it comes from, and a bypass how long it has left and what follows it`() = runTest {
@@ -140,5 +200,11 @@ class PermissionStatusToolTest {
                 "conversation, calls that change your lasting state, such as persona.edit, need an approval.",
             line,
         )
+    }
+
+    private companion object {
+        val NO_BUILT_INS = object : PluginOrigins {
+            override fun isBuiltIn(instance: Any): Boolean = false
+        }
     }
 }

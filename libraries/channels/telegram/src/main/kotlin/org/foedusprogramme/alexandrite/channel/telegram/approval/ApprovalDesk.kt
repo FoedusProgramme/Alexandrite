@@ -187,7 +187,7 @@ internal class ApprovalDesk(
         val allow = InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW, language), "$PREFIX${request.id}:$ALLOW")
         val deny = InlineKeyboardButton(text(TextKeys.APPROVAL_DENY, language), "$PREFIX${request.id}:$DENY")
         val always = request.always?.let {
-            val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to shortened(it.display))
+            val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(it.display))
             InlineKeyboardButton(label, "$PREFIX${request.id}:$ALWAYS")
         }
         return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), always?.let(::listOf)))
@@ -276,7 +276,7 @@ internal class ApprovalDesk(
 
         is Ending.Answered -> when (val answer = ending.answer) {
             is ApprovalAnswer.Allowed -> {
-                val rule = request.always?.takeIf { answer.always }?.let { shortened(it.display) }
+                val rule = request.always?.takeIf { answer.always }?.let { ending(it.display) }
                 if (rule == null) {
                     text(TextKeys.APPROVAL_ALLOWED, language, "name" to named(answer.by))
                 } else {
@@ -359,6 +359,13 @@ internal class ApprovalDesk(
 /** [user]'s name as an approver sees it, escaped. */
 private fun named(user: ChatUser): String =
     shortened(ReviewText.escape(user.displayName) + user.username?.let { " (@${ReviewText.escape(it)})" }.orEmpty())
+
+/** [text], cut at its start to [MAX_SHOWN] characters, so that a rule keeps its program and first word. */
+private fun ending(text: String): String {
+    if (text.length <= MAX_SHOWN) return text
+    val start = text.length - (MAX_SHOWN - 1)
+    return "…" + text.substring(if (text[start].isLowSurrogate()) start + 1 else start)
+}
 
 /** [text], cut to [MAX_SHOWN] characters with an ellipsis. */
 private fun shortened(text: String): String {

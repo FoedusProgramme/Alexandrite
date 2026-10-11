@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
 import org.foedusprogramme.alexandrite.agent.tool.CompanionTool
+import org.foedusprogramme.alexandrite.internal.text.ReviewText
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
@@ -21,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.turn.AllowRule
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -33,12 +35,14 @@ internal class PermissionStatusTool(
     private val settings: SettingsStates,
     private val directory: AgentDirectory,
     private val conversations: ConversationStore,
+    private val rules: Lazy<AgentCallRules>,
     private val clock: Clock,
 ) : CompanionTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "permission.status",
-        description = "Shows the permission mode of this chat, with the time a bypass has left, and whether this " +
-            "conversation is tainted by untrusted content, since when and why. It changes nothing.",
+        description = "Shows the permission mode of this chat, with the time a bypass has left, the allow rules in " +
+            "force, and whether this conversation is tainted by untrusted content, since when and why. It changes " +
+            "nothing.",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {}
@@ -50,8 +54,7 @@ internal class PermissionStatusTool(
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn
         val now = clock.instant()
-        // The allow rules of the session join these lines in T3.7.
-        val lines = listOfNotNull(HEADER, mode(turn, now), principal(turn), taint(turn, context))
+        val lines = listOfNotNull(HEADER, mode(turn, now), principal(turn)) + rules(turn) + taint(turn, context)
         return ToolResult(lines.joinToString("\n"))
     }
 
@@ -83,6 +86,21 @@ internal class PermissionStatusTool(
         else -> "This turn is no operator's, so its gated calls ask an administrator whatever the mode."
     }
 
+    private fun rules(turn: TurnInfo): List<String> {
+        val inForce = rules.value.inForce(turn.agent, turn.conversation)
+        if (inForce.isEmpty()) return listOf("Allow rules: none.")
+        return listOf(RULES) + inForce.map(::described)
+    }
+
+    private fun described(rule: AllowRule): String {
+        val subject = rule.subject
+        val calls = if (subject.tokens.isEmpty()) "every call" else subject.display
+        val at = rule.grantedAt
+        val by = rule.grantedBy?.let { ReviewText.escape(it.displayName) } ?: "the host"
+        val source = if (at == null) "declared in the config file" else "allowed by $by at ${time(at)} until /new"
+        return "${rule.number}. ${subject.tool}: $calls ($source)"
+    }
+
     private suspend fun taint(turn: TurnInfo, context: ToolContext): String {
         val known = (context as? AgentToolContext)?.taint
         val taint = if (known != null) {
@@ -110,6 +128,8 @@ internal class PermissionStatusTool(
 
     private companion object {
         const val HEADER = "Permission status of this chat (only an administrator changes it):"
+        const val RULES = "Allow rules (on an operator's turn, the calls they cover run without asking in every mode " +
+            "but manual):"
         const val UNREAD = "Conversation: counted as tainted, as its mark could not be read."
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)
     }

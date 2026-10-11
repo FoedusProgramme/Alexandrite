@@ -160,7 +160,7 @@ class TelegramPermissionTest {
             assertEquals(1, unasked)
         }
 
-        assertTrue(always.startsWith("Always allow /"), always)
+        assertTrue(always.startsWith("Always allow ") && always.endsWith("/gradlew test"), always)
         val results = app.model.requests.map { it.history.last() }.filterIsInstance<ToolResultEntry>()
         assertEquals(
             listOf(ToolOutcome.Succeeded, ToolOutcome.Succeeded, NotRunReason.DENIED, NotRunReason.DENIED),
