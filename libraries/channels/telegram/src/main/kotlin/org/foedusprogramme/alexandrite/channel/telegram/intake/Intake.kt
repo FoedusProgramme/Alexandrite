@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
@@ -25,8 +26,11 @@ internal class Intake(
     private val admissions: Admissions,
     private val approvals: ApprovalDesk,
     private val titles: ChatTitles,
+    private val approvalMessages: ApprovalMessages,
 ) {
-    private val reader by lazy { UpdateReader(instance.id, config.adminUserIds.toSet(), session.identity) }
+    private val reader by lazy {
+        UpdateReader(instance.id, config.adminUserIds.toSet(), session.identity, approvalMessages)
+    }
 
     /** Dispatches [update] without waiting for the network. */
     fun dispatch(update: Update): Dispatch {

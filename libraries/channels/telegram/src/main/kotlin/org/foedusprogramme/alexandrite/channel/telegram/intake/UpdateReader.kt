@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageOrigin
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.sdk.channel.DisplayFact
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -16,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
+import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import java.time.Instant
@@ -40,6 +42,7 @@ internal class UpdateReader(
     private val instance: ChannelInstanceId,
     private val admins: Set<Long>,
     private val bot: BotIdentity,
+    private val approvals: ApprovalMessages,
 ) {
     /** The chat of [message], its forum topic as the thread. */
     fun chatOf(message: Message): ChatAddress {
@@ -159,10 +162,13 @@ internal class UpdateReader(
         return result
     }
 
+    /** What [message] quotes, an approval message of the bot as the line that stands for it. */
     private fun quote(message: Message, chat: ChatAddress): Quote? {
         val replied = message.replyToMessage?.takeUnless { isTopicRoot(message) }
         if (replied != null) {
-            val text = message.quote?.text ?: replied.text ?: replied.caption ?: ""
+            val approval = approvals.quoted(message.chat.id, replied.messageId)
+                ?.takeIf { replied.from?.id == bot.id && replied.senderChat == null }
+            val text = approval ?: message.quote?.text ?: replied.text ?: replied.caption ?: ""
             val author = replied.senderChat?.let { Author(it.title, null, null) }
                 ?: replied.from?.let { Author(nameOf(it), UserAddress(instance, "${it.id}"), it.isBot) }
             return Quote.builder(text)
@@ -170,6 +176,7 @@ internal class UpdateReader(
                 .sender(author?.address)
                 .senderIsBot(author?.isBot)
                 .target(ChannelMessageRef(chat, "${replied.messageId}"))
+                .trust(if (approval == null) QuoteTrust.UNTRUSTED else VOUCHED)
                 .build()
         }
         val external = message.externalReply ?: return null
@@ -207,6 +214,8 @@ internal class UpdateReader(
 }
 
 private fun nameOf(user: User): String = listOfNotNull(user.firstName, user.lastName).joinToString(" ").trim()
+
+private val VOUCHED = QuoteTrust(live = true, content = true)
 
 /** Model-facing facts of the media that [message] holds, which the channel does not pass on. */
 private fun facts(message: Message): List<DisplayFact> = MEDIA

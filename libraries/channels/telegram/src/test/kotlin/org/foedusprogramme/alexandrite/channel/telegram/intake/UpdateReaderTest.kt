@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.sdk.channel.DisplayFact
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -28,7 +29,8 @@ import kotlin.test.assertTrue
 
 class UpdateReaderTest {
     private val work = ChannelInstanceId(ChannelType("telegram"), "work")
-    private val reader = UpdateReader(work, setOf(1001L), BotIdentity(1234567890, "alexandrite_test_bot"))
+    private val approvals = ApprovalMessages()
+    private val reader = UpdateReader(work, setOf(1001L), BotIdentity(1234567890, "alexandrite_test_bot"), approvals)
     private val adaChat = ChatAddress(work, "1001")
     private val group = ChatAddress(work, "-1001234500000")
     private val ada = ChatUser(UserAddress(work, "1001"), "Ada Lovelace", "ada_test", isBot = false, isAdmin = true)
@@ -93,6 +95,28 @@ class UpdateReaderTest {
             message("private_reply").quote,
         )
         assertEquals(QuoteTrust.UNTRUSTED, message("private_reply").quote?.trust)
+    }
+
+    @Test
+    fun `a reply to the bot's approval message quotes the line that stands for it, vouched for`() {
+        val request = ApprovalMessages.Request("7atcb7ea", "fs.write").apply { state = "allowed by Ada Lovelace" }
+        approvals.note(1001, 9, request)
+        approvals.note(1001, 20, request)
+        approvals.note(-1001234500000, 19, request)
+        val expected = Quote.builder("Alexandrite's approval request 7atcb7ea for fs.write (allowed by Ada Lovelace)")
+            .senderName("Alexandrite Test Bot")
+            .sender(bot)
+            .senderIsBot(true)
+            .target(ChannelMessageRef(adaChat, "9"))
+            .trust(QuoteTrust(live = true, content = true))
+            .build()
+
+        assertEquals(expected, message("private_reply").quote)
+        assertEquals(expected, message("private_quote").quote)
+        val otherChat = message("group_reply_to_bot").quote
+        assertEquals("The build is green." to QuoteTrust.UNTRUSTED, otherChat?.text to otherChat?.trust)
+        val member = message("group_bare_mention_reply").quote
+        assertEquals("Deploy at five." to QuoteTrust.UNTRUSTED, member?.text to member?.trust)
     }
 
     @Test

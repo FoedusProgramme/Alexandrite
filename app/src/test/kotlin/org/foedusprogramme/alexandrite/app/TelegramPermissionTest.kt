@@ -6,11 +6,16 @@ import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOB
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.WAIT
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotMessage
+import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -18,7 +23,9 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class TelegramPermissionTest {
@@ -108,6 +115,51 @@ class TelegramPermissionTest {
         )
         assertEquals(emptyList(), write.calls)
     }
+
+    @Test
+    fun `a reply to an approval request quotes the bot's own line about it and leaves the conversation untainted`() {
+        app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
+            .reply { text("It ran.") }
+            .reply { text("It did.") }
+        lateinit var asked: FakeBotMessage
+        var afterRequest: ConversationTaint? = null
+        var afterAnswer: ConversationTaint? = null
+
+        app.run(app.builder(directory).tool(write)) {
+            app.send(app.ada, app.adaChat, "Note that I need milk.")
+            asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            app.fake.press(app.ada, asked, "Allow")
+            val noted = app.message(app.adaChat, "Noted.")
+            idle()
+            val conversation = get<ConversationStore>().current(app.key(app.adaChat)).id
+            app.fake.send(app.ada, app.adaChat, "Did it run?", replyTo = asked.id)
+            app.message(app.adaChat, "It ran.")
+            idle()
+            afterRequest = get<ConversationStore>().taint(conversation)
+            app.fake.send(app.ada, app.adaChat, "Really?", replyTo = noted.id)
+            app.message(app.adaChat, "It did.")
+            idle()
+            afterAnswer = get<ConversationStore>().taint(conversation)
+        }
+
+        val id = Regex("#([a-z0-9]+)").find(asked.text)!!.groupValues[1]
+        assertContains(
+            framing("Did it run?"),
+            "\nQuoting: Alexandrite Test Bot (verified)\n" +
+                "> Alexandrite's approval request $id for notes.write (allowed by Ada Lovelace (@ada_test))\n",
+        )
+        assertNull(afterRequest)
+        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (unverified)\n> Noted.\n")
+        assertEquals("a quote that its channel does not vouch for", afterAnswer?.reason)
+    }
+
+    /** The framing of the message [text] as the model read it. */
+    private fun framing(text: String): String = app.model.requests.first { it.asked == text }.history
+        .filterIsInstance<UserEntry>()
+        .last { it.origin is UserOrigin.FromChat }
+        .parts.filterIsInstance<ContextPart>()
+        .first()
+        .text
 
     @Test
     fun `a member's gated call is asked about in the admin's direct chat, where the admin allows it`() {

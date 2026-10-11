@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.TelegramChannel
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
+import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
@@ -55,7 +56,7 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
     private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
         .also { runBlocking { it.onStart() } }
     private val approvals =
-        ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles())
+        ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())
     val channel = TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session), approvals)
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */

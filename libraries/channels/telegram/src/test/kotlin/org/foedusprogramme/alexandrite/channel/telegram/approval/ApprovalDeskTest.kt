@@ -46,6 +46,7 @@ import java.nio.file.Path
 import java.time.Clock
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -78,7 +79,8 @@ class ApprovalDeskTest {
         )
             .also { runBlocking { it.onStart() } }
         val titles = ChatTitles()
-        val desk = ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, titles)
+        val messages = ApprovalMessages()
+        val desk = ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, titles, messages)
 
         /** The bot's messages in [chat] as they read now, with their keyboards. */
         fun shown(chat: Long): List<String> =
@@ -253,6 +255,49 @@ class ApprovalDeskTest {
         }
 
     @Test
+    fun `a preview of up to twelve lines shows as code, a longer one folded as a whole`() = runTest {
+        val desk = Desk(this)
+        val twelve = ReviewPreview.Text((1..12).joinToString("\n") { "line $it" })
+        val thirteen = ReviewPreview.Text((1..13).joinToString("\n") { "line $it" })
+
+        asking(desk, request(preview = twelve, id = "short"))
+        asking(desk, request(preview = thirteen, id = "long"))
+        advanceTimeBy(5.seconds)
+
+        val (short, long) = desk.api.calls("sendMessage")
+        for ((sent, preview, type) in listOf(Triple(short, twelve, "pre"), Triple(long, thirteen, FOLDED))) {
+            val text = checkNotNull(sent.text)
+            val start = text.indexOf("line 1\n")
+            assertEquals(preview.text, text.substring(start))
+            assertEquals("$type $start+${preview.text.length}", sent.entities.last())
+        }
+    }
+
+    @Test
+    fun `a long preview in parts is folded in each part, and the outcome goes below the fold`() = runTest {
+        val desk = Desk(this)
+        val diff = ReviewPreview.Diff(
+            Path.of("/srv/notes.md"),
+            (1..200).joinToString("\n") {
+                "+line $it of the new file"
+            },
+        )
+
+        asking(desk, request(preview = diff))
+        advanceTimeBy(10.seconds)
+        desk.press(ada, "apv:k3x9:d", message = 102)
+        advanceTimeBy(5.seconds)
+
+        val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
+        val start = first.first.indexOf("+line 1 ")
+        assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
+        assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
+        val edit = desk.api.calls("editMessageText").single()
+        assertEquals("${second.first}\n\nDenied by Ada.", edit.text)
+        assertEquals(second.second, edit.entities)
+    }
+
+    @Test
     fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {
         val desk = Desk(this)
         val text = ReviewPreview.Text("x".repeat(4 * 4096))
@@ -349,6 +394,60 @@ class ApprovalDeskTest {
         assertEquals(emptyMap(), desk.api.keyboards)
     }
 
+    // What a reply quotes.
+
+    @Test
+    fun `each message of a request stands for it in a quote, which tells how the request stands`() = runTest {
+        val desk = Desk(this)
+        val diff = ReviewPreview.Diff(
+            Path.of("/srv/notes.md"),
+            (1..200).joinToString("\n") {
+                "+line $it of the new file"
+            },
+        )
+        val always = RuleSubject("fs.write", emptyList(), "fs.write")
+        asking(desk, request(always = always, id = "good"))
+        asking(desk, request(id = "denied"))
+        val withdrawn = asking(desk, request(id = "withdrawn"))
+        asking(desk, request(id = "expired"))
+        asking(desk, request(preview = diff, id = "parts"))
+        advanceTimeBy(10.seconds)
+        val waiting = desk.messages.quoted(ADA, 101)
+
+        desk.press(ada, "apv:good:A")
+        desk.press(ada, "apv:denied:d")
+        withdrawn.cancel()
+        desk.press(ada, "apv:parts:a")
+        advanceTimeBy(10.minutes)
+        advanceUntilIdle()
+
+        assertEquals("Alexandrite's approval request good for fs.write (waiting)", waiting)
+        assertEquals(
+            listOf(
+                "good" to "allowed for good by Ada",
+                "denied" to "denied by Ada",
+                "withdrawn" to "withdrawn",
+                "expired" to "expired",
+                "parts" to "allowed by Ada",
+                "parts" to "allowed by Ada",
+            ).map { (id, state) -> "Alexandrite's approval request $id for fs.write ($state)" },
+            (101L..106L).map { desk.messages.quoted(ADA, it) },
+        )
+        assertNull(desk.messages.quoted(GROUP, 101))
+    }
+
+    @Test
+    fun `only the latest messages stand for their requests`() {
+        val messages = ApprovalMessages()
+        val request = ApprovalMessages.Request("k3x9", "fs.write")
+
+        for (message in 1L..1025L) messages.note(ADA, message, request)
+
+        assertNull(messages.quoted(ADA, 1))
+        assertEquals("Alexandrite's approval request k3x9 for fs.write (waiting)", messages.quoted(ADA, 2))
+        assertEquals("Alexandrite's approval request k3x9 for fs.write (waiting)", messages.quoted(ADA, 1025))
+    }
+
     private fun callbacks(desk: Desk, chat: Long): List<List<String>> =
         desk.api.keyboards.filterKeys { it.first == chat }.toSortedMap(compareBy { it.second }).values
             .map { keyboard -> keyboard.inlineKeyboard.flatten().map { it.callbackData } }
@@ -368,5 +467,6 @@ class ApprovalDeskTest {
         const val BOB = 1002L
         const val GRACE = 1003L
         const val GROUP = -1001234500000L
+        const val FOLDED = "expandable_blockquote"
     }
 }

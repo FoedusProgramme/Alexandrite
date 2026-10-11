@@ -3,17 +3,26 @@ package org.foedusprogramme.alexandrite.channel.telegram
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.ADA
+import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.turn.Submission
+import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 class TelegramApprovalTest {
     private val telegram = TelegramHarness()
@@ -27,14 +36,12 @@ class TelegramApprovalTest {
 
     @Test
     fun `a button pressed in Telegram answers the request, and the message then shows who answered`() {
-        val turn = testTurn(chat = telegram.address(ADA)) { actor(ada) }
-        val request = ApprovalRequest("k3x9", turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test", null)
+        val request = request(null)
 
         telegram.run {
-            val channel = checkNotNull(get<ChannelDirectory>().channel(WORK))
             val answer = coroutineScope {
-                val asking = async(Dispatchers.Default) { channel.askApproval(request) }
-                val asked = fake.await { botMessages(ADA).singleOrNull()?.takeIf { it.buttons.isNotEmpty() } }
+                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request) }
+                val asked = asked()
                 fake.press(telegram.bob, asked, "Allow")
                 fake.await { answers.singleOrNull() }
                 fake.press(telegram.ada, asked, "Allow")
@@ -47,5 +54,62 @@ class TelegramApprovalTest {
             val toasts = fake.await { answers.takeIf { it.size == 2 } }
             assertEquals(listOf("Only an admin of this bot can answer.", null), toasts.map { it.text })
         }
+    }
+
+    @Test
+    fun `a preview longer than twelve lines reaches Telegram folded in an expandable blockquote`() {
+        val preview = ReviewPreview.Text((1..30).joinToString("\n") { "line $it" })
+
+        telegram.run {
+            val asked = coroutineScope {
+                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request(preview)) }
+                asked().also {
+                    fake.press(telegram.ada, it, "Deny")
+                    asking.await()
+                }
+            }
+
+            val folded = asked.entities.map { it.jsonObject }.single { it["type"]?.jsonPrimitive?.content == FOLDED }
+            val start = folded.getValue("offset").jsonPrimitive.int
+            val end = start + folded.getValue("length").jsonPrimitive.int
+            assertEquals(preview.text, asked.text.substring(start, end))
+        }
+    }
+
+    @Test
+    fun `a reply to the request quotes the line that stands for it, which the channel vouches for`() {
+        telegram.run {
+            val asked = coroutineScope {
+                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request(null)) }
+                asked().also {
+                    fake.press(telegram.ada, it, "Deny")
+                    asking.await()
+                }
+            }
+            fake.send(telegram.ada, telegram.adaChat, "Why not?", replyTo = asked.id)
+
+            val quote = assertIs<Submission.Message>(telegram.submitted(1).single()).message.quote
+            assertEquals(
+                "Alexandrite's approval request k3x9 for fs.write (denied by Ada Lovelace (@ada_test))",
+                quote?.text,
+            )
+            assertEquals(QuoteTrust(live = true, content = true), quote?.trust)
+            assertEquals(true, quote?.senderIsBot)
+        }
+    }
+
+    private fun request(preview: ReviewPreview?): ApprovalRequest {
+        val turn = testTurn(chat = telegram.address(ADA)) { actor(ada) }
+        return ApprovalRequest("k3x9", turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", preview, "a test", null)
+    }
+
+    private fun PluginHarness.Running.telegramChannel() = checkNotNull(get<ChannelDirectory>().channel(WORK))
+
+    /** The request in Ada's chat, once it waits for an answer. */
+    private fun asked(): FakeBotMessage =
+        fake.await { botMessages(ADA).singleOrNull()?.takeIf { it.buttons.isNotEmpty() } }
+
+    private companion object {
+        const val FOLDED = "expandable_blockquote"
     }
 }

@@ -59,6 +59,7 @@ internal class ApprovalDesk(
     private val texts: Texts,
     private val settings: ChatSettings?,
     private val titles: ChatTitles,
+    private val messages: ApprovalMessages,
 ) : Lifecycle {
     private val pending = ConcurrentHashMap<String, Pending>()
     private val work = SupervisorJob(instance.scope.coroutineContext[Job])
@@ -166,17 +167,19 @@ internal class ApprovalDesk(
         return listOf(text(TextKeys.APPROVAL_ARGUMENTS, language)) to request.arguments
     }
 
-    /** Sends [shown] to its chat, noting each message that carries the buttons. */
+    /** Sends [shown] to its chat, noting the message that carries the buttons and every message once all are sent. */
     private suspend fun post(waiting: Pending, shown: Shown) {
         val request = waiting.request
         val target = targetOf(shown.chat) ?: return
         val keyboard = keyboard(request, shown.language)
         try {
+            val ids = mutableListOf<Long>()
             for ((index, part) in shown.parts.withIndex()) {
                 val last = index == shown.parts.lastIndex
-                val id = outbox.paced(target) { outbox.sendText(target, part, null, keyboard.takeIf { last }) }
-                if (last) waiting.posted += Posted(shown.chat, target, id, part, shown.language)
+                ids += outbox.paced(target) { outbox.sendText(target, part, null, keyboard.takeIf { last }) }
+                if (last) waiting.posted += Posted(shown.chat, target, ids.last(), part, shown.language)
             }
+            ids.forEach { messages.note(target.chat, it, waiting.noted) }
         } catch (e: BotApiException) {
             outbox.checkToken(e)
             logger.warn("{} could not show approval {} in chat {}: {}", instance.id, request.id, shown.chat, e.message)
@@ -233,6 +236,7 @@ internal class ApprovalDesk(
 
     /** Shows how [waiting] ended under each of its messages and takes their buttons away. */
     private fun conclude(waiting: Pending, ending: Ending) {
+        waiting.noted.state = ending.state
         val posted = waiting.posted.toList()
         if (posted.isEmpty()) return
         val request = waiting.request
@@ -306,6 +310,7 @@ internal class ApprovalDesk(
     private class Pending(val request: ApprovalRequest) {
         val ending = CompletableDeferred<Ending>()
         val posted: MutableList<Posted> = CopyOnWriteArrayList()
+        val noted = ApprovalMessages.Request(request.id, request.tool)
     }
 
     /** The messages of a request in [chat] in [language]. */
@@ -324,6 +329,9 @@ internal class ApprovalDesk(
         val answer: ApprovalAnswer
         val logged: String
 
+        /** How the request ended, as a quote of one of its messages tells. */
+        val state: String
+
         class Answered(override val answer: ApprovalAnswer) : Ending {
             override val logged: String
                 get() = when (answer) {
@@ -331,16 +339,28 @@ internal class ApprovalDesk(
                     is ApprovalAnswer.Denied -> "is denied by ${answer.by.address}"
                     else -> "ends: $answer"
                 }
+
+            override val state: String
+                get() = when (answer) {
+                    is ApprovalAnswer.Allowed -> (if (answer.always) "allowed for good by " else "allowed by ") +
+                        named(answer.by)
+
+                    is ApprovalAnswer.Denied -> "denied by ${named(answer.by)}"
+
+                    else -> "no longer waiting"
+                }
         }
 
         data object Expired : Ending {
             override val answer: ApprovalAnswer = ApprovalAnswer.Expired
             override val logged: String = "expired"
+            override val state: String = "expired"
         }
 
         data object Withdrawn : Ending {
             override val answer: ApprovalAnswer = ApprovalAnswer.Unavailable("the request was withdrawn")
             override val logged: String = "is withdrawn"
+            override val state: String = "withdrawn"
         }
     }
 
@@ -381,12 +401,14 @@ private fun commandLine(argv: List<String>): String = argv.joinToString(" ") { w
 }
 
 /**
- * [head], whose first [bold] characters are bold, and [body] as code, in messages that leave room for an outcome and
- * number every message after the first; null when they take more than [MAX_PARTS].
+ * [head], whose first [bold] characters are bold, and [body] as code, folded when longer than [MAX_CODE_LINES], in
+ * messages that leave room for an outcome and number every message after the first; null when they take more than
+ * [MAX_PARTS].
  */
 private fun split(head: String, bold: Int, body: String): List<FormattedText>? {
     val chunks = mutableListOf<String>()
     var rest = body.trimEnd()
+    val entity = if (rest.lines().size > MAX_CODE_LINES) "expandable_blockquote" else "pre"
     var room = MAX_MESSAGE_LENGTH - OUTCOME_ROOM - head.length
     if (room <= 0) return null
     while (true) {
@@ -401,7 +423,7 @@ private fun split(head: String, bold: Int, body: String): List<FormattedText>? {
         val prefix = if (index == 0) head else "(${index + 1}/${chunks.size})\n"
         val spans = listOfNotNull(
             Span("bold", 0, bold).takeIf { index == 0 && bold > 0 },
-            Span("pre", prefix.length, chunk.length).takeIf { chunk.isNotEmpty() },
+            Span(entity, prefix.length, chunk.length).takeIf { chunk.isNotEmpty() },
         )
         FormattedText(prefix + chunk, spans)
     }
@@ -417,6 +439,9 @@ private fun cut(text: String, room: Int): Int {
 
 /** How many messages one request may take. */
 private const val MAX_PARTS = 4
+
+/** The most lines a preview shows unfolded. */
+private const val MAX_CODE_LINES = 12
 
 /** The characters a request's last message keeps free for the line that tells how it ended. */
 private const val OUTCOME_ROOM = 512
