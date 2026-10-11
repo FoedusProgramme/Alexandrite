@@ -65,6 +65,7 @@ internal class DoublesPlugin(
     control: RecordingAgentControl?,
     store: MemoryStore?,
     chatStates: ChatStateStore?,
+    records: RecordStore?,
     floor: HardFloor?,
     /** Whether to bind the test floor over the run's host paths. */
     hostFloor: Boolean,
@@ -96,9 +97,9 @@ internal class DoublesPlugin(
             add(instanceBinding(key<ConversationStore>(), it.conversations, ID, "MemoryStore.conversations"))
             add(instanceBinding(key<TranscriptStore>(), it.transcripts, ID, "MemoryStore.transcripts"))
             add(instanceBinding(key<MediaStore>(), it.media, ID, "MemoryStore.media"))
-            add(instanceBinding(key<RecordStore>(), it.records, ID, "MemoryStore.records"))
         }
-        chatStates?.let { add(instanceBinding(key<ChatStateStore>(), it, ID, "MemoryStore.chatStates")) }
+        chatStates?.let { add(instanceBinding(key<ChatStateStore>(), it, ID, "ChatStateStore")) }
+        records?.let { add(instanceBinding(key<RecordStore>(), it, ID, "RecordStore")) }
         floor?.let { add(instanceBinding(key<HardFloor>(), it, ID, "HardFloor")) }
         if (hostFloor) {
             val paths = Dependency(key<HostPaths>(), DependencyKind.INSTANCE, "paths")

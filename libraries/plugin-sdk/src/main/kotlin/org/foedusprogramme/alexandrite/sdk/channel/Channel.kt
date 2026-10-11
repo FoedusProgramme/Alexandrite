@@ -23,7 +23,7 @@ public interface Channel {
     public suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery
 }
 
-/** The reply of one turn, which delivers until the channel instance stops. */
+/** The reply of one turn, which delivers until the channel instance stops and then takes calls without delivering. */
 public interface ReplySink {
     /** Shows [text], the whole text of [segment] so far, where a higher segment freezes the earlier ones. */
     public suspend fun preview(segment: Int, text: String)

@@ -33,7 +33,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
  * through [submitter].
  *
  * A call that breaks the rules of [Channel] or [ReplySink] throws an [IllegalStateException], and stops and fails the
- * [PluginHarness] run that holds the channel.
+ * [PluginHarness] run that holds the channel. Once its instance stops, it ignores previews and answers each delivery
+ * with [STOPPED].
  */
 public class RecordingChannel(
     public val instance: ChannelInstanceId = TEST_INSTANCE,
@@ -166,7 +167,6 @@ public class RecordingChannel(
         val reply = synchronized(lock) {
             violation(
                 when {
-                    stopped -> "a reply of turn ${turn.id} opened after the instance stopped."
                     turn.chat.instance != instance -> "a reply of turn ${turn.id} opened for ${turn.chat}."
                     turn.replyTarget != ReplyTarget.CHAT -> "a reply of turn ${turn.id}, which replies to its caller."
                     turn.id in opened -> "a second reply of turn ${turn.id}."
@@ -181,7 +181,9 @@ public class RecordingChannel(
 
     override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = synchronized(lock) {
         checkChat(chat, "a message sent")
-        delivery(chat, message, replying = false).also { record(Event.Sent(chat, message, it)) }
+        val delivery = if (stopped) STOPPED else delivery(chat, message, replying = false)
+        record(Event.Sent(chat, message, delivery))
+        delivery
     }
 
     internal fun <T> read(block: () -> T): T = synchronized(lock, block)
@@ -193,13 +195,7 @@ public class RecordingChannel(
     }
 
     private fun checkChat(chat: ChatAddress, what: String) {
-        violation(
-            when {
-                stopped -> "$what for $chat after the instance stopped."
-                chat.instance != instance -> "$what for $chat, a chat of another instance."
-                else -> null
-            },
-        )
+        violation("$what for $chat, a chat of another instance.".takeIf { chat.instance != instance })
     }
 
     private fun parts(text: String): Int = maxOf(1, (text.length + partLength - 1) / partLength)
@@ -237,8 +233,6 @@ public class RecordingChannel(
             synchronized(lock) {
                 violation(
                     when {
-                        stopped -> "a preview of turn $turn after the instance stopped."
-
                         reply.end != null -> "a preview of turn $turn after its reply ended."
 
                         segment < 0 -> "a preview of turn $turn in segment $segment."
@@ -250,6 +244,7 @@ public class RecordingChannel(
                         else -> null
                     },
                 )
+                if (stopped) return
                 reply.segment = segment
                 reply.previewed += RecordedReply.Preview(segment, text)
                 record(Event.Previewed(turn, segment, text))
@@ -260,8 +255,6 @@ public class RecordingChannel(
             synchronized(lock) {
                 violation(
                     when {
-                        stopped -> "segment $segment of turn $turn started after the instance stopped."
-
                         reply.end != null -> "segment $segment of turn $turn started after its reply ended."
 
                         segment < reply.segment ->
@@ -270,6 +263,7 @@ public class RecordingChannel(
                         else -> null
                     },
                 )
+                if (stopped) return
                 reply.segment = segment
                 reply.started += segment
             }
@@ -277,7 +271,7 @@ public class RecordingChannel(
 
         override suspend fun complete(message: OutboundMessage): Delivery = synchronized(lock) {
             checkOpen("completed")
-            val delivery = delivery(reply.turn.chat, message, replying = true)
+            val delivery = if (stopped) STOPPED else delivery(reply.turn.chat, message, replying = true)
             reply.end = Event.Completed(turn, message, delivery).also(::record)
             delivery
         }
@@ -290,13 +284,7 @@ public class RecordingChannel(
         }
 
         private fun checkOpen(how: String) {
-            violation(
-                when {
-                    stopped -> "the reply of turn $turn $how after the instance stopped."
-                    reply.end != null -> "the reply of turn $turn $how after it ended."
-                    else -> null
-                },
-            )
+            violation("the reply of turn $turn $how after it ended.".takeIf { reply.end != null })
         }
     }
 
@@ -333,6 +321,9 @@ public class RecordingChannel(
 
     public companion object {
         public const val DEFAULT_PART_LENGTH: Int = 4096
+
+        /** The delivery of every reply and message once the instance stopped. */
+        public val STOPPED: Delivery = Delivery.NotDelivered(DeliveryFailure.TRANSIENT)
 
         /** Streaming with the final message in place of the previews, proactive, and in plain text or Markdown. */
         public val DEFAULT_CAPABILITIES: ChannelCapabilities = ChannelCapabilities.builder()

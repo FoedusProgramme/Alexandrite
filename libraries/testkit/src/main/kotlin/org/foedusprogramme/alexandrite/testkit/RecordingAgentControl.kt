@@ -162,8 +162,9 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     }
 
     /**
-     * Refuses an agent that is not listed and a home chat of another agent, and changes homes as the agent does: true
-     * while [chat] is not the home, false while it is, and a reset from any chat of the instance.
+     * Refuses an agent that is not listed, a model that an endpoint listed with [scriptModels] lacks and a home chat of
+     * another agent, and changes homes as the agent does: true while [chat] is not the home, false while it is, and a
+     * reset from any chat of the instance.
      */
     override suspend fun updateSettings(
         chat: ChatAddress,
@@ -178,6 +179,12 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
             else -> selected[chat]
         }
         refuseIf(choice != null && choice !in profiles) { "Agent '$choice' does not serve ${chat.instance}." }
+        (update.model as? SettingChange.SetTo)?.value?.let { model ->
+            val listed = endpointModels[model.endpoint]
+            refuseIf(listed != null && listed.none { it.id == model.model }) {
+                "Model endpoint '${model.endpoint}' has no model '${model.model}'."
+            }
+        }
         val agent = choice ?: homeAgent(chat) ?: defaultAgent
         val instance = agent to chat.instance
         val home = homeAgent(chat) == agent
@@ -206,14 +213,15 @@ public class RecordingAgentControl(private val defaultAgent: AgentId = AgentId.M
     }
 
     /**
-     * Links [member] into the group that holds [anchor], else into a new one, and refuses a member linked already and a
-     * declared group.
+     * Links [member] into the group that holds [anchor], else into a new one, and refuses [anchor] itself, a member
+     * linked already and a declared group.
      */
     override suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup =
         synchronized(lock) {
             recorded += Call.Link(agent, anchor, member, by)
             val groups = groups[agent].orEmpty()
             refuseQueued()
+            refuseIf(member == anchor) { "$member cannot be linked to itself." }
             refuseIf(groups.any { member == it.anchor || member in it.members }) { "$member is linked already." }
             val group = groups.firstOrNull { anchor == it.anchor || anchor in it.members }
             refuseIf(group?.declared == true) { "$anchor is in a group that the config file declares." }

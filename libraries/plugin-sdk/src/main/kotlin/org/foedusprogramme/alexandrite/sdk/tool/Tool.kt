@@ -35,7 +35,7 @@ public class ToolDefinition(
     }
 }
 
-/** Where a tool call runs. */
+/** Where a tool call runs, whose members throw [IllegalStateException] once the call ended. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ToolContext {
     public val turn: TurnInfo

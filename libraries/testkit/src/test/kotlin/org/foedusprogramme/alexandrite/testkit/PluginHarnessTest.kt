@@ -6,7 +6,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.foedusprogramme.alexandrite.runtime.ConfigFileException
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.runtime.Termination
@@ -17,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.rebuild
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
+import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.set
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
@@ -266,12 +266,51 @@ class PluginHarnessTest {
         val config = """{"greeting": "${'$'}{env:GREETING}", "kept": "${'$'}${'$'}{GREETING}"}"""
 
         val resolved = settings { environment(environment).config(config) }
-        val unset =
-            assertFailsWith<ConfigFileException.UnsetVariable> { settings { environment(emptyMap()).config(config) } }
+        val unset = assertFailsWith<ConfigException> { settings { environment(emptyMap()).config(config) } }
+        val malformed = assertFailsWith<ConfigException> { settings { config("""{"greeting": "${'$'}{GREETING}"}""") } }
 
         assertEquals(JsonPrimitive("hi from the environment"), resolved["greeting"])
         assertEquals(JsonPrimitive("\${GREETING}"), resolved["kept"])
-        assertContains(unset.message.orEmpty(), "GREETING")
+        assertEquals(
+            "Invalid config at 'plugins.probe.greeting': the value from PluginHarness.Builder.config(...) refers to " +
+                "the environment variable GREETING, which is not set.",
+            unset.message,
+        )
+        assertEquals("plugins.probe.greeting", malformed.path)
+        assertContains(malformed.message.orEmpty(), "PluginHarness.Builder.config(...) holds a malformed reference")
+    }
+
+    @Test
+    fun `a config file no harness wrote is kept, and one a harness wrote gets each harness's config`() {
+        val file = directory.resolve("alexandrite.json")
+        val text = "{\"plugins\": {\"probe\": {\"greeting\": \"from the file\"}}}"
+        Files.writeString(file, text)
+        lateinit var kept: JsonObject
+
+        harness { configFile(file).config("""{"greeting": "hi"}""") }.execute { kept = get() }
+        val keptText = Files.readString(file)
+        Files.delete(file)
+        harness { configFile(file).config("""{"greeting": "first"}""") }.execute {}
+        val second = settings { configFile(file).config("""{"greeting": "second"}""") }
+
+        assertEquals(JsonObject(mapOf("greeting" to JsonPrimitive("from the file"))), kept)
+        assertEquals(text, keptText)
+        assertEquals(JsonObject(mapOf("greeting" to JsonPrimitive("second"))), second)
+    }
+
+    @Test
+    fun `a kept config file keeps its layout where the harness splices in its channels' sections`() {
+        val file = directory.resolve("alexandrite.json")
+        val text = "{\n\t\"plugins\": {\n\t\t\"probe\": {\"greeting\": \"h\\u0069\"}\n\t}\n}\n"
+        Files.writeString(file, text)
+
+        harness { writeConfigFile(file).channel(admins = setOf("ada")) }.execute {
+            assertTrue(channel().user("ada").isAdmin)
+        }
+
+        val section = "\t\t\"test-channel\": {\n\t\t\t\"instances\": {\n\t\t\t\t\"main\": {\n" +
+            "\t\t\t\t\t\"admins\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
+        assertEquals(text.replace("}\n\t}", "},\n$section\n\t}"), Files.readString(file))
     }
 
     @Test

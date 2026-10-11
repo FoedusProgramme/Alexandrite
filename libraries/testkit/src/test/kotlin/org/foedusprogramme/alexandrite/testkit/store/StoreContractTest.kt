@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.testkit.store
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.foedusprogramme.alexandrite.runtime.chat.MemoryChatStateStore
 import org.foedusprogramme.alexandrite.runtime.store.MemoryRecordStore
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -50,8 +52,8 @@ internal enum class StoreFlaw(val check: String) {
     COMMITS_THEN_CANCELS("a call cancelled while it runs either returns and takes effect, or does neither"),
 }
 
-/** A store in memory whose ports have [flaw], none when it is null. */
-private class FlawedStore(private val flaw: StoreFlaw?) {
+/** A store in memory whose ports have [flaw], none when it is null, and pretty-print record values when [pretty]. */
+private class FlawedStore(private val flaw: StoreFlaw?, private val pretty: Boolean = false) {
     private val data = MemoryData(Clock.systemUTC())
     private val conversations = Conversations(MemoryConversations(data))
     private val transcripts = Transcripts(MemoryTranscripts(data))
@@ -139,7 +141,7 @@ private class FlawedStore(private val flaw: StoreFlaw?) {
             if (flaw !=
                 StoreFlaw.COMMITS_THEN_CANCELS
             ) {
-                return delegate.put(plugin(plugin), collection, key(key), json, by)
+                return delegate.put(plugin(plugin), collection, key(key), layout(json), by)
             }
             return withContext(Dispatchers.IO) {
                 Thread.sleep(COMMIT_MILLIS)
@@ -155,6 +157,9 @@ private class FlawedStore(private val flaw: StoreFlaw?) {
 
         private fun plugin(plugin: String) = if (flaw == StoreFlaw.MIXES_PLUGINS) "shared" else plugin
 
+        private fun layout(json: String) =
+            if (pretty) PRETTY.encodeToString(JsonElement.serializer(), Json.parseToJsonElement(json)) else json
+
         private fun key(key: String) =
             if (flaw == StoreFlaw.FOLDS_KEYS) Normalizer.normalize(key, Normalizer.Form.NFC).lowercase() else key
     }
@@ -162,6 +167,7 @@ private class FlawedStore(private val flaw: StoreFlaw?) {
     private companion object {
         const val ID = "flawed-store"
         const val COMMIT_MILLIS = 50L
+        val PRETTY = Json { prettyPrint = true }
     }
 }
 
@@ -174,6 +180,16 @@ class StoreContractTest {
             runBlocking { check.run(store::harness) }
         }
     }
+
+    @TestFactory
+    fun `a store that keeps values in a JSON layout of its own keeps the record checks`(): List<DynamicTest> =
+        RECORD_CHECKS.map { check ->
+            DynamicTest.dynamicTest(check.name) {
+                val store = FlawedStore(null, pretty = true)
+
+                runBlocking { check.run(store::harness) }
+            }
+        }
 
     @TestFactory
     fun `each check fails a store with the flaw it guards against`(): List<DynamicTest> =

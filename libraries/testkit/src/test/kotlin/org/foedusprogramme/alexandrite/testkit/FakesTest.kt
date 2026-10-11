@@ -22,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.store.collection
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
@@ -38,7 +39,12 @@ import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
 import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -49,6 +55,9 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class FakesTest {
+    @TempDir
+    lateinit var directory: Path
+
     // Turns.
 
     @Test
@@ -484,6 +493,26 @@ class FakesTest {
     }
 
     @Test
+    fun `a recording agent control refuses a self-link and a model that its listed endpoint lacks`() {
+        val control = RecordingAgentControl()
+        val chat = testChat()
+        control.scriptModels(EndpointId("local"), listOf(ScriptedModel.modelInfo("a")))
+        fun model(model: String) = blocking {
+            control.updateSettings(chat, ChatSettingsUpdate.builder().model(ModelRef.parse(model)).build(), null)
+        }
+
+        val self = assertFailsWith<ControlRefusedException> {
+            blocking { control.link(AgentId.MAIN, chat, chat, null) }
+        }
+        val missing = assertFailsWith<ControlRefusedException> { model("local/b") }
+
+        assertEquals("$chat cannot be linked to itself.", self.message)
+        assertEquals("Model endpoint 'local' has no model 'b'.", missing.message)
+        assertEquals(listOf("local/a", "remote/b"), listOf("local/a", "remote/b").map { "${model(it).model}" })
+        assertEquals(emptyList(), control.links())
+    }
+
+    @Test
     fun `a recording agent control keeps a declared group as the config file has it`() {
         val control = RecordingAgentControl()
         val coder = AgentId("coder")
@@ -575,5 +604,38 @@ class FakesTest {
 
         assertEquals(testTurn(), context.turn)
         assertEquals(ToolCallId("test-call"), context.call)
+    }
+
+    @Test
+    fun `a test tool context fails once its call ended, as the agent's does`() {
+        val context = testToolContext(workspace = directory.resolve("work"))
+        context.touched(Path.of("/srv/notes.md"))
+
+        context.end()
+
+        val calls = listOf<() -> Unit>(
+            { context.turn },
+            { context.call },
+            { context.workspace },
+            { context.touched(Path.of("/srv/other.md")) },
+            { blocking { context.openWorkspace() } },
+        )
+        for (call in calls) {
+            val error = assertFailsWith<IllegalStateException> { call() }
+            assertEquals("A tool context is valid only while its call runs.", error.message)
+        }
+        assertEquals(listOf(Path.of("/srv/notes.md")), context.touchedPaths)
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `a test tool context creates its workspace owner-only`() {
+        val workspace = directory.resolve("workspaces/coder")
+
+        val opened = blocking { testToolContext(workspace = workspace).openWorkspace() }
+
+        assertEquals(workspace, opened)
+        assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(workspace)))
+        assertEquals(workspace, blocking { testToolContext(workspace = workspace).openWorkspace() })
     }
 }

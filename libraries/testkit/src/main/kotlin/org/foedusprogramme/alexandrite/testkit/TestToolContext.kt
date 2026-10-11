@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** By default, a message turn of a member who is no admin, in chat `test:main:chat` and conversation `test`. */
@@ -16,24 +17,51 @@ public fun testToolContext(
     workspace: Path? = null,
 ): TestToolContext = TestToolContext(turn, call, workspace)
 
-/** A tool context that records the paths its call reports. */
-public class TestToolContext internal constructor(
-    override val turn: TurnInfo,
-    override val call: ToolCallId,
-    override val workspace: Path?,
-) : ToolContext {
+/** A tool context that records the paths its call reports, valid until [end]. */
+public class TestToolContext internal constructor(turn: TurnInfo, call: ToolCallId, workspace: Path?) : ToolContext {
     private val reported = CopyOnWriteArrayList<Path>()
+
+    @Volatile
+    private var open = true
+
+    override val turn: TurnInfo = turn
+        get() = field.also { checkOpen() }
+
+    override val call: ToolCallId = call
+        get() = field.also { checkOpen() }
+
+    override val workspace: Path? = workspace
+        get() = field.also { checkOpen() }
 
     /** The paths that the call reported as touched, in order. */
     public val touchedPaths: List<Path> get() = reported.toList()
 
-    /** [workspace], created with the directories on the way when it does not exist. */
+    /** [workspace], created owner-only with the directories on the way when it does not exist. */
     override suspend fun openWorkspace(): Path {
         val path = checkNotNull(workspace) { "The tool context of call $call has no workspace." }
-        return withContext(Dispatchers.IO) { Files.createDirectories(path) }
+        return withContext(Dispatchers.IO) {
+            if (Files.isDirectory(path)) return@withContext path
+            if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
+                Files.createDirectories(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY))
+            } else {
+                Files.createDirectories(path)
+            }
+        }
     }
 
     override fun touched(path: Path) {
+        checkOpen()
         reported.add(path)
     }
+
+    /** Ends the call, after which the context's members throw [IllegalStateException]. */
+    public fun end() {
+        open = false
+    }
+
+    private fun checkOpen() {
+        check(open) { "A tool context is valid only while its call runs." }
+    }
 }
+
+private val OWNER_ONLY = PosixFilePermissions.fromString("rwx------")

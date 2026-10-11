@@ -5,6 +5,19 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+
+/**
+ * [text], a valid JSON config file, with [value] at [path] and every other character kept.
+ *
+ * Throws [IllegalArgumentException] when a key on the way to [path] holds no object.
+ */
+@InternalAlexandriteApi
+public fun splicedConfig(text: String, path: List<String>, value: JsonElement): String = try {
+    ConfigText(text).set(path, value).text
+} catch (e: ConfigPathException) {
+    throw IllegalArgumentException(e.message, e)
+}
 
 /** Thrown when a path cannot be changed in a [ConfigText]. */
 internal class ConfigPathException(message: String) : RuntimeException(message)

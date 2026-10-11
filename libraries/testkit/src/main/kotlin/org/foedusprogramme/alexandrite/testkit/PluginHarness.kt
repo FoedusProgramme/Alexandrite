@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.runtime.RuntimeConfig
 import org.foedusprogramme.alexandrite.runtime.RuntimeSpec
 import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
+import org.foedusprogramme.alexandrite.runtime.config.splicedConfig
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -33,10 +34,13 @@ import org.foedusprogramme.alexandrite.testkit.plugin.DoublesPlugin
 import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelConfig
 import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelPlugin
 import java.io.IOException
+import java.nio.charset.CharacterCodingException
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.time.ZoneId
 import java.time.ZoneOffset
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.ExperimentalPathApi
 import kotlin.io.path.deleteRecursively
 import kotlin.time.Duration
@@ -44,8 +48,8 @@ import kotlin.time.Duration
 /**
  * Runs the plugin under test and the plugins added to it in a runtime of their own.
  *
- * A run stops at the first problem that a [ScriptedModel] or a [RecordingChannel] it holds meets, and fails with the
- * doubles' problems, with what the block threw as the cause.
+ * A run stops at the first problem that a [ScriptedModel] or a [RecordingChannel] it holds or watches meets, and fails
+ * with the doubles' problems, with what the block threw as the cause.
  */
 public class PluginHarness private constructor(
     private val id: String,
@@ -102,12 +106,19 @@ public class PluginHarness private constructor(
         texts?.let(builder::texts)
         val file = configFile
         if (file == null) {
-            builder.pluginConfig(resolved(tree, environment))
-        } else {
-            prepare(file)
-            builder.configFile(file, environment)
+            builder.pluginConfig(JsonConfigSource(ConfigFile.resolve(tree, environment, CONFIG_ORIGIN)))
+            return runSpec(builder.build(), block)
         }
-        val spec = builder.build()
+        val ours = prepare(file)
+        try {
+            builder.configFile(file, environment)
+            return runSpec(builder.build(), block)
+        } finally {
+            if (ours) remember(file)
+        }
+    }
+
+    private suspend fun runSpec(spec: RuntimeSpec, block: suspend Running.() -> Unit): Termination {
         var running: Running? = null
         var finished = false
         val termination = try {
@@ -132,22 +143,30 @@ public class PluginHarness private constructor(
     }
 
     /**
-     * Writes the harness's config into [file], or only the harness's own sections where they differ when the run keeps
-     * the config in a file that exists.
+     * Writes the harness's config into [file], unless the run keeps the config that [file] holds, where it splices in
+     * the harness's own sections that differ, and returns whether a harness wrote the file.
      */
-    private fun prepare(file: Path) {
-        if (!keepsConfig || Files.notExists(file)) {
-            write(file, tree)
-            return
+    private fun prepare(file: Path): Boolean {
+        val text = try {
+            Files.readString(file)
+        } catch (e: NoSuchFileException) {
+            null
+        } catch (e: CharacterCodingException) {
+            return false
         }
-        if (owned.isEmpty()) return
+        val ours = text != null && harnessFiles[normalized(file)] == text
+        if (text == null || (ours && !keepsConfig)) {
+            write(file, tree)
+            return true
+        }
         val current = try {
-            Json.parseToJsonElement(Files.readString(file).removePrefix(BYTE_ORDER_MARK)) as? JsonObject
+            Json.parseToJsonElement(text.removePrefix(BYTE_ORDER_MARK)) as? JsonObject
         } catch (e: SerializationException) {
             null
-        } ?: return
-        val merged = merged(current, owned)
-        if (merged != current) write(file, merged)
+        } ?: return ours
+        val spliced = spliced(text, current, owned)
+        if (spliced != text) Files.writeString(file, spliced)
+        return ours
     }
 
     /** The problems the doubles met during the run, as an error caused by [cause], null when there are none. */
@@ -200,8 +219,10 @@ public class PluginHarness private constructor(
         }
 
         /** The recording channel of the instance [name] of [type], while the instance is open. */
-        public fun channel(name: String = "main", type: String = "test"): RecordingChannel =
-            channel(ChannelInstanceId(ChannelType(type), name))
+        public fun channel(
+            name: String = TEST_INSTANCE.name,
+            type: String = TEST_INSTANCE.type.value,
+        ): RecordingChannel = channel(ChannelInstanceId(ChannelType(type), name))
 
         public fun channel(instance: ChannelInstanceId): RecordingChannel =
             get<ChannelDirectory>().channel(instance) as? RecordingChannel
@@ -214,7 +235,7 @@ public class PluginHarness private constructor(
         )
 
         /** The scripted model [id] that the runtime's model providers contribute. */
-        public fun model(id: String = "scripted"): ScriptedModel =
+        public fun model(id: String = ScriptedModel.DEFAULT_ENDPOINT.value): ScriptedModel =
             getAll<ModelProvider>().flatMap { it.endpoints }.filterIsInstance<ScriptedModel>()
                 .singleOrNull { it.id.value == id }
                 ?: throw NoSuchElementException("No scripted model '$id' is contributed.")
@@ -234,6 +255,7 @@ public class PluginHarness private constructor(
         private var grace: Duration? = null
         private var inspectTermination = false
         private val models = mutableListOf<ScriptedModel>()
+        private val watched = mutableListOf<ScriptedModel>()
         private val tools = mutableListOf<Tool>()
         private val hooks = mutableListOf<Hook>()
         private val handlers = mutableListOf<CommandHandler>()
@@ -242,6 +264,7 @@ public class PluginHarness private constructor(
         private var initiator: RecordingTurnInitiator? = null
         private var control: RecordingAgentControl? = null
         private var states: TestChatStates? = null
+        private var records: TestRecords? = null
         private var store: MemoryStore? = null
         private var floor: HardFloor? = null
         private var hostFloor = false
@@ -270,16 +293,20 @@ public class PluginHarness private constructor(
         /** The runtime's data directory, a temporary one deleted when the run ends unless set. */
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
 
-        /** The config file that each run writes the harness's config into, replacing it, and reads, none unless set. */
+        /**
+         * The config file that each run writes the harness's config into and reads, none unless set.
+         *
+         * A run keeps a file that no harness wrote, as [writeConfigFile] does.
+         */
         public fun configFile(file: Path): Builder = apply {
             configFile = file
             keepsConfig = false
         }
 
         /**
-         * Keeps the config in [file]: a run writes the harness's config there when the file does not exist, else the
-         * sections of the harness's recording channels, and reads the file, so what the plugins write reaches later
-         * runs.
+         * Keeps the config in [file]: a run writes the harness's config there when the file does not exist, else
+         * splices in the sections of the harness's recording channels, and reads the file, so what the plugins write
+         * reaches later runs.
          */
         public fun writeConfigFile(file: Path): Builder = apply {
             configFile = file
@@ -316,6 +343,9 @@ public class PluginHarness private constructor(
             models += model
         }
 
+        /** Stops and fails a run at the first problem of [model], which the plugins reach through another endpoint. */
+        public fun watch(model: ScriptedModel): Builder = apply { if (watched.none { it === model }) watched += model }
+
         /** Contributes [tool] through the plugin `testkit`. */
         public fun tool(tool: Tool): Builder = apply { tools += tool }
 
@@ -330,8 +360,8 @@ public class PluginHarness private constructor(
          * users [admins] as its admins and [partLength] characters per platform message.
          */
         public fun channel(
-            name: String = "main",
-            type: String = "test",
+            name: String = TEST_INSTANCE.name,
+            type: String = TEST_INSTANCE.type.value,
             admins: Set<String> = emptySet(),
             partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
         ): Builder = apply {
@@ -353,6 +383,9 @@ public class PluginHarness private constructor(
         /** Keeps every plugin's chat states in [states]. */
         public fun chatStates(states: TestChatStates): Builder = apply { this.states = states }
 
+        /** Keeps every plugin's records in [records]. */
+        public fun records(records: TestRecords): Builder = apply { this.records = records }
+
         /** Binds every port of [store] as the runtime's store. */
         public fun store(store: MemoryStore): Builder = apply { this.store = store }
 
@@ -371,10 +404,13 @@ public class PluginHarness private constructor(
         public fun build(): PluginHarness {
             val store = store
             val states = states
-            require(store == null || states == null || states.store === store) {
+            val records = records
+            require(store == null || states == null || states.store === store.chatStates) {
                 "The harness binds one store, so its chat states must be TestChatStates(store) of its MemoryStore."
             }
-            val chatStates = (store ?: states?.store)?.chatStates
+            require(store == null || records == null || records.store === store.records) {
+                "The harness binds one store, so its records must be TestRecords(store) of its MemoryStore."
+            }
             val doubles = DoublesPlugin(
                 models,
                 tools,
@@ -384,7 +420,8 @@ public class PluginHarness private constructor(
                 initiator,
                 control,
                 store,
-                chatStates,
+                store?.chatStates ?: states?.store,
+                store?.records ?: records?.store,
                 floor,
                 hostFloor,
             )
@@ -407,7 +444,7 @@ public class PluginHarness private constructor(
                 grace,
                 inspectTermination,
                 temporaryRoot,
-                models.toList(),
+                (models + watched).distinct(),
                 recording,
             )
         }
@@ -422,6 +459,23 @@ private val PRETTY = Json { prettyPrint = true }
 
 private const val BYTE_ORDER_MARK = "\uFEFF"
 
+private const val CONFIG_ORIGIN = "PluginHarness.Builder.config(...)"
+
+/** The config files that harnesses wrote, with the text each run left in them. */
+private val harnessFiles = ConcurrentHashMap<Path, String>()
+
+private fun normalized(file: Path): Path = file.toAbsolutePath().normalize()
+
+/** Records the text of [file] as one a harness left there. */
+private fun remember(file: Path) {
+    val text = try {
+        Files.readString(file)
+    } catch (e: IOException) {
+        null
+    }
+    if (text == null) harnessFiles.remove(normalized(file)) else harnessFiles[normalized(file)] = text
+}
+
 /** The config tree that holds each config of [roots] below its root. */
 private fun tree(roots: Map<String, JsonObject>): JsonObject =
     roots.entries.fold(JsonObject(emptyMap())) { tree, (root, config) ->
@@ -433,17 +487,16 @@ private fun write(file: Path, tree: JsonObject) {
     Files.writeString(file, PRETTY.encodeToString(JsonObject.serializer(), tree) + "\n")
 }
 
-/** [tree] with each `${env:NAME}` replaced from [environment] as a config file's are. */
-private fun resolved(tree: JsonObject, environment: Map<String, String>): ConfigSource {
-    if ("$" !in tree.toString()) return JsonConfigSource(tree)
-    val file = Files.createTempFile("alexandrite-harness-", ".json")
-    try {
-        write(file, tree)
-        return JsonConfigSource(checkNotNull(ConfigFile.read(file, environment).tree("")))
-    } finally {
-        Files.deleteIfExists(file)
+/** [text] with each value of [owned] that [current], the object at [path] of [text], lacks or differs in spliced in. */
+private fun spliced(text: String, current: JsonObject, owned: JsonObject, path: List<String> = emptyList()): String =
+    owned.entries.fold(text) { edited, (name, value) ->
+        val held = current[name]
+        when {
+            value is JsonObject && held is JsonObject -> spliced(edited, held, value, path + name)
+            value == held -> edited
+            else -> splicedConfig(edited, path + name, value)
+        }
     }
-}
 
 private fun merged(tree: JsonObject, other: JsonObject): JsonObject = JsonObject(
     (tree.keys + other.keys).associateWith { name ->

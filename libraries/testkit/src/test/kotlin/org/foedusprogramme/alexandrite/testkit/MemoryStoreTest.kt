@@ -64,12 +64,13 @@ class MemoryStoreTest {
     }
 
     @Test
-    fun `a harness binds every port of the store it was given, and chat states over it share it`() {
+    fun `a harness binds every port of the store it was given, and chat states and records over it share it`() {
         val store = MemoryStore()
         val states = TestChatStates(store)
+        val records = TestRecords(store)
         val chat = testChat()
 
-        PluginHarness.builder(probe).store(store).chatStates(states).execute {
+        PluginHarness.builder(probe).store(store).chatStates(states).records(records).execute {
             assertSame(store.conversations, get<ConversationStore>())
             assertSame(store.transcripts, get<TranscriptStore>())
             assertSame(store.media, get<MediaStore>())
@@ -80,27 +81,32 @@ class MemoryStoreTest {
         }
 
         assertEquals("rich", blocking { states.of("probe").state("mode", "plain").get(chat) })
+        assertEquals("rich", blocking { records.of("probe").collection<String>("modes").get("$chat") }?.value)
         assertEquals("\"rich\"", blocking { store.chatStates.read("probe", "mode", null, chat) })
         assertEquals("\"rich\"", blocking { store.records.get("probe", "modes", "$chat") }?.value)
     }
 
     @Test
-    fun `chat states alone bind only the chat states of their store`() {
+    fun `chat states and records alone bind only their own port`() {
         val states = TestChatStates()
+        val records = TestRecords()
 
-        PluginHarness.builder(probe).chatStates(states).execute {
-            assertSame(states.store.chatStates, get<ChatStateStore>())
+        PluginHarness.builder(probe).chatStates(states).records(records).execute {
+            assertSame(states.store, get<ChatStateStore>())
+            assertSame(records.store, get<RecordStore>())
             assertFailsWith<DiException> { get<ConversationStore>() }
         }
     }
 
     @Test
-    fun `a harness refuses chat states over another store than its own`() {
-        val builder = PluginHarness.builder(probe).store(MemoryStore()).chatStates(TestChatStates())
+    fun `a harness refuses chat states or records over another store than its own`() {
+        val states = PluginHarness.builder(probe).store(MemoryStore()).chatStates(TestChatStates())
+        val records = PluginHarness.builder(probe).store(MemoryStore()).records(TestRecords())
 
-        val error = assertFailsWith<IllegalArgumentException> { builder.build() }
+        val refused = listOf(states, records).map { assertFailsWith<IllegalArgumentException> { it.build() } }
 
-        assertContains(error.message!!, "TestChatStates(store)")
+        assertContains(refused[0].message!!, "TestChatStates(store)")
+        assertContains(refused[1].message!!, "TestRecords(store)")
     }
 
     private fun PluginHarness.Builder.execute(block: suspend PluginHarness.Running.() -> Unit) {

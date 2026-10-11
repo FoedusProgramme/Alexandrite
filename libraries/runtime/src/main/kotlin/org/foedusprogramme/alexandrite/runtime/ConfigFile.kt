@@ -6,6 +6,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigLiteral
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
 import org.foedusprogramme.alexandrite.sdk.config.JsonConfigSource
@@ -52,7 +54,26 @@ public object ConfigFile {
 
     /** [root] with each `${env:NAME}` replaced from [environment] and each `$${` by `${`. */
     internal fun resolved(file: Path, root: JsonObject, environment: Map<String, String>): JsonObject =
-        JsonObject(root.mapValues { (key, value) -> value.resolved(file, key, environment) })
+        resolved(root, environment) { path, variable ->
+            if (variable == null) {
+                ConfigFileException.MalformedReference(file, path)
+            } else {
+                ConfigFileException.UnsetVariable(file, path, variable)
+            }
+        }
+
+    /** [root] resolved as [read] resolves a file's, with a [ConfigException] naming [origin] for a value it cannot. */
+    @InternalAlexandriteApi
+    public fun resolve(root: JsonObject, environment: Map<String, String>, origin: String): JsonObject =
+        resolved(root, environment.toMap()) { path, variable ->
+            val problem = if (variable == null) {
+                "holds a malformed reference. Write \${env:NAME} to insert an environment variable, or \$\${ for a " +
+                    "literal \${."
+            } else {
+                "refers to the environment variable $variable, which is not set."
+            }
+            ConfigException(path, "the value from $origin $problem")
+        }
 
     /** The strings and lists of [element] as [resolved] reads them, a string that names a variable as written. */
     internal fun literal(element: JsonElement): ConfigLiteral? = when (element) {
@@ -143,14 +164,31 @@ public object ConfigFile {
 
     private fun join(path: String, key: String): String = if (path.isEmpty()) key else "$path.$key"
 
-    private fun JsonElement.resolved(file: Path, path: String, environment: Map<String, String>): JsonElement =
-        when (this) {
-            is JsonObject -> JsonObject(mapValues { (key, value) -> value.resolved(file, "$path.$key", environment) })
-            is JsonArray -> JsonArray(mapIndexed { index, value -> value.resolved(file, "$path[$index]", environment) })
-            is JsonPrimitive -> if (isString) JsonPrimitive(content.resolved(file, path, environment)) else this
-        }
+    /**
+     * [root] with its references replaced, where [problem] makes the error for the unset variable at a path, or for a
+     * malformed reference there when the variable is null.
+     */
+    private fun resolved(
+        root: JsonObject,
+        environment: Map<String, String>,
+        problem: (path: String, variable: String?) -> RuntimeException,
+    ): JsonObject = JsonObject(root.mapValues { (key, value) -> value.resolved(key, environment, problem) })
 
-    private fun String.resolved(file: Path, path: String, environment: Map<String, String>): String {
+    private fun JsonElement.resolved(
+        path: String,
+        environment: Map<String, String>,
+        problem: (String, String?) -> RuntimeException,
+    ): JsonElement = when (this) {
+        is JsonObject -> JsonObject(mapValues { (key, value) -> value.resolved("$path.$key", environment, problem) })
+        is JsonArray -> JsonArray(mapIndexed { index, value -> value.resolved("$path[$index]", environment, problem) })
+        is JsonPrimitive -> if (isString) JsonPrimitive(content.resolved(path, environment, problem)) else this
+    }
+
+    private fun String.resolved(
+        path: String,
+        environment: Map<String, String>,
+        problem: (String, String?) -> RuntimeException,
+    ): String {
         if ('$' !in this) return this
         val resolved = StringBuilder()
         var index = 0
@@ -165,10 +203,8 @@ public object ConfigFile {
                     val end = indexOf('}', index)
                     val reference = if (end < 0) "" else substring(index + 2, end)
                     val name = reference.removePrefix("env:")
-                    if (name == reference || !NAME.matches(name)) {
-                        throw ConfigFileException.MalformedReference(file, path)
-                    }
-                    resolved.append(environment[name] ?: throw ConfigFileException.UnsetVariable(file, path, name))
+                    if (name == reference || !NAME.matches(name)) throw problem(path, null)
+                    resolved.append(environment[name] ?: throw problem(path, name))
                     index = end + 1
                 }
 

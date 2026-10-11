@@ -1,9 +1,13 @@
 package org.foedusprogramme.alexandrite.testkit
 
+import kotlinx.coroutines.flow.toList
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.InstanceState
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
+import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
@@ -11,10 +15,13 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatSettings
 import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.state
+import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
+import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
+import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
@@ -178,24 +185,38 @@ class HarnessDoublesTest {
     }
 
     @Test
-    fun `a stopped instance leaves the directory and a run whose channel saw a violation fails`() {
+    fun `a stopped instance leaves the directory, and its channel takes a turn's late calls without delivering`() {
         val work = ChannelInstanceId(ChannelType("test"), "work")
 
+        PluginHarness.builder(probe).channel().channel("work").execute {
+            val channel = channel("work")
+            val sink = channel.openReply(ReplyRequest(testTurn(chat = testChat(instance = work)), null))
+
+            assertTrue(get<ChannelControl>().stop(work, null))
+            sink.preview(0, "late")
+            val delivery = sink.complete(OutboundMessage.builder("Late.", MessageKind.REPLY).build())
+
+            assertEquals(InstanceState.STOPPED, get<ChannelControl>().state(work))
+            assertFailsWith<NoSuchElementException> { channel("work") }
+            assertEquals(RecordingChannel.STOPPED, delivery)
+            assertEquals(emptyList(), channel.reply(testTurn().id).previews)
+        }
+    }
+
+    @Test
+    fun `a run whose channel saw a violation fails`() {
         val error = assertFailsWith<AssertionError> {
-            PluginHarness.builder(probe).channel().channel("work").execute {
-                val sink = channel("work").openReply(ReplyRequest(testTurn(chat = testChat(instance = work)), null))
+            PluginHarness.builder(probe).channel().execute {
+                val sink = channel().openReply(ReplyRequest(testTurn(), null))
+                sink.abandon(ReplyEnd.CANCELLED)
 
-                assertTrue(get<ChannelControl>().stop(work, null))
-
-                assertEquals(InstanceState.STOPPED, get<ChannelControl>().state(work))
-                assertFailsWith<NoSuchElementException> { channel("work") }
                 assertFailsWith<IllegalStateException> { sink.preview(0, "late") }
             }
         }
 
         assertEquals(
-            "The test doubles saw problems:\n- Recording channel test:work saw a preview of turn test-turn after " +
-                "the instance stopped.",
+            "The test doubles saw problems:\n- Recording channel test:main saw a preview of turn test-turn after " +
+                "its reply ended.",
             error.message,
         )
     }
@@ -221,6 +242,30 @@ class HarnessDoublesTest {
         assertContains(caused.message!!, "got request 2 (")
         assertFalse("got request 1" in caused.message!!)
         assertContains(caused.cause?.message!!, "but its script has no step left.")
+    }
+
+    @Test
+    fun `a run fails on the problems of a scripted model it watches, which a decorator contributes`() {
+        val model = ScriptedModel()
+        val decorated = object : ModelEndpoint by model {}
+        val provider = object : ModelProvider {
+            override val endpoints: List<ModelEndpoint> = listOf(decorated)
+        }
+        val faults = TestIndex(
+            "faults",
+            listOf(instanceBinding(key<ModelProvider>(), provider, "faults", "Decorated model", multi = true)),
+        )
+
+        val error = assertFailsWith<AssertionError> {
+            PluginHarness.builder(faults).watch(model).watch(model).execute {
+                val endpoint = getAll<ModelProvider>().single().endpoints.single()
+
+                assertFailsWith<ModelException> { endpoint.stream(request(model)).toList() }
+            }
+        }
+
+        assertContains(error.message!!, "The test doubles saw problems:\n- Scripted model 'scripted' got request 1")
+        assertEquals(1, model.problems.size)
     }
 
     @Test

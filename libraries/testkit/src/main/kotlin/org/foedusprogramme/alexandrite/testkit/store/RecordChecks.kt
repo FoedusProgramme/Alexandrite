@@ -1,5 +1,8 @@
 package org.foedusprogramme.alexandrite.testkit.store
 
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.store.StoredRecord
 import org.foedusprogramme.alexandrite.testkit.StoreCheck
@@ -18,12 +21,12 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
             val after = Instant.now()
 
             expectWithin(stored.createdAt, before, after, "the time the record was created")
-            expectEqual(
+            expectRecord(
                 StoredRecord("/srv/repo", """{"note":"ok"}""", stored.createdAt, ada, stored.createdAt, ada),
                 stored,
                 "the stored record",
             )
-            expectEqual(stored, records.get("notes", "grants", "/srv/repo"), "the record read back")
+            expectRecord(stored, records.get("notes", "grants", "/srv/repo"), "the record read back")
             expectEqual(
                 listOf(null, null),
                 listOf(byHost.createdBy, records.get("notes", "grants", "/srv/other")?.updatedBy),
@@ -38,7 +41,7 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
             records.put("notes", "links", "k", "2", ada)
             records.put("other", "grants", "k", "3", ada)
 
-            expectEqual(
+            expectValues(
                 listOf("1", "2", "3"),
                 listOf("notes" to "grants", "notes" to "links", "other" to "grants").map { (plugin, collection) ->
                     records.get(plugin, collection, "k")?.value
@@ -55,7 +58,7 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
             records.put("notes", "grants", "b", "\"b2\"", bob)
 
             expectEqual(listOf("b", "a", "c"), records.list("notes", "grants").map { it.key }, "the keys")
-            expectEqual("\"b2\"", records.list("notes", "grants").first().value, "the replaced value")
+            expectValues(listOf("\"b2\""), listOf(records.list("notes", "grants").first().value), "the replaced value")
             records.remove("notes", "grants", "a")
             records.put("notes", "grants", "a", "\"a2\"", ada)
             expectEqual(listOf("b", "c", "a"), records.list("notes", "grants").map { it.key }, "the keys after")
@@ -70,9 +73,10 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
 
             expectEqual(listOf(first.createdAt, ada), listOf(second.createdAt, second.createdBy), "the creation")
             expectWithin(second.updatedAt, before, after, "the time the record was stored again")
-            expectEqual(listOf("2", bob), listOf(second.value, second.updatedBy), "the value and who stored it")
-            expectEqual(second, records.get("notes", "grants", "k"), "the record read back")
-            expectEqual(listOf(second), records.list("notes", "grants"), "the collection")
+            expectValues(listOf("2"), listOf(second.value), "the value stored again")
+            expectEqual(bob, second.updatedBy, "who stored it again")
+            expectRecord(second, records.get("notes", "grants", "k"), "the record read back")
+            expectRecords(listOf(second), records.list("notes", "grants"), "the collection")
         }
     },
     StoreCheck("a removed record is gone, and removing it again finds none") {
@@ -93,7 +97,7 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
 
         open {
             expectEqual(keys, records.list("notes", "grants").map { it.key }, "the keys")
-            expectEqual(
+            expectValues(
                 keys.map { "\"${it.length}\"" },
                 keys.map { records.get("notes", "grants", it)?.value },
                 "the values",
@@ -119,7 +123,7 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
             expectEqual(listOf("/srv/repo", "caf\u00e9"), left, "the keys left beside the removed variants")
             for ((plugin, collection) in places.drop(1)) {
                 expectEqual(keys, records.list(plugin, collection).map { it.key }, "the keys of $plugin $collection")
-                expectEqual(
+                expectValues(
                     keys.indices.map { value(plugin, collection, it) },
                     keys.map { records.get(plugin, collection, it)?.value },
                     "the values of $plugin $collection",
@@ -131,8 +135,29 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
         val stored = open { records.put("notes", "grants", "k", """{"kept":true}""", ada) }
 
         open {
-            expectEqual(stored, records.get("notes", "grants", "k"), "the record")
-            expectEqual(listOf(stored), records.list("notes", "grants"), "the collection")
+            expectRecord(stored, records.get("notes", "grants", "k"), "the record")
+            expectRecords(listOf(stored), records.list("notes", "grants"), "the collection")
         }
     },
 )
+
+/** Expects [actual] to equal [expected], their values as JSON however it is written. */
+private fun expectRecord(expected: StoredRecord<String>, actual: StoredRecord<String>?, what: String) =
+    expectRecords(listOf(expected), listOfNotNull(actual), what)
+
+private fun expectRecords(expected: List<StoredRecord<String>>, actual: List<StoredRecord<String>>, what: String) =
+    expectEqual(expected.map { parsed(it, what) }, actual.map { parsed(it, what) }, what)
+
+/** Expects [actual] to hold the JSON values of [expected], however each is written, null for none. */
+private fun expectValues(expected: List<String?>, actual: List<String?>, what: String) =
+    expectEqual(expected.map { it?.let { json(it, what) } }, actual.map { it?.let { json(it, what) } }, what)
+
+private fun parsed(record: StoredRecord<String>, what: String): StoredRecord<JsonElement> = with(record) {
+    StoredRecord(key, json(value, what), createdAt, createdBy, updatedAt, updatedBy)
+}
+
+private fun json(value: String, what: String): JsonElement = try {
+    Json.parseToJsonElement(value)
+} catch (e: SerializationException) {
+    fail("$what: expected a JSON value, was <$value>.", e)
+}

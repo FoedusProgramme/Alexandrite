@@ -237,7 +237,6 @@ class RecordingChannelTest {
     fun `segments start in order and only while the reply is open`() {
         val started = open(turn("started"))
         val ended = open(turn("ended"))
-        val stopped = open(turn("stopped"))
         blocking {
             started.startSegment(2)
             ended.abandon(ReplyEnd.CANCELLED)
@@ -248,8 +247,6 @@ class RecordingChannelTest {
             started.preview(1, "Late")
         }
         assertViolation("segment 1 of turn ended started after its reply ended.") { ended.startSegment(1) }
-        channel.stopped = true
-        assertViolation("segment 1 of turn stopped started after the instance stopped.") { stopped.startSegment(1) }
         assertEquals(listOf(2), channel.reply(TurnId("started")).startedSegments)
         assertEquals(emptyList(), channel.reply(TurnId("ended")).startedSegments)
     }
@@ -286,20 +283,39 @@ class RecordingChannelTest {
     }
 
     @Test
-    fun `nothing reaches a stopped instance`() {
+    fun `a stopped instance takes the agent's calls, ignores previews and delivers nothing`() {
         val sink = open()
+        blocking { sink.preview(0, "Hel") }
         channel.stopped = true
 
-        assertViolation("a preview of turn test-turn after the instance stopped.") { sink.preview(0, "x") }
-        assertViolation("the reply of turn test-turn completed after the instance stopped.") {
-            sink.complete(reply("x"))
+        val (completed, sent) = blocking {
+            sink.preview(0, "Hello")
+            sink.startSegment(1)
+            val completed = sink.complete(reply("Hello"))
+            channel.openReply(ReplyRequest(turn("other"), null)).abandon(ReplyEnd.SHUTDOWN)
+            completed to channel.send(channel.chat(), reply("x"))
         }
-        assertViolation("a reply of turn other opened after the instance stopped.") {
-            channel.openReply(ReplyRequest(turn("other"), null))
-        }
-        assertViolation("a message sent for test:main:chat after the instance stopped.") {
-            channel.send(channel.chat(), reply("x"))
-        }
+
+        val recorded = channel.reply(turn.id)
+        assertEquals(listOf(RecordingChannel.STOPPED, RecordingChannel.STOPPED), listOf(completed, sent))
+        assertEquals(RecordingChannel.STOPPED, recorded.delivery)
+        assertEquals(listOf(RecordedReply.Preview(0, "Hel")), recorded.previews)
+        assertEquals(emptyList(), recorded.startedSegments)
+        assertEquals(ReplyEnd.SHUTDOWN, channel.reply(TurnId("other")).abandoned)
+        assertEquals(RecordingChannel.DEFAULT_CAPABILITIES, blocking { channel.capabilities(channel.chat()) })
+        assertEquals(emptyList(), channel.violations)
+    }
+
+    @Test
+    fun `a stopped instance still sees the calls that break the rules`() {
+        val sink = open()
+        blocking { sink.preview(1, "Next") }
+        channel.stopped = true
+
+        assertViolation("a preview of turn test-turn in segment 0 after segment 1 froze it.") { sink.preview(0, "x") }
+        blocking { sink.abandon(ReplyEnd.SHUTDOWN) }
+        assertViolation("the reply of turn test-turn completed after it ended.") { sink.complete(reply("x")) }
+        assertViolation("a second reply of turn test-turn.") { channel.openReply(ReplyRequest(turn, null)) }
     }
 
     // What a test receives.

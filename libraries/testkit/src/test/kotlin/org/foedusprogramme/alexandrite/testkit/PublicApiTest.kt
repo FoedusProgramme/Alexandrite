@@ -116,7 +116,7 @@ class PublicApiTest {
                 recorded.ended,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,
                 channel.violations, channel.capabilities(channel.chat()),
-                channel.partsNeeded(channel.chat(), "x", Markup.PLAIN),
+                channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), RecordingChannel.STOPPED,
             )
         }
 
@@ -174,6 +174,8 @@ class PublicApiTest {
                 states.of("probe"),
                 testChatStates("probe"),
                 TestRecords(MemoryStore().records).of("probe"),
+                TestRecords(MemoryStore()).store,
+                TestChatStates(MemoryStore().chatStates).store,
                 testRecords("probe").collection<String>("notes").list(),
                 control.trustedFolders().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
                 control.declareFolder(Path.of("/srv/config")),
@@ -219,6 +221,7 @@ class PublicApiTest {
             }
             val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"))
             context.touched(Path.of("/srv/work/notes.md"))
+            testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             return listOf(
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
@@ -260,12 +263,14 @@ class PublicApiTest {
                 .shutdownGrace(1.seconds)
                 .inspectTermination()
                 .model(model)
+                .watch(ScriptedModel(EndpointId("decorated")))
                 .channel("main", "test", setOf("ada"), 100)
                 .turnSubmitter(RecordingTurnSubmitter())
                 .turnInitiator(RecordingTurnInitiator())
                 .agentControl(RecordingAgentControl())
                 .store(store)
                 .chatStates(TestChatStates(store))
+                .records(TestRecords(store))
                 .hardFloor(testHardFloor())
                 .hardFloor()
                 .environment(mapOf("TOKEN" to "not a secret"))
