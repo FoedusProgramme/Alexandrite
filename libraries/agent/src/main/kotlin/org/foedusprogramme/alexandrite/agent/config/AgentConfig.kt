@@ -62,6 +62,10 @@ internal class ToolSelection(
 internal class PermissionConfig(
     /** The permission mode of the chats that set none. */
     val mode: String? = null,
+    /** The calls that run without asking on an operator's turn, each `tool` or `tool(argv prefix)`. */
+    val allow: List<String> = emptyList(),
+    /** The calls that never run, written like [allow]. */
+    val deny: List<String> = emptyList(),
 )
 
 /** A persona file, written as its path or as `{"file": …, "when": […]}`. */

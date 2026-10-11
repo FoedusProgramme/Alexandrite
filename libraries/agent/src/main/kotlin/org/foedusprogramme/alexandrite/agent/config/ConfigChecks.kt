@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.config
 
+import org.foedusprogramme.alexandrite.agent.permission.RuleEntry
 import org.foedusprogramme.alexandrite.agent.tool.ToolGlob
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -67,6 +68,8 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
         "$path.permission.mode must be one of ${CONFIGURABLE_MODES.joinToString()}: a bypass is set per chat, " +
             "for a limited time"
     }
+    checkRules("$path.permission.allow", agent.permission.allow)
+    checkRules("$path.permission.deny", agent.permission.deny)
     require(agent.maxOutputTokens == null || agent.maxOutputTokens > 0) { "$path.maxOutputTokens must be positive" }
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {
         "$path.temperature must be a number of at least 0"
@@ -113,6 +116,13 @@ private fun checkLinks(path: String, agent: AgentConfig) {
 private fun checkGlobs(path: String, globs: List<String>) {
     require(globs.all(ToolGlob::isValid)) {
         "$path holds a malformed tool glob: write dotted tool names, with * for any characters, such as \"fs.*\""
+    }
+}
+
+private fun checkRules(path: String, entries: List<String>) {
+    for ((index, entry) in entries.withIndex()) {
+        val problem = RuleEntry.problem(entry)
+        require(problem == null) { "$path[$index] $problem" }
     }
 }
 

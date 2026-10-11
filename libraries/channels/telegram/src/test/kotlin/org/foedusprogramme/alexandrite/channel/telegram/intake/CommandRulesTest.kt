@@ -63,7 +63,7 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `only admins may change the model, the permission mode, homes, links and trust`() {
+    fun `only admins may change the model, the permission mode, homes, links, trust and allow rules`() {
         for ((command, arguments) in listOf(
             "model" to "deepseek/deepseek-chat",
             "model" to "reset",
@@ -78,6 +78,8 @@ class CommandRulesTest {
             "trust" to "",
             "trust" to "/srv/repo",
             "untrust" to "/srv/repo",
+            "allow" to "",
+            "allow" to "revoke 1",
         )) {
             assertRow(command, arguments, direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
         }

@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.app
 
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.ADA
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.BOB
 import org.foedusprogramme.alexandrite.app.TelegramApp.Companion.WAIT
@@ -12,6 +14,8 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import kotlin.io.path.createDirectories
+import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -122,6 +126,76 @@ class TelegramPermissionTest {
 
         assertEquals(1, write.calls.size)
         assertEquals(listOf("Noted."), app.fake.botMessages(BOB).map { it.text })
+    }
+
+    @Test
+    fun `always allow lets the same command run unasked in the conversation, but not another one or another repo's`() {
+        val first = script("first")
+        val second = script("second")
+        app.model
+            .reply { toolCall("command.exec", gradle("test", first)) }.reply { text("Tested.") }
+            .reply { toolCall("command.exec", gradle("test", first)) }.reply { text("Tested again.") }
+            .reply { toolCall("command.exec", gradle("build", first)) }.reply { text("Not built.") }
+            .reply { toolCall("command.exec", gradle("test", second)) }.reply { text("Not tested there.") }
+        lateinit var always: String
+        lateinit var rules: String
+
+        app.run(app.builder(directory)) {
+            app.send(app.ada, app.adaChat, "Run the tests.")
+            always = press { it.startsWith("Always allow") }
+            app.message(app.adaChat, "Tested.")
+            app.send(app.ada, app.adaChat, "Run them again.")
+            app.message(app.adaChat, "Tested again.")
+            val unasked = app.fake.botMessages(ADA).count { it.text.startsWith("Approval needed") }
+            app.send(app.ada, app.adaChat, "Build it.")
+            press { it == "Deny" }
+            app.message(app.adaChat, "Not built.")
+            app.send(app.ada, app.adaChat, "Test the other one.")
+            press { it == "Deny" }
+            app.message(app.adaChat, "Not tested there.")
+            app.send(app.ada, app.adaChat, "/allow")
+            rules = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.text.startsWith("Allow rules") } }.text
+            idle()
+
+            assertEquals(1, unasked)
+        }
+
+        assertTrue(always.startsWith("Always allow /"), always)
+        val results = app.model.requests.map { it.history.last() }.filterIsInstance<ToolResultEntry>()
+        assertEquals(
+            listOf(ToolOutcome.Succeeded, ToolOutcome.Succeeded, NotRunReason.DENIED, NotRunReason.DENIED),
+            results.map { (it.outcome as? ToolOutcome.NotRun)?.reason ?: it.outcome },
+        )
+        assertEquals(
+            List(2) {
+                "Exit code: 0\nran test"
+            },
+            results.take(2).map { (it.content.single() as TextPart).text },
+        )
+        val listed = "Allow rules in force here (revoke one with /allow revoke <number>):\n1. command.exec: " +
+            "${first.resolve("gradlew")} test (allowed by Ada Lovelace on "
+        assertTrue(rules.startsWith(listed) && rules.endsWith(" until /new)") && "\n2." !in rules, rules)
+    }
+
+    /** A folder [name] beside the app's data holding an executable `gradlew` that echoes its arguments. */
+    private fun script(name: String): Path {
+        val folder = directory.toRealPath().resolve(name).createDirectories()
+        val gradlew = folder.resolve("gradlew")
+        gradlew.writeText("#!/bin/sh\necho \"ran $*\"\n")
+        assertTrue(gradlew.toFile().setExecutable(true))
+        return folder
+    }
+
+    private fun gradle(task: String, folder: Path): String =
+        JsonObject(mapOf("command" to JsonPrimitive("./gradlew $task"), "cwd" to JsonPrimitive("$folder"))).toString()
+
+    /** Presses the button that [chosen] picks on the approval request in Ada's chat and returns its text. */
+    private fun press(chosen: (String) -> Boolean): String {
+        val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+        val button = asked.buttons.flatten().first { chosen(it.text) }.text
+        app.fake.press(app.ada, asked, button)
+        app.fake.await(WAIT) { botMessage(ADA, asked.id)?.takeIf { it.buttons.isEmpty() } }
+        return button
     }
 
     @Test

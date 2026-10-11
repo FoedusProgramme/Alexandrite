@@ -59,6 +59,7 @@ class CommandsPluginTest {
     private companion object {
         val COMMANDS = listOf(
             "agent",
+            "allow",
             "cancel",
             "home",
             "language",

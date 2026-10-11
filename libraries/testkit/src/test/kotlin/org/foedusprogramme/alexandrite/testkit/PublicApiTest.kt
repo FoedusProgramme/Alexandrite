@@ -39,6 +39,7 @@ class PublicApiTest {
         import org.foedusprogramme.alexandrite.sdk.store.collection
         import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
         import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
+        import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
         import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
         import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
         import org.foedusprogramme.alexandrite.sdk.transcript.*
@@ -161,6 +162,9 @@ class PublicApiTest {
             control.unlink(AgentId.MAIN, testChat("other"), null)
             control.trustFolder(Path.of("/srv/repo"), null)
             control.untrustFolder(Path.of("/srv/repo"), null)
+            control.declareAllowRule(RuleSubject("notes.add", emptyList(), "notes.add"))
+            control.grantAllowRule(testChat(), RuleSubject("command.exec", listOf("make"), "make"), null)
+            control.revokeAllowRule(testChat(), 2, null)
             val call = when (val recorded = control.calls.first()) {
                 is RecordingAgentControl.Call.Cancel -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
@@ -172,6 +176,7 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
                 is RecordingAgentControl.Call.TrustFolder -> listOf(recorded.folder, recorded.by)
                 is RecordingAgentControl.Call.UntrustFolder -> listOf(recorded.folder, recorded.by)
+                is RecordingAgentControl.Call.RevokeAllowRule -> listOf(recorded.chat, recorded.number, recorded.by)
                 else -> emptyList()
             }
             val states = TestChatStates()
@@ -180,6 +185,7 @@ class PublicApiTest {
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies, invoked, call,
                 control.turns(null), control.settings(testChat()), control.links(), control.trustedFolders(),
+                control.allowRules(testChat()),
                 control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),
                 control.models(EndpointId("scripted")),
                 states.of("probe"),

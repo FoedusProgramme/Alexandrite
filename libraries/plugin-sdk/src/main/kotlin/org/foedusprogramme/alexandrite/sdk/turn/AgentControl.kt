@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
+import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.Path
@@ -105,6 +106,18 @@ public interface AgentControl {
     /** The trusted folders, each covering the folders below it outside the repositories nested in it. */
     public fun trustedFolders(): List<TrustedFolder>
 
+    /**
+     * The allow rules in force at [chat]: those the config file declares for its agent, then those granted in its
+     * current conversation.
+     */
+    public suspend fun allowRules(chat: ChatAddress): List<AllowRule>
+
+    /**
+     * Revokes the rule numbered [number] in [allowRules] at [chat] when it was granted in the conversation, and tells
+     * whether the config file still allows what it covered.
+     */
+    public suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation
+
     /** The model endpoints the agents can use. */
     public fun endpoints(): List<EndpointId>
 
@@ -136,6 +149,20 @@ public class TrustedFolder(
     public val trustedAt: Instant?,
     /** Who trusted the folder at runtime, null for the host or when nobody did. */
     public val trustedBy: ChatUser?,
+)
+
+/** A rule that lets the calls of its [subject] run without asking on an operator's turn. */
+@Poko
+public class AllowRule(
+    /** The rule's place among the rules in force, from 1. */
+    public val number: Int,
+    public val subject: RuleSubject,
+    /** Whether the config file declares the rule. */
+    public val declared: Boolean,
+    /** When the rule was granted in the conversation, null for a declared one. */
+    public val grantedAt: Instant?,
+    /** Who granted the rule, null for a declared one or the host. */
+    public val grantedBy: ChatUser?,
 )
 
 /** Chats whose messages to [agent] continue one conversation, kept at [anchor]. */

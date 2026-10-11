@@ -99,6 +99,18 @@ internal object TextKeys {
     const val UNTRUST_DECLARED: String = "untrust.declared"
     const val UNTRUST_DECLARED_REMOVED: String = "untrust.declared_removed"
 
+    const val ALLOW_LIST: String = "allow.list"
+    const val ALLOW_NONE: String = "allow.none"
+    const val ALLOW_RULE: String = "allow.rule"
+    const val ALLOW_RULE_TOOL: String = "allow.rule_tool"
+    const val ALLOW_DECLARED: String = "allow.declared"
+    const val ALLOW_GRANTED: String = "allow.granted"
+    const val ALLOW_GRANTED_BY_HOST: String = "allow.granted_by_host"
+    const val ALLOW_REVOKED: String = "allow.revoked"
+    const val ALLOW_REVOKED_DECLARED: String = "allow.revoked_declared"
+    const val ALLOW_DECLARED_KEPT: String = "allow.declared_kept"
+    const val ALLOW_UNKNOWN: String = "allow.unknown"
+
     const val SOURCE_SELECTED: String = "source.selected"
     const val SOURCE_HOME: String = "source.home"
     const val SOURCE_INSTANCE_DEFAULT: String = "source.instance_default"

@@ -268,6 +268,12 @@ class SubclassOptInTest {
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
             override fun trustedFolders() = TODO()
+            override suspend fun allowRules(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun revokeAllowRule(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                number: Int,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
             override fun endpoints() = TODO()
             override suspend fun models(endpoint: org.foedusprogramme.alexandrite.sdk.transcript.EndpointId) = TODO()
         }

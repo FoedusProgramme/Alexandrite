@@ -15,11 +15,13 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
+import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
+import org.foedusprogramme.alexandrite.sdk.turn.AllowRule
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
@@ -37,13 +39,14 @@ import java.time.ZoneOffset
 
 /**
  * An [AgentControl] and [ChatSettings] that records its calls, lists the [statuses] the test sets, mints conversations
- * `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance, linked groups and
- * trusted folders, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
- * A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after it at most.
+ * `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance, linked groups,
+ * trusted folders and allow rules, where [defaultAgent] serves every chat that is no other agent's home until an update
+ * switches it. A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after it at most.
  *
- * Homes, groups and folders that the test declares stand for the config file's, and those changed at runtime over them
- * are set at [TEST_TIME]. It refuses with a [ControlRefusedException] what the agent refuses for the reasons it knows,
- * and the calls that [refuseNext] queues refusals for.
+ * Homes, groups, folders and allow rules that the test declares stand for the config file's, and those changed at
+ * runtime over them are set at [TEST_TIME]. A chat's granted allow rules end with its conversation. It refuses with a
+ * [ControlRefusedException] what the agent refuses for the reasons it knows, and the calls that [refuseNext] queues
+ * refusals for.
  */
 public class RecordingAgentControl(
     private val defaultAgent: AgentId = AgentId.MAIN,
@@ -59,6 +62,8 @@ public class RecordingAgentControl(
     private val runtimeHomes = LinkedHashMap<Pair<AgentId, ChannelInstanceId>, RuntimeHome>()
     private val groups = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
     private val trusted = mutableListOf<TrustedFolder>()
+    private val declaredRules = mutableListOf<RuleSubject>()
+    private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
     private val refusals = ArrayDeque<String>()
     private var conversations = 0
@@ -92,7 +97,8 @@ public class RecordingAgentControl(
 
     /**
      * Makes the next call that changes something, of [newConversation], [updateSettings], [link], [unlink],
-     * [trustFolder] or [untrustFolder], record itself and throw [ControlRefusedException] with [message].
+     * [trustFolder], [untrustFolder] or [revokeAllowRule], record itself and throw [ControlRefusedException] with
+     * [message].
      */
     public fun refuseNext(message: String) {
         synchronized(lock) { refusals.addLast(message) }
@@ -101,6 +107,18 @@ public class RecordingAgentControl(
     /** Lists [folder] as a trusted folder that the config file declares. */
     public fun declareFolder(folder: Path) {
         synchronized(lock) { trusted += TrustedFolder(folder.normalize(), true, null, null) }
+    }
+
+    /** Lists [subject] as an allow rule that the config file declares, in force at every chat. */
+    public fun declareAllowRule(subject: RuleSubject) {
+        synchronized(lock) { declaredRules += subject }
+    }
+
+    /** Lists [subject] as an allow rule that [by] granted in the conversation of [chat]. */
+    public fun grantAllowRule(chat: ChatAddress, subject: RuleSubject, by: ChatUser?) {
+        synchronized(lock) {
+            grantedRules[chat] = grantedRules[chat].orEmpty() + AllowRule(0, subject, false, TEST_TIME, by)
+        }
     }
 
     /** Makes [chat] the home chat of [agent] on its instance that the config file declares. */
@@ -141,6 +159,7 @@ public class RecordingAgentControl(
             recorded += Call.NewConversation(chat, by, null)
             throw ControlRefusedException(message)
         }
+        grantedRules.remove(chat)
         ConversationId("conversation-${++conversations}").also { recorded += Call.NewConversation(chat, by, it) }
     }
 
@@ -300,12 +319,40 @@ public class RecordingAgentControl(
 
     override fun trustedFolders(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
 
+    /** The declared allow rules, then those granted at [chat], numbered from 1. */
+    override suspend fun allowRules(chat: ChatAddress): List<AllowRule> = synchronized(lock) { rulesAt(chat) }
+
+    /** Revokes a granted rule, reporting it declared too when a declared rule's tokens start its own. */
+    override suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation =
+        synchronized(lock) {
+            recorded += Call.RevokeAllowRule(chat, number, by)
+            refuseQueued()
+            val rule = rulesAt(chat).firstOrNull { it.number == number }
+                ?: return@synchronized Revocation(removed = false, declared = false)
+            if (rule.declared) return@synchronized Revocation(removed = false, declared = true)
+            grantedRules[chat] = grantedRules[chat].orEmpty().filterIndexed { index, _ ->
+                index != number - declaredRules.size - 1
+            }
+            val subject = rule.subject
+            val still = declaredRules.any {
+                it.tool == subject.tool && subject.tokens.take(it.tokens.size) == it.tokens
+            }
+            Revocation(removed = true, declared = still)
+        }
+
     /** The endpoints that [scriptModels] listed, in order. */
     override fun endpoints(): List<EndpointId> = synchronized(lock) { endpointModels.keys.toList() }
 
     /** The models scripted for [endpoint], and refuses an endpoint that is not listed. */
     override suspend fun models(endpoint: EndpointId): List<ModelInfo> = synchronized(lock) {
         endpointModels[endpoint] ?: throw ControlRefusedException("No model endpoint '$endpoint'.")
+    }
+
+    private fun rulesAt(chat: ChatAddress): List<AllowRule> {
+        val declared = declaredRules.map { AllowRule(0, it, true, null, null) }
+        return (declared + grantedRules[chat].orEmpty()).mapIndexed { index, rule ->
+            AllowRule(index + 1, rule.subject, rule.declared, rule.grantedAt, rule.grantedBy)
+        }
     }
 
     private fun snapshot(chat: ChatAddress): ChatSettingsSnapshot {
@@ -409,6 +456,10 @@ public class RecordingAgentControl(
 
         @Poko
         public class UntrustFolder(public val folder: Path, public val by: ChatUser?) : Call
+
+        @Poko
+        public class RevokeAllowRule(public val chat: ChatAddress, public val number: Int, public val by: ChatUser?) :
+            Call
     }
 }
 

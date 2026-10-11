@@ -45,6 +45,7 @@ class AgentSettingsTest {
                   "maxRounds": 10,
                   "toolTimeoutSeconds": 30,
                   "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forMembers": ["fs.read"]},
+                  "permission": {"allow": ["command.exec(./gradlew test)"], "deny": ["persona.edit"]},
                   "workspace": "coder-files",
                   "channels": {"test:main": {"default": true, "home": "42#7"}}
                 }
@@ -75,6 +76,10 @@ class AgentSettingsTest {
         assertEquals(
             listOf(listOf("fs.*"), listOf("fs.write"), listOf("fs.read")),
             listOf(tools.allow, tools.deny, tools.forMembers),
+        )
+        assertEquals(
+            listOf(listOf("command.exec(./gradlew test)"), listOf("persona.edit")),
+            listOf(coder.permission.allow, coder.permission.deny),
         )
         val attachment = agent.attachments.single()
         assertEquals(
@@ -135,6 +140,25 @@ class AgentSettingsTest {
                     "per chat, for a limited time",
             )
         }
+    }
+
+    @Test
+    fun `a permission rule of unknown syntax fails the start, named by its place`() {
+        assertConfigFails(
+            agents(""""coder": {"permission": {"allow": ["fs.read", "fs.write(notes.md)"]}}"""),
+            "agents.coder.permission.allow[1] gives an argument prefix to a tool other than command.exec: write the " +
+                "tool alone",
+        )
+        assertConfigFails(
+            agents(""""coder": {"permission": {"deny": ["command.exec(git push | tee log)"]}}"""),
+            "agents.coder.permission.deny[0] holds shell syntax, which no call of command.exec runs: write a " +
+                "program and its first arguments",
+        )
+        assertConfigFails(
+            agents(""""coder": {"permission": {"deny": ["make install"]}}"""),
+            "agents.coder.permission.deny[0] is no rule: write a tool name, or command.exec with the start of a " +
+                "command line in parentheses, such as \"command.exec(git push)\"",
+        )
     }
 
     @Test

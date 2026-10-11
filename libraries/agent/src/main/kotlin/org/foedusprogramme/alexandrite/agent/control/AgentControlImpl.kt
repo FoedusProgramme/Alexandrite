@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.permission.AgentCallRules
 import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
@@ -47,6 +48,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSummary
+import org.foedusprogramme.alexandrite.sdk.turn.AllowRule
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
@@ -78,6 +80,7 @@ internal class AgentControlImpl(
     private val conversations: ConversationStore,
     private val endpoints: Endpoints,
     private val trust: FolderTrust,
+    private val rules: AgentCallRules,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val clock: Clock,
@@ -199,6 +202,16 @@ internal class AgentControlImpl(
         refusing(null) { trust.untrust(folder, by) }
 
     override fun trustedFolders(): List<TrustedFolder> = trust.folders()
+
+    override suspend fun allowRules(chat: ChatAddress): List<AllowRule> {
+        val key = refusing(null) { served(chat).key }
+        return rules.inForce(key.agent, conversations.current(key).id)
+    }
+
+    override suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation {
+        val key = refusing(null) { served(chat).key }
+        return rules.revoke(key.agent, conversations.current(key).id, number, by)
+    }
 
     override fun endpoints(): List<EndpointId> = endpoints.ids.toList()
 
@@ -340,6 +353,7 @@ internal class AgentControlImpl(
         rotation: Rotation,
     ) {
         val sealed = rotation.sealed?.id ?: return
+        rules.sealed(sealed)
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)
