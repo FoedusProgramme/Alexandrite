@@ -9,6 +9,9 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class ToolDefinitionTest {
     private fun definition(name: String) = ToolDefinition(name, "Runs the sample", JsonObject(emptyMap()))
@@ -16,6 +19,20 @@ class ToolDefinitionTest {
     @Test
     fun `an undeclared risk is EXEC`() {
         assertEquals(ToolRisk.EXEC, definition("sample.run").risk)
+    }
+
+    @Test
+    fun `a tool declares no timeout of its own unless it bounds its calls, by a positive one`() {
+        val parameters = JsonObject(emptyMap())
+
+        assertNull(definition("sample.run").timeout)
+        assertEquals(10.minutes, ToolDefinition("sample.run", "Runs", parameters, timeout = 10.minutes).timeout)
+        for (timeout in listOf(Duration.ZERO, (-1).seconds)) {
+            val error = assertFailsWith<IllegalArgumentException> {
+                ToolDefinition("sample.run", "Runs", parameters, timeout = timeout)
+            }
+            assertEquals("Tool 'sample.run' declares a timeout that is not positive.", error.message)
+        }
     }
 
     @Test

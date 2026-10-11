@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
@@ -26,6 +27,7 @@ import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -114,6 +116,29 @@ class ToolExecutorTest {
         assertEquals(ToolOutcome.Failed to "The call timed out after 5 s.", result.outcome to result.text())
         assertEquals(5_000, currentTime)
         assertEquals(1, tool.cancelled.size)
+    }
+
+    @Test
+    fun `a tool that declares a longer timeout than the agent's runs that long and a grace, its review too`() =
+        runTest {
+            val definition = ToolDefinition("fs.read", "Reads.", JsonObject(emptyMap()), timeout = 30.seconds)
+            val tool = recordingTool(definition) { _, _ -> awaitCancellation() }
+            val gate = AdmittingGate()
+
+            val result = executor(gate = gate).executed(tool, timeout = 5.seconds).result
+
+            assertEquals(ToolOutcome.Failed to "The call timed out after 35 s.", result.outcome to result.text())
+            assertEquals(35_000L to 35.seconds, currentTime to gate.calls.single().timeout)
+        }
+
+    @Test
+    fun `a tool that declares a shorter timeout than the agent's runs as long as the agent lets it`() = runTest {
+        val definition = ToolDefinition("fs.read", "Reads.", JsonObject(emptyMap()), timeout = 1.seconds)
+        val tool = recordingTool(definition) { _, _ -> awaitCancellation() }
+
+        val result = executor().executed(tool, timeout = 120.seconds).result
+
+        assertEquals(ToolOutcome.Failed to "The call timed out after 120 s.", result.outcome to result.text())
     }
 
     @Test

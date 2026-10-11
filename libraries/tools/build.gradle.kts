@@ -1,5 +1,6 @@
 plugins {
     id("alexandrite.kotlin-library")
+    id("alexandrite.kotlin-serialization")
 }
 
 dependencies {

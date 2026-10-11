@@ -54,7 +54,8 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
 
     /**
      * How [call] in [turn] ends, where the turn offers [tools], may call those named in [callable], a tool may run
-     * for [timeout], untrusted content marks [taint] and the turn does its part through [calls].
+     * for [timeout] unless it declares longer, untrusted content marks [taint] and the turn does its part through
+     * [calls].
      */
     suspend fun execute(
         turn: TurnInfo,
@@ -72,9 +73,10 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         }
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS)
+        val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
         val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint)
         val admission = try {
-            gate.admit(GateCall(turn, call, tool, arguments, timeout, taint, reviewing, calls))
+            gate.admit(GateCall(turn, call, tool, arguments, limit, taint, reviewing, calls))
         } finally {
             reviewing.close()
         }
@@ -84,7 +86,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
             is GateResult.Admitted -> {
                 calls.starting(call.id)
                 val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint)
-                ToolCallEnd(runTool(turn, call, tool, arguments, timeout, context), null, context.touchedPaths)
+                ToolCallEnd(runTool(turn, call, tool, arguments, limit, context), null, context.touchedPaths)
             }
         }
     }
@@ -172,5 +174,8 @@ private fun cutAt(text: String, limit: Int): Int =
 
 /** How long a cancelled tool may take to end before it is abandoned. */
 private val ABANDON_AFTER = 5.seconds
+
+/** How much longer than its declared timeout a tool may run. */
+private val DECLARED_TIMEOUT_GRACE = 5.seconds
 
 private val logger = LoggerFactory.getLogger(ToolExecutor::class.java)

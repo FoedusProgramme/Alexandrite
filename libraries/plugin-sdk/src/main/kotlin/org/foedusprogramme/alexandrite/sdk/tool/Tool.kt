@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import java.nio.file.Path
+import kotlin.time.Duration
 
 /** A function the model can call. */
 @ContributedSpi
@@ -27,12 +28,18 @@ public class ToolDefinition(
     /** JSON Schema of the arguments. */
     public val parameters: JsonObject,
     public val risk: ToolRisk = ToolRisk.EXEC,
+    /**
+     * A tool that bounds its own calls declares the longest; the agent then waits that long plus a grace instead of
+     * its default.
+     */
+    public val timeout: Duration? = null,
 ) {
     init {
         require(ToolNames.PATTERN.matches(name)) {
             "Malformed tool name '$name': it must be lowercase words of letters, digits and '_', each starting with " +
                 "a letter, joined by dots, 64 characters at most, such as \"notes.add\"."
         }
+        require(timeout == null || timeout.isPositive()) { "Tool '$name' declares a timeout that is not positive." }
     }
 }
 
