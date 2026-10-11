@@ -23,25 +23,12 @@ class SettingsStatesTest {
     private val thread = AgentChatKey.parse("coder@test:main:5#2")
 
     @Test
-    fun `nothing stored reads as the agent's default`() {
+    fun `the settings stored under their keys apply to the chat and its threads`() {
         blocking {
-            assertNull(settings.model(key))
-            assertNull(settings.reasoning(key))
-            assertNull(settings.language(key))
-            assertNull(settings.loadAgent(key.chat).value)
-        }
-    }
-
-    @Test
-    fun `the stored settings of a chat apply to its threads`() {
-        blocking {
-            stored.agentState(SettingsStates.MODEL, Choice<ModelRef>()).set(key, Choice(ModelRef.parse("local/llama")))
-            stored.agentState(
-                SettingsStates.REASONING,
-                Choice<ReasoningEffort>(),
-            ).set(key, Choice(ReasoningEffort.HIGH))
-            stored.agentState(SettingsStates.LANGUAGE, Choice<LanguageTag>()).set(thread, Choice(LanguageTag("fr")))
-            stored.state(SettingsStates.AGENT, Choice<AgentId>()).set(key.chat, Choice(AgentId("helper")))
+            stored.agentState("settings.model", Choice<ModelRef>()).set(key, Choice(ModelRef.parse("local/llama")))
+            stored.agentState("settings.reasoning", Choice<ReasoningEffort>()).set(key, Choice(ReasoningEffort.HIGH))
+            stored.agentState("settings.language", Choice<LanguageTag>()).set(thread, Choice(LanguageTag("fr")))
+            stored.state("agent.selected", Choice<AgentId>()).set(key.chat, Choice(AgentId("helper")))
 
             assertEquals(ModelRef.parse("local/llama"), settings.model(thread))
             assertEquals(ReasoningEffort.HIGH, settings.reasoning(thread))

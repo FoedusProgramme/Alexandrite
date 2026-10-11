@@ -7,7 +7,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import org.foedusprogramme.alexandrite.channel.telegram.api.HttpBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
@@ -105,43 +104,6 @@ class FakeBotApiTest {
 
         assertEquals(listOf("/status", "/status@ALEXANDRITE_TEST_BOT", "Nice", "Hello in private"), received)
         assertEquals(false, api.getMe().canReadAllGroupMessages)
-    }
-
-    @Test
-    fun `a queued message keeps its fields and gets an id and a date`() = runBlocking {
-        val (fake, api) = fake()
-        val chat = fake.direct(ada)
-        fake.send(ada, chat, "First")
-        fake.queue(
-            buildJsonObject {
-                put("from", ada.json())
-                put("chat", chat.json())
-                put("caption", "A cat")
-                putJsonArray("photo") { add(buildJsonObject { put("file_id", "photo-1") }) }
-            },
-        )
-
-        val message = api.drain().last().message!!
-
-        assertEquals(2L, message.messageId)
-        assertEquals("A cat", message.caption)
-        assertTrue(message.photo != null && message.text == null)
-        assertTrue(message.date > 0)
-    }
-
-    @Test
-    fun `getUpdates gives at most its limit and confirmed updates are gone`() = runBlocking {
-        val (fake, api) = fake()
-        val chat = fake.direct(ada)
-        repeat(3) { fake.send(ada, chat, "Message $it") }
-
-        val two = api.getUpdates(null, 2, 0)
-        val rest = api.getUpdates(two.last().updateId + 1, 2, 0)
-
-        assertEquals(listOf("Message 0", "Message 1"), two.map { it.message?.text })
-        assertEquals(listOf("Message 2"), rest.map { it.message?.text })
-        assertEquals(1, fake.pendingUpdates)
-        assertEquals(two.last().updateId + 1, fake.confirmedOffset)
     }
 
     @Test

@@ -15,18 +15,18 @@ import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class SqliteConversationStoreTest {
     @TempDir
     lateinit var directory: Path
 
     @Test
-    fun `conversation ids are 22 URL-safe characters`() {
+    fun `ids hold only characters that are safe in file names`() {
         withStore(directory) {
-            val ids = List(20) { conversations.newConversation(main).successor.id.value }
+            val ids = List(20) { conversations.newConversation(main).successor.id.value } + List(1000) { newId() }
 
-            assertTrue(ids.all { Regex("[A-Za-z0-9_-]{22}").matches(it) }, "$ids")
+            // Ids also name the temporary files that media is written through.
+            assertEquals(emptyList(), ids.filterNot { Regex("[A-Za-z0-9_-]+").matches(it) })
         }
     }
 
@@ -45,10 +45,12 @@ class SqliteConversationStoreTest {
     }
 
     @Test
-    fun `a kind or state this version does not know is read as it is`() {
+    fun `kinds, states and ends that another version wrote are read as they are`() {
         withStore(directory) {
             val known = conversations.current(main)
+            val voted = turn(known)
             database.transaction {
+                execute("UPDATE turns SET kind = 'vote', outcome = 'paused' WHERE id = ?", voted.id.value)
                 execute(
                     "INSERT INTO conversations (id, kind, agent, chat_id, state, created_at, depth) " +
                         "SELECT 'future', 'archive', agent, chat_id, 'active', created_at, 0 FROM conversations " +
@@ -60,28 +62,16 @@ class SqliteConversationStoreTest {
             database.transaction { execute("UPDATE conversations SET state = 'frozen' WHERE id = 'future'") }
 
             val future = conversations.conversation(ConversationId("future"))!!
+            val record = conversations.turn(voted.id)!!
 
             assertEquals(ConversationKind.of("archive"), future.kind)
             assertEquals(ConversationState.of("frozen"), future.state)
+            assertEquals(TurnKind.of("vote"), record.kind)
+            assertEquals(TurnEndKind.of("paused"), record.end)
             val append = assertFailsWith<IllegalStateException> { transcripts.append(turn.id, listOf(message("x"))) }
             val start = assertFailsWith<IllegalStateException> { turn(future) }
             assertEquals("Conversation future is frozen, so it takes no new entries.", append.message)
             assertEquals("Conversation future is frozen, so it takes no new turns.", start.message)
-        }
-    }
-
-    @Test
-    fun `a kind of turn and an end this version does not know are read as they are`() {
-        withStore(directory) {
-            val turn = turn(conversations.current(main))
-            database.transaction {
-                execute("UPDATE turns SET kind = 'vote', outcome = 'paused' WHERE id = ?", turn.id.value)
-            }
-
-            val record = conversations.turn(turn.id)!!
-
-            assertEquals(TurnKind.of("vote"), record.kind)
-            assertEquals(TurnEndKind.of("paused"), record.end)
         }
     }
 

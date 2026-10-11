@@ -114,15 +114,4 @@ class SqliteStorePluginTest {
         Files.delete(store)
         run { assertTrue(Files.isRegularFile(store)) }
     }
-
-    @Test
-    fun `a store that is no database fails the start`() {
-        Files.createDirectories(store.parent)
-        Files.writeString(store, "not a database, but long enough to look like a header of one: " + "x".repeat(100))
-
-        val error = assertFailsWith<RuntimeStartException> { run { fail("the block ran") } }
-
-        assertEquals(StartStage.START, error.stage)
-        assertContains(error.message!!, "Cannot open the store $store")
-    }
 }

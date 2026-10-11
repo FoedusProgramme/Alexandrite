@@ -170,7 +170,8 @@ class ChatRequestTest {
         val afterTools = first + AssistantEntry(null, listOf(call), model) +
             ToolResultEntry(null, call.id, call.name, listOf(TextPart("Saved.")), ToolOutcome.Succeeded)
         val tools = listOf(testToolDefinition("notes.add"))
-        val round1 = body(request(afterTools, round = 1) { turnContext(listOf(context)).tools(tools) }).messages()
+        val build = { body(request(afterTools, round = 1) { turnContext(listOf(context)).tools(tools) }) }
+        val round1 = build().messages()
         val nextTurn = afterTools + AssistantEntry(null, listOf(TextPart("Done.")), model) + user("Thanks.")
         val next = body(request(nextTurn) { tools(tools) }).messages()
 
@@ -184,6 +185,7 @@ class ChatRequestTest {
         )
         assertEquals(round1.dropLast(1), next.take(round1.size - 1))
         assertFalse(next.any { "Recalled" in it.toString() })
+        assertEquals(build().toString(), build().toString())
     }
 
     @Test
@@ -370,17 +372,5 @@ class ChatRequestTest {
 
         assertNull(chat.body["parallel_tool_calls"])
         assertTrue(chat.warnings.any { "cannot keep it from calling tools in parallel" in it.message })
-    }
-
-    @Test
-    fun `the same request gives the same bytes`() {
-        val history = listOf(user("Hi"), AssistantEntry(null, listOf(TextPart("Hello."), call), model))
-        val results = history + ToolResultEntry(null, call.id, call.name, listOf(TextPart("ok")), ToolOutcome.Failed)
-
-        val first = body(request(results) { tools(listOf(testToolDefinition("notes.add"))) }).toString()
-        val second = body(request(results) { tools(listOf(testToolDefinition("notes.add"))) }).toString()
-
-        assertEquals(first, second)
-        assertTrue("\"content\":\"ok\"" in first)
     }
 }

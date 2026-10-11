@@ -25,7 +25,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class OutcomesTest {
-    private data class Seen(val outcome: String?, val end: TurnEndKind?, val reply: String, val replayable: Boolean)
+    private data class Seen(
+        val outcome: String?,
+        val end: TurnEndKind?,
+        val reply: String,
+        val replayable: Boolean,
+        val stored: Boolean,
+    )
 
     /** How the turn that [act] submits ends. */
     private fun seen(
@@ -62,6 +68,7 @@ class OutcomesTest {
             },
             shown,
             outcome.replayable,
+            blocking { store.transcripts.turnEntries(turn).isNotEmpty() },
         )
     }
 
@@ -139,23 +146,25 @@ class OutcomesTest {
         )
 
         val completed = TurnEndKind.COMPLETED
+        val takenBack = TurnEndKind.TAKEN_BACK
         val failed = TurnEndKind.FAILED
         val shutDown = TurnEndKind.SHUT_DOWN
         assertEquals(
             linkedMapOf(
-                "answered" to Seen("Completed", completed, "completed reply", false),
-                "ended on a notice" to Seen("Completed", completed, "completed notice", false),
-                "joined a running turn" to Seen("Absorbed", null, "none", false),
-                "blank in round 0" to Seen("TakenBack", TurnEndKind.TAKEN_BACK, "completed notice", false),
-                "refused in round 0" to Seen("TakenBack", TurnEndKind.TAKEN_BACK, "completed notice", false),
-                "cancelled" to Seen("Cancelled", TurnEndKind.CANCELLED, "abandoned cancelled", false),
-                "failed" to Seen("Failed", failed, "completed notice", false),
-                "failed, its notice blank in the catalog" to Seen("Failed", failed, "completed notice", false),
-                "queued at a shutdown" to Seen("ShutDown", null, "none", true),
-                "held at a shutdown" to Seen("ShutDown", null, "none", true),
-                "cut off before it stored or showed anything" to Seen("ShutDown", shutDown, "abandoned shutdown", true),
-                "cut off after a preview" to Seen("ShutDown", shutDown, "abandoned shutdown", false),
-                "cut off after a stored round" to Seen("ShutDown", shutDown, "abandoned shutdown", false),
+                "answered" to Seen("Completed", completed, "completed reply", false, true),
+                "ended on a notice" to Seen("Completed", completed, "completed notice", false, true),
+                "joined a running turn" to Seen("Absorbed", null, "none", false, false),
+                "blank in round 0" to Seen("TakenBack", takenBack, "completed notice", false, true),
+                "refused in round 0" to Seen("TakenBack", takenBack, "completed notice", false, true),
+                "cancelled" to Seen("Cancelled", TurnEndKind.CANCELLED, "abandoned cancelled", false, false),
+                "failed" to Seen("Failed", failed, "completed notice", false, true),
+                "failed, its notice blank in the catalog" to Seen("Failed", failed, "completed notice", false, true),
+                "queued at a shutdown" to Seen("ShutDown", null, "none", true, false),
+                "held at a shutdown" to Seen("ShutDown", null, "none", true, false),
+                "cut off before it stored or showed anything" to
+                    Seen("ShutDown", shutDown, "abandoned shutdown", true, false),
+                "cut off after a preview" to Seen("ShutDown", shutDown, "abandoned shutdown", false, false),
+                "cut off after a stored round" to Seen("ShutDown", shutDown, "abandoned shutdown", false, true),
             ),
             rows,
         )

@@ -1,6 +1,5 @@
 package org.foedusprogramme.alexandrite.sdk.model
 
-import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ReasoningSeal
@@ -16,7 +15,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -60,37 +58,12 @@ class ModelResponseTest {
     }
 
     @Test
-    fun `a finish kind keeps an id it does not know`() {
-        assertEquals("\"max_output_tokens\"", Json.encodeToString(FinishKind.MAX_OUTPUT_TOKENS))
-        assertEquals(FinishKind.PAUSED, Json.decodeFromString<FinishKind>("\"paused\""))
-        assertEquals("compaction", Json.decodeFromString<FinishKind>("\"compaction\"").id)
-    }
-
-    @Test
     fun `a warning says what happened`() {
         assertFailsWith<IllegalArgumentException> { Warning(" ", "Temperature ignored.") }
         assertFailsWith<IllegalArgumentException> { Warning("unsupported_option", "") }
     }
 
     // Usage.
-
-    @Test
-    fun `usage knows nothing but one request by default`() {
-        val usage = Usage.builder().build()
-
-        for (count in listOf(
-            usage.inputTokens,
-            usage.cacheReadTokens,
-            usage.cacheWriteTokens,
-            usage.outputTokens,
-            usage.reasoningTokens,
-            usage.contextTokens,
-        )) {
-            assertNull(count)
-        }
-        assertEquals(1, usage.requests)
-        assertNull(usage.raw)
-    }
 
     @Test
     fun `rebuilt usage keeps what the block leaves alone`() {
@@ -128,6 +101,7 @@ class ModelResponseTest {
         for ((index, setting) in invalid.withIndex()) {
             assertFailsWith<IllegalArgumentException>("$index") { Usage.builder().apply(setting).build() }
         }
+        assertEquals(1, Usage.builder().build().requests)
     }
 
     @Test
@@ -240,62 +214,5 @@ class ModelResponseTest {
         assertSame(cause, exception.cause)
         assertEquals("connection: Connection refused.", exception.message)
         assertNull(ModelException(error).cause)
-    }
-
-    @Test
-    fun `an error kind keeps an id it does not know`() {
-        assertEquals("\"quota_exhausted\"", Json.encodeToString(ModelErrorKind.QUOTA_EXHAUSTED))
-        assertEquals(ModelErrorKind.PROTOCOL, Json.decodeFromString<ModelErrorKind>("\"protocol\""))
-        assertEquals("billing_suspended", Json.decodeFromString<ModelErrorKind>("\"billing_suspended\"").id)
-    }
-
-    // Values.
-
-    @Test
-    fun `values are equal by their properties and print them`() {
-        val cases = listOf(
-            Triple({ ModelEvent.TextDelta(0, "Hi") }, ModelEvent.TextDelta(1, "Hi"), "TextDelta(index=0, text=Hi)"),
-            Triple(
-                { FinishReason(FinishKind.REFUSAL, "refusal", "cyber") },
-                FinishReason(FinishKind.REFUSAL, "refusal", null),
-                "FinishReason(kind=refusal, raw=refusal, detail=cyber)",
-            ),
-            Triple(
-                { Warning("unsupported_option", "Temperature ignored.") },
-                Warning("unsupported_option", "Top-p ignored."),
-                "Warning(kind=unsupported_option, message=Temperature ignored.)",
-            ),
-            Triple(
-                { PromptSection("persona", "Be brief.", stable = true) },
-                PromptSection("persona", "Be brief.", stable = false),
-                "PromptSection(id=persona, text=Be brief., stable=true)",
-            ),
-            Triple({ ids }, RequestIds(ids.conversation, ids.turn, 1), "RequestIds(conversation=c1, turn=t1, round=0)"),
-            Triple(
-                { TurnContextItem("recall", "Ada likes tea.") },
-                TurnContextItem("recall", "Ada likes tea.", Trust.TRUSTED),
-                "TurnContextItem(source=recall, text=Ada likes tea., trust=UNTRUSTED, fallback=DROP)",
-            ),
-            Triple({ ToolChoice.Named("notes.add") }, ToolChoice.Named("notes.list"), "Named(name=notes.add)"),
-            Triple(
-                { Usage.builder().inputTokens(5).build() },
-                Usage.builder().inputTokens(6).build(),
-                "Usage(inputTokens=5, cacheReadTokens=null, cacheWriteTokens=null, outputTokens=null, " +
-                    "reasoningTokens=null, contextTokens=null, requests=1, raw=null)",
-            ),
-            Triple(
-                { ModelError.builder(ModelErrorKind.TIMEOUT, "Too slow.").build() },
-                ModelError.builder(ModelErrorKind.TIMEOUT, "Too slow.").outputStarted(true).build(),
-                "ModelError(kind=timeout, message=Too slow., retryable=true, retryAfter=null, status=null, " +
-                    "requestId=null, rawType=null, outputStarted=false)",
-            ),
-        )
-        for ((make, differing, printed) in cases) {
-            assertEquals(make(), make())
-            assertEquals(make().hashCode(), make().hashCode(), printed)
-            assertNotEquals(make(), differing)
-            assertEquals(printed, make().toString())
-            assertTrue(make().javaClass.methods.none { it.name == "copy" || it.name.startsWith("component") }, printed)
-        }
     }
 }

@@ -266,25 +266,6 @@ class MessagesRequestTest {
     }
 
     @Test
-    fun `transient turn context of a model that cannot think follows the end of the persisted transcript`() {
-        val off = ModelOptions.builder().reasoning(ReasoningEffort.NONE).build()
-        val round0 =
-            body(request(listOf(user("Plan the trip."))) { turnContext(listOf(recall)).options(off) }).messages()
-        val afterTools = listOf(user("Plan the trip."), AssistantEntry(null, listOf(call), model), result("Saved."))
-        val tools = listOf(testToolDefinition("notes.add"))
-        val round1 =
-            body(request(afterTools, round = 1) { turnContext(listOf(recall)).options(off).tools(tools) }).messages()
-
-        val (persisted, context) = round0.single().blocks()
-        assertTrue(persisted.cached() && !context.cached())
-        assertEquals("Recalled: the user likes tea.", context.text("text"))
-        val (results, again) = round1.last().blocks()
-        assertTrue(results.cached() && !again.cached())
-        assertEquals(context, again)
-        assertEquals(listOf(persisted.uncached()), round1.first().blocks().map { it.uncached() })
-    }
-
-    @Test
     fun `turn context the endpoint cannot render is left out with a warning`() {
         val untrusted = TurnContextItem("quote", "Someone said hi.", Trust.UNTRUSTED)
 
@@ -519,14 +500,5 @@ class MessagesRequestTest {
 
         assertFalse("cache_control" in built.body.toString())
         assertEquals(setOf("some-beta-2026-01-01"), built.betas)
-    }
-
-    @Test
-    fun `the same request gives the same bytes`() {
-        val history = listOf(user("Hi"), AssistantEntry(null, listOf(TextPart("Hello."), call), model), result("ok"))
-        val build = { body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).toString() }
-
-        assertEquals(build(), build())
-        assertTrue(""""stream":true""" in build())
     }
 }

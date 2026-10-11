@@ -137,19 +137,6 @@ class PayloadsTest {
     }
 
     @Test
-    fun `a hook is tested by calling it with a payload`() {
-        val guard = Guard()
-
-        val aborted = blocking { guard.intercept(testTurnInput(text = "drop the notes")) }
-        val replaced = blocking { guard.intercept(testTurnInput(text = " ", followUp = true)) }
-        val kept = blocking { guard.intercept(testTurnInput()) }
-
-        assertEquals(HookDecision.Abort("Not here."), aborted)
-        assertEquals("(empty)", assertIs<HookDecision.Replace<TurnInput>>(replaced).payload.text)
-        assertEquals(HookDecision.Continue, kept)
-    }
-
-    @Test
     fun `a hook is tested through the runtime's hooks with a payload`() {
         val index = TestIndex("guard", listOf(binding(key<Hook>(), "guard", "Guard", multi = true) { Guard() }))
         val context = testTurnContext() + TurnContextItem("recall", "Ada likes tea.")

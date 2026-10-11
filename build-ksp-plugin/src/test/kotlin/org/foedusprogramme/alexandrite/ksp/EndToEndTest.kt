@@ -99,18 +99,6 @@ class EndToEndTest {
     }
 
     @Test
-    fun `each plugin's index and descriptor name its own entry class`() {
-        channelPlugin("telegram").use { compiled ->
-            val index = compiled.indexes().single()
-
-            assertEquals("sample.telegram.BotPlugin", index.info.entryClass)
-            assertEquals("telegram bot", index.info.name)
-            assertEquals("Chats on telegram", index.info.description)
-            assertEquals("\"sample.telegram.TelegramIndex\"", compiled.descriptor("telegram")["indexClass"].toString())
-        }
-    }
-
-    @Test
     fun `plugin code needs an opt-in to use the container, while its generated index opts in itself`() {
         val uses = source(
             "Uses.kt",

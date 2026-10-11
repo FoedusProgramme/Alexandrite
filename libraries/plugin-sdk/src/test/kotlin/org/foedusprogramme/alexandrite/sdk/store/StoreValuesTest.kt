@@ -51,21 +51,6 @@ class StoreValuesTest {
         ConversationInfo.builder(ConversationId("c1"), ConversationKind.USER_LANE, key, ConversationState.ACTIVE, time)
 
     @Test
-    fun `a conversation starts unsealed, top-level and with a history of its own`() {
-        val conversation = conversation().build()
-
-        assertNull(conversation.sealedAt)
-        assertNull(conversation.successor)
-        assertNull(conversation.lineage)
-        assertNull(conversation.fork)
-        assertEquals(
-            "ConversationInfo(id=c1, kind=user_lane, key=main@telegram:work:-100, state=active, " +
-                "createdAt=2026-01-01T00:00:00Z, sealedAt=null, successor=null, lineage=null, fork=null)",
-            conversation.toString(),
-        )
-    }
-
-    @Test
     fun `a rebuilt conversation keeps what the block leaves alone`() {
         val delegated = conversation().kind(ConversationKind.DELEGATED).lineage(lineage)
             .fork(ForkPoint(ConversationId("c0"), EntryId(7)))

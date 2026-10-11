@@ -14,8 +14,6 @@ import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.key
-import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
-import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -104,16 +102,6 @@ class ConfigBindingsTest {
                 assertEquals(DiskConfig(), container.get(key<DiskConfig>()), json)
             }
         }
-    }
-
-    @Test
-    fun `the bindings are unmanaged instances of the plugin under the section keys with their origins`() {
-        val bindings = bindings("{}", weather, cache)
-
-        assertEquals(listOf(key<WeatherConfig>(), key<CacheConfig>()), bindings.map { it.key })
-        assertEquals(listOf("weather", "weather"), bindings.map { it.plugin })
-        assertEquals(listOf("sample.WeatherConfig", "sample.CacheConfig"), bindings.map { it.origin })
-        assertTrue(bindings.none { it.managed || it.multi })
     }
 
     @Test

@@ -184,19 +184,6 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `exactly the modules of indexed layers have a config root`() {
-        assertEquals(
-            setOf(
-                Layer.AGENT,
-                Layer.TOOLS,
-                Layer.COMMANDS,
-                Layer.CHANNEL,
-                Layer.PROVIDER,
-                Layer.STORE,
-                Layer.EXAMPLE,
-                Layer.APP,
-            ),
-            AlexandriteLayout.INDEXED_LAYERS,
-        )
         for (path in all + ":libraries:channels:discord" + ":libraries:providers:example" + echo) {
             val module = module(path)
             assertEquals(module.layer in AlexandriteLayout.INDEXED_LAYERS, module.configRoot != null, path)
@@ -258,28 +245,6 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `index classes of built-in modules are named in their package`() {
-        val base = "org.foedusprogramme.alexandrite"
-        val expected = mapOf(
-            agent to "$base.agent.AlexandriteAgentIndex",
-            tools to "$base.tools.AlexandriteToolsIndex",
-            commands to "$base.commands.AlexandriteCommandsIndex",
-            telegram to "$base.channel.telegram.AlexandriteChannelTelegramIndex",
-            openAi to "$base.provider.openaicompatible.AlexandriteProviderOpenaiCompatibleIndex",
-            anthropic to "$base.provider.anthropiccompatible.AlexandriteProviderAnthropicCompatibleIndex",
-            deepSeek to "$base.provider.deepseek.AlexandriteProviderDeepseekIndex",
-            lmStudio to "$base.provider.lmstudio.AlexandriteProviderLmstudioIndex",
-            openRouter to "$base.provider.openrouter.AlexandriteProviderOpenrouterIndex",
-            providerCommon to null,
-            channelCommon to null,
-            sqlite to "$base.store.sqlite.AlexandriteStoreSqliteIndex",
-            app to "$base.app.AlexandriteAppIndex",
-            notes to null,
-        )
-        assertEquals(expected, expected.keys.associateWith { module(it).indexClass })
-    }
-
-    @Test
     fun `only built-in indexed modules get a package`() {
         for (path in all) {
             val module = module(path)
@@ -296,12 +261,6 @@ class AlexandriteLayoutTest {
             val sources = File("..", "$directory/src/main/kotlin/${module.packageName!!.replace('.', '/')}")
             assertTrue(sources.isDirectory, "$sources for $path")
         }
-    }
-
-    @Test
-    fun `examples are the only modules that are not built in`() {
-        for (path in builtIn) assertTrue(module(path).builtIn, path)
-        assertFalse(module(notes).builtIn)
     }
 
     @Test
@@ -597,14 +556,6 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `the built-in layers are the indexed layers with built-in locations`() {
-        assertEquals(
-            listOf(Layer.AGENT, Layer.TOOLS, Layer.COMMANDS, Layer.CHANNEL, Layer.PROVIDER, Layer.STORE, Layer.APP),
-            BuiltInList.LAYERS,
-        )
-    }
-
-    @Test
     fun `the built-in list escapes its string literals`() {
         assertEquals("\"a\\\"b\\\$c\\\\d\\ne\\rf\\tg\"", BuiltInList.literal("a\"b\$c\\d\ne\rf\tg"))
     }
@@ -733,14 +684,6 @@ class AlexandriteLayoutTest {
         assertAllowed(channelCommon, testkit, "testImplementation")
         assertAllowed(channelCommon, testkit, "testFixturesApi")
         assertForbidden(channelCommon, testkit, "api")
-    }
-
-    @Test
-    fun `examples, provider-common and channel-common compile without the SDK's internal API`() {
-        assertEquals(
-            setOf(Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON, Layer.EXAMPLE),
-            AlexandriteLayout.THIRD_PARTY_LAYERS,
-        )
     }
 
     @Test

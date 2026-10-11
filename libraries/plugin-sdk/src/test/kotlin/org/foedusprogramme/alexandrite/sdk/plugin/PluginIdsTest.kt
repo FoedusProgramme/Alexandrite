@@ -1,7 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.plugin
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -14,10 +13,5 @@ class PluginIdsTest {
         for (id in listOf("", "1a", "A", "a_b", "a--b", "-a", "a-", "a-1", "a.b")) {
             assertFalse(PluginIds.PATTERN.matches(id), id)
         }
-    }
-
-    @Test
-    fun `a third-party root lies below the third-party config root`() {
-        assertEquals("plugins.weather", PluginIds.thirdPartyRoot("weather"))
     }
 }

@@ -32,16 +32,10 @@ class RecordingToolTest {
         assertEquals(testToolDefinition("fs.read", ToolRisk.READ_ONLY), tool.definition)
         assertEquals(ToolRisk.EXEC, recordingTool(risk = ToolRisk.EXEC).definition.risk)
         assertEquals(ToolResult("done"), blocking { recordingTool().execute(arguments, context) })
-    }
-
-    @Test
-    fun `a recording tool takes the definition of the tool it stands in for`() {
         val definition = ToolDefinition("notes.find", "Finds notes.", arguments, ToolRisk.READ_ONLY)
-        val tool = recordingTool(definition)
-
-        assertEquals(definition, tool.definition)
-        assertEquals(ToolResult("done"), blocking { tool.execute(arguments, testToolContext()) })
-        assertEquals(1, tool.calls.size)
+        val standIn = recordingTool(definition)
+        assertEquals(definition, standIn.definition)
+        assertEquals(ToolResult("done"), blocking { standIn.execute(arguments, context) })
     }
 
     @Test

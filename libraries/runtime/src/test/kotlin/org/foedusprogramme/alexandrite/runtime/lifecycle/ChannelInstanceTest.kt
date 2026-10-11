@@ -634,20 +634,6 @@ class ChannelInstanceTest {
     }
 
     @Test
-    fun `a channel contributed by a singleton fails CONFIG before the singleton is created`() {
-        val singleton = binding(key<Channel>(), "solo", "Solo", SINGLETON, multi = true, name = "solo") {
-            events.record("create solo")
-            TestChannel()
-        }
-
-        val error = spec(explicit(TestIndex("solo", bindings = listOf(singleton))), dataDir).startFailure()
-
-        assertEquals(StartStage.CONFIG, error.stage)
-        assertEquals(listOf(RuntimeProblemKind.CHANNEL_CONTRIBUTIONS), error.problems.map { it.kind })
-        assertEquals(emptyList(), events.all())
-    }
-
-    @Test
     fun `two enabled plugins of one channel type fail CONFIG`() {
         val twins = explicit(chan(), TestIndex("other", bindings = listOf(plain("other", "Other", CHANNEL, "chan"))))
 

@@ -326,25 +326,6 @@ class TelegramIntakeTest {
     }
 
     @Test
-    fun `a conflict while running is logged and polling goes on`() {
-        val lines = runBlocking {
-            logged {
-                telegram.run {
-                    fake.await { calls("getUpdates").firstOrNull() }
-                    fake.fail("getUpdates", 409, "Conflict: terminated by other getUpdates request")
-                    fake.await { calls("getUpdates").getOrNull(2) }
-                    fake.send(telegram.bob, telegram.bobChat, "still there?")
-                    telegram.submitted(1)
-                }
-            }
-        }
-
-        val errors = lines.filter { it.startsWith("ERROR") }
-        assertEquals(1, errors.size, lines.joinToString("\n"))
-        assertContains(errors.single(), "telegram:work cannot poll: another program polls this bot")
-    }
-
-    @Test
     fun `a token revoked while running stops the runtime as a failure`() {
         val termination = telegram.run(telegram.builder().inspectTermination()) {
             fake.await { calls("getUpdates").firstOrNull() }

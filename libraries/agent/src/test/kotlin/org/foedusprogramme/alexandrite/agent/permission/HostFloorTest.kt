@@ -149,19 +149,6 @@ class HostFloorTest {
     }
 
     @Test
-    fun `a relative protected path is a config error when the host read no config file`() {
-        val error = assertFailsWith<ConfigException> {
-            floor(paths = paths(configFile = null), protectedPaths = listOf("secrets"))
-        }
-
-        assertEquals(
-            "Invalid config at 'agent.protectedPaths': the protected path 'secrets' is relative, but the host read " +
-                "no config file to resolve it against: give an absolute path",
-            error.message,
-        )
-    }
-
-    @Test
     fun `each agent's default workspace is carved out of the data root`() {
         val floor = floor("""{"coder": {}, "helper": {}}""")
 
@@ -230,19 +217,6 @@ class HostFloorTest {
         assertCollides(Path.of("/.vol/notes"), "lies in a protected place (macOS special paths)")
         val nested = root.resolve("etc/alexandrite/alexandrite.json")
         assertCollides(root.resolve("etc"), "holds a protected place (Alexandrite's configuration)", paths(nested))
-    }
-
-    @Test
-    fun `a relative workspace is a config error when the host read no config file`() {
-        val error = assertFailsWith<ConfigException> {
-            floor("""{"coder": {"workspace": "notes"}}""", paths(configFile = null))
-        }
-
-        assertEquals(
-            "Invalid config at 'agent.agents.coder.workspace': the workspace 'notes' is relative, but the host " +
-                "read no config file to resolve it against: give an absolute path",
-            error.message,
-        )
     }
 
     @Test

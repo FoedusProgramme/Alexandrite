@@ -1,7 +1,5 @@
 package org.foedusprogramme.alexandrite.sdk.channel
 
-import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
@@ -17,12 +15,10 @@ import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import java.time.Instant
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -38,18 +34,6 @@ class ChannelValuesTest {
     private fun message(): IncomingMessage.Builder = IncomingMessage.builder(ref, sender, group, at, forwarded = null)
 
     // Inbound.
-
-    @Test
-    fun `an incoming message holds only what its builder requires until more is set`() {
-        val message = message().build()
-
-        assertEquals(chat, message.chat)
-        assertEquals("", message.text)
-        assertEquals(emptyList(), message.media)
-        assertNull(message.quote)
-        assertNull(message.forwarded)
-        assertEquals(emptyList(), message.facts)
-    }
 
     @Test
     fun `a rebuilt incoming message keeps what the block leaves alone`() {
@@ -86,13 +70,16 @@ class ChannelValuesTest {
     }
 
     @Test
-    fun `media is read only when asked, within the bound the reader gives`() = runBlocking {
-        val image = MediaAttachment.builder(MediaKind.IMAGE, "image/png", photo).build()
+    fun `a rebuilt media attachment keeps what the block leaves alone`() {
+        fun image() = MediaAttachment.builder(MediaKind.IMAGE, "image/png", photo)
+            .size(3)
+            .width(640)
+            .height(480)
+            .name("photo.png")
+        val quoted = image().fromQuote(true).build()
 
-        assertContentEquals(byteArrayOf(7, 7), image.content.read(2))
-        assertNull(image.size)
-        assertFalse(image.fromQuote)
-        assertTrue(image.rebuild { fromQuote(true) }.fromQuote)
+        assertEquals(quoted, quoted.toBuilder().build())
+        assertEquals(image().build(), quoted.rebuild { fromQuote(false) })
     }
 
     @Test
@@ -125,9 +112,12 @@ class ChannelValuesTest {
         assertNull(notice.replyTo)
         assertNull(notice.conversation)
         assertEquals(
-            "OutboundMessage(text=Queue full., kind=REPLY, markup=markdown, " +
-                "replyTo=ChannelMessageRef(chat=telegram:work:-100#7, id=42), conversation=c1)",
-            reply.toString(),
+            OutboundMessage.builder("Queue full.", MessageKind.REPLY)
+                .markup(Markup.MARKDOWN)
+                .replyTo(ref)
+                .conversation(ConversationId("c1"))
+                .build(),
+            reply,
         )
         assertFailsWith<IllegalArgumentException> { OutboundMessage.builder(" \n", MessageKind.REPLY).build() }
     }
@@ -171,13 +161,6 @@ class ChannelValuesTest {
         assertFailsWith<IllegalArgumentException> {
             Delivery.NotDelivered(DeliveryFailure.TRANSIENT, retryAfter = (-1).seconds)
         }
-    }
-
-    @Test
-    fun `open enumerations serialize as their ids`() {
-        assertEquals("\"markdown\"", Json.encodeToString(Markup.MARKDOWN))
-        assertEquals(DeliveryFailure.WINDOW_CLOSED, Json.decodeFromString<DeliveryFailure>("\"window_closed\""))
-        assertEquals("\"shutdown\"", Json.encodeToString(ReplyEnd.SHUTDOWN))
     }
 
     private fun DeliveryFailure.Companion.entries(): List<DeliveryFailure> = listOf(

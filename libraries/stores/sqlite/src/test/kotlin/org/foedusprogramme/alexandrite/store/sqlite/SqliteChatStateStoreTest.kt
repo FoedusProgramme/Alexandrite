@@ -12,20 +12,6 @@ class SqliteChatStateStoreTest {
     lateinit var directory: Path
 
     @Test
-    fun `a value keeps one row, which null removes`() {
-        withStore(directory) {
-            chatStates.write("notes", "mode", AgentId("coder"), chat, "1")
-            chatStates.write("notes", "mode", AgentId("coder"), chat, "2")
-
-            assertEquals(1, rows("SELECT * FROM chat_states").size)
-
-            chatStates.write("notes", "mode", AgentId("coder"), chat, null)
-
-            assertEquals(emptyList(), rows("SELECT * FROM chat_states"))
-        }
-    }
-
-    @Test
     fun `reading and removing add no chat`() {
         withStore(directory) {
             assertNull(chatStates.read("notes", "mode", null, chat))

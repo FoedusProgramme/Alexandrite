@@ -18,6 +18,8 @@ import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.junit.jupiter.api.io.TempDir
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -162,11 +164,21 @@ class ExitCodeTest {
 
     @Test
     fun `problems met while stopping do not change the code`() {
-        val spec = spec(dataDir, TestIndex("a", listOf(failing("a", "stop"))))
+        val json = """{"app": {"plugins": ["faulty"]}, "plugins": {"faulty": {}}}"""
+        val config = Files.writeString(dataDir.resolve("alexandrite.json"), json)
+        val err = ByteArrayOutputStream()
+        var termination: Termination? = null
 
-        val termination = runBlocking { AlexandriteRuntime.run(spec) {} }
+        val code = run(
+            listOf("--config", "$config", "--data-dir", "${dataDir.resolve("data")}"),
+            emptyMap(),
+            osName = "Linux",
+            home = dataDir.resolve("home"),
+            err = PrintStream(err, true),
+            execute = { spec, _ -> AlexandriteRuntime.run(spec) {}.also { termination = it } },
+        )
 
-        assertEquals(1, termination.problems.size)
-        assertEquals(0, exitCode(termination.request.kind))
+        assertEquals(1, termination?.problems?.size)
+        assertEquals(0, code, err.toString())
     }
 }

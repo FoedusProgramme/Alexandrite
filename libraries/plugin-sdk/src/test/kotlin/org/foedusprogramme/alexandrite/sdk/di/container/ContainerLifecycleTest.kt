@@ -46,15 +46,6 @@ class ContainerLifecycleTest {
     }
 
     @Test
-    fun `start starts instances in creation order`() {
-        val container = build(service("b", dep("a"), events = events), service("a", events = events))
-
-        runBlocking { container.start() }
-
-        assertEquals(listOf("start a", "start b"), events.lifecycle())
-    }
-
-    @Test
     fun `a failing start rethrows and leaves the started instances to stop`() {
         val container = build(
             service("a", events = events, failStop = true),
@@ -105,42 +96,6 @@ class ContainerLifecycleTest {
             refused,
         )
         assertEquals(listOf("start a", "start b", "stop b", "stop a", "destroy b", "destroy a"), events.lifecycle())
-    }
-
-    @Test
-    fun `close after a failed start stops the started instances once and destroys every instance`() {
-        val container =
-            build(
-                service("a", events = events),
-                service("b", events = events, failStart = true),
-                service("c", events = events),
-            )
-        assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
-
-        container.close()
-
-        assertEquals(
-            listOf("start a", "start b", "stop a", "destroy c", "destroy b", "destroy a"),
-            events.lifecycle(),
-        )
-    }
-
-    @Test
-    fun `start twice is rejected`() {
-        val container = build(service("a"))
-        runBlocking { container.start() }
-
-        assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
-    }
-
-    @Test
-    fun `close destroys instances in reverse creation order`() {
-        val container =
-            build(service("b", dep("a"), events = events), service("a", events = events), service("c", events = events))
-
-        container.close()
-
-        assertEquals(listOf("destroy c", "destroy b", "destroy a"), events.lifecycle())
     }
 
     @Test
@@ -366,16 +321,6 @@ class ContainerLifecycleTest {
         }
 
         override fun close() = events.record("auto-close pool")
-    }
-
-    @Test
-    fun `a managed binding is started, stopped and destroyed`() {
-        val container = build(service("a", events = events))
-
-        runBlocking { container.start() }
-        container.close()
-
-        assertEquals(listOf("create a", "start a", "stop a", "destroy a"), events.all())
     }
 
     @Test

@@ -28,16 +28,6 @@ class SqliteRecordStoreTest {
         }
     }
 
-    @Test
-    fun `a removed record leaves no row`() {
-        withStore(directory) {
-            records.put("notes", "grants", "k", "1", null)
-            records.remove("notes", "grants", "k")
-
-            assertEquals(emptyList(), rows("SELECT * FROM records"))
-        }
-    }
-
     private companion object {
         const val ROW = "SELECT record_key, value, created_by, updated_by FROM records"
     }

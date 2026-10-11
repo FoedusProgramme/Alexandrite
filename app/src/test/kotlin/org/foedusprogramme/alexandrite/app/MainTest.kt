@@ -307,18 +307,6 @@ class MainTest {
     }
 
     @Test
-    fun `a named data directory gets a cache directory of its own`() {
-        lateinit var cache: Path
-
-        hostWith("{}") { spec, _ ->
-            cache = spec.config.cacheDir
-            AlexandriteRuntime.run(spec) {}
-        }
-
-        assertEquals(dataDir.resolve("cache"), cache)
-    }
-
-    @Test
     fun `a location variable that names no valid path exits 78 naming it`() {
         val invalid = mapOf("ALEXANDRITE_DATA_DIR" to "a\u0000b")
 

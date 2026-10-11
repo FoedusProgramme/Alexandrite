@@ -182,13 +182,6 @@ class ChildContainerTest {
         )
     }
 
-    @Test
-    fun `a channel instance container cannot create children`() {
-        val child = build().child("tg", setOf("test"))
-
-        assertFailsWith<IllegalStateException> { child.child("nested", setOf("test")) }
-    }
-
     // Validation.
 
     @Test

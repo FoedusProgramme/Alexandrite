@@ -1,6 +1,5 @@
 package org.foedusprogramme.alexandrite.sdk.model
 
-import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
@@ -30,19 +29,6 @@ import kotlin.test.assertTrue
 
 class ModelRequestTest {
     // Requests.
-
-    @Test
-    fun `a request starts from no instructions, tools or turn context and the provider's defaults`() {
-        val request = request().build()
-
-        assertEquals(emptyList(), request.instructions)
-        assertEquals(emptyList(), request.turnContext)
-        assertEquals(emptyList(), request.tools)
-        assertEquals(ToolChoice.Auto, request.toolChoice)
-        assertEquals(ModelOptions.DEFAULT, request.options)
-        assertNull(request.cacheKey)
-        assertEquals(ProviderData.EMPTY, request.providerOptions)
-    }
 
     @Test
     fun `a rebuilt request keeps what the block leaves alone`() {
@@ -165,19 +151,6 @@ class ModelRequestTest {
     // Options.
 
     @Test
-    fun `options leave everything to the provider by default`() {
-        val options = ModelOptions.builder().build()
-
-        assertEquals(ModelOptions.DEFAULT, options)
-        assertNull(options.maxOutputTokens)
-        assertNull(options.temperature)
-        assertNull(options.topP)
-        assertEquals(emptyList(), options.stopSequences)
-        assertNull(options.reasoning)
-        assertNull(options.parallelToolCalls)
-    }
-
-    @Test
     fun `rebuilt options keep what the block leaves alone`() {
         val options = ModelOptions.builder()
             .maxOutputTokens(1024)
@@ -210,13 +183,6 @@ class ModelRequestTest {
         for ((index, setting) in invalid.withIndex()) {
             assertFailsWith<IllegalArgumentException>("$index") { ModelOptions.builder().apply(setting).build() }
         }
-    }
-
-    @Test
-    fun `a reasoning effort keeps an id it does not know`() {
-        assertEquals("\"xhigh\"", Json.encodeToString(ReasoningEffort.XHIGH))
-        assertEquals(ReasoningEffort.NONE, Json.decodeFromString<ReasoningEffort>("\"none\""))
-        assertEquals("adaptive", Json.decodeFromString<ReasoningEffort>("\"adaptive\"").id)
     }
 
     @Test

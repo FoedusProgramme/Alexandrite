@@ -22,10 +22,11 @@ class ExampleConfigTest {
     private val example = Path.of("src/dist/config/alexandrite.example.json")
 
     @Test
-    fun `the example config holds the default host settings`() {
+    fun `the example config holds every host setting`() {
         val tree = ConfigFile.read(example, emptyMap()).tree("app")
+        val settings = AppConfig.serializer().descriptor
 
-        assertEquals(setOf("zone", "language", "shutdownGraceSeconds", "startTimeoutSeconds", "plugins"), tree?.keys)
+        assertEquals(List(settings.elementsCount, settings::getElementName).toSet(), tree?.keys)
     }
 
     @Test

@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.testkit.assertTextsComplete
 import org.foedusprogramme.alexandrite.testkit.testTexts
 import java.lang.reflect.Modifier
+import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -18,15 +19,13 @@ class TextKeysTest {
     }
 
     @Test
-    fun `every key the channel uses has an English text`() {
+    fun `every key the channel uses has an English text, and every English text is used`() {
+        val english = Properties()
+        javaClass.getResourceAsStream("/alexandrite/i18n/$PLUGIN/en.properties")!!.use { english.load(it) }
         val texts = testTexts(PLUGIN)
 
-        assertEquals(7, keys.size)
+        assertEquals(english.stringPropertyNames(), keys.toSet())
         assertEquals(emptyList(), keys.filter { texts.text(it, null) == it })
-        assertEquals(
-            "Only an admin of this bot may use /model.",
-            texts.text(TextKeys.REFUSED_ADMIN, null, "command" to "model"),
-        )
     }
 
     private companion object {

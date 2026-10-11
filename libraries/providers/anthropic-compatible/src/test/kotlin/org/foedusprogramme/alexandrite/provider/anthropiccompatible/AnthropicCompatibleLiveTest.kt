@@ -51,13 +51,17 @@ class AnthropicCompatibleLiveTest {
     private val thinking = ModelOptions.builder().maxOutputTokens(2000).reasoning(ReasoningEffort.LOW).build()
 
     /** The live endpoint, its model taken to think at the efforts the standard API names where it lists none. */
-    private fun live(): MessagesEndpoint {
+    private fun live(listedOnly: Boolean = false): MessagesEndpoint {
         assumeTrue(baseUrl != null && apiKey != null && model != null, "No live endpoint is configured.")
         val efforts = setOf("none", "low", "medium", "high")
         val config = EndpointConfig(
             apiKey = Secret(apiKey!!),
             baseUrl = baseUrl!!,
-            models = mapOf(model!! to ModelConfig(nativeTools = true, reasoningEfforts = efforts)),
+            models = if (listedOnly) {
+                emptyMap()
+            } else {
+                mapOf(model!! to ModelConfig(nativeTools = true, reasoningEfforts = efforts))
+            },
         )
         return MessagesEndpoint(EndpointId("live"), config.settings(), MessagesFlavor.STANDARD, config.messages())
     }
@@ -86,10 +90,10 @@ class AnthropicCompatibleLiveTest {
 
     @Test
     fun `the endpoint lists its models`() = runBlocking {
-        live().use { endpoint ->
+        live(listedOnly = true).use { endpoint ->
             val models = endpoint.models()
             println("Models: ${models.map { "${it.id} ${it.contextWindow} ${it.maxOutputTokens} ${it.inputMedia}" }}")
-            assertTrue(models.any { it.id == model })
+            assertTrue(models.any { it.id == model }, "${models.map { it.id }}")
         }
     }
 

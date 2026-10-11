@@ -160,6 +160,7 @@ class PairingsTest {
         assertEquals(PairingDecision.Malformed, desk.approve("hello", null))
         repeat(20) { assertEquals(PairingDecision.Unknown, desk.deny("AAAA-AAAA", null)) }
         repeat(20) { assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA", null)) }
+        repeat(10) { assertFalse(desk.holds("AAAA-AAAA")) }
 
         assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
         assertTrue(pairing.isPaired(stranger))
@@ -191,16 +192,6 @@ class PairingsTest {
         clock.advance(1)
 
         assertFalse(desk.holds(code.text))
-    }
-
-    @Test
-    fun `asking whether a desk holds a code never counts as a wrong code`() = runTest {
-        val code = assertNotNull(offer())
-
-        repeat(10) { assertFalse(desk.holds("AAAA-AAAA")) }
-
-        assertEquals(PairingDecision.Unknown, desk.approve("AAAA-AAAA", null))
-        assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
     }
 
     @Test

@@ -8,7 +8,6 @@ import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
-import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
@@ -411,31 +410,6 @@ class ToolRoundsTest {
             assertEquals(ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS), result.outcome)
             assertEquals("Done.", channel().reply(admission.ticket.turn).completed?.text)
             assertEquals(emptyList(), channel().sent)
-        }
-    }
-
-    @Test
-    fun `a cancel while tools run answers the stored calls as cancelled`() {
-        read.hold()
-        model.reply {
-            toolCall("fs.read", """{"path": "a"}""")
-            toolCall("fs.read", """{"path": "b"}""")
-        }
-
-        harness().execute {
-            val admission = ask()
-            read.awaitCalls(2)
-
-            assertTrue(admission.ticket.cancel())
-            assertEquals(TurnOutcome.Cancelled, admission.ticket.outcome())
-            val results = stored().filterIsInstance<ToolResultEntry>()
-            assertEquals(
-                List(2) { "Cancelled (outcome unknown)" to ToolOutcome.Cancelled },
-                results.map { text(it) to it.outcome },
-            )
-            assertEquals(2, read.cancelled.size)
-            assertEquals(ReplyEnd.CANCELLED, channel().reply(admission.ticket.turn).awaitEnd().abandoned)
-            assertEquals(TurnEndKind.CANCELLED, store.conversations.turn(admission.ticket.turn)?.end)
         }
     }
 

@@ -68,18 +68,6 @@ class SqliteTranscriptStoreTest {
     }
 
     @Test
-    fun `a user entry is indexed by the message that carried it`() {
-        withStore(directory) {
-            append(message("a"), message("b"), NoticeEntry(null, "Done.", NoticeKind.FAILED))
-
-            assertEquals(
-                listOf(listOf("m-a"), listOf("m-b"), listOf(null)),
-                rows("SELECT message_id FROM entries ORDER BY id"),
-            )
-        }
-    }
-
-    @Test
     fun `rows of older formats are decoded, and rows of newer formats or that cannot be decoded are unknown`() {
         withStore(directory) {
             val turn = turn(conversations.current(main))

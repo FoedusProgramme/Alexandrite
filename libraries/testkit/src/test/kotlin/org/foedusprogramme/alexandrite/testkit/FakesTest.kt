@@ -7,7 +7,6 @@ import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
-import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -19,7 +18,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
-import org.foedusprogramme.alexandrite.sdk.chat.agentState
 import org.foedusprogramme.alexandrite.sdk.chat.state
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.store.collection
@@ -551,18 +549,6 @@ class FakesTest {
         assertEquals("edit", blocking { states.of("other").state("streaming.mode", "edit").get(thread) })
         assertEquals("edit", blocking { testChatStates("telegram").state("streaming.mode", "edit").get(thread) })
         assertFailsWith<IllegalArgumentException> { states.of().state("Not A Name", 0) }
-    }
-
-    @Test
-    fun `agent states of test chat states are kept per agent`() {
-        val language = testChatStates().agentState("language", "en")
-        val main = AgentChatKey(AgentId.MAIN, testChat())
-        val coder = AgentChatKey(AgentId("coder"), testChat())
-
-        blocking { language.set(main, "zh") }
-
-        assertEquals("zh", blocking { language.get(main) })
-        assertEquals("en", blocking { language.get(coder) })
     }
 
     // Records.

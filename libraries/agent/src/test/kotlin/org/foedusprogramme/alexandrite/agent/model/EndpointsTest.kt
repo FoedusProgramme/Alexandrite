@@ -21,7 +21,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 
 class EndpointsTest {
     private class Listed(id: String, vararg models: String) : ModelEndpoint {
@@ -49,14 +48,6 @@ class EndpointsTest {
         settings("""{"models": {"listingTtlSeconds": 60}}"""),
         clock,
     )
-
-    @Test
-    fun `the endpoints of every provider are known by id`() {
-        assertEquals(listOf("local", "remote"), endpoints.ids.map { it.value })
-        assertSame(local, endpoints.endpoint(EndpointId("local")))
-        assertNull(endpoints.endpoint(EndpointId("other")))
-        assertFailsWith<IllegalArgumentException> { blocking { endpoints.models(EndpointId("other")) } }
-    }
 
     @Test
     fun `a listing is reused until it is older than its time to live`() {
@@ -88,10 +79,11 @@ class EndpointsTest {
     }
 
     @Test
-    fun `a failed listing is not kept`() {
+    fun `a failed listing is not kept, and an unknown endpoint cannot be listed`() {
         local.failure = IOException("down")
 
         blocking {
+            assertFailsWith<IllegalArgumentException> { endpoints.models(EndpointId("other")) }
             assertFailsWith<IOException> { endpoints.models(EndpointId("local")) }
             local.failure = null
             assertEquals(listOf("llama", "qwen"), endpoints.models(EndpointId("local")).map { it.id })

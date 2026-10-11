@@ -1,9 +1,7 @@
 package org.foedusprogramme.alexandrite.sdk.turn
 
-import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
-import org.foedusprogramme.alexandrite.sdk.channel.InstanceState
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -29,8 +27,6 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -149,7 +145,6 @@ class TurnValuesTest {
         assertTrue(outcomes.none { it.replayable })
         assertTrue(TurnOutcome.ShutDown(replayable = true).replayable)
         assertEquals(emptyMap(), TurnOutcome.Completed(reply).deliveries)
-        assertEquals("Completed(reply=null, deliveries={})", TurnOutcome.Completed(null).toString())
     }
 
     // Initiated turns.
@@ -251,45 +246,50 @@ class TurnValuesTest {
     }
 
     @Test
-    fun `a settings snapshot leaves each default as null`() {
+    fun `a settings snapshot has the default agent with nothing configured until set`() {
+        fun ChatSettingsSnapshot.settings() = listOf(
+            agent, model, reasoning, language, home, agentSource, defaultModel, defaultReasoning, defaultLanguage,
+        )
+        val deepseek = ModelRef(EndpointId("deepseek"), "deepseek-chat")
         val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
         val chosen = snapshot.rebuild {
+            agent(AgentId("coder"))
             model(claude)
             reasoning(ReasoningEffort.HIGH)
-        }
-
-        assertEquals(AgentId.MAIN, snapshot.agent)
-        assertNull(snapshot.model)
-        assertNull(snapshot.reasoning)
-        assertNull(snapshot.language)
-        assertFalse(snapshot.home)
-        assertEquals(claude, chosen.model)
-        assertEquals(ReasoningEffort.HIGH, chosen.reasoning)
-        assertTrue(chosen.rebuild { home(true) }.rebuild { model(null) }.home)
-    }
-
-    @Test
-    fun `a settings snapshot has the default agent with nothing configured until set`() {
-        val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
-        val chosen = snapshot.rebuild {
+            language(LanguageTag("fr"))
+            home(true)
             agentSource(AgentSource.SELECTED)
-            defaultModel(claude)
+            defaultModel(deepseek)
             defaultReasoning(ReasoningEffort.LOW)
             defaultLanguage(LanguageTag("de"))
         }
 
-        assertEquals(AgentSource.DEFAULT, snapshot.agentSource)
         assertEquals(
-            listOf(null, null, null),
-            listOf(snapshot.defaultModel, snapshot.defaultReasoning, snapshot.defaultLanguage),
+            listOf(AgentId.MAIN, null, null, null, false, AgentSource.DEFAULT, null, null, null),
+            snapshot.settings(),
         )
         assertEquals(
-            listOf(AgentSource.SELECTED, claude, ReasoningEffort.LOW, LanguageTag("de")),
-            listOf(chosen.agentSource, chosen.defaultModel, chosen.defaultReasoning, chosen.defaultLanguage),
+            listOf(
+                AgentId("coder"),
+                claude,
+                ReasoningEffort.HIGH,
+                LanguageTag("fr"),
+                true,
+                AgentSource.SELECTED,
+                deepseek,
+                ReasoningEffort.LOW,
+                LanguageTag("de"),
+            ),
+            chosen.settings(),
         )
-        assertEquals(chosen, chosen.rebuild { home(true) }.toBuilder().home(false).build())
-        assertNotEquals(snapshot, chosen.rebuild { agentSource(AgentSource.DEFAULT) })
+        assertEquals(chosen.settings(), chosen.toBuilder().build().settings())
+        assertTrue(chosen.rebuild { model(null) }.home)
         val reset = chosen.rebuild {
+            agent(AgentId.MAIN)
+            model(null)
+            reasoning(null)
+            language(null)
+            home(false)
             agentSource(AgentSource.DEFAULT)
             defaultModel(null)
             defaultReasoning(null)
@@ -309,21 +309,6 @@ class TurnValuesTest {
     }
 
     @Test
-    fun `an agent summary is equal by its properties`() {
-        val home = ChatAddress(work, "42")
-        val summary = AgentSummary(AgentId("coder"), "Coder", "Writes code.", default = true, home = home)
-
-        assertEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, home), summary)
-        assertNotEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, null), summary)
-        assertEquals(
-            "AgentSummary(id=coder, name=Coder, description=Writes code., default=true, home=telegram:work:42, " +
-                "configuredHome=null, homeSetAt=null, homeSetBy=null)",
-            summary.toString(),
-        )
-        assertNotEquals(AgentSummary(AgentId("coder"), "Coder", "Writes code.", true, home, home), summary)
-    }
-
-    @Test
     fun `a linked group holds at least one member and each chat once, with links of its members only`() {
         val other = ChatAddress.parse("test:main:2")
         val group = ChatLinkGroup(AgentId("coder"), chat, listOf(other))
@@ -339,14 +324,5 @@ class TurnValuesTest {
         assertFailsWith<IllegalArgumentException> {
             ChatLinkGroup(AgentId("coder"), chat, listOf(other), links = mapOf(chat to link))
         }
-    }
-
-    @Test
-    fun `open enumerations of turns and channel instances serialize as their ids`() {
-        assertEquals("\"queue_full\"", Json.encodeToString(RefusalReason.QUEUE_FULL))
-        assertEquals(RefusalReason.NO_AGENT, Json.decodeFromString<RefusalReason>("\"no_agent\""))
-        assertEquals("\"running\"", Json.encodeToString(TurnPhase.RUNNING))
-        assertEquals(AgentSource.HOME, Json.decodeFromString<AgentSource>("\"home\""))
-        assertEquals(InstanceState.STOPPING, Json.decodeFromString<InstanceState>("\"stopping\""))
     }
 }

@@ -1,12 +1,8 @@
 package org.foedusprogramme.alexandrite.runtime
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
@@ -25,7 +21,6 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
-import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Container
 import org.foedusprogramme.alexandrite.sdk.di.container.Dependency
 import org.foedusprogramme.alexandrite.sdk.di.container.DependencyKind
@@ -50,12 +45,11 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 class RuntimeTest {
     @TempDir
@@ -252,15 +246,17 @@ class RuntimeTest {
     }
 
     @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun `a start that outlasts the start timeout fails the START stage`() = runTest {
         val plugins = core(service("a", "core", events, onStart = hang))
-        val spec = spec(plugins, dataDir, startTimeout = 200.milliseconds, dispatcher = virtual())
+        val spec = spec(plugins, dataDir, startTimeout = 1.hours, dispatcher = virtual())
 
         val error = assertFailsWith<RuntimeStartException> { AlexandriteRuntime.start(spec) }
 
         assertEquals(StartStage.START, error.stage)
         assertNull(error.cause)
-        assertEquals("Cannot start runtime 'test': stage START failed: not started within 200ms", error.message)
+        assertEquals("Cannot start runtime 'test': stage START failed: not started within 1h", error.message)
+        assertEquals(1.hours.inWholeMilliseconds, currentTime)
         assertEquals(listOf("create a", "start a", "destroy a"), events.all())
     }
 
@@ -450,33 +446,6 @@ class RuntimeTest {
         val error = assertFailsWith<IllegalStateException> { services.get(key<Probe>()) }
 
         assertEquals("Runtime 'test' is closed.", error.message)
-    }
-
-    // Lifecycle.
-
-    @Test
-    fun `a run stops and destroys the instances in reverse creation order`() {
-        val plugins = explicit(
-            TestIndex("store", bindings = listOf(service("db", "store", events))),
-            TestIndex("turns", bindings = listOf(service("worker", "turns", events, listOf("db")))),
-        )
-
-        spec(plugins, dataDir, listener = recorder).execute()
-
-        assertEquals(
-            listOf(
-                "create db",
-                "create worker",
-                "start db",
-                "start worker",
-                "stop worker",
-                "stop db",
-                "destroy worker",
-                "destroy db",
-            ),
-            events.all(),
-        )
-        assertEquals(listOf("PluginsResolved", "Started", "Ready", "Stopping", "Stopped"), recorder.names())
     }
 
     // Logging.

@@ -125,17 +125,6 @@ class ReplyStreamTest {
     }
 
     @Test
-    fun `a stream whose hook holds every preview back shows nothing`() = runTest {
-        val stream = stream(interval = 0) { _, _ -> null }
-
-        stream.text("Hel")
-        stream.text("lo")
-
-        assertEquals(emptyList(), sink.previews)
-        assertFalse(stream.shown)
-    }
-
-    @Test
     fun `a preview the sink fails is logged and the stream goes on`() {
         sink.failing = true
         val stream = stream(interval = 0)

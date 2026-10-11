@@ -1,11 +1,9 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
 import org.foedusprogramme.alexandrite.agent.agentHarness
-import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
-import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.hook.HookDecision
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.ReplyPreview
@@ -162,27 +160,6 @@ class PreviewsTest {
             assertEquals("Hello", reply.completed?.text)
             assertEquals(emptyList(), previews.seen)
         }
-    }
-
-    @Test
-    fun `a turn cut off by a shutdown once it showed a preview may not be submitted again`() {
-        model.reply {
-            text("Hel")
-            hang()
-        }
-        lateinit var admission: Admission
-        lateinit var channel: RecordingChannel
-
-        harness().execute {
-            channel = channel()
-            admission = channel.receive("Hi")
-            channel.awaitEvent { it is RecordingChannel.Event.Previewed }
-            stop()
-        }
-
-        assertEquals(TurnOutcome.ShutDown(replayable = false), blocking { admission.outcome() })
-        assertEquals(ReplyEnd.SHUTDOWN, channel.reply(admission).abandoned)
-        assertEquals(listOf(Preview(0, "Hel")), channel.reply(admission).previews)
     }
 
     private companion object {

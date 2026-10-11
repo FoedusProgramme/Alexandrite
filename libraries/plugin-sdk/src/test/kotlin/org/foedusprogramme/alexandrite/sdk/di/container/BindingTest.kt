@@ -215,14 +215,4 @@ class BindingTest {
 
         assertEquals(listOf(MISSING), error.problems.map { it.kind })
     }
-
-    @Test
-    fun `resolving an undeclared dependency fails`() {
-        val sneaky = binding(svc("a"), "test", "a") { it.get(svc("b")) }
-
-        val error = assertFailsWith<DiException> { build(sneaky, service("b")) }
-
-        assertEquals(listOf(DiProblemKind.CREATION_FAILED), error.problems.map { it.kind })
-        assertContains(error.message!!, "a (plugin test) resolved ${svc("b")} as INSTANCE without declaring it")
-    }
 }

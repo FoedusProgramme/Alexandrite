@@ -66,33 +66,26 @@ class PayloadsTest {
     // Interceptor payloads.
 
     @Test
-    fun `each with method replaces its own property and keeps the turn`() {
+    fun `each with method replaces its own property, a context item goes last, and the turn is kept`() {
         val sections = PromptSections(turn, listOf(PromptSection("persona", "You are Athena.", stable = true)))
         val start = TurnStart(turn, message, listOf(tool("notes.add"), tool("notes.find")))
         val input = TurnInput(turn, message, "Hello", followUp = false)
         val preview = ReplyPreview(turn, 1, "Hel")
+        val recall = TurnContextItem("recall", "Ada likes tea.")
+        val marker = TurnContextItem("marker", "Answer briefly.", Trust.TRUSTED)
 
         val newSections = sections.withSections(emptyList())
         val narrowed = start.withTools(listOf(tool("notes.find")))
         val rewritten = input.withText("Hello!")
         val longer = preview.withText("Hello")
+        val context = TurnContext(turn, "Hello", emptyList()) + recall + marker
 
         assertEquals(PromptSections(turn, emptyList()), newSections)
         assertEquals(TurnStart(turn, message, listOf(tool("notes.find"))), narrowed)
         assertEquals(TurnInput(turn, message, "Hello!", followUp = false), rewritten)
         assertEquals(ReplyPreview(turn, 1, "Hello"), longer)
-        listOf(newSections, narrowed, rewritten, longer).forEach { assertSame(turn, it.turn) }
-    }
-
-    @Test
-    fun `turn context only grows`() {
-        val recall = TurnContextItem("recall", "Ada likes tea.")
-        val marker = TurnContextItem("marker", "Answer briefly.", Trust.TRUSTED)
-
-        val context = TurnContext(turn, "Hello", emptyList()) + recall + marker
-
-        assertEquals(listOf(recall, marker), context.items)
-        assertEquals("Hello", context.text)
+        assertEquals(TurnContext(turn, "Hello", listOf(recall, marker)), context)
+        listOf(newSections, narrowed, rewritten, longer, context).forEach { assertSame(turn, it.turn) }
     }
 
     @Test

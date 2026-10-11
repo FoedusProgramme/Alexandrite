@@ -48,23 +48,9 @@ class StoreDatabaseTest {
     fun `a new store gets the newest schema`() {
         withStore(directory) {}
 
-        connect(file).use {
-            assertEquals(STORE_MIGRATIONS.size, it.userVersion())
-            assertEquals(
-                setOf(
-                    "chats",
-                    "conversations",
-                    "current_conversations",
-                    "turns",
-                    "entries",
-                    "media",
-                    "entry_media",
-                    "chat_states",
-                    "records",
-                ),
-                it.tables(),
-            )
-        }
+        val schema = connect(file).use { it.sql() }
+
+        assertEquals(golden("schema.sql"), schema)
     }
 
     @Test
@@ -313,6 +299,25 @@ class StoreDatabaseTest {
         statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '$table'").use {
             buildList { while (it.next()) add(it.getString(1)) }
         }
+    }
+
+    private fun golden(name: String): String =
+        checkNotNull(javaClass.getResource("/golden/$name")) { "No golden file $name." }.readText()
+
+    /** The store's version and objects as SQL. */
+    private fun java.sql.Connection.sql(): String {
+        val objects = createStatement().use { statement ->
+            statement.executeQuery(
+                "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' " +
+                    "ORDER BY tbl_name, type = 'index', name",
+            ).use { buildList { while (it.next()) add(it.getString(1)) } }
+        }
+        val statements = objects.map { sql ->
+            sql.lines().map { it.trim() }.filter { it.isNotEmpty() }.mapIndexed { index, line ->
+                if (index == 0 || line.startsWith(")")) line else "    $line"
+            }.joinToString("\n")
+        }
+        return (listOf("PRAGMA user_version = ${userVersion()}") + statements).joinToString(";\n\n", postfix = ";\n")
     }
 
     private fun java.sql.Connection.schema(): List<String> = createStatement().use { statement ->

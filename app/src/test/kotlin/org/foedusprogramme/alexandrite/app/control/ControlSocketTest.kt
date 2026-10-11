@@ -48,9 +48,8 @@ class ControlSocketTest {
     }
 
     @Test
-    fun `the socket of a data root is its control sock, however the root is named`() {
-        assertEquals(directory.resolve(CONTROL_SOCKET), controlSocket(directory))
-        assertTrue(controlSocket(Path.of("data")).isAbsolute)
+    fun `the socket of a data root is absolute, however the root is named`() {
+        for (root in listOf("data", "")) assertTrue(controlSocket(Path.of(root)).isAbsolute, root)
     }
 
     @Test

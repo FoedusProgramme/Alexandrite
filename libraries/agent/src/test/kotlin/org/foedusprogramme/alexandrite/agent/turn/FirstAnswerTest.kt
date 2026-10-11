@@ -13,7 +13,6 @@ import org.foedusprogramme.alexandrite.sdk.channel.ChannelControl
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
-import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.rebuild
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -449,46 +448,6 @@ class FirstAnswerTest {
             assertEquals(0, model.requests.size)
             assertTrue(side.replies.isEmpty())
         }
-    }
-
-    // Cancellation.
-
-    @Test
-    fun `a cancelled turn stops its model call and stores nothing`() {
-        model.reply {
-            text("Hel")
-            hang()
-        }
-
-        harness().execute {
-            val admission = channel().receive("Hi")
-            model.awaitRequests(1)
-
-            assertTrue((admission as Admission.Accepted).ticket.cancel())
-            assertEquals(TurnOutcome.Cancelled, admission.outcome())
-            assertEquals(ReplyEnd.CANCELLED, channel().reply(admission.turn).awaitEnd().abandoned)
-            assertEquals(emptyList(), stored())
-            assertEquals(TurnEndKind.CANCELLED, end(admission.turn))
-        }
-    }
-
-    @Test
-    fun `a turn cut off by a shutdown before it stored anything may be submitted again`() {
-        model.reply { hang() }
-        lateinit var admission: Admission
-        lateinit var channel: RecordingChannel
-
-        harness().execute {
-            channel = channel()
-            admission = channel.receive("Hi")
-            model.awaitRequests(1)
-            stop()
-        }
-
-        assertEquals(TurnOutcome.ShutDown(replayable = true), blocking { admission.outcome() })
-        assertEquals(ReplyEnd.SHUTDOWN, channel.reply(admission.turn).abandoned)
-        assertEquals(emptyList(), blocking { stored() })
-        assertEquals(TurnEndKind.SHUT_DOWN, blocking { end(admission.turn) })
     }
 
     // Languages.

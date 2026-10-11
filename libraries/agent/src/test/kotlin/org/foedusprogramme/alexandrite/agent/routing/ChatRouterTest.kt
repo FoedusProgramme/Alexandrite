@@ -104,10 +104,6 @@ class ChatRouterTest {
         assertEquals("coder@test:main:5", resolve("test:main:5"))
         assertEquals("coder@test:main:5#3", resolve("test:main:5#3"))
         assertEquals("helper@test:solo:5", resolve("test:solo:5"))
-    }
-
-    @Test
-    fun `the lone agent of an instance is its default`() {
         assertEquals("loner@test:lone:5", resolve("test:lone:5"))
     }
 

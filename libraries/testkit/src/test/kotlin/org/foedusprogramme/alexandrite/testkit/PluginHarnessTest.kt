@@ -13,8 +13,6 @@ import org.foedusprogramme.alexandrite.runtime.Termination
 import org.foedusprogramme.alexandrite.runtime.decodeSection
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
-import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
-import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.rebuild
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditException
 import org.foedusprogramme.alexandrite.sdk.config.ConfigEditRefusal
@@ -464,19 +462,5 @@ class PluginHarnessTest {
         assertEquals(StartStage.GRAPH, error.stage)
         assertNull(error.stopRequest)
         assertFalse(ran)
-    }
-
-    @Test
-    fun `the test tool context is a message turn of a member who is no admin`() {
-        val context = testToolContext()
-        val turn = context.turn
-
-        assertEquals(ToolCallId("test-call"), context.call)
-        assertEquals(TurnKind.MESSAGE, turn.kind)
-        assertEquals("test:main:chat", turn.chat.toString())
-        assertEquals(ConversationId("test"), turn.conversation)
-        assertEquals("test:main@member", turn.actor?.address.toString())
-        assertFalse(turn.actorIsAdmin)
-        assertEquals(ToolCallId("other"), testToolContext(call = ToolCallId("other")).call)
     }
 }

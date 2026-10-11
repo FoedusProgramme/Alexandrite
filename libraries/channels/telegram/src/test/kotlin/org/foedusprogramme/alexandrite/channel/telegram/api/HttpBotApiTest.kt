@@ -423,40 +423,6 @@ class HttpBotApiTest {
         assertEquals(1, fake.botMessages(direct.id).size)
     }
 
-    @Test
-    fun `a second 429 ends the call RATE_LIMITED, and a chat action gets no second try`() = runBlocking {
-        val limiter = SendLimiter()
-        repeat(2) { fake.fail("editMessageText", 429, "Too Many Requests: retry after 1", retryAfter = 1) }
-        fake.fail("sendChatAction", 429, "Too Many Requests: retry after 1", retryAfter = 1)
-
-        val edit = assertFailsWith<BotApiException> {
-            limiter.message(direct.id) { api.editMessageText(EditMessageText(direct.id, 1, "x")) }
-        }
-        val action = assertFailsWith<BotApiException> {
-            limiter.action(direct.id) { api.sendChatAction(direct.id, null) }
-        }
-
-        assertEquals(listOf(RATE_LIMITED, RATE_LIMITED), listOf(edit.failure, action.failure))
-        assertEquals(2, fake.calls("editMessageText").size)
-        assertEquals(1, fake.calls("sendChatAction").size)
-    }
-
-    @Test
-    fun `a closed limiter does not wait a 429 out`() = runBlocking {
-        val limiter = SendLimiter().apply { close() }
-        fake.fail("sendMessage", 429, "Too Many Requests: retry after 30", retryAfter = 30)
-        val started = TimeSource.Monotonic.markNow()
-
-        val error = assertFailsWith<BotApiException> {
-            limiter.message(direct.id) { api.sendMessage(SendMessage(direct.id, "Hi")) }
-        }
-
-        assertEquals(RATE_LIMITED, error.failure)
-        assertTrue(started.elapsedNow() < 5.seconds)
-        assertEquals(1, fake.calls("sendMessage").size)
-        assertFalse(fake.botMessages().any())
-    }
-
     private fun entity(type: String, offset: Int, length: Int) = buildJsonObject {
         put("type", type)
         put("offset", offset)

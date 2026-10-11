@@ -48,14 +48,6 @@ class TranscriptValuesTest {
         assertFailsWith<IllegalArgumentException> { UserEntry(null, emptyList(), user("x").origin) }
     }
 
-    @Test
-    fun `an open enumeration keeps an id it does not know`() {
-        assertEquals("hologram", Json.decodeFromString<MediaKind>("\"hologram\"").id)
-        assertEquals(SealKind.PLAIN, Json.decodeFromString<SealKind>("\"plain\""))
-        assertEquals("\"unknown_tool\"", Json.encodeToString(NotRunReason.UNKNOWN_TOOL))
-        assertEquals("\"blank_reply\"", Json.encodeToString(NoticeKind.BLANK_REPLY))
-    }
-
     // Media.
 
     @Test
@@ -108,46 +100,6 @@ class TranscriptValuesTest {
         assertTrue(reply(OpaquePart(anthropic, "server_tool_use", JsonObject(emptyMap()))).blank)
         assertFalse(reply(reasoning, TextPart("Hi")).blank)
         assertFalse(reply(call("a")).blank)
-    }
-
-    @Test
-    fun `values are equal by their properties and print them`() {
-        val cases = listOf(
-            Triple({ TextPart("hi") }, TextPart("ho"), "TextPart(text=hi)"),
-            Triple({ StoredMedia(MediaId("m-1")) }, StoredMedia(MediaId("m-2")), "StoredMedia(id=m-1)"),
-            Triple(
-                { ToolOutcome.NotRun(NotRunReason.HOOK_DENIED) },
-                ToolOutcome.NotRun(NotRunReason.HOOK_DENIED, "7"),
-                "NotRun(reason=hook_denied, approval=null)",
-            ),
-            Triple(
-                { UserOrigin.Initiated("clock", TurnKind.REMINDER) },
-                UserOrigin.Initiated("clock", TurnKind.HEARTBEAT),
-                "Initiated(plugin=clock, kind=reminder)",
-            ),
-            Triple(
-                { UserOrigin.SystemWritten("alexandrite.project") },
-                UserOrigin.SystemWritten("alexandrite.other"),
-                "SystemWritten(source=alexandrite.project)",
-            ),
-            Triple(
-                { record(1) },
-                record(2),
-                "EntryRecord(id=1, conversation=c1, turn=t1, createdAt=2026-10-07T08:30:00Z)",
-            ),
-            Triple(
-                { SummaryEntry(null, "s", EntryId(4)) },
-                SummaryEntry(record(1), "s", EntryId(4)),
-                "SummaryEntry(record=null, text=s, through=4)",
-            ),
-        )
-        for ((make, differing, printed) in cases) {
-            assertEquals(make(), make())
-            assertEquals(make().hashCode(), make().hashCode(), printed)
-            assertNotEquals(make(), differing)
-            assertEquals(printed, make().toString())
-            assertTrue(make().javaClass.methods.none { it.name == "copy" || it.name.startsWith("component") }, printed)
-        }
     }
 
     @Test

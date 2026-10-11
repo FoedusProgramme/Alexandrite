@@ -120,13 +120,6 @@ class HarnessDoublesTest {
     }
 
     @Test
-    fun `a harness binds the hard floor it was given`() {
-        val floor = testHardFloor()
-
-        PluginHarness.builder(probe).hardFloor(floor).execute { assertSame(floor, get<HardFloor>()) }
-    }
-
-    @Test
     fun `a harness contributes the tools, hooks and command handlers it was given`() {
         val seenPoint = ObserverPoint<String>("test.seen")
         val seen = mutableListOf<String>()
@@ -146,9 +139,11 @@ class HarnessDoublesTest {
         }
         val read = recordingTool("fs.read")
         val find = recordingTool("fs.find")
+        val floor = testHardFloor()
 
-        PluginHarness.builder(probe).tool(read).tool(find).hook(hook).commandHandler(handler).execute {
+        PluginHarness.builder(probe).tool(read).tool(find).hook(hook).commandHandler(handler).hardFloor(floor).execute {
             assertEquals(listOf(read, find), getAll<Tool>())
+            assertSame(floor, get<HardFloor>())
             assertEquals(listOf<Hook>(hook), getAll<Hook>())
             assertEquals(listOf(handler), getAll<CommandHandler>())
             get<Hooks>().fire(seenPoint, "fired")

@@ -263,14 +263,6 @@ class SignalTest {
         }
     }
 
-    @Test
-    fun `a shutdown hook can be removed more than once`() {
-        val hook = JvmSignals.onShutdown {}
-
-        hook.close()
-        hook.close()
-    }
-
     // Real signals.
 
     private class Target(private val process: Process) : AutoCloseable {
@@ -356,6 +348,18 @@ class SignalTest {
             target.terminate()
 
             assertEquals(143, target.exitValue())
+        }
+    }
+
+    @Test
+    fun `without signal handlers SIGTERM stops a runtime through the JVM's shutdown hook`() {
+        target(dataDir.toString(), "hook").use { target ->
+            target.awaitLine("ready")
+
+            target.terminate()
+
+            assertEquals(143, target.exitValue())
+            assertContains(target.lines(), "terminated: the JVM is shutting down")
         }
     }
 

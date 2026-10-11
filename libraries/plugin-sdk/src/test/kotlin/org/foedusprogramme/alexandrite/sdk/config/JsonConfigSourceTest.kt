@@ -1,7 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.config
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,7 +22,8 @@ class JsonConfigSourceTest {
     @Test
     fun `the empty path is the root`() {
         assertEquals(setOf("tools", "channels"), source("""{"tools": {"exec": {}}, "channels": 1}""").tree("")?.keys)
-        assertEquals(emptySet(), source("{}").tree("")?.keys)
+        assertEquals(emptySet(), ConfigSource.EMPTY.tree("")?.keys)
+        assertNull(ConfigSource.EMPTY.tree("tools"))
     }
 
     @Test
@@ -49,12 +49,6 @@ class JsonConfigSourceTest {
             assertEquals(prefix, error.path)
             assertEquals("Invalid config at '$prefix': must be an object", error.message)
         }
-    }
-
-    @Test
-    fun `the empty source has an empty root and no other tree`() {
-        assertEquals(JsonObject(emptyMap()), ConfigSource.EMPTY.tree(""))
-        assertNull(ConfigSource.EMPTY.tree("tools"))
     }
 
     @Test

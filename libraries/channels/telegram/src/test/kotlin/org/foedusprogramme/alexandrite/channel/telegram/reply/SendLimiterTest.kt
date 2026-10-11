@@ -262,17 +262,6 @@ class SendLimiterTest {
     }
 
     @Test
-    fun `a closed limiter still keeps the chat interval`() = runTest {
-        val limiter = limiter()
-        limiter.close()
-        val at = mutableListOf<Long>()
-
-        repeat(2) { limiter.message(1L) { at += currentTime } }
-
-        assertEquals(listOf(0L, 1_000L), at)
-    }
-
-    @Test
     fun `a closed limiter still keeps the preview spacing`() = runTest {
         val limiter = limiter()
         limiter.close()

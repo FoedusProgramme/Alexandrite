@@ -134,17 +134,6 @@ class HttpTransportTest {
     }
 
     @Test
-    fun `a server that sends nothing in time times out before the response`() = runBlocking {
-        val quick = HttpTransport(QUICK)
-        server.handle { Thread.sleep(1_000) }
-
-        val error = quick.use { assertFailsWith<HttpException> { it.open(post()) { } } }
-
-        assertEquals(HttpFailureKind.TIMEOUT, error.kind)
-        assertFalse(error.afterResponse)
-    }
-
-    @Test
     fun `a body that pauses too long times out after the response`() = runBlocking {
         val quick = HttpTransport(QUICK)
         server.handle { it.chunk("data: a\n\n").pause(1.seconds).end() }

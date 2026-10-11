@@ -298,26 +298,19 @@ class ScriptedModelTest {
     @Test
     fun `a scripted failure is thrown before any event, as one before the output even when it says otherwise`() {
         val started = ModelError.builder(ModelErrorKind.SERVER_ERROR, "Gone.").outputStarted(true).build()
-        model.fail(started)
-
-        val thrown = assertFailsWith<ModelException> { model.collect(request(model)) }
-
-        assertEquals(started.rebuild { outputStarted(false) }, thrown.error)
-        assertStreamContract(request(model), emptyList(), thrown)
-    }
-
-    @Test
-    fun `a scripted failure is thrown before any event`() {
         val error = ModelError.builder(ModelErrorKind.RATE_LIMITED, "Slow down.").build()
-        model.fail(error).fail(ModelErrorKind.OVERLOADED)
+        model.fail(started).fail(error).fail(ModelErrorKind.OVERLOADED)
         val events = mutableListOf<ModelEvent>()
 
-        val thrown = assertFailsWith<ModelException> { blocking { model.stream(request(model)).collect(events::add) } }
+        val thrown = List(2) {
+            assertFailsWith<ModelException> { blocking { model.stream(request(model)).collect(events::add) } }
+        }
         val overloaded = assertFailsWith<ModelException> { model.collect(request(model)) }
 
-        assertEquals(error, thrown.error)
-        assertFalse(thrown.error.outputStarted)
         assertEquals(emptyList(), events)
+        assertEquals(listOf(started.rebuild { outputStarted(false) }, error), thrown.map { it.error })
+        assertFalse(thrown.any { it.error.outputStarted })
+        assertStreamContract(request(model), emptyList(), thrown.first())
         assertEquals(ModelErrorKind.OVERLOADED, overloaded.error.kind)
         assertTrue(overloaded.error.retryable)
     }

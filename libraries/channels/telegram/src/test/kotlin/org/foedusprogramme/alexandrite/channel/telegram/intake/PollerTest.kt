@@ -125,6 +125,7 @@ class PollerTest {
     @Test
     fun `a conflict is an error at most once a minute`() = runTest {
         repeat(5) { api.failPoll(BotApiFailure.CONFLICT) }
+        api.polls += batch(5)
         val poller = poller(retryMaxSeconds = 20)
 
         val lines = logged {
@@ -132,7 +133,8 @@ class PollerTest {
             advanceTimeBy(1.minutes)
         }
 
-        assertEquals(6, api.pollTimes.size)
+        assertEquals(7, api.pollTimes.size)
+        assertEquals(listOf(5L), dispatched)
         assertEquals(1, lines.count { it.startsWith("ERROR") && "another program polls this bot" in it }, "$lines")
         poller.onClose()
     }

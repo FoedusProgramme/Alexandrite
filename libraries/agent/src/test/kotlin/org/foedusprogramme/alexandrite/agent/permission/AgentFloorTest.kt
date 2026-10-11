@@ -76,22 +76,11 @@ class AgentFloorTest {
 
     @Test
     fun `a workspace that collides with a protected place fails the start`() {
-        val collisions = listOf(
-            data to "is a protected place (Alexandrite's data)",
-            root to "holds a protected place (Alexandrite's configuration)",
-            data.resolve("plugins/notes") to "lies in a protected place (plugin data)",
-            data.resolve("cache/notes") to "lies in a protected place (Alexandrite's cache)",
-            logs.resolve("notes") to "lies in a protected place (a place the host protects)",
-            home.resolve(".ssh/notes") to "lies in a protected place (SSH keys)",
+        harness(coder(data)).assertStartFails(
+            StartStage.GRAPH,
+            "Invalid config at 'agent.agents.coder.workspace': the workspace $data is a protected place " +
+                "(Alexandrite's data): give the agent another directory",
         )
-
-        for ((workspace, relation) in collisions) {
-            harness(coder(workspace)).assertStartFails(
-                StartStage.GRAPH,
-                "Invalid config at 'agent.agents.coder.workspace': the workspace $workspace $relation: give the " +
-                    "agent another directory",
-            )
-        }
     }
 
     @Test

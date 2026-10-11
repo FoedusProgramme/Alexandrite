@@ -5,13 +5,14 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 
 class DependencyRuleTest {
     @TempDir
     lateinit var root: File
 
-    /** A build of the modules in [dependencies], keyed by directory, that runs `help`. */
-    private fun build(dependencies: Map<String, String>): GradleRunner {
+    /** A build of the modules in [dependencies], keyed by directory, each with [script], that runs `help`. */
+    private fun build(dependencies: Map<String, String>, script: String = ""): GradleRunner {
         val catalog = File("../gradle/libs.versions.toml").absoluteFile.invariantSeparatorsPath
         val includes = dependencies.keys.joinToString { "\":${it.replace('/', ':')}\"" }
         root.resolve("settings.gradle.kts").writeText(
@@ -28,7 +29,7 @@ class DependencyRuleTest {
         for ((directory, declared) in dependencies) {
             root.resolve(directory).mkdirs()
             root.resolve("$directory/build.gradle.kts").writeText(
-                "plugins {\n    id(\"alexandrite.kotlin-library\")\n}\n\ndependencies {\n    $declared\n}\n",
+                "plugins {\n    id(\"alexandrite.kotlin-library\")\n}\n\ndependencies {\n    $declared\n}\n$script",
             )
         }
         return GradleRunner.create().withProjectDir(root).withPluginClasspath().withArguments("help")
@@ -65,5 +66,24 @@ class DependencyRuleTest {
                     "    testImplementation(project(\":libraries:testkit\"))",
             ),
         ).build()
+    }
+
+    @Test
+    fun `examples, provider-common and channel-common compile without the SDK's internal API`() {
+        val modules = listOf("examples/x", "libraries/provider-common", "libraries/channel-common", "libraries/runtime")
+        val printOptIns = "afterEvaluate {\n" +
+            "    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().forEach {\n" +
+            "        println(\"opt-ins \${path} \${it.name} \${it.compilerOptions.optIn.get()}\")\n" +
+            "    }\n" +
+            "}\n"
+
+        val output = build(modules.associateWith { "" }, printOptIns).build().output
+
+        val optsIn = Regex("^opt-ins (\\S+) (\\S+) \\[(.*)]$", RegexOption.MULTILINE).findAll(output)
+            .associate { (it.groupValues[1] to it.groupValues[2]) to ("InternalAlexandriteApi" in it.groupValues[3]) }
+        val expected = modules.map { ":${it.replace('/', ':')}" }.flatMap { path ->
+            listOf("compileKotlin", "compileTestKotlin").map { (path to it) to (path == ":libraries:runtime") }
+        }
+        assertEquals(expected.toMap(), optsIn, output)
     }
 }

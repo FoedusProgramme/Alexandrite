@@ -166,12 +166,13 @@ class ReadToolTest {
 
     @Test
     fun `a leading tilde names the home directory`() {
+        val home = Path.of(System.getProperty("user.home"))
         val missing = "alexandrite-test-${System.nanoTime()}.txt"
 
-        val result = tool.call(fs.context(), "path" to "~/$missing")
+        val inHome = tool.call(fs.context(), "path" to "~/$missing")
+        val homeItself = tool.call(fs.context(), "path" to "~")
 
-        assertEquals(true, result.isError)
-        assertEquals(true, result.text.startsWith("Nothing exists at /"), result.text)
-        assertEquals(true, result.text.endsWith("/$missing."), result.text)
+        assertRefused("Nothing exists at ${home.toRealPath().resolve(missing)}.", inHome)
+        assertRefused("$home is a directory: list it with fs.glob.", homeItself)
     }
 }

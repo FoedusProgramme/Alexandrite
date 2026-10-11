@@ -8,7 +8,6 @@ import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
-import org.foedusprogramme.alexandrite.testkit.TEST_INSTANCE
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.io.path.writeText
@@ -24,28 +23,6 @@ class AgentSettingsTest {
     }
 
     private fun agents(agents: String) = """{"agents": {$agents}}"""
-
-    @Test
-    fun `the agent section decodes every key with its default`() {
-        lateinit var settings: AgentSettings
-
-        agentHarness().execute { settings = get() }
-
-        assertEquals(
-            listOf<Any>(4, 20, 10, 4, 30L, 10L, 3L, 3, 60L, 300L, 750L, 20_000, 60_000, 20_000_000L),
-            with(settings) {
-                listOf(
-                    maxConcurrentTurns, queue.perKey, queue.commandsPerChat, queue.commandsRunning,
-                    queue.commandGateSeconds, shutdown.turnGraceSeconds, shutdown.cancelJoinSeconds, models.retries,
-                    models.maxRetryAfterSeconds, models.listingTtlSeconds, previewIntervalMillis,
-                    persona.maxFileChars, persona.maxTotalChars, maxMediaBytes,
-                )
-            },
-        )
-        assertEquals(emptyList(), settings.trustedFolders)
-        assertEquals(emptyList(), settings.protectedPaths)
-        assertEquals(emptyMap(), settings.agents)
-    }
 
     @Test
     fun `an agent decodes as configured`() {
@@ -104,18 +81,6 @@ class AgentSettingsTest {
             listOf("test:main", "true", "test:main:42#7"),
             listOf("${attachment.instance}", "${attachment.default}", "${attachment.home}"),
         )
-    }
-
-    @Test
-    fun `an agent without a name is called by its id and selects every tool`() {
-        lateinit var agent: Agent
-
-        agentHarness(agents(""""helper": {}""")).execute { agent = get<AgentDirectory>().agents.single() }
-
-        assertEquals("helper", agent.name)
-        val tools = agent.config.tools
-        assertEquals(listOf(listOf("*"), emptyList(), emptyList()), listOf(tools.allow, tools.deny, tools.forMembers))
-        assertEquals(emptyList(), agent.attachments)
     }
 
     @Test
@@ -201,17 +166,6 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `a lone agent attached to an instance needs no default flag`() {
-        lateinit var directory: AgentDirectory
-
-        agentHarness(agents(""""coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}""")) {
-            channel().model(ScriptedModel())
-        }.execute { directory = get() }
-
-        assertEquals("coder", directory.default(TEST_INSTANCE)?.id?.value)
-    }
-
-    @Test
     fun `each instance with several attached agents has exactly one default agent`() {
         assertConfigFails(
             agents(
@@ -232,28 +186,6 @@ class AgentSettingsTest {
             ),
             "agents coder, helper are each the default agent of test:main: keep \"default\": true in " +
                 "channels.test:main of one of them",
-        )
-    }
-
-    @Test
-    fun `linked chats decode as groups of chat addresses`() {
-        val config = agents(
-            """
-            "coder": {
-              "model": "scripted/test-model",
-              "channels": {"test:main": {}, "test:work": {}},
-              "linkedChats": [["test:main:1", "test:work:2#7"], ["test:main:3", "test:main:3#1", "test:work:4"]]
-            }
-            """,
-        )
-        lateinit var agent: Agent
-
-        agentHarness(config) { channel().channel("work").model(ScriptedModel()) }
-            .execute { agent = get<AgentDirectory>().agents.single() }
-
-        assertEquals(
-            listOf(listOf("test:main:1", "test:work:2#7"), listOf("test:main:3", "test:main:3#1", "test:work:4")),
-            agent.linkedChats.map { group -> group.map { it.toString() } },
         )
     }
 

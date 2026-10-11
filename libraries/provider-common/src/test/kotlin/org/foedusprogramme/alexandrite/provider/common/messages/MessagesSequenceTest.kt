@@ -85,7 +85,7 @@ class MessagesSequenceTest {
         arrayOf(blockStart(0, thinkingBlock()), thinkingDelta(0, text), signatureDelta(0, signature), blockStop(0))
     }
 
-    private class Sent(val request: RecordedRequest, val reply: AssistantEntry)
+    private class Sent(val request: RecordedRequest, val reply: AssistantEntry, val asked: ModelRequest)
 
     private fun TranscriptEntry.stored(id: TurnId): TranscriptEntry =
         withRecord(EntryRecord(EntryId(entryId++), turn.conversation, id, Instant.EPOCH))
@@ -139,7 +139,7 @@ class MessagesSequenceTest {
             RequestIds(turn.conversation, id, round),
         ).tools(listOf(tool)).options(options).turnContext(listOf(context)).build()
         val completed = endpoint.events(request).last() as ModelEvent.Completed
-        return Sent(server.requests.last(), completed.message)
+        return Sent(server.requests.last(), completed.message, request)
     }
 
     private fun RecordedRequest.messages(): List<JsonObject> = messageList()
@@ -227,6 +227,10 @@ class MessagesSequenceTest {
             assertEquals(1, flat(request).count { it.second.text()?.startsWith("Likes") == true })
         }
         assertEquals(listOf("Note milk."), requests[1].messages().first().blocks().map { it.text() })
+        assertEquals(
+            listOf("tool_result", "text"),
+            requests[1].messages().last().blocks().map { (it["type"] as JsonPrimitive).content },
+        )
     }
 
     @Test
@@ -245,12 +249,13 @@ class MessagesSequenceTest {
 
     @Test
     fun `turn-scoped context makes every request extend the one before, earlier thinking included`() {
-        val endpoint = messagesEndpoint(
+        fun turnScoped() = messagesEndpoint(
             server,
             models = models,
             discover = false,
             messages = MessagesSettings(turnScopedSystem = true),
         )
+        val endpoint = turnScoped()
         assertEquals(
             TurnContextMode.KEPT_UNRENDERED,
             endpoint.turnContextMode("claude-model", thinking, Trust.TRUSTED),
@@ -279,6 +284,9 @@ class MessagesSequenceTest {
         assertEquals(3, thinkingBlocks(after).size)
         val kept = sent.first().reply.providerData.entries.getValue(MessagesFlavor.ANTHROPIC)
         assertEquals(requests.first().messages().last(), kept["turnContext"])
+        server.enqueue(answering(null), "/v1/messages")
+        runBlocking { turnScoped().use { it.events(sent.last().asked) } }
+        assertEquals(after.body, server.requests.last().body)
     }
 
     @Test

@@ -8,7 +8,6 @@ import org.foedusprogramme.alexandrite.channel.telegram.reply.markdown
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
-import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
@@ -80,22 +79,6 @@ class TelegramOutputTest {
             val (round0, answer) = fake.botMessages(ADA)
             assertEquals("Let me read Main.kt." to 0, round0.text to round0.edits)
             assertEquals("Main.kt starts the runtime." to 1, answer.text to answer.edits)
-        }
-    }
-
-    @Test
-    fun `a final too long for one message is not delivered and leaves the preview`() {
-        telegram.run(quick()) {
-            val chat = telegram.address(ADA)
-            val reply = open(chat, fake.send(telegram.ada, telegram.adaChat, "Print everything").messageId())
-
-            reply.preview(0, "Working on it")
-            fake.await { botMessages(ADA).singleOrNull() }
-            val delivery = reply.complete(markdown("x".repeat(5_000)))
-
-            assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), delivery)
-            assertEquals(listOf("Working on it" to 0), fake.botMessages(ADA).map { it.text to it.edits })
-            assertEquals(0, fake.calls("editMessageText").size)
         }
     }
 

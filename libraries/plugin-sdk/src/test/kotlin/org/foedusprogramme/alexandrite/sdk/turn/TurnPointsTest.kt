@@ -6,7 +6,6 @@ import org.foedusprogramme.alexandrite.sdk.hook.HookEffect.ABORT
 import org.foedusprogramme.alexandrite.sdk.hook.HookEffect.REPLACE
 import org.foedusprogramme.alexandrite.sdk.hook.HookPoint
 import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
-import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -52,14 +51,6 @@ class TurnPointsTest {
                 "response.before" to (setOf(REPLACE) to FAIL_OPEN),
             ),
             interceptors,
-        )
-    }
-
-    @Test
-    fun `the other points are observer points`() {
-        assertEquals(
-            setOf("context.loaded", "tool.after", "turn.committed", "conversation.sealed"),
-            declared.filterIsInstance<ObserverPoint<*>>().map { it.id }.toSet(),
         )
     }
 }

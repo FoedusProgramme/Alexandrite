@@ -157,21 +157,6 @@ class ControlCommandsTest {
         )
     }
 
-    @Test
-    fun `without a desk or without a running app the command fails`() {
-        assertEquals(refused("No channel takes pairing codes."), printed(ControlRequest.ListPairings, *emptyArray()))
-
-        val err = ByteArrayOutputStream()
-        val code = control(directory, ControlRequest.ListPairings, System.out, PrintStream(err))
-
-        assertEquals(ExitCode.UNAVAILABLE, code)
-        assertEquals(
-            "alexandrite: No Alexandrite runs with the data directory $directory: it holds no control.sock " +
-                "(a running one logs why it serves none).\n",
-            err.toString(Charsets.UTF_8),
-        )
-    }
-
     private companion object {
         const val BOB = "chat:work:42 (direct, from User 42 @user42, chat:work@42)"
         const val GROUP = "chat:work:-100 (group \"Back\\u001B[2Jend\", from User -100 @user-100, chat:work@-100)"

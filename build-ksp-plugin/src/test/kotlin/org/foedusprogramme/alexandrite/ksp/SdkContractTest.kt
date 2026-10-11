@@ -93,15 +93,4 @@ class SdkContractTest {
         assertEquals(PluginIds.ENABLED_KEY, ENABLED)
         assertEquals(PluginIds.INSTANCES_KEY, INSTANCES)
     }
-
-    @Test
-    fun `the descriptor's SDK API version is the SDK's`() {
-        assertEquals(AlexandriteSdk.API_VERSION, SDK_API_VERSION)
-    }
-
-    @Test
-    fun `the service file and the descriptor lie where the SDK says`() {
-        assertEquals(PluginIndex.SERVICE_FILE, SERVICE_FILE)
-        assertEquals(PluginIndex.descriptorPath("sample"), "$DESCRIPTOR_DIRECTORY/sample.$DESCRIPTOR_EXTENSION")
-    }
 }

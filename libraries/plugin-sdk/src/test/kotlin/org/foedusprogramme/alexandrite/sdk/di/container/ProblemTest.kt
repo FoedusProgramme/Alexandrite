@@ -18,12 +18,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class ProblemTest {
-    private fun assertProblem(kind: DiProblemKind, plugin: String?, key: Key<*>?, block: () -> Unit) {
+    private fun assertProblem(kind: DiProblemKind, plugin: String?, key: Key<*>?, block: () -> Unit): DiException {
         val error = assertFailsWith<DiException> { block() }
         val problem = error.problems.single()
         assertContains(error.message!!, problem.message)
         assertEquals(kind to plugin, problem.kind to problem.plugin, problem.message)
         key?.let { assertContains(problem.message, "$it") }
+        return error
     }
 
     @Test
@@ -85,13 +86,9 @@ class ProblemTest {
             it.provider(svc("a")).invoke()
         }
 
-        assertProblem(CREATION_FAILED, "test", svc("b")) { build(sneaky, service("b")) }
+        val undeclared = assertProblem(CREATION_FAILED, "test", svc("b")) { build(sneaky, service("b")) }
         assertProblem(REENTRANT, "test", null) { build(selfish) }
-    }
 
-    @Test
-    fun `each problem kind has a unique id`() {
-        assertEquals("di.wrong_kind", WRONG_KIND.id)
-        assertEquals(DiProblemKind.entries.size, DiProblemKind.entries.map { it.id }.toSet().size)
+        assertContains(undeclared.message!!, "a (plugin test) resolved ${svc("b")} as INSTANCE without declaring it")
     }
 }

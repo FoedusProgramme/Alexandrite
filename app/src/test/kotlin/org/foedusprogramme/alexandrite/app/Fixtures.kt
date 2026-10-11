@@ -86,6 +86,17 @@ class StopperIndex : PluginIndex {
     }
 }
 
+/** A plugin found by name through its descriptor, which fails to stop. */
+class FaultyIndex : PluginIndex {
+    override val info =
+        PluginInfo("faulty", "Faulty", "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "test.Faulty")
+    override val configRoot = PluginIds.thirdPartyRoot("faulty")
+
+    override fun configSections() = emptyList<ConfigSectionSpec<*>>()
+
+    override fun bindings(): List<Binding<*>> = listOf(failing("faulty", "stop"))
+}
+
 /** A plugin found by name through its descriptor, whose only texts are its resources. */
 class GreeterIndex : PluginIndex {
     override val info =

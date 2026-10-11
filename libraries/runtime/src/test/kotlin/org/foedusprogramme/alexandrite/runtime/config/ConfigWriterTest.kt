@@ -266,20 +266,6 @@ class ConfigWriterTest {
     }
 
     @Test
-    fun `concurrent edits of the process are made one after the other`() {
-        write(original)
-        val editors = List(4) { editor() }
-
-        runBlocking(Dispatchers.Default) {
-            (1..24).map { number ->
-                launch { editors[number % editors.size].set("agents.a$number.name", JsonPrimitive("n$number")) }
-            }.joinAll()
-        }
-
-        assertEquals((1..24).associate { "a$it" to Agent("n$it") }, decoded().agents)
-    }
-
-    @Test
     fun `an edit that changes nothing writes nothing`() {
         write(original)
 

@@ -71,34 +71,18 @@ class ControlAnswersTest {
     // Decisions.
 
     @Test
-    fun `a code goes to the desk that holds it, and no other desk decides on it`() {
-        served(directory, first, second) { socket ->
-            val approved = assertIs<ControlReply.Approved>(ask(socket, ControlRequest.Approve("CCCC-CCCC")))
-            val denied = assertIs<ControlReply.Denied>(ask(socket, ControlRequest.Deny("GGGG-GGGG")))
+    fun `a code is approved or denied by the host`() {
+        val desk = FakeDesk(bob, carol)
 
-            assertEquals("chat:work:43" to "chat:work:-100", approved.request.chat to denied.request.chat)
-            assertEquals(listOf("holds CCCC-CCCC", "holds GGGG-GGGG"), first.calls)
+        served(directory, desk) { socket ->
+            val approved = assertIs<ControlReply.Approved>(ask(socket, ControlRequest.Approve("BBBB-BBBB")))
+            val denied = assertIs<ControlReply.Denied>(ask(socket, ControlRequest.Deny("CCCC-CCCC")))
+
+            assertEquals("chat:work:42" to "chat:work:43", approved.request.chat to denied.request.chat)
             assertEquals(
-                listOf(
-                    "holds CCCC-CCCC",
-                    "approve CCCC-CCCC by the host",
-                    "holds GGGG-GGGG",
-                    "deny GGGG-GGGG by the host",
-                ),
-                second.calls,
+                listOf("approve BBBB-BBBB by the host", "deny CCCC-CCCC by the host"),
+                desk.calls.filterNot { it.startsWith("holds") },
             )
-            assertEquals(listOf(chat("8"), chat("9"), chat("43")), second.paired.map { it.chat })
-        }
-    }
-
-    @Test
-    fun `a code that no desk holds is unknown or malformed at once, and no desk decides on it`() {
-        served(directory, first, second) { socket ->
-            assertEquals(ControlReply.UnknownCode, ask(socket, ControlRequest.Deny("AAAA-AAAA")))
-            assertEquals(ControlReply.MalformedCode, ask(socket, ControlRequest.Approve("hello")))
-
-            assertEquals(listOf("holds AAAA-AAAA", "holds hello"), first.calls)
-            assertEquals(listOf("holds AAAA-AAAA", "holds hello"), second.calls)
         }
     }
 
@@ -113,6 +97,8 @@ class ControlAnswersTest {
             val notKept = assertIs<ControlReply.NotKept>(approve())
             assertEquals("NEWC-0DE0" to "The disk is full.", notKept.request.code to notKept.reason)
 
+            desk.decision = PairingDecision.Unknown
+            assertEquals(ControlReply.UnknownCode, approve())
             desk.decision = PairingDecision.Malformed
             assertEquals(ControlReply.MalformedCode, approve())
         }

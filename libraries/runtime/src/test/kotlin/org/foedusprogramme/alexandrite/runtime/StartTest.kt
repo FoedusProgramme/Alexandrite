@@ -3,21 +3,16 @@ package org.foedusprogramme.alexandrite.runtime
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
@@ -39,7 +34,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -87,18 +81,6 @@ class StartTest {
             "Cannot start runtime 'test': a stop was requested at stage START: ${RESTART.from("core")}",
             stopped.message,
         )
-    }
-
-    @Test
-    @OptIn(ExperimentalCoroutinesApi::class)
-    fun `the start timeout runs on the virtual time of a test dispatcher`() = runTest {
-        val hanging = core(worker("a", "core", onStart = { awaitCancellation() }))
-        val spec = spec(hanging, dataDir, startTimeout = 1.hours, dispatcher = virtual())
-
-        val error = assertFailsWith<RuntimeStartException> { AlexandriteRuntime.start(spec) }
-
-        assertEquals("Cannot start runtime 'test': stage START failed: not started within 1h", error.message)
-        assertEquals(1.hours.inWholeMilliseconds, currentTime)
     }
 
     @Test
