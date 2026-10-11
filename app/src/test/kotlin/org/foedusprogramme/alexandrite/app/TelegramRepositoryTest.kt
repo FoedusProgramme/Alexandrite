@@ -153,8 +153,8 @@ class TelegramRepositoryTest {
     }
 
     @Test
-    fun `an answer too long for one message leaves its preview and the agent's notice in the chat`() {
-        val listing = (1..400).joinToString("\n") { "Line $it of the listing." }
+    fun `an answer too long for ten messages leaves its preview and the agent's notice in the chat`() {
+        val listing = (1..2_000).joinToString("\n") { "Line $it of the listing." }
         val previewed = CompletableDeferred<Unit>()
         app.model.reply {
             text(listing)

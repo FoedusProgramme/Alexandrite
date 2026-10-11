@@ -1,9 +1,10 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
-import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
+import org.foedusprogramme.alexandrite.channel.telegram.format.parts
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
+import org.foedusprogramme.alexandrite.channel.telegram.reply.MAX_PARTS_PER_REPLY
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.channel.telegram.reply.TelegramReply
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Typing
@@ -44,7 +45,7 @@ internal class TelegramChannel(
     private var stopped = false
 
     override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities = ChannelCapabilities.builder()
-        .maxPartsPerReply(1)
+        .maxPartsPerReply(MAX_PARTS_PER_REPLY)
         .streaming(config.streaming.enabled)
         .finalReplacesPreview(true)
         .proactive(gate.isPaired(chat))
@@ -52,7 +53,7 @@ internal class TelegramChannel(
         .build()
 
     override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int =
-        maxOf(1, (formatted(text, markup).text.length + MAX_MESSAGE_LENGTH - 1) / MAX_MESSAGE_LENGTH)
+        formatted(text, markup).parts().size
 
     override suspend fun openReply(request: ReplyRequest): ReplySink {
         if (stopped) return Undelivered(STOPPED)

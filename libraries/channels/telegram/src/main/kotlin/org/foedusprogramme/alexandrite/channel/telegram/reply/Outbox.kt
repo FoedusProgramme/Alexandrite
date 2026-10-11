@@ -16,8 +16,8 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.LinkPreviewOptions
 import org.foedusprogramme.alexandrite.channel.telegram.api.ReplyParameters
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
 import org.foedusprogramme.alexandrite.channel.telegram.format.FormattedText
-import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
+import org.foedusprogramme.alexandrite.channel.telegram.format.parts
 import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
@@ -95,6 +95,28 @@ internal class Outbox(
         api.sendMessage(request).messageId
     }
 
+    /**
+     * Sends [parts] to [target] in turn at the chat's pace, each quoting [replyTo], and returns the delivery of the
+     * text whose messages [sent] they follow.
+     */
+    suspend fun sendParts(
+        chat: ChatAddress,
+        target: Target,
+        parts: List<FormattedText>,
+        replyTo: Long?,
+        sent: List<Long> = emptyList(),
+    ): Delivery {
+        val ids = sent.toMutableList()
+        for (part in parts) {
+            try {
+                ids += paced(target) { sendText(target, part, replyTo) }
+            } catch (e: BotApiException) {
+                return failed(chat, e).after(ids, sent.size + parts.size)
+            }
+        }
+        return Delivery.Delivered(ids.map { ChannelMessageRef(chat, "$it") })
+    }
+
     /** Has the message [message] of [target] read [text], without pacing. */
     suspend fun editText(target: Target, message: Long, text: FormattedText) {
         withFallback(target, text) {
@@ -140,13 +162,8 @@ internal class Outbox(
             logger.warn("{} cannot deliver to {}, which names no Telegram chat", instance.id, chat)
             return Delivery.NotDelivered(DeliveryFailure.CHAT_GONE)
         }
-        if (text.text.length > MAX_MESSAGE_LENGTH) return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
-        return try {
-            val id = paced(target) { sendText(target, text, target.quoteOf(replyTo)) }
-            Delivery.Delivered(listOf(ChannelMessageRef(chat, "$id")))
-        } catch (e: BotApiException) {
-            failed(chat, e)
-        }
+        val parts = partsOf(text) ?: return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
+        return sendParts(chat, target, parts, target.quoteOf(replyTo))
     }
 
     private suspend fun <T> withFallback(target: Target, text: FormattedText, call: suspend (FormattedText) -> T): T =
@@ -179,5 +196,17 @@ internal class Outbox(
         val NO_PREVIEW = LinkPreviewOptions(isDisabled = true)
     }
 }
+
+/** The messages [text] takes, null when it takes more than [MAX_PARTS_PER_REPLY]. */
+internal fun partsOf(text: FormattedText): List<FormattedText>? = text.parts().takeIf { it.size <= MAX_PARTS_PER_REPLY }
+
+/** This failure of a text whose messages [arrived] of [total] reached the chat. */
+private fun Delivery.NotDelivered.after(arrived: List<Long>, total: Int): Delivery.NotDelivered {
+    if (arrived.isEmpty()) return this
+    val parts = "only ${arrived.size} of $total parts arrived, as messages ${arrived.joinToString()}"
+    return Delivery.NotDelivered(kind, detail?.let { "$parts: $it" } ?: parts, retryable = false)
+}
+
+internal const val MAX_PARTS_PER_REPLY = 10
 
 private val logger = LoggerFactory.getLogger(Outbox::class.java)

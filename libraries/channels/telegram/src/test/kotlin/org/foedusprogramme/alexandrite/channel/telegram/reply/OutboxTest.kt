@@ -47,16 +47,22 @@ class OutboxTest {
     }
 
     @Test
-    fun `a message longer than one Telegram message is too long without a call`() = runTest {
-        val output = Output(this)
+    fun `a longer message goes out in parts that quote what it replies to, one of eleven is too long without a call`() =
+        runTest {
+            val output = Output(this)
+            val group = output.address(GROUP)
 
-        val long = output.outbox.send(output.address(), markdown("x".repeat(4_097)))
-        val full = output.outbox.send(output.address(), markdown("**${"x".repeat(4_096)}**"))
+            val full = output.outbox.send(output.address(), markdown("**${"x".repeat(4_096)}**"))
+            val parts = output.outbox.send(group, reply(THREE_MESSAGES, ChannelMessageRef(group, "41")))
+            val long = output.outbox.send(output.address(), markdown("x".repeat(40_961)))
 
-        assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), long)
-        assertTrue(full is Delivery.Delivered)
-        assertEquals(listOf(4_096), output.api.calls("sendMessage").map { it.text?.length })
-    }
+            assertTrue(full is Delivery.Delivered)
+            val refs = listOf("102", "103", "104").map { ChannelMessageRef(group, it) }
+            assertEquals(Delivery.Delivered(refs), parts)
+            assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), long)
+            val sent = output.api.calls("sendMessage").map { it.text?.length to it.replyTo }
+            assertEquals(listOf(4_096 to null, 4_000 to 41L, 4_000 to 41L, 100 to 41L), sent)
+        }
 
     @Test
     fun `Telegram's failures map to deliveries, the unknown ones warned of`() = runTest {

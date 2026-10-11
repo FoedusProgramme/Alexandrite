@@ -35,6 +35,9 @@ import java.time.Clock
 const val DIRECT = 1001L
 const val GROUP = -1001234500000L
 
+/** A text of three messages, cut at its blank lines. */
+val THREE_MESSAGES = "a".repeat(4_000) + "\n\n" + "b".repeat(4_000) + "\n\n" + "c".repeat(100)
+
 /**
  * The channel's output over a [MemoryBotApi] on the virtual time of [test], with the limiter's default pace, where
  * [DIRECT], the direct chat after it and [GROUP] are paired.

@@ -243,16 +243,71 @@ class TelegramReplyTest {
     }
 
     @Test
-    fun `a final longer than one message is too long without a call and leaves the previews`() = runTest {
+    fun `a longer final replaces the preview with its first part and sends the others after it, a second apart`() =
+        runTest {
+            val output = output()
+            val reply = output.open()
+            reply.preview(0, "Start")
+            advanceTimeBy(100)
+
+            val delivery = reply.complete(markdown(THREE_MESSAGES))
+
+            val (first, second, third) = THREE_MESSAGES.split("\n\n")
+            assertEquals(
+                listOf("sendMessage Start", "editMessageText $first", "sendMessage $second", "sendMessage $third"),
+                output.shown(),
+            )
+            val refs = listOf("101", "102", "103").map { ChannelMessageRef(output.address(), it) }
+            assertEquals(Delivery.Delivered(refs), delivery)
+            val final = output.api.sent.filter { it.method != "sendChatAction" }.drop(1)
+            assertTrue(final.zipWithNext { a, b -> b.at - a.at }.all { it >= 1_000 }, "$final")
+        }
+
+    @Test
+    fun `the later parts of a final quote the trigger in a group only`() = runTest {
         val output = output()
-        val reply = output.open()
-        reply.preview(0, "Short")
+        val group = output.open(GROUP)
+        group.preview(0, "Start")
         advanceTimeBy(100)
 
-        val delivery = reply.complete(markdown("x".repeat(4_097)))
+        group.complete(markdown(THREE_MESSAGES))
+        output.open(DIRECT).complete(markdown(THREE_MESSAGES))
 
-        assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), delivery)
-        assertEquals(listOf("sendMessage Short"), output.shown())
+        assertEquals(listOf(41L, 41L, 41L, null, null, null), output.api.calls("sendMessage").map { it.replyTo })
+    }
+
+    @Test
+    fun `a final of ten messages goes out whole, one of eleven is too long without a call and leaves the previews`() =
+        runTest {
+            val output = output()
+            val reply = output.open()
+            reply.preview(0, "Short")
+            advanceTimeBy(100)
+
+            val ten = output.open(DIRECT + 1).complete(markdown("x".repeat(40_960)))
+            val eleven = reply.complete(markdown("x".repeat(40_961)))
+
+            val sent = output.api.calls("sendMessage").filter { it.chat == DIRECT + 1 }
+            assertEquals(10, (ten as Delivery.Delivered).messages.size)
+            assertEquals(List(10) { 4_096 }, sent.map { it.text?.length })
+            assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), eleven)
+            val previews = output.api.sent.filter { it.chat == DIRECT && it.method != "sendChatAction" }
+            assertEquals(listOf("Short"), previews.map { it.text })
+        }
+
+    @Test
+    fun `a later part Telegram refuses ends the final as not delivered, naming the parts that arrived`() = runTest {
+        val output = output()
+        val reply = output.open()
+        reply.preview(0, "Start")
+        advanceTimeBy(100)
+        output.api.fail("sendMessage", BotApiFailure.TRANSIENT)
+
+        val delivery = reply.complete(markdown(THREE_MESSAGES))
+
+        val detail = "only 1 of 3 parts arrived, as messages 101: scripted"
+        assertEquals(Delivery.NotDelivered(DeliveryFailure.TRANSIENT, detail, retryable = false), delivery)
+        assertEquals(2, output.api.calls("sendMessage").size)
     }
 
     @Test

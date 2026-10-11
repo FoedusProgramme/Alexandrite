@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.ADA
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramHarness.Companion.GROUP
+import org.foedusprogramme.alexandrite.channel.telegram.reply.THREE_MESSAGES
 import org.foedusprogramme.alexandrite.channel.telegram.reply.markdown
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -107,9 +108,48 @@ class TelegramOutputTest {
             assertEquals("Use **/new** to start over.", sent.text)
             assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(chat, "${sent.id}"))), delivery)
             val full = "**${"x".repeat(4_096)}**"
-            assertEquals(1, telegramChannel().capabilities(chat).maxPartsPerReply)
+            assertEquals(10, telegramChannel().capabilities(chat).maxPartsPerReply)
             assertEquals(1, telegramChannel().partsNeeded(chat, full, Markup.MARKDOWN))
             assertEquals(2, telegramChannel().partsNeeded(chat, full, Markup.PLAIN))
+            assertEquals(3, telegramChannel().partsNeeded(chat, THREE_MESSAGES, Markup.MARKDOWN))
+            assertEquals(11, telegramChannel().partsNeeded(chat, "x".repeat(40_961), Markup.PLAIN))
+        }
+    }
+
+    @Test
+    fun `a reply longer than one message arrives as its edited preview and two new messages with their entities`() {
+        telegram.run(quick()) {
+            val chat = telegram.address(ADA)
+            val reply = open(chat, fake.send(telegram.ada, telegram.adaChat, "Print the listing.").messageId())
+            val code = (1..340).map { "val v%03d = %03d".format(it, it) }
+            val answer = "The **listing** follows." + " It is long.".repeat(250) +
+                "\n\n```kotlin\n${code.joinToString("\n")}\n```\n\n" +
+                "See [the guide](https://example.org/guide) for more." + " More words.".repeat(75)
+
+            reply.preview(0, "The **listing** follows.")
+            val preview = fake.await { botMessages(ADA).singleOrNull() }
+            val delivery = reply.complete(markdown(answer))
+
+            val (first, second, third) = fake.botMessages(ADA)
+            assertEquals(listOf(preview.id, preview.id + 1, preview.id + 2), listOf(first.id, second.id, third.id))
+            val refs = listOf(first, second, third).map { ChannelMessageRef(chat, "${it.id}") }
+            assertEquals(Delivery.Delivered(refs), delivery)
+            assertEquals("The listing follows." + " It is long.".repeat(250), first.text)
+            assertEquals("""[{"type":"bold","offset":4,"length":7}]""", first.entities.toString())
+            assertEquals(code.take(273).joinToString("\n"), second.text)
+            assertEquals(
+                """[{"type":"pre","offset":0,"length":4094,"language":"kotlin"}]""",
+                second.entities.toString(),
+            )
+            val outro = "See the guide for more." + " More words.".repeat(75)
+            assertEquals(code.drop(273).joinToString("\n") + "\n\n" + outro, third.text)
+            assertEquals(
+                """[{"type":"pre","offset":0,"length":1004,"language":"kotlin"},""" +
+                    """{"type":"text_link","offset":1010,"length":9,"url":"https://example.org/guide"}]""",
+                third.entities.toString(),
+            )
+            assertEquals(listOf(1, 0, 0), listOf(first, second, third).map { it.edits })
+            assertEquals(listOf(null, null, null), listOf(first, second, third).map { it.replyTo })
         }
     }
 

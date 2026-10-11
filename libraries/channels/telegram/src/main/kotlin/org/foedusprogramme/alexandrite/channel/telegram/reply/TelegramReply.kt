@@ -18,14 +18,13 @@ import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
-import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.slf4j.LoggerFactory
 import java.util.TreeMap
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The reply of one turn: a Telegram message per segment, sent at the segment's first preview and edited in place, and
- * the final message in place of the current segment's.
+ * the final message in place of the current segment's, its later parts after it.
  *
  * An editor coroutine shows each segment's latest preview at the chat's preview pace, the lower segments first.
  */
@@ -46,8 +45,11 @@ internal class TelegramReply(
     private var current = 0
     private var state = State.OPEN
 
+    /** The message the reply's messages may quote. */
+    private val trigger = target.quoteOf(request.trigger)
+
     /** The message the reply's first message quotes. */
-    private var quote = target.quoteOf(request.trigger)
+    private var quote = trigger
     private var editor: Job? = null
 
     fun open() {
@@ -228,15 +230,15 @@ internal class TelegramReply(
     }
 
     private suspend fun deliver(message: OutboundMessage): Delivery {
-        val text = formatted(message.text, message.markup)
-        if (text.text.length > MAX_MESSAGE_LENGTH) return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
+        val parts = partsOf(formatted(message.text, message.markup))
+            ?: return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
         val (index, existing) = synchronized(lock) { current to segments[current]?.message }
-        return try {
-            val id = existing?.let { replace(index, it, text) } ?: outbox.paced(target) { send(index, text) }
-            Delivery.Delivered(listOf(ChannelMessageRef(chat, "$id")))
+        val first = try {
+            existing?.let { replace(index, it, parts.first()) } ?: outbox.paced(target) { send(index, parts.first()) }
         } catch (e: BotApiException) {
-            outbox.failed(chat, e)
+            return outbox.failed(chat, e)
         }
+        return outbox.sendParts(chat, target, parts.drop(1), trigger, listOf(first))
     }
 
     /** Has the message [message] of segment [index] read the final [text], once more after a transient failure. */

@@ -10,12 +10,19 @@ internal data class FormattedText(val text: String, val entities: List<Span> = e
         if (text.length <= limit) return this
         var cut = limit - ELLIPSIS.length
         if (cut > 0 && text[cut - 1].isHighSurrogate()) cut--
-        val spans = entities.mapNotNull { span ->
-            val end = minOf(span.end, cut)
-            if (end <= span.offset) null else span.copy(length = end - span.offset)
-        }
-        return FormattedText(text.substring(0, cut) + ELLIPSIS, spans)
+        val head = slice(0, cut)
+        return FormattedText(head.text + ELLIPSIS, head.entities)
     }
+
+    /** The characters from [start] to [end] and the entities clipped to them. */
+    fun slice(start: Int, end: Int): FormattedText = FormattedText(
+        text.substring(start, end),
+        entities.mapNotNull { span ->
+            val from = maxOf(span.offset, start)
+            val to = minOf(span.end, end)
+            if (to <= from) null else span.copy(offset = from - start, length = to - from)
+        },
+    )
 
     fun plain(): FormattedText = FormattedText(text)
 
