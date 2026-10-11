@@ -166,8 +166,10 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
             if (response.statusCode() !in 200..299) throw stream.failure(clock)
             return block(stream)
         } finally {
-            body.cancel()
-            future.cancel(true)
+            if (!body.ended) {
+                body.cancel()
+                future.cancel(true)
+            }
         }
     }
 
@@ -309,6 +311,11 @@ internal class BodyChannel : Subscriber<List<ByteBuffer>> {
     private val subscription = AtomicReference<Subscription?>()
     private val cancelled = AtomicBoolean()
 
+    /** Whether the whole body arrived. */
+    @Volatile
+    var ended: Boolean = false
+        private set
+
     override fun onSubscribe(subscription: Subscription) {
         if (!this.subscription.compareAndSet(null, subscription) || cancelled.get()) {
             subscription.cancel()
@@ -333,6 +340,7 @@ internal class BodyChannel : Subscriber<List<ByteBuffer>> {
     }
 
     override fun onComplete() {
+        ended = true
         pieces.close()
     }
 

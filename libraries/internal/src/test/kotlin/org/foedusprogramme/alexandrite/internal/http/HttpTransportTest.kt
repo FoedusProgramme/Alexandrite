@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.internal.http
 
+import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -8,11 +9,14 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.URI
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -396,6 +400,32 @@ class HttpTransportTest {
         }.map { it.await() }
 
         assertEquals(listOf("ok", "ok"), results)
+    }
+
+    @Test
+    fun `a call that read its whole body leaves its connection to the next call`() {
+        val ports = CopyOnWriteArrayList<Int>()
+        val keepAlive = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
+        keepAlive.createContext("/") { exchange ->
+            exchange.requestBody.readAllBytes()
+            ports += exchange.remoteAddress.port
+            val body = "ok".toByteArray()
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.write(body)
+            exchange.close()
+        }
+        keepAlive.start()
+        try {
+            val call = HttpCall("POST", URI("http://127.0.0.1:${keepAlive.address.port}/send"), body = "{}")
+            // Unconfined resumes the reader inside the client's end of the body, before the client ends the exchange.
+            runBlocking {
+                withContext(Dispatchers.Unconfined) { repeat(3) { assertEquals("ok", transport.send(call)) } }
+            }
+
+            assertEquals(1, ports.distinct().size, "The calls came over the connections of the ports $ports.")
+        } finally {
+            keepAlive.stop(0)
+        }
     }
 
     @Test
