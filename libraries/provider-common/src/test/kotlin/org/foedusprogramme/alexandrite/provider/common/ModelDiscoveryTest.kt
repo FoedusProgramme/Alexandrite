@@ -191,6 +191,67 @@ class ModelDiscoveryTest {
     }
 
     @Test
+    fun `a next page in no URL ends the listing`() {
+        val listing = object : ModelListing() {
+            override fun next(page: JsonObject): String? = page.string("next")
+        }
+        val page = buildJsonObject {
+            putJsonArray("data") { add(model("a")) }
+            put("next", "http://[bad/models")
+        }
+        server.enqueue(fakeResponse { body(page.toString()) }, "/v1/models")
+
+        val models = models(ChatFlavor(Dialect("custom"), listing))
+
+        assertEquals(listOf("a"), models.keys.toList())
+        assertEquals(1, server.requests.size)
+    }
+
+    @Test
+    fun `a listing whose own code fails falls back like a listing that fails`() {
+        fun failing(part: String) = object : ModelListing() {
+            override fun urls(baseUrl: String): List<String> =
+                if (part == "urls") error("no URLs") else listOf(if (part == "url") "ftp://x" else "$baseUrl/models")
+
+            override fun models(page: JsonObject): List<JsonObject> =
+                if (part == "models") throw ClassCastException("no models") else super.models(page)
+
+            override fun facts(model: JsonObject): ModelFacts =
+                if (part == "facts") throw IllegalArgumentException("no facts") else super.facts(model)
+
+            override fun next(page: JsonObject): String? = if (part == "next") error("no next") else null
+        }
+        val parts = listOf("urls", "url", "models", "facts", "next")
+        repeat(6) { server.enqueue(fakeResponse { body(listing(model("a"))) }, "/v1/models") }
+        val configured = mapOf("mine" to ModelConfig())
+
+        val fallbacks = parts.map { models(ChatFlavor(Dialect("custom"), failing(it)), configured).keys }
+        val errors = parts.map { part ->
+            assertFailsWith<ModelException> { models(ChatFlavor(Dialect("custom"), failing(part))) }.error
+        }
+
+        assertEquals(List(5) { setOf("mine") }, fallbacks)
+        assertEquals(List(5) { ModelErrorKind.PROTOCOL }, errors.map { it.kind })
+        assertTrue(errors.all { "cannot read its listing" in it.message }, "$errors")
+    }
+
+    @Test
+    fun `a listing stops after its page limit, keeps each model once and drops ids that are empty or broken`() {
+        val listing = object : ModelListing() {
+            override fun next(page: JsonObject): String? = "/v1/models"
+        }
+        repeat(21) { index ->
+            val page = listing(model("same"), model("page-$index"), model(""), model("bad\u0007id"))
+            server.enqueue(fakeResponse { body(page) }, "/v1/models")
+        }
+
+        val models = models(ChatFlavor(Dialect("custom"), listing))
+
+        assertEquals(listOf("same") + List(20) { "page-$it" }, models.keys.toList())
+        assertEquals(20, server.requests.size)
+    }
+
+    @Test
     fun `a listing in no JSON object breaks the protocol`() {
         server.enqueue(fakeResponse { body("[]") }, "/v1/models")
 

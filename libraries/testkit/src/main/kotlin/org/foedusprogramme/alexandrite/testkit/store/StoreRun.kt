@@ -43,14 +43,13 @@ internal class Ports(
         conversation: ConversationInfo,
         kind: TurnKind = TurnKind.MESSAGE,
         lineage: TurnLineage? = null,
-    ): TurnInfo {
-        val id = TurnId("turn-${turns.incrementAndGet()}")
-        val turn = TurnInfo.builder(id, conversation.key.chat, conversation.id, kind)
+    ): TurnInfo = newTurn(conversation, kind, lineage).also { conversations.startTurn(it) }
+
+    /** A new turn of [kind] in [conversation], not yet recorded. */
+    fun newTurn(conversation: ConversationInfo, kind: TurnKind = TurnKind.MESSAGE, lineage: TurnLineage? = null) =
+        TurnInfo.builder(TurnId("turn-${turns.incrementAndGet()}"), conversation.key.chat, conversation.id, kind)
             .agent(conversation.key.agent)
             .actor(testUser().takeIf { kind != TurnKind.HEARTBEAT })
             .lineage(lineage)
             .build()
-        conversations.startTurn(turn)
-        return turn
-    }
 }

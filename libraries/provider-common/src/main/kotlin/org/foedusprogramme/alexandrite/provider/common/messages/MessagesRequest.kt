@@ -70,6 +70,11 @@ internal class MessagesRequest(
 
     private val offersTools = request.tools.isNotEmpty()
 
+    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
+
+    private val called = request.history.filterIsInstance<AssistantEntry>()
+        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+
     private val effort = if (request.tools.isEmpty()) request.options.reasoning else flavor.tools.effort(request, info)
 
     private val sent = effort?.takeIf { it in info.reasoningEfforts }
@@ -123,7 +128,8 @@ internal class MessagesRequest(
 
                 is SummaryEntry -> user(listOf(text(entry.text)))
 
-                is ToolResultEntry -> user(if (offersTools) listOf(toolResult(entry)) else resultText(entry))
+                is ToolResultEntry ->
+                    user(if (offersTools && entry.callId in called) listOf(toolResult(entry)) else resultText(entry))
 
                 is AssistantEntry -> {
                     val current = entry.record?.let { it.turn == request.ids.turn } ?: (index >= request.turnStart)
@@ -226,7 +232,7 @@ internal class MessagesRequest(
             when (part) {
                 is TextPart -> part.text.takeIf { it.isNotEmpty() }?.let(::text)
                 is ReasoningPart -> flavor.reasoning.replay(part, request, flavor.dialect).takeIf { current || !unkept }
-                is ToolCallPart -> if (offersTools) toolUse(part) else callBlock(part)
+                is ToolCallPart -> if (offersTools && part.id in answered) toolUse(part) else callBlock(part)
                 is OpaquePart -> part.json.takeIf { part.dialect == flavor.dialect }
                 else -> null
             }

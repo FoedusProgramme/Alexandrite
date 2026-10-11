@@ -12,7 +12,14 @@ public class SseEvent(
 }
 
 /** Parses a server-sent event stream from pieces of its bytes, as the HTML standard does. */
-public class SseParser {
+public class SseParser(
+    /** The most bytes of a line and characters of an event's data. */
+    private val limit: Int = DEFAULT_LIMIT,
+) {
+    init {
+        require(limit > 0) { "The limit is positive, was $limit." }
+    }
+
     private var line = ByteArray(256)
     private var lineLength = 0
     private var afterCarriageReturn = false
@@ -58,7 +65,8 @@ public class SseParser {
     }
 
     private fun append(byte: Byte) {
-        if (lineLength == line.size) line = line.copyOf(line.size * 2)
+        if (lineLength == limit) throw tooLong()
+        if (lineLength == line.size) line = line.copyOf(minOf(line.size * 2, limit))
         line[lineLength++] = byte
     }
 
@@ -80,8 +88,14 @@ public class SseParser {
         val value = if (colon < 0) "" else text.substring(colon + 1).removePrefix(" ")
         when (field) {
             "event" -> eventType = value
-            "data" -> data.append(value).append('\n')
+
+            "data" -> {
+                if (value.length > limit - data.length) throw tooLong()
+                data.append(value).append('\n')
+            }
+
             "id" -> if ('\u0000' !in value) lastEventId = value
+
             "retry" -> if (value.isNotEmpty() && value.all { it in '0'..'9' }) value.toLongOrNull()?.let { retry = it }
         }
     }
@@ -97,9 +111,14 @@ public class SseParser {
         eventType = ""
     }
 
-    private companion object {
-        const val BOM = "\uFEFF"
-        const val CR = '\r'.code.toByte()
-        const val LF = '\n'.code.toByte()
+    private fun tooLong(): HttpException =
+        HttpException(HttpFailureKind.PROTOCOL, "an event of the stream is longer than $limit bytes.")
+
+    public companion object {
+        public const val DEFAULT_LIMIT: Int = 16 * 1024 * 1024
+
+        private const val BOM = "\uFEFF"
+        private const val CR = '\r'.code.toByte()
+        private const val LF = '\n'.code.toByte()
     }
 }

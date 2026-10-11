@@ -209,6 +209,27 @@ class ChatRequestTest {
     }
 
     @Test
+    fun `a call whose result is gone and a result whose call is gone go out as text`() {
+        val lost = ToolCallPart(ToolCallId("call_2"), "notes.add", "{}")
+        val read = listOf(TextPart("Read."))
+        val orphan = ToolResultEntry(null, ToolCallId("call_3"), "files.read", read, ToolOutcome.Succeeded)
+        val history = listOf(
+            user("Note milk and eggs."),
+            AssistantEntry(null, listOf(TextPart("Saving."), call, lost), model),
+            ToolResultEntry(null, call.id, call.name, listOf(TextPart("Saved.")), ToolOutcome.Succeeded),
+            orphan,
+            user("Thanks."),
+        )
+
+        val messages = body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).messages()
+
+        assertEquals(listOf("user", "assistant", "tool", "user"), messages.map { it.text("role") })
+        assertEquals("Saving.\n\n[Called tool notes-add with {}]", messages[1].text("content"))
+        assertEquals(listOf("call_1"), messages[1]["tool_calls"]!!.jsonArray.map { it.jsonObject.text("id") })
+        assertEquals("[Result of tool files-read]\nRead.\n\nThanks.", messages[3].text("content"))
+    }
+
+    @Test
     fun `ids and names the API does not take go out in one form for a call and its result, each its own`() {
         val ids = listOf("functions.fs-read:0", "call 1", "a".repeat(41), "X1")
         val calls = ids.map { ToolCallPart(ToolCallId(it), "Weird Name", "{}") }

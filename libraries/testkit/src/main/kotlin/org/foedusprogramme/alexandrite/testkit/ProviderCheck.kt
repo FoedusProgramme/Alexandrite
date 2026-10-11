@@ -29,8 +29,13 @@ public class ProviderCheck internal constructor(
     public suspend fun run(fixture: ProviderFixture) {
         withContext(Dispatchers.Default) {
             FakeModelServer().use { server ->
-                withTimeoutOrNull(CHECK_TIMEOUT) { ProviderRun(fixture, server, fixture.endpoint(server)).body() }
-                    ?: throw AssertionError("Provider check '$name' did not end within $CHECK_TIMEOUT.")
+                val endpoint = fixture.endpoint(server)
+                try {
+                    withTimeoutOrNull(CHECK_TIMEOUT) { ProviderRun(fixture, server, endpoint).body() }
+                        ?: throw AssertionError("Provider check '$name' did not end within $CHECK_TIMEOUT.")
+                } finally {
+                    (endpoint as? AutoCloseable)?.close()
+                }
             }
         }
     }
@@ -55,7 +60,7 @@ public interface ProviderFixture {
     /** A model of the endpoint that takes no tools and no images, null when the endpoint can have none. */
     public val plainModel: String? get() = null
 
-    /** The endpoint under check, which sends its requests to [server]. */
+    /** A new endpoint under check, which sends its requests to [server] and which the check closes. */
     public fun endpoint(server: FakeModelServer): ModelEndpoint
 
     /** Queues on [server] what the endpoint's `models()` asks for. */

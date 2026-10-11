@@ -1,13 +1,22 @@
 package org.foedusprogramme.alexandrite.provider.anthropiccompatible
 
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.provider.common.messages.sse
+import org.foedusprogramme.alexandrite.provider.common.messages.textEvents
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
+import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
+import org.foedusprogramme.alexandrite.sdk.model.RequestIds
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.testkit.FakeModelServer
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
+import org.foedusprogramme.alexandrite.testkit.testTurn
+import org.foedusprogramme.alexandrite.testkit.testUserEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -50,6 +59,33 @@ class AnthropicCompatiblePluginTest {
             assertFalse("sk-plugin-test-key" in endpoints.toString())
         }
         assertEquals("https://api.anthropic.com", EndpointConfig().settings().baseUrl)
+    }
+
+    @Test
+    fun `an endpoint sends its configured headers beside its key`() = runBlocking {
+        FakeModelServer().use { server ->
+            server.enqueue(sse(*textEvents(listOf("Hi."))))
+            val config = """
+                {"endpoints": {"proxy": {"baseUrl": "${server.baseUrl}", "apiKey": "sk-plugin-test-key",
+                    "headers": {"X-Team": "core"}, "discover": false, "models": {"m": {}}}}}
+            """.trimIndent()
+
+            harness(config).build().run {
+                val endpoint = getAll<ModelProvider>().single().endpoints.single()
+                val turn = testTurn()
+                val request = ModelRequest.builder(
+                    ModelRef(endpoint.id, "m"),
+                    listOf(testUserEntry(turn)),
+                    0,
+                    RequestIds(turn.conversation, turn.id, 0),
+                ).build()
+                endpoint.stream(request).toList()
+            }
+
+            val sent = server.requests.single()
+            assertEquals("core" to "sk-plugin-test-key", sent.header("x-team") to sent.header("x-api-key"))
+            assertEquals(null, sent.header("authorization"))
+        }
     }
 
     @Test

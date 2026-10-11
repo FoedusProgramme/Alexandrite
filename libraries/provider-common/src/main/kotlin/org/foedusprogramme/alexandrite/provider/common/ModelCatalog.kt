@@ -80,7 +80,12 @@ internal class ModelCatalog(
      */
     private suspend fun discover(): List<ModelFacts>? {
         var failure: HttpException? = null
-        val urls = listing.urls(connection.base)
+        val urls = try {
+            read { listing.urls(connection.base) }
+        } catch (e: HttpException) {
+            failure = e
+            emptyList()
+        }
         for (url in urls) {
             try {
                 return pages(url)
@@ -102,17 +107,23 @@ internal class ModelCatalog(
 
     private suspend fun pages(first: String): List<ModelFacts> {
         val models = mutableListOf<ModelFacts>()
-        val origin = URI(first)
+        val origin = read { URI(first) }
         var next: String? = first
         var pages = 0
         while (next != null && pages++ < MAX_PAGES) {
-            val page = page(connection.transport.send(connection.call("GET", next, "application/json")))
-            models += listing.models(page).map(listing::facts).filter { facts ->
+            val call = read { connection.call("GET", next, "application/json") }
+            val page = page(connection.transport.send(call))
+            models += read { listing.models(page).map(listing::facts) }.filter { facts ->
                 facts.id?.let { id -> id.isNotEmpty() && id.none(Char::isISOControl) } == true
             }
-            next = listing.next(page)?.let { origin.resolve(it) }?.let { resolved ->
-                if (sameOrigin(origin, resolved)) return@let resolved.toString()
-                log.warn("Endpoint '{}' names a next page of its models elsewhere, so its listing ends there", id)
+            next = read { listing.next(page) }?.let { text ->
+                val resolved = try {
+                    origin.resolve(text)
+                } catch (e: IllegalArgumentException) {
+                    null
+                }
+                if (resolved != null && sameOrigin(origin, resolved)) return@let resolved.toString()
+                log.warn("Endpoint '{}' names its next page of models elsewhere or in no URL, so its listing ends", id)
                 null
             }
         }
@@ -127,6 +138,13 @@ internal class ModelCatalog(
         uri.port >= 0 -> uri.port
         uri.scheme.equals("https", ignoreCase = true) -> HTTPS_PORT
         else -> HTTP_PORT
+    }
+
+    /** What [block] returns, or an [HttpException] when it throws. */
+    private inline fun <T> read(block: () -> T): T = try {
+        block()
+    } catch (e: Exception) {
+        throw HttpException(HttpFailureKind.PROTOCOL, "Endpoint '$id' cannot read its listing of models.", cause = e)
     }
 
     private fun page(text: String): JsonObject = try {

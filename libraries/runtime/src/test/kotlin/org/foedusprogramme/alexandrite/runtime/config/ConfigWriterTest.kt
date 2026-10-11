@@ -44,6 +44,8 @@ private const val CHAT = "\${env:HOME_CHAT}"
 
 private const val TOKEN = "\${env:NOTES_TOKEN}"
 
+private const val OTHER = "\${env:OTHER}"
+
 class ConfigWriterTest {
     @TempDir
     lateinit var directory: Path
@@ -70,6 +72,17 @@ class ConfigWriterTest {
     @Serializable
     data class Bot(val token: Secret, val admins: List<String> = emptyList())
 
+    @JvmInline
+    @Serializable
+    value class Token(val secret: Secret)
+
+    @Serializable
+    data class Keys(
+        val keys: List<Secret> = emptyList(),
+        val token: Token? = null,
+        val pools: Map<String, List<Token>> = emptyMap(),
+    )
+
     private val notes = TestIndex(
         "notes",
         sections = listOf(ConfigSectionSpec(key<Notes>(), "", Notes.serializer(), "Notes")),
@@ -79,6 +92,11 @@ class ConfigWriterTest {
         "bot",
         "channels.bot",
         sections = listOf(ConfigSectionSpec(key<Bot>(), "", Bot.serializer(), "Bot", Scope.CHANNEL_INSTANCE)),
+    )
+
+    private val keys = TestIndex(
+        "keys",
+        sections = listOf(ConfigSectionSpec(key<Keys>(), "", Keys.serializer(), "Keys")),
     )
 
     private val environment = mapOf("HOME_CHAT" to "42", "NOTES_TOKEN" to "s3cret-token", "OTHER" to "x")
@@ -488,6 +506,30 @@ class ConfigWriterTest {
         assertContains(nested.message!!, "'plugins.notes.agents.coder.key'")
         assertFalse("plain" in read())
         assertEquals(Secret("x"), decoded().agents.getValue("coder").key)
+    }
+
+    @Test
+    fun `a secret in a list or behind a value class is written only as an env reference`() {
+        write("""{"plugins": {"keys": {}}}""")
+        val editor = editor(keys)
+
+        val refusals = listOf(
+            editor.refusal { set("keys", strings(OTHER, "plain-key")) },
+            editor.refusal { set("token", JsonPrimitive("plain-token")) },
+            editor.refusal { set("pools.a", JsonArray(listOf(JsonPrimitive(OTHER), JsonPrimitive("plain-pool")))) },
+        )
+        editor.change {
+            set("keys", strings(OTHER))
+            set("token", JsonPrimitive(OTHER))
+            set("pools.a", strings(OTHER))
+        }
+
+        assertEquals(List(3) { ConfigEditRefusal.SECRET }, refusals.map { it.refusal })
+        val paths = listOf("'plugins.keys.keys[1]'", "'plugins.keys.token'", "'plugins.keys.pools.a[1]'")
+        refusals.zip(paths).forEach { (refusal, path) -> assertContains(refusal.message!!, path) }
+        assertFalse("plain" in read())
+        val decoded = ConfigFile.read(file, environment).decodeSection("plugins.keys", Keys.serializer())
+        assertEquals(Keys(listOf(Secret("x")), Token(Secret("x")), mapOf("a" to listOf(Token(Secret("x"))))), decoded)
     }
 
     @Test

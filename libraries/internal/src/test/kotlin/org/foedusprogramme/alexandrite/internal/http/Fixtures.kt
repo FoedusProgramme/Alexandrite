@@ -96,7 +96,11 @@ internal class Exchange(private val socket: Socket, private val input: InputStre
 
     fun status(status: Int): Exchange = apply { this.status = status }
 
-    fun header(name: String, value: String): Exchange = apply { headers += name to value }
+    /** Sets the header [name] to [value], or leaves it out when [value] is null. */
+    fun header(name: String, value: String?): Exchange = apply {
+        headers.removeAll { it.first == name }
+        value?.let { headers += name to it }
+    }
 
     fun chunk(text: String): Exchange = apply {
         head()

@@ -8,6 +8,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import org.foedusprogramme.alexandrite.internal.http.HttpTimeouts
+import org.foedusprogramme.alexandrite.internal.http.isHeaderValue
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
@@ -37,10 +38,16 @@ public class EndpointSettings(
     init {
         require(isHttpUrl(baseUrl)) { "baseUrl must be an http or https URL without user info, query or fragment" }
         val reserved = RESERVED_HEADERS + providerHeaders.map { it.lowercase() }
-        for (name in headers.keys) {
+        require(apiKey == null || isHeaderValue(apiKey.reveal())) {
+            "apiKey holds a control character or one beyond Latin-1"
+        }
+        for ((name, value) in headers) {
             require(name.isNotEmpty() && name.all { it in TOKEN }) { "headers holds a malformed header name" }
             require(name.lowercase() !in reserved) {
                 "headers may not set ${name.lowercase()}, which the provider sets itself"
+            }
+            require(isHeaderValue(value.reveal())) {
+                "headers.$name holds a control character or one beyond Latin-1"
             }
         }
         require(apiKey == null || headers.keys.none { it.equals(authHeader, ignoreCase = true) }) {

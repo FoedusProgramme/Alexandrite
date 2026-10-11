@@ -57,6 +57,8 @@ internal class EndpointCore(
             connection.transport.open(call, read)
         } catch (e: HttpException) {
             throw e.toModelException(started(), classify)
+        } catch (e: ModelException) {
+            throw e.masked(call::mask)
         }
     }
 

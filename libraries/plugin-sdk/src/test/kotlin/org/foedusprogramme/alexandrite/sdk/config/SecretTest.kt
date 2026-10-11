@@ -3,8 +3,10 @@ package org.foedusprogramme.alexandrite.sdk.config
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import java.util.concurrent.CountDownLatch
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 
 class SecretTest {
@@ -52,6 +54,64 @@ class SecretTest {
 
         assertEquals(listOf("one", "two", "three"), values)
         assertEquals("two", config.bots[1].token.reveal())
+    }
+
+    private fun decode(token: String): BotConfig =
+        Json.decodeFromString(BotConfig.serializer(), """{"token": "$token"}""")
+
+    @Test
+    fun `the outer collector is back after a nested call and after a block that throws`() {
+        val outer = mutableListOf<String>()
+        val inner = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+
+        collectingSecrets(outer) {
+            decode("one")
+            collectingSecrets(inner) { decode("two") }
+            decode("three")
+            assertFailsWith<IllegalStateException> {
+                collectingSecrets(failed) {
+                    decode("four")
+                    error("broken")
+                }
+            }
+            decode("five")
+        }
+        decode("six")
+
+        assertEquals(
+            listOf(listOf("one", "three", "five"), listOf("two"), listOf("four")),
+            listOf(outer, inner, failed),
+        )
+    }
+
+    @Test
+    fun `secrets decoded on other threads are not collected`() {
+        val values = mutableListOf<String>()
+        val elsewhere = mutableListOf<String>()
+        val collecting = CountDownLatch(1)
+        val decoded = CountDownLatch(1)
+        val other = Thread {
+            collectingSecrets(elsewhere) {
+                collecting.countDown()
+                decoded.await()
+            }
+        }
+
+        other.start()
+        collecting.await()
+        collectingSecrets(values) {
+            val thread = Thread { decode("other thread") }
+            thread.start()
+            thread.join()
+            decode("this thread")
+        }
+        decode("outside")
+        decoded.countDown()
+        other.join()
+
+        assertEquals(listOf("this thread"), values)
+        assertEquals(emptyList(), elsewhere)
     }
 
     @Test

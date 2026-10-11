@@ -32,6 +32,15 @@ class EndpointSettingsTest {
     }
 
     @Test
+    fun `a key or a header value that no request can carry is refused without its value`() {
+        refused("apiKey holds a control character") { EndpointSettings("https://a.example", Secret("sk-a\r\nb")) }
+        refused("headers.X-Team holds a control character") {
+            EndpointSettings("https://a.example", headers = mapOf("X-Team" to Secret("core\u200b")))
+        }
+        EndpointSettings("https://a.example", Secret("sk-\u00e9\tb"), mapOf("X-Team" to Secret("caf\u00e9")))
+    }
+
+    @Test
     fun `a wire API's own headers and auth header are the provider's`() {
         fun messages(headers: Map<String, Secret>, apiKey: Secret? = Secret("k")) = EndpointSettings(
             "https://a.example",

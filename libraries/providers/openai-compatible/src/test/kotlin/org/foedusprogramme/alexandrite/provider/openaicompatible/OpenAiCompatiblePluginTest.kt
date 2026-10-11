@@ -1,13 +1,24 @@
 package org.foedusprogramme.alexandrite.provider.openaicompatible
 
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonPrimitive
+import org.foedusprogramme.alexandrite.provider.common.chat.chunk
+import org.foedusprogramme.alexandrite.provider.common.chat.chunks
+import org.foedusprogramme.alexandrite.provider.common.chat.with
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
+import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
+import org.foedusprogramme.alexandrite.sdk.model.RequestIds
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.testkit.FakeModelServer
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
+import org.foedusprogramme.alexandrite.testkit.testTurn
+import org.foedusprogramme.alexandrite.testkit.testUserEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -40,6 +51,33 @@ class OpenAiCompatiblePluginTest {
             assertFalse("sk-plugin-test-key" in endpoints.toString())
         }
         Unit
+    }
+
+    @Test
+    fun `an endpoint sends its configured headers and the cache key`() = runBlocking {
+        FakeModelServer().use { server ->
+            server.enqueue(chunks(chunk { with("content", "Hi.") }, chunk("stop")))
+            val config = """
+                {"endpoints": {"proxy": {"baseUrl": "${server.baseUrl}/v1", "apiKey": "sk-plugin-test-key",
+                    "headers": {"X-Team": "core"}, "promptCacheKey": true, "discover": false, "models": {"m": {}}}}}
+            """.trimIndent()
+
+            harness(config).build().run {
+                val endpoint = getAll<ModelProvider>().single().endpoints.single()
+                val turn = testTurn()
+                val request = ModelRequest.builder(
+                    ModelRef(endpoint.id, "m"),
+                    listOf(testUserEntry(turn)),
+                    0,
+                    RequestIds(turn.conversation, turn.id, 0),
+                ).cacheKey("cache-7").build()
+                endpoint.stream(request).toList()
+            }
+
+            val sent = server.requests.single()
+            assertEquals("core" to "Bearer sk-plugin-test-key", sent.header("x-team") to sent.header("authorization"))
+            assertEquals("cache-7", sent.json()["prompt_cache_key"]?.jsonPrimitive?.content)
+        }
     }
 
     @Test

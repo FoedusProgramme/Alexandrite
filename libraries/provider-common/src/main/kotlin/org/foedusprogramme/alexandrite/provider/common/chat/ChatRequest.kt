@@ -47,6 +47,11 @@ internal class ChatRequest(
 
     private val offersTools = request.tools.isNotEmpty()
 
+    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
+
+    private val called = request.history.filterIsInstance<AssistantEntry>()
+        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+
     val body: JsonObject = build()
 
     private fun build(): JsonObject {
@@ -67,10 +72,8 @@ internal class ChatRequest(
 
                 is AssistantEntry -> messages += Message.Plain(assistant(entry))
 
-                is ToolResultEntry -> if (offersTools) {
-                    messages += Message.Plain(
-                        tool(entry),
-                    )
+                is ToolResultEntry -> if (offersTools && entry.callId in called) {
+                    messages += Message.Plain(tool(entry))
                 } else {
                     user(resultText(entry))
                 }
@@ -160,12 +163,12 @@ internal class ChatRequest(
 
     private fun assistant(entry: AssistantEntry): JsonObject = buildJsonObject {
         put("role", "assistant")
-        val calls = entry.parts.filterIsInstance<ToolCallPart>()
-        val texts = entry.parts.filterIsInstance<TextPart>().map { it.text }
-        val written = if (offersTools) texts else texts + calls.map { callText(it, flavor.tools.wireName(it.name)) }
-        put("content", written.joinToString(SEPARATOR))
-        flavor.reasoning.replay(entry.parts.filterIsInstance<ReasoningPart>(), request, this)
-        if (calls.isEmpty() || !offersTools) return@buildJsonObject
+        val parts = entry.parts
+        val (calls, unsent) = parts.filterIsInstance<ToolCallPart>().partition { offersTools && it.id in answered }
+        val texts = parts.filterIsInstance<TextPart>().map { it.text }
+        put("content", (texts + unsent.map { callText(it, flavor.tools.wireName(it.name)) }).joinToString(SEPARATOR))
+        flavor.reasoning.replay(parts.filterIsInstance<ReasoningPart>(), request, this)
+        if (calls.isEmpty()) return@buildJsonObject
         putJsonArray("tool_calls") {
             for (call in calls) {
                 addJsonObject {

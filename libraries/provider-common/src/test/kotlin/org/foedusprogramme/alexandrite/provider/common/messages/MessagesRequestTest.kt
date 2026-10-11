@@ -181,7 +181,8 @@ class MessagesRequestTest {
     @Test
     fun `a call whose arguments are no object goes back with empty input`() {
         val broken = ToolCallPart(ToolCallId("toolu_2"), "notes.add", "{not json")
-        val history = listOf(user("Go."), AssistantEntry(null, listOf(broken), model))
+        val result = ToolResultEntry(null, broken.id, "notes.add", listOf(TextPart("Done.")), ToolOutcome.Succeeded)
+        val history = listOf(user("Go."), AssistantEntry(null, listOf(broken), model), result)
 
         val use = body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).messages()[1].blocks()
             .single()
@@ -234,6 +235,33 @@ class MessagesRequestTest {
         assertEquals(
             listOf("[Result of tool notes-add, which failed]", "Saved.", null, "Also eggs."),
             messages[2].blocks().map { it.text("text") },
+        )
+    }
+
+    @Test
+    fun `a call whose result is gone and a result whose call is gone go out as text`() {
+        val lost = ToolCallPart(ToolCallId("toolu_2"), "notes.add", "{}")
+        val read = listOf(TextPart("Read."))
+        val orphan = ToolResultEntry(null, ToolCallId("toolu_3"), "files.read", read, ToolOutcome.Succeeded)
+        val history = listOf(
+            user("Note milk and eggs."),
+            AssistantEntry(null, listOf(TextPart("Saving."), call, lost), model),
+            result("Saved."),
+            orphan,
+            user("Thanks."),
+        )
+
+        val messages = body(request(history) { tools(listOf(testToolDefinition("notes.add"))) }).messages()
+
+        assertEquals(
+            listOf(listOf("text"), listOf("text", "tool_use", "text"), listOf("tool_result", "text", "text", "text")),
+            messages.map { message -> message.blocks().map { it.text("type") } },
+        )
+        assertEquals("toolu_1", messages[1].blocks()[1].text("id"))
+        assertEquals("[Called tool notes-add with {}]", messages[1].blocks()[2].text("text"))
+        assertEquals(
+            listOf("[Result of tool files-read]", "Read.", "Thanks."),
+            messages[2].blocks().drop(1).map { it.text("text") },
         )
     }
 

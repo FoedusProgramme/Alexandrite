@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.internal.http
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class SseParserTest {
@@ -74,6 +75,17 @@ class SseParserTest {
 
         assertEquals(listOf("你好"), events.map { it.data })
         assertNull(parser.finish())
+    }
+
+    @Test
+    fun `a line or the data of an event past the limit fails the stream`() {
+        fun parse(text: String) = SseParser(limit = 10).feed(text.toByteArray()).map { it.data }
+
+        assertEquals(listOf("abcd\nefghi"), parse("data:abcd\ndata:efghi\n\n"))
+        assertEquals(List(5) { "abcd" }, parse("data:abcd\n\n".repeat(5)))
+        for (text in listOf("data:abcdef\n", "data:abcd\ndata:efgh\ndata:ij\n")) {
+            assertEquals(HttpFailureKind.PROTOCOL, assertFailsWith<HttpException>(text) { parse(text) }.kind)
+        }
     }
 
     @Test

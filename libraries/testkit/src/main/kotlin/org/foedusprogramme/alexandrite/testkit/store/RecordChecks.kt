@@ -100,6 +100,33 @@ internal val RECORD_CHECKS: List<StoreCheck> = listOf(
             )
         }
     },
+    StoreCheck("keys, collections and plugins that differ only in case or Unicode normalization are apart") {
+        val keys = listOf("/srv/repo", "/srv/Repo", "caf\u00e9", "cafe\u0301")
+        val places = listOf("notes" to "grants", "notes" to "Grants", "Notes" to "grants")
+        fun value(plugin: String, collection: String, index: Int) = "\"$plugin $collection $index\""
+        open {
+            for ((plugin, collection) in places) {
+                keys.forEachIndexed { index, key ->
+                    records.put(plugin, collection, key, value(plugin, collection, index), ada)
+                }
+            }
+            records.remove("notes", "grants", "/srv/Repo")
+            records.remove("notes", "grants", "cafe\u0301")
+        }
+
+        open {
+            val left = records.list("notes", "grants").map { it.key }
+            expectEqual(listOf("/srv/repo", "caf\u00e9"), left, "the keys left beside the removed variants")
+            for ((plugin, collection) in places.drop(1)) {
+                expectEqual(keys, records.list(plugin, collection).map { it.key }, "the keys of $plugin $collection")
+                expectEqual(
+                    keys.indices.map { value(plugin, collection, it) },
+                    keys.map { records.get(plugin, collection, it)?.value },
+                    "the values of $plugin $collection",
+                )
+            }
+        }
+    },
     StoreCheck("records outlive the store") {
         val stored = open { records.put("notes", "grants", "k", """{"kept":true}""", ada) }
 

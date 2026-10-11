@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.internal.http.HttpFailureKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
+import org.foedusprogramme.alexandrite.sdk.model.rebuild
 
 internal fun modelException(kind: ModelErrorKind, message: String, outputStarted: Boolean): ModelException =
     ModelException(ModelError.builder(kind, message).outputStarted(outputStarted).build())
@@ -50,6 +51,15 @@ internal fun streamError(
         .outputStarted(outputStarted)
         .build()
     return ModelException(error)
+}
+
+/** This failure with [mask] applied to its message and raw type, itself when they hold nothing to mask. */
+internal fun ModelException.masked(mask: (String) -> String): ModelException {
+    val message = mask(error.message)
+    val rawType = error.rawType?.let(mask)
+    if (message == error.message && rawType == error.rawType) return this
+    return ModelException(error.rebuild { message(message).rawType(rawType) }, cause)
+        .also { it.stackTrace = stackTrace }
 }
 
 /** What an error object or body says, its parts null where it says nothing. */

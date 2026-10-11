@@ -55,11 +55,6 @@ public class HttpCall(
 ) {
     init {
         require(uri.scheme == "http" || uri.scheme == "https") { "No HTTP URI: ${mask(printable(uri))}." }
-        for ((name, value) in headers) {
-            require(value.all(::isHeaderCharacter)) {
-                "The value of the header '$name' holds a control character or one beyond Latin-1."
-            }
-        }
         require(firstByte == null || (firstByte.isPositive() && firstByte.isFinite())) {
             "The first byte timeout is positive and finite, was $firstByte."
         }
@@ -79,7 +74,8 @@ public class HttpCall(
     }
 }
 
-private fun isHeaderCharacter(char: Char): Boolean = char == '\t' || (!char.isISOControl() && char <= '\u00ff')
+/** Whether [value] holds neither a control character other than tab nor one beyond Latin-1. */
+public fun isHeaderValue(value: String): Boolean = value.all { it == '\t' || (!it.isISOControl() && it <= '\u00ff') }
 
 /** [uri] without user info, query and fragment. */
 public fun printable(uri: URI): String = buildString {
@@ -108,6 +104,13 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
      */
     public suspend fun <T> open(call: HttpCall, block: suspend (HttpResponseStream) -> T): T {
         val started = TimeSource.Monotonic.markNow()
+        call.headers.entries.firstOrNull { !isHeaderValue(it.value) }?.let { (name, _) ->
+            throw HttpException(
+                HttpFailureKind.PROTOCOL,
+                "$call cannot be sent: the value of the header '$name' holds a control character or one beyond " +
+                    "Latin-1.",
+            )
+        }
         val firstByte = call.firstByte ?: timeouts.firstByte
         val body = BodyChannel()
         val info = CompletableDeferred<HttpResponse.ResponseInfo>()
@@ -216,9 +219,9 @@ public class HttpResponseStream internal constructor(
         val parser = SseParser()
         while (true) {
             val bytes = read() ?: break
-            for (event in parser.feed(bytes)) emit(event)
+            for (event in parsed { parser.feed(bytes) }) emit(event)
         }
-        parser.finish()?.let { emit(it) }
+        parsed { parser.finish() }?.let { emit(it) }
     }
 
     /** The body as text, its first [limit] bytes at most. */
@@ -246,6 +249,12 @@ public class HttpResponseStream internal constructor(
             requestId = requestId(headers),
             body = text,
         )
+    }
+
+    private inline fun <T> parsed(parse: () -> T): T = try {
+        parse()
+    } catch (e: HttpException) {
+        throw HttpException(e.kind, "$call broke off: ${e.message}", status = status, afterResponse = true)
     }
 
     private suspend fun BodyChannel.receive(): ByteArray? = try {

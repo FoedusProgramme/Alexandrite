@@ -257,14 +257,78 @@ class HttpTransportTest {
         }
 
     @Test
-    fun `a header value with a control character is refused naming only the header`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            HttpCall("GET", server.uri, mapOf("authorization" to "Bearer $TOKEN\r"))
+    fun `a header value with a control character fails the call as an HTTP failure naming only the header`() =
+        runBlocking {
+            val calls = listOf(
+                HttpCall("GET", server.uri, mapOf("authorization" to "Bearer $TOKEN\r")),
+                HttpCall("GET", server.uri, mapOf("x-key" to "$TOKEN\u200b")),
+            )
+
+            val errors = calls.map { call -> assertFailsWith<HttpException> { transport.send(call) } }
+
+            assertEquals(List(2) { HttpFailureKind.PROTOCOL }, errors.map { it.kind })
+            assertTrue("'authorization'" in errors[0].message.orEmpty(), errors[0].message)
+            assertTrue("'x-key'" in errors[1].message.orEmpty(), errors[1].message)
+            errors.forEach(::assertMasked)
+            assertTrue(server.requests.isEmpty())
+            assertFalse(isHeaderValue("a\u0085b") || isHeaderValue("\u0100"))
+            assertTrue(isHeaderValue("Bearer \tk\u00e9y"))
         }
 
-        assertTrue("'authorization'" in error.message.orEmpty(), error.message)
+    @Test
+    fun `a call masks its secrets longest first and leaves those shorter than four characters`() {
+        val call = HttpCall("GET", server.uri, secrets = listOf("abc", "token", "wxyz", "token-long", ""))
+
+        assertEquals("abc *** *** *** end", call.mask("abc token-long wxyz token end"))
+    }
+
+    @Test
+    fun `send keeps the bytes up to its limit, also inside a piece`() = runBlocking {
+        repeat(2) { server.handle { it.chunk("abcdef").chunk("ghij").end() } }
+
+        val texts = listOf(4, 8).map { limit -> transport.send(HttpCall("GET", server.uri), limit) }
+
+        assertEquals(listOf("abcd", "abcdefgh"), texts)
+    }
+
+    @Test
+    fun `an error keeps its body up to the limit and quotes its start, both masked`() = runBlocking {
+        val key = "sk-test-secret"
+        server.handle { it.status(500).chunk("y".repeat(490) + key + "x".repeat(HttpTransport.ERROR_BODY_LIMIT)).end() }
+
+        val error = assertFailsWith<HttpException> { transport.send(post(key = key)) }
+
+        val body = error.body.orEmpty()
+        assertEquals(HttpTransport.ERROR_BODY_LIMIT - key.length + 3, body.length)
+        assertTrue(body.startsWith("y".repeat(490) + "***x"), body.take(600))
+        assertEquals("${post(key = key)} got HTTP 500: ${"y".repeat(490)}***${"x".repeat(7)}", error.message)
+    }
+
+    @Test
+    fun `a media type is read in lower case without its parameters, and a blank one is none`() = runBlocking {
+        val types = listOf("Text/Event-Stream; charset=utf-8", " Application/JSON ", ";charset=utf-8", "", null)
+        types.forEach { type -> server.handle { it.header("content-type", type).end() } }
+
+        val read = types.map { transport.open(HttpCall("GET", server.uri)) { it.mediaType } }
+
+        assertEquals(listOf("text/event-stream", "application/json", null, null, null), read)
+    }
+
+    @Test
+    fun `an event longer than the parser's limit breaks the stream off`() = runBlocking {
+        val piece = "x".repeat(1024 * 1024)
+        server.handle { exchange ->
+            exchange.chunk("data: ")
+            repeat(SseParser.DEFAULT_LIMIT / piece.length + 1) { exchange.chunk(piece) }
+            exchange.end()
+        }
+
+        val error = assertFailsWith<HttpException> { transport.open(bot()) { it.events().toList() } }
+
+        assertEquals(HttpFailureKind.PROTOCOL, error.kind)
+        assertEquals(200 to true, error.status to error.afterResponse)
+        assertTrue("longer than" in error.message.orEmpty(), error.message)
         assertMasked(error)
-        assertFailsWith<IllegalArgumentException> { HttpCall("GET", server.uri, mapOf("x-key" to "$TOKEN\u200b")) }
     }
 
     @Test
