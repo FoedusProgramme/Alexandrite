@@ -279,7 +279,8 @@ class DelegationTurnsTest {
             val invalid = ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS)
             assertEquals(
                 setOf(
-                    invalid to "No profile 'nobody'. Choose one of reviewer, writer, planner, doer, reader, nester.",
+                    invalid to "No profile 'nobody'. Choose one of reviewer, writer, planner, doer, reader, nester, " +
+                        "general.",
                     invalid to "Background delegation is not available yet: leave out 'background', and wait for " +
                         "the result.",
                     invalid to "'context' is \"fresh\" or \"fork\".",
@@ -298,6 +299,21 @@ class DelegationTurnsTest {
 
             val description = model.requests.single().tools.single { it.name == DELEGATE_TOOL }.description
             assertContains(description, "\n\nProfiles:\n- reviewer (reviewer): Reviews.\n- writer (writer): Writes.\n")
+            assertContains(description, "- general (General): A general-purpose sub-agent")
+        }
+    }
+
+    @Test
+    fun `a delegation to the built-in general profile runs with the delegating agent's model and tools`() {
+        model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("general", "Summarize notes.md.")) }
+            .reply(profile(GENERAL_INSTRUCTIONS)) { toolCall("test.read", """{"path": "notes.md"}""") }
+            .reply(profile(GENERAL_INSTRUCTIONS)) { text("It says hi.") }
+            .reply(ROOT) { text("It says hi.") }
+
+        harness().execute {
+            ask().ticket.outcome()
+
+            assertEquals(listOf(ToolOutcome.Succeeded to "It says hi."), rootResults().map { it.shown() })
         }
     }
 
@@ -675,6 +691,9 @@ class DelegationTurnsTest {
         const val DOER = "Act at once."
         const val READER = "Read the web."
         const val NESTER = "Hand work down."
+        const val GENERAL_INSTRUCTIONS = "Carry out the task you are given with the tools you have. Report back " +
+            "what you did, what you found and anything left undone, concisely; the delegating agent sees only " +
+            "your final reply."
         val REVIEWER_ID = AgentId("reviewer")
 
         /** The requests of a top-level turn, which neither a run nor the judge makes. */

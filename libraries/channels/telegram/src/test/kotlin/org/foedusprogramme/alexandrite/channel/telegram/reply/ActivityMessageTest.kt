@@ -44,8 +44,8 @@ class ActivityMessageTest {
         assertEquals(
             listOf(
                 "sendMessage Let me check.",
-                "sendMessage Reading 1 file\nReading notes.md",
-                "editMessageText Read 1 file\nRead notes.md",
+                "sendMessage Reading 1 file\nnotes.md",
+                "editMessageText Read 1 file\nnotes.md",
             ),
             output.shown(),
         )
@@ -78,11 +78,11 @@ class ActivityMessageTest {
         assertEquals(
             listOf(
                 "sendMessage Checking.",
-                "sendMessage Reading 1 file\nReading notes.md",
-                "editMessageText Read 1 file\nRead notes.md",
+                "sendMessage Reading 1 file\nnotes.md",
+                "editMessageText Read 1 file\nnotes.md",
                 "sendMessage Found it.",
-                "sendMessage Running 1 shell command\nRunning ls",
-                "editMessageText Ran 1 shell command\nRan ls — exit 0",
+                "sendMessage Running 1 shell command\nls",
+                "editMessageText Ran 1 shell command\nls — exit 0",
                 "editMessageText Found it. Done.",
             ),
             output.shown(),
@@ -103,8 +103,8 @@ class ActivityMessageTest {
         advanceTimeBy(1_100)
 
         val edit = output.api.calls("editMessageText").last()
-        assertEquals("Read 2 files\nRead a.kt\nRead b.kt", edit.text)
-        assertEquals(listOf("expandable_blockquote 13+19"), edit.entities)
+        assertEquals("Read 2 files\na.kt\nb.kt", edit.text)
+        assertEquals(listOf("expandable_blockquote 13+9"), edit.entities)
     }
 
     @Test
@@ -119,7 +119,7 @@ class ActivityMessageTest {
         reply.event(TurnEvent.ToolCallUpdated(second, ToolCallStatus.COMPLETED))
         advanceTimeBy(1_100)
 
-        assertEquals(listOf("sendMessage Read 2 files\nRead a.kt\nRead b.kt"), output.shown())
+        assertEquals(listOf("sendMessage Read 2 files\na.kt\nb.kt"), output.shown())
     }
 
     @Test
@@ -132,7 +132,7 @@ class ActivityMessageTest {
         reply.abandon(ReplyEnd.CANCELLED)
         advanceTimeBy(1_100)
 
-        assertEquals(listOf("sendMessage Reading 1 file\nReading notes.md"), output.shown())
+        assertEquals(listOf("sendMessage Reading 1 file\nnotes.md"), output.shown())
     }
 
     @Test
@@ -154,12 +154,50 @@ class ActivityMessageTest {
 
             assertEquals(
                 listOf(
-                    "sendMessage Delegating to reviewer · Read 1 file\nDelegating to reviewer\nreviewer · Read a.kt",
-                    "editMessageText Delegated to reviewer · Read 1 file\nDelegated to reviewer\nreviewer · Read a.kt",
+                    "sendMessage Delegating to reviewer · Read 1 file\nDelegating to reviewer\nreviewer · a.kt",
+                    "editMessageText Delegated to reviewer · Read 1 file\nDelegated to reviewer\nreviewer · a.kt",
                 ),
                 output.shown(),
             )
         }
+
+    @Test
+    fun `a text-less round edits the same activity message instead of sending a new one`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val (first, second) = ToolCallId("c1") to ToolCallId("c2")
+
+        reply.event(TurnEvent.ToolCallStarted(first, "fs.glob", ToolActivity.LIST, "a/**"))
+        reply.event(TurnEvent.ToolCallUpdated(first, ToolCallStatus.COMPLETED))
+        advanceTimeBy(1_100)
+        reply.event(TurnEvent.ToolCallStarted(second, "fs.read", ToolActivity.READ, "a.kt"))
+        reply.event(TurnEvent.ToolCallUpdated(second, ToolCallStatus.COMPLETED))
+        advanceTimeBy(1_100)
+
+        assertEquals(
+            listOf(
+                "sendMessage Listed 1 directory\na/**",
+                "editMessageText Listed 1 directory · Read 1 file\na/**\na.kt",
+            ),
+            output.shown(),
+        )
+    }
+
+    @Test
+    fun `an activity message waits for its own segment's text to be sent first`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val id = ToolCallId("c1")
+
+        reply.preview(0, "Checking.")
+        reply.event(TurnEvent.ToolCallStarted(id, "fs.read", ToolActivity.READ, "notes.md"))
+        advanceTimeBy(2_200)
+
+        assertEquals(
+            listOf("sendMessage Checking.", "sendMessage Reading 1 file\nnotes.md"),
+            output.shown(),
+        )
+    }
 
     @Test
     fun `an update of a call the channel never saw started is ignored`() = runTest {

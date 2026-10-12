@@ -12,10 +12,10 @@ import java.time.Instant
 /**
  * A persona a delegating agent may run as a sub-agent, contributed by the config, a plugin or the agent itself.
  *
- * A plugin contributes one with `@Contribute(AgentProfile::class)` on a `@Provides` function.
+ * A plugin contributes one with `@Contribute(AgentProfile::class)` on a `@Provides` function that returns a subclass.
  */
 @Poko
-public class AgentProfile(
+public open class AgentProfile(
     public val id: AgentId,
     public val name: String,
     /** What a delegating agent reads to choose the profile. */

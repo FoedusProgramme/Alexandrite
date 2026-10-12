@@ -60,9 +60,10 @@ class ProfilesPersistenceTest {
         started {
             val profiles = get<AgentControl>().profiles()
 
-            assertEquals(listOf("reviewer"), profiles.map { it.profile.id.value })
-            assertEquals("Reviews code.", profiles.single().profile.description)
-            val source = assertIs<ProfileSource.Created>(profiles.single().source)
+            assertEquals(listOf("general", "reviewer"), profiles.map { it.profile.id.value }.sorted())
+            val reviewer = profiles.single { it.profile.id.value == "reviewer" }
+            assertEquals("Reviews code.", reviewer.profile.description)
+            val source = assertIs<ProfileSource.Created>(reviewer.source)
             assertEquals("Admin", source.by?.displayName)
         }
     }

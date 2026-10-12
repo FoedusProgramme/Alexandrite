@@ -35,7 +35,7 @@ public class ToolDefinition(
     public val timeout: Duration? = null,
     /** What kind of effect a call has, for a channel to show as it runs. */
     public val activity: ToolActivity = ToolActivity.OTHER,
-    /** The arguments that title a call, the first one present wins, an array joined with spaces. */
+    /** The arguments that title a call: every one present, in order, joined with a space, an array with spaces too. */
     public val titleArguments: List<String> = emptyList(),
 ) {
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)

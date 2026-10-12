@@ -79,10 +79,10 @@ class TelegramDelegationTest {
             app.model.requests.last().history.filterIsInstance<ToolResultEntry>().map { it.outcome to it.text },
         )
         val activity = app.fake.botMessages(ADA).filter { it.isActivity() }.joinToString("\n") { it.text }
-        for (line in listOf("Delegated to reviewer", "reviewer · Read ", "Delegated to implementer")) {
+        for (line in listOf("Delegated to reviewer", "reviewer · $greeter".take(60), "Delegated to implementer")) {
             assertTrue(line in activity, activity)
         }
-        assertTrue(Regex("""implementer · Edited .+ \(\+1 -1\)""").containsMatchIn(activity), activity)
+        assertTrue(Regex("""implementer · .+ \(\+1 -1\)""").containsMatchIn(activity), activity)
         assertEquals(listOf(DONE), app.fake.botMessages(ADA).body().map { it.text }.filter { it == DONE })
     }
 

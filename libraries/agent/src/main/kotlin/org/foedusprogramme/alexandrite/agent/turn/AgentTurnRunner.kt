@@ -80,8 +80,10 @@ import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolGlob
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
+import org.foedusprogramme.alexandrite.agent.tool.relativized
 import org.foedusprogramme.alexandrite.agent.tool.textResult
 import org.foedusprogramme.alexandrite.agent.tool.toolTitle
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
@@ -171,6 +173,7 @@ internal class AgentTurnRunner(
     private val compactor: Compactor,
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
+    private val workspaces: Workspaces,
     private val offeredTools: OfferedTools,
     private val pendingCommands: PendingCommands,
     private val executor: ToolExecutor,
@@ -712,9 +715,10 @@ internal class AgentTurnRunner(
             val untrusted = Collections.synchronizedList(mutableListOf<UntrustedFolder>())
             val budget = InstructionBudget()
             var loaded = false
+            val workspace = workspaces.paths[turn.agent]
             for (call in calls) {
                 val definition = tools.offered[call.name]?.definition ?: continue
-                val title = toolTitle(definition, call.parseArguments())
+                val title = relativized(toolTitle(definition, call.parseArguments()), workspace)
                 emitToolCallStarted(call.id, definition.name, definition.activity, title)
             }
             try {

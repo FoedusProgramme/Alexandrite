@@ -32,8 +32,8 @@ class ActivityTextTest {
         val running = renderActivity(texts, null, listOf(call()))
         val completed = renderActivity(texts, null, listOf(call(status = ToolCallStatus.COMPLETED)))
 
-        assertEquals("Reading 1 file\nReading notes.md", running.text)
-        assertEquals("Read 1 file\nRead notes.md", completed.text)
+        assertEquals("Reading 1 file\nnotes.md", running.text)
+        assertEquals("Read 1 file\nnotes.md", completed.text)
     }
 
     @Test
@@ -46,8 +46,28 @@ class ActivityTextTest {
 
         val rendered = renderActivity(texts, null, calls)
 
+        assertEquals("Running 1 shell command · Read 2 files\nls\na.kt\nb.kt", rendered.text)
+    }
+
+    @Test
+    fun `the detail lines group by kind in the summary's order, keeping each kind's own call order`() {
+        val calls = listOf(
+            call(tool = "fs.glob", activity = ToolActivity.LIST, title = "calculator *"),
+            call(
+                tool = "command.exec",
+                activity = ToolActivity.EXECUTE,
+                title = "ls -la calculator",
+                status = ToolCallStatus.COMPLETED,
+            ),
+            call(tool = "fs.glob", activity = ToolActivity.LIST, title = "calculator {src,tests,examples}/**"),
+            call(title = "calculator/pyproject.toml", status = ToolCallStatus.COMPLETED),
+        )
+
+        val rendered = renderActivity(texts, null, calls)
+
         assertEquals(
-            "Running 1 shell command · Read 2 files\nRunning ls\nRead a.kt\nRead b.kt",
+            "Listing 2 directories · Ran 1 shell command · Read 1 file\n" +
+                "calculator *\ncalculator {src,tests,examples}/**\nls -la calculator\ncalculator/pyproject.toml",
             rendered.text,
         )
     }
@@ -60,7 +80,7 @@ class ActivityTextTest {
         val rendered = renderActivity(texts, null, calls)
 
         val summary = "Read 2 files"
-        val details = "Read notes.md\nRead b.kt — failed"
+        val details = "notes.md\nb.kt — failed"
         assertEquals("$summary\n$details", rendered.text)
         assertEquals(listOf(Span("expandable_blockquote", summary.length + 1, details.length)), rendered.entities)
     }
@@ -70,7 +90,7 @@ class ActivityTextTest {
         val content = TurnEvent.Content.Output("Exit code: 0\nhello")
         val rendered = renderActivity(texts, null, listOf(call(activity = ToolActivity.EXECUTE, content = content)))
 
-        assertEquals("Running 1 shell command\nRunning notes.md — exit 0", rendered.text)
+        assertEquals("Running 1 shell command\nnotes.md — exit 0", rendered.text)
     }
 
     @Test
@@ -81,7 +101,7 @@ class ActivityTextTest {
 
         val rendered = renderActivity(texts, null, calls)
 
-        assertEquals("Edited 1 file\nEdited notes.md (+1 -2)", rendered.text)
+        assertEquals("Edited 1 file\nnotes.md (+1 -2)", rendered.text)
     }
 
     @Test
@@ -99,7 +119,7 @@ class ActivityTextTest {
         val rendered = renderActivity(texts, null, calls)
 
         assertEquals(
-            "Running 1 shell command · Ran 1 search\nMoved to the background: command.exec ./gradlew test\nSearched for TODO",
+            "Running 1 shell command · Ran 1 search\nMoved to the background: command.exec ./gradlew test\nTODO",
             rendered.text,
         )
     }
@@ -122,7 +142,7 @@ class ActivityTextTest {
         val rendered = renderActivity(texts, null, listOf(call))
 
         val title = rendered.text.substringAfter("\n")
-        assertEquals(81, title.removePrefix("Reading ").length)
+        assertEquals(81, title.length)
         assertEquals(true, title.endsWith("…"))
         assertEquals(false, '‮' in title)
     }
@@ -144,13 +164,13 @@ class ActivityTextTest {
         val done = renderActivity(texts, null, calls)
 
         assertEquals(
-            "Delegating to reviewer · Read 2 files · Editing 1 file\nDelegating to reviewer\nreviewer · Read a.kt\n" +
-                "reviewer · Read b.kt\nreviewer · Waiting for approval: fs.edit c.kt",
+            "Delegating to reviewer · Read 2 files · Editing 1 file\nDelegating to reviewer\nreviewer · a.kt\n" +
+                "reviewer · b.kt\nreviewer · Waiting for approval: fs.edit c.kt",
             running.text,
         )
         assertEquals(
-            "Delegated to reviewer · Read 2 files · Not run: 1 file\nDelegated to reviewer\nreviewer · Read a.kt\n" +
-                "reviewer · Read b.kt\nreviewer · Not run: fs.edit c.kt",
+            "Delegated to reviewer · Read 2 files · Not run: 1 file\nDelegated to reviewer\nreviewer · a.kt\n" +
+                "reviewer · b.kt\nreviewer · Not run: fs.edit c.kt",
             done.text,
         )
     }
@@ -177,7 +197,7 @@ class ActivityTextTest {
 
         val rendered = renderActivity(zh, LanguageTag("zh-CN"), listOf(call(status = ToolCallStatus.COMPLETED)))
 
-        assertEquals("读取了 1 个文件\n读取了 notes.md", rendered.text)
+        assertEquals("读取了 1 个文件\nnotes.md", rendered.text)
     }
 
     private companion object {

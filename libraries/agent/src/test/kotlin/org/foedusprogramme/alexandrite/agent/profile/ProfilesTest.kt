@@ -116,6 +116,18 @@ class ProfilesTest {
         assertFailsWith<ConfigException> { profiles(contributed = listOf(reviewer, reviewer)) }
     }
 
+    @Test
+    fun `a config entry named general replaces the built-in profile`() {
+        val config = """{"agents": {"general": {"description": "A custom one."}}}"""
+
+        val all = blocking { profiles(config, listOf(GeneralProfile())).all() }
+
+        assertEquals(
+            listOf(Triple(AgentId("general"), "A custom one.", ProfileSource.Config)),
+            all.map { Triple(it.profile.id, it.profile.description, it.source) },
+        )
+    }
+
     // Precedence: config, then plugin, then the agent's own records.
 
     @Test

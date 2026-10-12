@@ -36,6 +36,9 @@ internal class ReplyStream(
     /** Whether the current segment shows the text of a discarded response. */
     private var showsDiscarded = false
 
+    /** Whether a later round's text starts the next segment once it arrives. */
+    private var segmentPending = false
+
     /** Whether a preview went to the sink. */
     var shown: Boolean = false
         private set
@@ -47,25 +50,25 @@ internal class ReplyStream(
                 offer(throttled = true)
             }
 
-            is ModelEvent.ToolCallStarted -> calling = true
+            is ModelEvent.ToolCallStarted -> {
+                offer(throttled = false)
+                calling = true
+            }
 
             else -> Unit
         }
     }
 
     /**
-     * Shows the current segment's last text where the throttle held it back, and starts the next segment unless the
-     * current one still shows the text of a discarded response.
+     * Shows the current segment's last text where the throttle held it back, and marks that the next round's text
+     * starts a new segment, unless the current one still shows the text of a discarded response.
      */
     suspend fun nextSegment() {
         offer(throttled = false)
         texts.clear()
         calling = false
         if (showsDiscarded) return
-        segment++
-        offered = null
-        segmentShown = false
-        toSink("The start of segment $segment") { sink.startSegment(segment) }
+        segmentPending = true
     }
 
     /** Drops the text of the current response, whose preview the next one or the final message replaces. */
@@ -78,7 +81,16 @@ internal class ReplyStream(
 
     private suspend fun offer(throttled: Boolean) {
         val text = visibleText(texts.values)
-        if (text.isEmpty() || text == offered) return
+        if (text.isEmpty()) return
+        if (segmentPending) {
+            segmentPending = false
+            segment++
+            offered = null
+            segmentShown = false
+            showsDiscarded = false
+            toSink("The start of segment $segment") { sink.startSegment(segment) }
+        }
+        if (text == offered) return
         val now = clock.instant()
         val last = offeredAt
         if (throttled && last != null && now < last + interval) return

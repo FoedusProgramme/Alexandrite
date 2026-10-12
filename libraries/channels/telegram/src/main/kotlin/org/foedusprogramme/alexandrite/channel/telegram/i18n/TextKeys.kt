@@ -124,10 +124,6 @@ internal object TextKeys {
 
     const val ACTIVITY_BACKGROUNDED: String = "activity.call.backgrounded"
 
-    const val ACTIVITY_SEARCHING: String = "activity.call.search.present"
-
-    const val ACTIVITY_SEARCHED: String = "activity.call.search.past"
-
     /** Takes `{code}`. */
     const val ACTIVITY_EXIT: String = "activity.call.exit"
 

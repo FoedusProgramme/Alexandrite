@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
 import org.foedusprogramme.alexandrite.sdk.channel.rebuild
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
@@ -24,11 +25,15 @@ import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
+import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TurnActivityTest {
+    @TempDir
+    lateinit var directory: Path
+
     private val store = MemoryStore()
     private val model = ScriptedModel()
 
@@ -90,6 +95,35 @@ class TurnActivityTest {
                     TurnEvent.ToolCallUpdated(id, ToolCallStatus.COMPLETED),
                 ),
                 activityOf(turn),
+            )
+        }
+    }
+
+    @Test
+    fun `a call's title shows a path under the agent's workspace relative to it, for display only`() {
+        val id = ToolCallId("call-1")
+        val definition = ToolDefinition(
+            "test.read",
+            "Reads.",
+            schema,
+            ToolRisk.READ_ONLY,
+            activity = ToolActivity.READ,
+            titleArguments = listOf("path"),
+        )
+        val read = recordingTool(definition) { _, _ -> ToolResult("the file's text") }
+
+        harness { dataRoot(directory).tool(read) }.execute {
+            val workspace = get<HostPaths>().dataRoot.resolve("workspaces/coder")
+            val path = workspace.resolve("notes.md")
+            val arguments = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
+            model.reply { toolCall("test.read", arguments, id) }.reply { text("Read it.") }
+            enableEvents()
+            val turn = ask()
+            (turn as Admission.Accepted).ticket.outcome()
+
+            assertEquals(
+                TurnEvent.ToolCallStarted(id, "test.read", ToolActivity.READ, "notes.md"),
+                activityOf(turn).first(),
             )
         }
     }

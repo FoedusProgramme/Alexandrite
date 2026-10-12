@@ -25,16 +25,22 @@ private val ENDED = setOf(ToolCallStatus.COMPLETED, ToolCallStatus.FAILED)
 
 /** [calls]' activity message: a summary line aggregated by kind, and each call folded below it. */
 internal fun renderActivity(texts: Texts, language: LanguageTag?, calls: Collection<CallState>): FormattedText {
-    val summary = summaryLine(texts, language, calls)
-    val details = calls.joinToString("\n") { detailLine(texts, language, it) }
+    val groups = groupedByKind(calls)
+    val summary = summaryLine(texts, language, groups)
+    val details = groups.flatten().joinToString("\n") { detailLine(texts, language, it) }
     return FormattedText("$summary\n$details", listOf(Span(BLOCKQUOTE, summary.length + 1, details.length)))
 }
 
-/** The calls grouped by kind in the order each kind first appears, each delegation alone, aggregated into one line. */
-private fun summaryLine(texts: Texts, language: LanguageTag?, calls: Collection<CallState>): String {
+/** [calls] grouped by kind in the order each kind first appears, each delegation alone. */
+private fun groupedByKind(calls: Collection<CallState>): Collection<List<CallState>> {
     val byKind = LinkedHashMap<Any, MutableList<CallState>>()
     for (call in calls) byKind.getOrPut(if (call.delegates) call else call.activity) { mutableListOf() } += call
-    return byKind.values.joinToString(" · ") { kindCalls ->
+    return byKind.values
+}
+
+/** One aggregate line per kind of [groups], in order. */
+private fun summaryLine(texts: Texts, language: LanguageTag?, groups: Collection<List<CallState>>): String =
+    groups.joinToString(" · ") { kindCalls ->
         val first = kindCalls.first()
         if (first.delegates) return@joinToString delegation(texts, language, first)
         val kind = first.activity
@@ -47,7 +53,6 @@ private fun summaryLine(texts: Texts, language: LanguageTag?, calls: Collection<
             "${texts.text(verbKey, language)} $noun"
         }
     }
-}
 
 /** One call, folded under the summary line, after the sub-agent that made it. */
 private fun detailLine(texts: Texts, language: LanguageTag?, call: CallState): String {
@@ -66,7 +71,7 @@ private fun delegation(texts: Texts, language: LanguageTag?, call: CallState): S
     return texts.text(key, language, "agent" to shortened(ReviewText.escape(call.title)))
 }
 
-/** One call, without the sub-agent that made it. */
+/** One call, without the sub-agent that made it: the summary already names its verb. */
 private fun callLine(texts: Texts, language: LanguageTag?, call: CallState): String {
     val title = shortened(ReviewText.escape(call.title))
     return when (call.status) {
@@ -78,15 +83,7 @@ private fun callLine(texts: Texts, language: LanguageTag?, call: CallState): Str
         ToolCallStatus.BACKGROUNDED ->
             texts.text(TextKeys.ACTIVITY_BACKGROUNDED, language, "tool" to call.tool, "title" to title)
 
-        else -> {
-            val past = call.status != ToolCallStatus.RUNNING
-            if (call.activity == ToolActivity.SEARCH) {
-                val key = if (past) TextKeys.ACTIVITY_SEARCHED else TextKeys.ACTIVITY_SEARCHING
-                return texts.text(key, language, "title" to title) + suffix(texts, language, call)
-            }
-            val verb = texts.text(TextKeys.activityVerb(call.activity.id, past), language)
-            "$verb $title${suffix(texts, language, call)}"
-        }
+        else -> title + suffix(texts, language, call)
     }
 }
 

@@ -31,7 +31,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * the final message in place of the current segment's, its later parts after it.
  *
  * An editor coroutine shows each segment's latest preview at the chat's preview pace, the lower segments first; a
- * second one shows the activity message of each segment's stretch of tool calls, the same way.
+ * second one shows the activity message of each segment's stretch of tool calls, the same way, holding off a
+ * segment's first activity message until its own text message is sent.
  */
 internal class TelegramReply(
     request: ReplyRequest,
@@ -194,6 +195,7 @@ internal class TelegramReply(
             val (index, segment) = segments.entries.firstOrNull { it.value.pending != null } ?: return
             val text = segment.pending ?: return
             segment.pending = null
+            if (segment.message == null) segment.sending = true
             index to text
         }
         show(index, text)
@@ -221,7 +223,7 @@ internal class TelegramReply(
     private suspend fun runActivityEditor() {
         while (true) {
             activityWake.receive()
-            while (synchronized(lock) { activities.values.any { it.pending != null } }) {
+            while (synchronized(lock) { activities.entries.any { it.value.pending != null && ready(it) } }) {
                 try {
                     outbox.previewPaced(target) { showActivityNext() }
                 } catch (e: CancellationException) {
@@ -236,12 +238,19 @@ internal class TelegramReply(
 
     private suspend fun showActivityNext() {
         val (index, text) = synchronized(lock) {
-            val (index, block) = activities.entries.firstOrNull { it.value.pending != null } ?: return
+            val (index, block) = activities.entries.firstOrNull { it.value.pending != null && ready(it) } ?: return
             val text = block.pending ?: return
             block.pending = null
             index to text
         }
         showActivity(index, text)
+    }
+
+    /** Whether the activity of [entry] may send, holding off its first message while its segment's text is pending. */
+    private fun ready(entry: Map.Entry<Int, ActivitySegment>): Boolean {
+        if (entry.value.message != null) return true
+        val text = segments[entry.key] ?: return true
+        return text.message != null || (text.pending == null && !text.sending)
     }
 
     /** Shows the pending activity update of every segment once, in order. */
@@ -314,8 +323,11 @@ internal class TelegramReply(
         val shown = formatted(text, Markup.MARKDOWN).clipped(MAX_MESSAGE_LENGTH)
         val message = synchronized(lock) {
             val segment = segments.getValue(index)
-            if (shown == segment.shown) return
-            segment.message
+            if (shown == segment.shown) {
+                segment.sending = false
+                return
+            }
+            segment.message.also { if (it == null) segment.sending = true }
         }
         try {
             if (message == null) send(index, shown) else edit(index, message, shown)
@@ -325,6 +337,11 @@ internal class TelegramReply(
             }
             outbox.checkToken(e)
             throw e
+        } finally {
+            if (message == null) {
+                synchronized(lock) { segments.getValue(index).sending = false }
+                activityWake.trySend(Unit)
+            }
         }
     }
 
@@ -337,6 +354,7 @@ internal class TelegramReply(
             segment.shown = text
             quote = null
         }
+        activityWake.trySend(Unit)
         return id
     }
 
@@ -399,6 +417,9 @@ internal class TelegramReply(
 
         /** The latest text not shown yet. */
         var pending: String? = null
+
+        /** Whether the segment's first message is being sent. */
+        var sending = false
     }
 
     /** The activity message of one segment's stretch of tool calls, in the order they started. */
