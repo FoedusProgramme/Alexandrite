@@ -49,6 +49,7 @@ class ToolRegistryTest {
             assertEquals(listOf("fs.glob", "fs.read", "fs.write", "notes.find"), offered("coder"))
             assertEquals(
                 listOf(
+                    "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
                     "exec.run",
@@ -108,7 +109,10 @@ class ToolRegistryTest {
             fun offered(agent: String) = registry.offered(AgentId(agent)).map { it.definition.name }
 
             assertEquals(emptyList(), offered("coder"))
-            assertEquals(listOf("agent.jobs", "agent.stop", "fs.read", "permission.status"), offered("helper"))
+            assertEquals(
+                listOf("agent.delegate", "agent.jobs", "agent.stop", "fs.read", "permission.status"),
+                offered("helper"),
+            )
         }
     }
 

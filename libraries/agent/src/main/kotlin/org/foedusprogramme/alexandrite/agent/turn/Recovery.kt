@@ -2,6 +2,8 @@ package org.foedusprogramme.alexandrite.agent.turn
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import org.foedusprogramme.alexandrite.agent.delegation.DELEGATE_TOOL
+import org.foedusprogramme.alexandrite.agent.delegation.RUN_INTERRUPTED_RESULT
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.agent.job.InterruptedJob
@@ -16,6 +18,7 @@ import org.foedusprogramme.alexandrite.agent.tool.textResult
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
@@ -39,8 +42,8 @@ internal class Recovery(
     private val interruptedJobs: InterruptedJobs,
 ) {
     /**
-     * Answers the open calls of each unended turn, as interrupted where they waited for an approver and as cancelled
-     * otherwise, notes the interruption and ends the turn as shut down.
+     * Answers the open calls of each unended turn, as interrupted where they waited for an approver or a sub-agent run
+     * and as cancelled otherwise, notes the interruption and ends the turn as shut down.
      */
     suspend fun run() {
         val waited = awaiting.all()
@@ -85,6 +88,7 @@ internal class Recovery(
         val entries = transcripts.turnEntries(turn.id)
         val open = openCalls(entries)
         val interrupted = open.filter { (turn.id to it.id) in waited }
+        val runs = open.filter { it.name == DELEGATE_TOOL && (turn.id to it.id) !in waited }
         val state = conversations.conversation(turn.conversation)?.state
         if (state != ConversationState.ACTIVE) {
             logger.warn(
@@ -99,21 +103,28 @@ internal class Recovery(
             val notice = NoticeEntry(null, notices.text(turn.key, TextKeys.INTERRUPTED), NoticeKind.INTERRUPTED)
             val results = open.map { call ->
                 val request = waited[turn.id to call.id]
-                if (request == null) {
-                    textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
-                } else {
-                    textResult(call, Refusals.INTERRUPTED, ToolOutcome.NotRun(NotRunReason.INTERRUPTED, request))
+                when {
+                    request != null ->
+                        textResult(call, Refusals.INTERRUPTED, ToolOutcome.NotRun(NotRunReason.INTERRUPTED, request))
+
+                    call.name == DELEGATE_TOOL ->
+                        textResult(call, RUN_INTERRUPTED_RESULT, ToolOutcome.NotRun(NotRunReason.INTERRUPTED))
+
+                    else -> textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
                 }
             }
             transcripts.append(turn.id, results + notice)
         }
         conversations.endTurn(turn.id, TurnEndKind.SHUT_DOWN)
+        if (turn.kind == TurnKind.DELEGATED && state == ConversationState.ACTIVE) {
+            conversations.sealDelegated(turn.conversation)
+        }
         val active = state == ConversationState.ACTIVE
         logger.info(
             "Turn {} of {} never ended: it ends as shut down, with {} open call(s) answered as cancelled",
             turn.id,
             turn.key,
-            if (active) open.size - interrupted.size else 0,
+            if (active) open.size - interrupted.size - runs.size else 0,
         )
         if (active && interrupted.isNotEmpty()) {
             logger.info(
@@ -121,6 +132,14 @@ internal class Recovery(
                 turn.id,
                 turn.key,
                 interrupted.size,
+            )
+        }
+        if (active && runs.isNotEmpty()) {
+            logger.info(
+                "Turn {} of {} never ended while it waited for {} sub-agent run(s): they are answered as interrupted",
+                turn.id,
+                turn.key,
+                runs.size,
             )
         }
     }

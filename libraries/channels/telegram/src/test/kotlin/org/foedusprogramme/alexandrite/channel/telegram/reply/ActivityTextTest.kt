@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.format.Span
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.testkit.testTexts
@@ -20,7 +21,8 @@ class ActivityTextTest {
         title: String = "notes.md",
         status: ToolCallStatus = ToolCallStatus.RUNNING,
         content: TurnEvent.Content? = null,
-    ): CallState = CallState(tool, activity, title).apply {
+        agent: AgentId? = null,
+    ): CallState = CallState(tool, activity, title, agent).apply {
         this.status = status
         this.content = content
     }
@@ -123,6 +125,45 @@ class ActivityTextTest {
         assertEquals(81, title.removePrefix("Reading ").length)
         assertEquals(true, title.endsWith("…"))
         assertEquals(false, '‮' in title)
+    }
+
+    @Test
+    fun `a delegation stands alone in the summary, and its sub-agent's calls are aggregated and named after it`() {
+        val reviewer = AgentId("reviewer")
+        val delegation = call(tool = "agent.delegate", activity = ToolActivity.OTHER, title = "reviewer")
+        val calls = listOf(
+            delegation,
+            call(title = "a.kt", status = ToolCallStatus.COMPLETED, agent = reviewer),
+            call(title = "b.kt", status = ToolCallStatus.COMPLETED, agent = reviewer),
+            call("fs.edit", ToolActivity.EDIT, "c.kt", ToolCallStatus.WAITING_APPROVAL, agent = reviewer),
+        )
+
+        val running = renderActivity(texts, null, calls)
+        delegation.status = ToolCallStatus.COMPLETED
+        calls.last().status = ToolCallStatus.NOT_RUN
+        val done = renderActivity(texts, null, calls)
+
+        assertEquals(
+            "Delegating to reviewer · Read 2 files · Editing 1 file\nDelegating to reviewer\nreviewer · Read a.kt\n" +
+                "reviewer · Read b.kt\nreviewer · Waiting for approval: fs.edit c.kt",
+            running.text,
+        )
+        assertEquals(
+            "Delegated to reviewer · Read 2 files · Not run: 1 file\nDelegated to reviewer\nreviewer · Read a.kt\n" +
+                "reviewer · Read b.kt\nreviewer · Not run: fs.edit c.kt",
+            done.text,
+        )
+    }
+
+    @Test
+    fun `a failed delegation says so, and a refused one is shown like any call not run`() {
+        val failed = call("agent.delegate", ToolActivity.OTHER, "writer", ToolCallStatus.FAILED)
+        val refused = call("agent.delegate", ToolActivity.OTHER, "nobody", ToolCallStatus.NOT_RUN)
+
+        assertEquals(
+            "Delegated to writer · Not run: 1 tool\nDelegated to writer — failed\nNot run: agent.delegate nobody",
+            renderActivity(texts, null, listOf(failed, refused)).text,
+        )
     }
 
     @Test

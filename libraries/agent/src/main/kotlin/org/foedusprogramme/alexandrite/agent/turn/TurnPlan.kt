@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
+import org.foedusprogramme.alexandrite.agent.delegation.Delegation
 import org.foedusprogramme.alexandrite.agent.job.EndedJob
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
@@ -39,4 +40,7 @@ internal sealed interface TurnSource {
 
     /** The result of [job], which ended in the background. */
     class FromJob(val job: EndedJob) : TurnSource
+
+    /** The task of the sub-agent run [delegation]. */
+    class FromDelegation(val delegation: Delegation) : TurnSource
 }

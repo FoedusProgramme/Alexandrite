@@ -8,6 +8,8 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import kotlin.test.Test
@@ -132,6 +134,32 @@ class ActivityMessageTest {
 
         assertEquals(listOf("sendMessage Reading 1 file\nReading notes.md"), output.shown())
     }
+
+    @Test
+    fun `a sub-agent's calls join the activity message under its profile, apart from the turn's own call ids`() =
+        runTest {
+            val output = output()
+            val reply = output.open()
+            val run = RunId("r-1")
+            val delegate = ToolCallId("c1")
+
+            reply.event(TurnEvent.ToolCallStarted(delegate, "agent.delegate", ToolActivity.OTHER, "reviewer"))
+            reply.event(
+                TurnEvent.ToolCallStarted(delegate, "fs.read", ToolActivity.READ, "a.kt", run, AgentId("reviewer")),
+            )
+            reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED, null, run))
+            advanceTimeBy(1_100)
+            reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED))
+            advanceTimeBy(1_100)
+
+            assertEquals(
+                listOf(
+                    "sendMessage Delegating to reviewer · Read 1 file\nDelegating to reviewer\nreviewer · Read a.kt",
+                    "editMessageText Delegated to reviewer · Read 1 file\nDelegated to reviewer\nreviewer · Read a.kt",
+                ),
+                output.shown(),
+            )
+        }
 
     @Test
     fun `an update of a call the channel never saw started is ignored`() = runTest {

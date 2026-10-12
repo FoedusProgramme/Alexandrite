@@ -101,8 +101,13 @@ internal class ToolExecutor(
             is GateResult.Admitted -> {
                 calls.starting(call.id)
                 calls.running(call.id)
-                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint)
-                val result = runTool(turn, call, tool, arguments, limit, context)
+                val delegating = calls as? DelegatingTurn
+                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, delegating)
+                val result = if (tool is InTurnTool) {
+                    inTurn(turn, call, tool, arguments, context)
+                } else {
+                    runTool(turn, call, tool, arguments, limit, context)
+                }
                 val content = contentOf(tool.definition.activity, admission.preview, result)
                 calls.ended(call.id, statusOf(result.outcome), content)
                 ToolCallEnd(result, null, context.touchedPaths)
@@ -124,7 +129,7 @@ internal class ToolExecutor(
                 tool.execute(arguments, context)
             }
             val returned = try {
-                val foreground = minOf(jobs.foreground(turn.agent), timeout)
+                val foreground = if (turn.lineage == null) minOf(jobs.foreground(turn.agent), timeout) else timeout
                 withTimeoutOrNull(foreground) { running.await() } ?: run {
                     val job = jobs.detach(Detaching(turn, call, arguments, running, context, foreground, timeout))
                     if (job != null) {
@@ -151,6 +156,29 @@ internal class ToolExecutor(
             return ToolResultEntry(null, call.id, call.name, shaped(returned.content), outcome)
         } finally {
             if (!detached) context.close()
+        }
+    }
+
+    /** How [call] of [tool] ends, run in the turn's coroutine. */
+    private suspend fun inTurn(
+        turn: TurnInfo,
+        call: ToolCallPart,
+        tool: InTurnTool,
+        arguments: JsonObject,
+        context: AgentToolContext,
+    ): ToolResultEntry {
+        try {
+            val result = tool.call(arguments, context)
+            return ToolResultEntry(null, call.id, call.name, result.content, result.outcome)
+        } catch (e: CancellationException) {
+            if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
+            throw e
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
+            return failedResult(call, e)
+        } finally {
+            context.close()
         }
     }
 

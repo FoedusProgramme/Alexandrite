@@ -129,6 +129,7 @@ class ToolRoundsTest {
             assertEquals(1, shared.distinct().size)
             assertEquals(
                 listOf(
+                    "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
                     "fs.read",
@@ -370,6 +371,7 @@ class ToolRoundsTest {
             assertEquals(listOf(ToolChoice.Auto, ToolChoice.None), requests.map { it.toolChoice })
             assertEquals(
                 listOf(
+                    "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
                     "fs.read",
@@ -535,8 +537,8 @@ class ToolRoundsTest {
             assertEquals(
                 List(3) {
                     listOf(
-                        "agent.jobs", "agent.stop", "fs.glob", "fs.read", "fs.write", "permission.status",
-                        "profile.create", "profile.edit", "profile.list", "profile.remove",
+                        "agent.delegate", "agent.jobs", "agent.stop", "fs.glob", "fs.read", "fs.write",
+                        "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
                     ) to ToolChoice.Auto
                 },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
@@ -565,6 +567,7 @@ class ToolRoundsTest {
             assertEquals(
                 List(2) {
                     listOf(
+                        "agent.delegate",
                         "agent.jobs",
                         "agent.stop",
                         "fs.read",
@@ -596,6 +599,7 @@ class ToolRoundsTest {
             assertEquals(
                 List(2) {
                     listOf(
+                        "agent.delegate",
                         "agent.jobs",
                         "agent.stop",
                         "fs.read",

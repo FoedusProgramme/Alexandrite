@@ -132,8 +132,9 @@ internal class ApprovalDesk(
         val title = text(TextKeys.APPROVAL_TITLE, language, "id" to request.id)
         val requester = turn.actor?.let(::named) ?: text(TextKeys.APPROVAL_NOBODY, language)
         val chat = titles.title(turn.chat)?.let { "${ReviewText.escape(it)} (${turn.chat})" } ?: "${turn.chat}"
+        val agents = request.chain.ifEmpty { listOf(turn.agent) }.joinToString(" → ")
         val lines = mutableListOf(
-            text(TextKeys.APPROVAL_AGENT, language, "agent" to turn.agent),
+            text(TextKeys.APPROVAL_AGENT, language, "agent" to agents),
             text(TextKeys.APPROVAL_CHAT, language, "chat" to chat),
             text(TextKeys.APPROVAL_REQUESTER, language, "requester" to requester),
             text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason),

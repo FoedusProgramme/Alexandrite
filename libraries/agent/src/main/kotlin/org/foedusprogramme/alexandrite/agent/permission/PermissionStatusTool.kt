@@ -56,7 +56,8 @@ internal class PermissionStatusTool(
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn
         val now = clock.instant()
-        val lines = listOfNotNull(HEADER, mode(turn, now), principal(turn)) + rules(turn) + taint(turn, context)
+        val lines = listOfNotNull(HEADER, mode(turn, now), profiles(context), principal(turn)) + rules(turn) +
+            taint(turn, context)
         return ToolResult(lines.joinToString("\n"))
     }
 
@@ -83,13 +84,20 @@ internal class PermissionStatusTool(
         }
     }
 
+    /** What the profiles of a sub-agent run's chain tighten its mode to, null when none does. */
+    private fun profiles(context: ToolContext): String? {
+        val chain = (context as? AgentToolContext)?.delegating?.chain ?: return null
+        if (chain.modes.isEmpty()) return null
+        return "This sub-agent run ($chain) runs in ${strictest(chain.modes)} mode where the chat's is less strict."
+    }
+
     private fun principal(turn: TurnInfo): String? = when (Principal.of(turn)) {
         Principal.OPERATOR -> null
         else -> "This turn is no operator's, so its gated calls ask an administrator whatever the mode."
     }
 
     private fun rules(turn: TurnInfo): List<String> {
-        val inForce = rules.value.inForce(turn.agent, turn.conversation)
+        val inForce = rules.value.inForce(turn.agent, session(turn))
         if (inForce.isEmpty()) return listOf("Allow rules: none.")
         return listOf(RULES) + inForce.map(::described)
     }

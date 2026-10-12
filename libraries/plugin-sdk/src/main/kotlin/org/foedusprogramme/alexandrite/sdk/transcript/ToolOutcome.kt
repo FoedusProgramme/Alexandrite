@@ -106,8 +106,11 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The turn was cancelled before the call ran. */
         public val CANCELLED: NotRunReason = NotRunReason("cancelled")
 
-        /** The agent stopped while the call waited for an approver. */
+        /** The agent stopped while the call waited for an approver or for the sub-agent run it started. */
         public val INTERRUPTED: NotRunReason = NotRunReason("interrupted")
+
+        /** The turn's tree of sub-agent runs is as deep as it may grow. */
+        public val DELEGATION_LIMIT: NotRunReason = NotRunReason("delegation_limit")
 
         /** The values this version knows. */
         public val entries: List<NotRunReason> = listOf(
@@ -125,6 +128,7 @@ public value class NotRunReason internal constructor(public val id: String) {
             DECLINED,
             CANCELLED,
             INTERRUPTED,
+            DELEGATION_LIMIT,
         )
 
         /** The value of [id], which keeps an id this version does not know. */

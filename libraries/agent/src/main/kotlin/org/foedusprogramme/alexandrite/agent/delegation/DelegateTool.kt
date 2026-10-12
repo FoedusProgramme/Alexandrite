@@ -1,0 +1,132 @@
+package org.foedusprogramme.alexandrite.agent.delegation
+
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+import org.foedusprogramme.alexandrite.agent.profile.Profiles
+import org.foedusprogramme.alexandrite.agent.prompt.oneLine
+import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
+import org.foedusprogramme.alexandrite.agent.tool.CompanionTool
+import org.foedusprogramme.alexandrite.agent.tool.InTurnResult
+import org.foedusprogramme.alexandrite.agent.tool.InTurnTool
+import org.foedusprogramme.alexandrite.agent.tool.RenderedTool
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.di.Contribute
+import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
+import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
+import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
+import org.slf4j.LoggerFactory
+
+@Singleton
+@Contribute(Tool::class)
+internal class DelegateTool(private val delegator: Delegator, private val profiles: Profiles) :
+    CompanionTool,
+    RenderedTool,
+    InTurnTool {
+    override val definition: ToolDefinition = definition(DESCRIPTION)
+
+    override suspend fun definitionFor(turn: TurnInfo): ToolDefinition {
+        val listed = try {
+            profiles.all()
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            logger.warn("Turn {} offers {} without its profiles, which cannot be read: {}", turn.id, NAME, e.toString())
+            return definition
+        }
+        val lines = if (listed.isEmpty()) {
+            "No profile exists yet."
+        } else {
+            "Profiles:\n" + listed.joinToString("\n") { summary ->
+                val profile = summary.profile
+                "- ${profile.id} (${oneLine(profile.name)}): ${oneLine(profile.description)}"
+            }
+        }
+        return definition("$DESCRIPTION\n\n$lines")
+    }
+
+    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
+        ToolResult("$NAME runs only in a turn of the agent.", isError = true)
+
+    override suspend fun call(arguments: JsonObject, context: AgentToolContext): InTurnResult {
+        if (arguments["background"] != null) {
+            return problem(
+                "Background delegation is not available yet: leave out 'background', and wait for the result.",
+            )
+        }
+        val profile = string(arguments["profile"]) ?: return problem("Give 'profile', the id of a profile.")
+        val task = string(arguments["task"]) ?: return problem("Give 'task', the whole brief of the sub-agent.")
+        val fork = when (arguments["context"]?.let { string(it).orEmpty() } ?: FRESH) {
+            FRESH -> false
+            FORK -> true
+            else -> return problem("'context' is \"$FRESH\" or \"$FORK\".")
+        }
+        return delegator.delegate(profile, task, fork, context)
+    }
+
+    private fun definition(description: String): ToolDefinition = ToolDefinition(
+        name = NAME,
+        description = description,
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("profile") {
+                    put("type", "string")
+                    put("description", "The id of the profile that runs the task, one of those listed.")
+                }
+                putJsonObject("task") {
+                    put("type", "string")
+                    put(
+                        "description",
+                        "The whole brief: the sub-agent sees nothing else, so say what to do, what you know that it " +
+                            "needs (paths, names, constraints) and what to report back.",
+                    )
+                }
+                putJsonObject("context") {
+                    put("type", "string")
+                    put("enum", JsonArray(listOf(JsonPrimitive(FRESH), JsonPrimitive(FORK))))
+                    put(
+                        "description",
+                        "\"$FRESH\" (the default): the sub-agent starts with the task alone. \"$FORK\": it also " +
+                            "reads this conversation up to now.",
+                    )
+                }
+            }
+            put("required", JsonArray(listOf(JsonPrimitive("profile"), JsonPrimitive("task"))))
+            put("additionalProperties", false)
+        },
+        risk = ToolRisk.AGENT_STATE,
+        activity = ToolActivity.OTHER,
+        titleArguments = listOf("profile"),
+    )
+
+    private companion object {
+        const val NAME = DELEGATE_TOOL
+        const val FRESH = "fresh"
+        const val FORK = "fork"
+        const val DESCRIPTION = "Delegates one task to a sub-agent: a profile with instructions, a model and tools " +
+            "of its own, which runs it in a new conversation and returns only its final reply. Each of its tool " +
+            "calls needs the same permissions as yours, and it has no tool that you may not call. Use it for work " +
+            "that a fresh context does better, such as a review or a self-contained change, and give it the whole " +
+            "brief. This call waits until the sub-agent ends."
+    }
+}
+
+/** A string argument that is not blank, null for anything else. */
+private fun string(element: JsonElement?): String? =
+    (element as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+
+private fun problem(text: String): InTurnResult = InTurnResult(text, ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS))
+
+private val logger = LoggerFactory.getLogger(DelegateTool::class.java)

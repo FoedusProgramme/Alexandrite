@@ -175,6 +175,7 @@ class InitiatedTurnsTest {
             val request = model.requests.single()
             assertEquals(
                 listOf(
+                    "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
                     "fs.read",

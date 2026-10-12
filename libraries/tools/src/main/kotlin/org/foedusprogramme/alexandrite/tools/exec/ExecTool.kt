@@ -196,7 +196,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun isOperator(context: ToolContext): Boolean =
-        context.turn.actorIsAdmin && (context.turn.kind == TurnKind.MESSAGE || context.turn.kind == TurnKind.JOB)
+        context.turn.actorIsAdmin && context.turn.kind in OPERATOR_KINDS
 
     private sealed interface Inspection {
         class Problem(val text: String) : Inspection
@@ -210,3 +210,6 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == JsonNull }
 
 private fun home(): String? = System.getProperty("user.home")?.takeIf { it.isNotEmpty() }
+
+/** The kinds of turn whose admin actor makes them an operator's. */
+private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)

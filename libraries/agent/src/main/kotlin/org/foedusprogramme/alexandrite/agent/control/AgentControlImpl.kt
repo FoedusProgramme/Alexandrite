@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.context.ContextControl
 import org.foedusprogramme.alexandrite.agent.context.ContextRecords
+import org.foedusprogramme.alexandrite.agent.delegation.DelegatedRuns
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
@@ -100,11 +101,12 @@ internal class AgentControlImpl(
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val profileCatalog: Profiles,
+    private val runs: DelegatedRuns,
     private val clock: Clock,
 ) : AgentControl,
     ChatSettings {
     override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
-        (workers.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
+        (workers.statuses(chat) + runs.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
 
     override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
         val cancelled = workers.cancelRunning(chat, TurnCancelled(by))
@@ -115,12 +117,17 @@ internal class AgentControlImpl(
 
     override fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean {
         val cause = TurnCancelled(by)
-        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause)
+        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause) ||
+            runs.cancelTurn(turn, cause)
         if (found) logger.info("Turn {} is cancelled by {}", turn, who(by))
         return found
     }
 
-    override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean = background.stop(run, null, by)
+    override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean {
+        if (!runs.cancel(run, tree, TurnCancelled(by))) return background.stop(run, null, by)
+        logger.info("Run {}{} is cancelled by {}", run, if (tree) " and the runs below it" else "", who(by))
+        return true
+    }
 
     override fun jobs(chat: ChatAddress): List<JobStatus> = background.list(chat)
 

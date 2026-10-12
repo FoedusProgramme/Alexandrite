@@ -21,7 +21,7 @@ internal object TextKeys {
     /** Takes `{id}`. */
     const val APPROVAL_TITLE: String = "approval.title"
 
-    /** Takes `{agent}`. */
+    /** Takes `{agent}`, the agents from the root turn's down to the sub-agent that asks. */
     const val APPROVAL_AGENT: String = "approval.agent"
 
     /** Takes `{chat}`. */
@@ -135,6 +135,15 @@ internal object TextKeys {
 
     /** Takes `{added}` and `{removed}`. */
     const val ACTIVITY_DIFF: String = "activity.call.diff"
+
+    /** Takes `{agent}`, the profile of the sub-agent that a call runs. */
+    const val ACTIVITY_DELEGATING: String = "activity.delegate.present"
+
+    /** Takes `{agent}`. */
+    const val ACTIVITY_DELEGATED: String = "activity.delegate.past"
+
+    /** Takes `{agent}` and `{line}`, the line of a call that the sub-agent [agent] made. */
+    const val ACTIVITY_BY_AGENT: String = "activity.call.by_agent"
 
     private val VERBS: Map<String, Pair<String, String>> = mapOf(
         "read" to (ACTIVITY_VERB_READ_PRESENT to ACTIVITY_VERB_READ_PAST),

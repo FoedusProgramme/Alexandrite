@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.testkit.TestToolContext
+import org.foedusprogramme.alexandrite.testkit.testDelegatedTurn
 import org.foedusprogramme.alexandrite.testkit.testHardFloor
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.junit.jupiter.api.BeforeEach
@@ -321,11 +322,13 @@ class ExecToolTest {
     }
 
     @Test
-    fun `a vetted program reads only on an operator's message turn or the turn of a job one started`() {
+    fun `a vetted program reads only on an operator's message turn, a job one started or a run under either`() {
         val risks = listOf(
             operatorTurn() to "ls -la",
             operatorTurn(TurnKind.JOB) to "ls -la",
+            testDelegatedTurn(operatorTurn()) to "ls -la",
             testTurn() to "ls -la",
+            testDelegatedTurn(testTurn()) to "ls -la",
             operatorTurn(TurnKind.COMMAND) to "ls -la",
             testTurn(TurnKind.HEARTBEAT) to "ls -la",
             operatorTurn() to "ls -R",
@@ -333,7 +336,7 @@ class ExecToolTest {
             operatorTurn() to "du -sh .",
         ).map { (turn, command) -> review(command, fs.context(turn = turn)).risk }
 
-        assertEquals(List(2) { ToolRisk.READ_ONLY } + List(6) { ToolRisk.EXEC }, risks)
+        assertEquals(List(3) { ToolRisk.READ_ONLY } + List(7) { ToolRisk.EXEC }, risks)
     }
 
     @Test

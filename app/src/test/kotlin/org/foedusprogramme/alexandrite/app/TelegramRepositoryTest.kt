@@ -130,6 +130,7 @@ class TelegramRepositoryTest {
         assertEquals("What does greet do?", requests.first().asked)
         assertEquals(
             listOf(
+                "agent.delegate",
                 "agent.jobs",
                 "agent.stop",
                 "command.exec",

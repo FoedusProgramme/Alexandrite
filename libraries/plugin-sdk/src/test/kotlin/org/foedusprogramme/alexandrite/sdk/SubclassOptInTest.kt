@@ -637,6 +637,7 @@ class SubclassOptInTest {
             override suspend fun newConversation(key: AgentChatKey) = Rotation(null, info(key, ConversationKind.USER_LANE))
             override suspend fun createDelegated(key: AgentChatKey, lineage: TurnLineage, fork: ForkPoint?) =
                 info(key, ConversationKind.DELEGATED).toBuilder().lineage(lineage).fork(fork).build()
+            override suspend fun sealDelegated(id: ConversationId) = false
             override suspend fun conversation(id: ConversationId): ConversationInfo? = null
             override suspend fun chats(agent: AgentId) = listOf(ChatAddress.parse("t:a:b"))
             override suspend fun startTurn(turn: TurnInfo) {}

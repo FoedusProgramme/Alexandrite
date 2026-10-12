@@ -19,6 +19,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.slf4j.LoggerFactory
@@ -86,11 +87,11 @@ internal class TelegramReply(
             if (!accepts("A turn event", current)) return
             val block = when (event) {
                 is TurnEvent.ToolCallStarted -> activities.getOrPut(current, ::ActivitySegment).also {
-                    it.calls[event.id] = CallState(event.tool, event.activity, event.title)
+                    it.calls[event.run to event.id] = CallState(event.tool, event.activity, event.title, event.agent)
                 }
 
                 is TurnEvent.ToolCallUpdated -> activities[current]?.also { block ->
-                    val call = block.calls[event.id] ?: return
+                    val call = block.calls[event.run to event.id] ?: return
                     call.status = event.status
                     call.content = event.content
                 } ?: return
@@ -402,7 +403,8 @@ internal class TelegramReply(
 
     /** The activity message of one segment's stretch of tool calls, in the order they started. */
     private class ActivitySegment {
-        val calls = LinkedHashMap<ToolCallId, CallState>()
+        /** By the sub-agent run that made each call, null for the turn's own, and the call's id. */
+        val calls = LinkedHashMap<Pair<RunId?, ToolCallId>, CallState>()
 
         /** The message that shows the calls, null before it is sent. */
         var message: Long? = null

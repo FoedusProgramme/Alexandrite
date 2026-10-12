@@ -18,6 +18,8 @@ internal class AgentToolContext(
     private val workspaces: Workspaces,
     clearance: Clearance?,
     val taint: TurnTaint,
+    /** What a sub-agent run that the call starts takes from its turn, null outside a turn. */
+    val delegating: DelegatingTurn? = null,
 ) : ToolContext {
     @Volatile
     private var open = true

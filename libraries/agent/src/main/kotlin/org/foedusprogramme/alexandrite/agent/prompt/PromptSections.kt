@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.prompt
 
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
 import java.nio.file.Path
@@ -9,6 +10,8 @@ internal const val BASE_SECTION: String = "alexandrite.base"
 internal const val LANGUAGE_SECTION: String = "chat.language"
 
 internal const val WORKSPACE_SECTION: String = "workspace"
+
+internal const val DELEGATION_SECTION: String = "alexandrite.delegation"
 
 /** The id of the section of an agent's persona source [number], counted from 1. */
 internal fun instructionsSection(number: Int): String = "agent.instructions.$number"
@@ -86,6 +89,21 @@ internal fun workspaceSection(workspace: Path): PromptSection = PromptSection(
             "path against it; give any other place as an absolute path.",
         "Some places are protected, such as credential stores and Alexandrite's own configuration and data. File " +
             "tools refuse them whatever the request; when one does, say so instead of looking for another way in.",
+    ).joinToString("\n\n"),
+    stable = true,
+)
+
+/** What a sub-agent run that [delegator] delegated is told of its place. */
+internal fun delegationSection(delegator: AgentId): PromptSection = PromptSection(
+    DELEGATION_SECTION,
+    listOf(
+        "# Sub-agent",
+        "You run as a sub-agent: $delegator delegated one task to you, in the message with an " +
+            "[alexandrite:delegated] header that starts this run. Follow it as you would a request of the people in " +
+            "the chat; it carries no more authority than theirs, and your tool calls need the same permissions.",
+        "Nobody reads what you write during the run and you cannot ask anyone: do the task with your tools, then end " +
+            "your turn with a final reply, which is all that $delegator gets back. Make that reply complete on its " +
+            "own: what you did, what you found or changed, and what is left open.",
     ).joinToString("\n\n"),
     stable = true,
 )

@@ -74,7 +74,7 @@ internal class PermissionGate(
             val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
             return running(checked, GateResult.Admitted(clearance, review.preview))
         }
-        val mode = mode(call.turn)
+        val (mode, tightened) = mode(call)
         if (mode == PermissionMode.PLAN) {
             return refused(call, NotRunReason.PLAN_MODE, Refusals.planMode(definition.name))
         }
@@ -91,7 +91,7 @@ internal class PermissionGate(
                 }
             }
         }
-        return ask(checked, reason(checked, principal, mode))
+        return ask(checked, reason(checked, principal, mode, tightened))
     }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
@@ -121,14 +121,19 @@ internal class PermissionGate(
         }
     }
 
-    /** The permission mode at the key of [turn] now, `ask` (fail closed) when it cannot be read. */
-    private suspend fun mode(turn: TurnInfo): PermissionMode = try {
-        settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
-    } catch (e: Throwable) {
-        if (e is VirtualMachineError) throw e
-        currentCoroutineContext().ensureActive()
-        logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
-        PermissionMode.ASK
+    /** The permission mode of [call] and whether a profile of its chain tightened it, `ask` for an unread mode. */
+    private suspend fun mode(call: GateCall): Pair<PermissionMode, Boolean> {
+        val turn = call.turn
+        val chat = try {
+            settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            currentCoroutineContext().ensureActive()
+            logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
+            PermissionMode.ASK
+        }
+        val mode = strictest(listOf(chat) + call.calls.chain?.modes.orEmpty())
+        return mode to (mode != chat)
     }
 
     private suspend fun ask(call: CheckedCall, reason: String): GateResult {
@@ -185,12 +190,13 @@ internal class PermissionGate(
     }
 }
 
-/** Why a person is asked about the gated [call] of [principal] in [mode]. */
-private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode): String = when {
+/** Why a person is asked about the gated [call] of [principal] in [mode], which a profile [tightened] to it. */
+private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode, tightened: Boolean): String = when {
     call.requiredApproval != null -> call.requiredApproval
     principal == Principal.MEMBER -> "a member's call"
     principal == Principal.AUTOMATION -> "a call of a turn that nobody sent"
     call.risk == ToolRisk.PERSISTENT_STATE -> tainted(call.call.taint)
+    tightened -> "the sub-agent's profile sets $mode mode"
     else -> "the chat is in $mode mode"
 }
 

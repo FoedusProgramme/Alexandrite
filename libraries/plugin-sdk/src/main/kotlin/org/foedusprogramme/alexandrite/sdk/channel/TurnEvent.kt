@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.sdk.channel
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import java.nio.file.Path
@@ -18,15 +20,21 @@ public interface TurnEvent {
         public val tool: String,
         public val activity: ToolActivity,
         public val title: String,
+        /** The sub-agent run that made the call, null for a call of the turn itself. */
+        public val run: RunId? = null,
+        /** The profile of [run], null for a call of the turn itself. */
+        public val agent: AgentId? = null,
     ) : TurnEvent
 
-    /** Call [id] now has [status], shown with [content]. */
+    /** Call [id] of [run] now has [status], shown with [content]. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class ToolCallUpdated(
         public val id: ToolCallId,
         public val status: ToolCallStatus,
         public val content: Content? = null,
+        /** The sub-agent run that made the call, null for a call of the turn itself. */
+        public val run: RunId? = null,
     ) : TurnEvent
 
     /** A fragment of the model's reasoning. */

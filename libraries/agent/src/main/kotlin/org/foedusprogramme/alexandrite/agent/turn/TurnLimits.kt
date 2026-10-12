@@ -1,6 +1,5 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
-import org.foedusprogramme.alexandrite.agent.config.AgentConfig
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
@@ -30,11 +29,11 @@ internal enum class TurnLimit(
     BUDGET(NoticeKind.BUDGET, TextKeys.BUDGET, NotRunReason.BUDGET, "Not run: the turn used up its token budget."),
 }
 
-/** The unstored entry that asks the model to sum up the turn that reached [limit] of [config]. */
-internal fun limitEntry(limit: TurnLimit, config: AgentConfig): UserEntry {
+/** The unstored entry that asks the model to sum up the turn that reached [limit] of [maxRounds] or [maxTurnTokens]. */
+internal fun limitEntry(limit: TurnLimit, maxRounds: Int?, maxTurnTokens: Long?): UserEntry {
     val reached = when (limit) {
-        TurnLimit.ROUNDS -> "its limit of tool rounds (${config.maxRounds})"
-        TurnLimit.BUDGET -> "its token budget (${config.maxTurnTokens} tokens)"
+        TurnLimit.ROUNDS -> "its limit of tool rounds ($maxRounds)"
+        TurnLimit.BUDGET -> maxTurnTokens?.let { "its token budget ($it tokens)" } ?: "its token budget"
     }
     val text = "[alexandrite:limit]\n" +
         "This turn reached $reached, so this response can call no tool. Say what you have done, what is left and " +

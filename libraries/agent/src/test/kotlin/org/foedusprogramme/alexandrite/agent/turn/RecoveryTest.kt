@@ -3,6 +3,9 @@ package org.foedusprogramme.alexandrite.agent.turn
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
+import org.foedusprogramme.alexandrite.agent.delegation.DELEGATE_TOOL
+import org.foedusprogramme.alexandrite.agent.delegation.DELEGATION_SOURCE
+import org.foedusprogramme.alexandrite.agent.delegation.RUN_INTERRUPTED_RESULT
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.job.BackgroundJob
 import org.foedusprogramme.alexandrite.agent.job.InterruptedJob
@@ -14,11 +17,14 @@ import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
+import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.store.TurnRecord
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
@@ -141,6 +147,54 @@ class RecoveryTest {
     }
 
     @Test
+    fun `a run left running is answered and sealed, and the call that delegated it is answered as interrupted`() {
+        val conversation = blocking { store.conversations.current(key).id }
+        val root = blocking { seed("t-1", conversation, listOf(message("Review it."), delegated("d"))) }
+        val lineage = TurnLineage(RunId("r-1"), root, conversation, ToolCallId("d"), root, conversation, 1)
+        val task = UserEntry(null, listOf(TextPart("Review it.")), UserOrigin.SystemWritten(DELEGATION_SOURCE))
+        val child = blocking { store.conversations.createDelegated(key, lineage).id }
+        val run = blocking {
+            clock.now = clock.now.plusSeconds(60)
+            val turn = TurnInfo.builder(TurnId("t-run"), key.chat, child, TurnKind.DELEGATED)
+                .actor(testUser())
+                .agent(key.agent)
+                .lineage(lineage)
+                .replyTarget(ReplyTarget.CALLER)
+                .key(key)
+                .build()
+            store.conversations.startTurn(turn)
+            store.transcripts.append(turn.id, listOf(task, calls("a")))
+            turn.id
+        }
+
+        val lines = recovered()
+
+        val interrupted = ToolResultEntry(
+            null,
+            ToolCallId("d"),
+            DELEGATE_TOOL,
+            listOf(TextPart(RUN_INTERRUPTED_RESULT)),
+            ToolOutcome.NotRun(NotRunReason.INTERRUPTED),
+        )
+        assertEquals(listOf(message("Review it."), delegated("d"), interrupted, notice), blocking { entries(root) })
+        assertEquals(listOf(task, calls("a"), cancelled("a"), notice), blocking { entries(run) })
+        assertEquals(
+            listOf(TurnEndKind.SHUT_DOWN, TurnEndKind.SHUT_DOWN),
+            listOf(root, run).map { blocking { record(it) }?.end },
+        )
+        assertEquals(ConversationState.SEALED, blocking { store.conversations.conversation(child) }?.state)
+        assertEquals(
+            listOf(
+                endedLine("t-1", 0),
+                "INFO Turn t-1 of $key never ended while it waited for 1 sub-agent run(s): they are answered as " +
+                    "interrupted",
+                endedLine("t-run", 1),
+            ),
+            lines,
+        )
+    }
+
+    @Test
     fun `unended turns are ended oldest first, also in a sealed conversation, which takes no entries`() {
         val sealed = blocking { store.conversations.current(key).id }
         val older = blocking { seed("t-older", sealed, listOf(message("Read it."), calls("a"))) }
@@ -238,6 +292,12 @@ class RecoveryTest {
     private fun calls(vararg ids: String): AssistantEntry = AssistantEntry(
         null,
         ids.map { ToolCallPart(ToolCallId(it), "fs.read", "{}") },
+        ModelRef(EndpointId("scripted"), "test-model"),
+    )
+
+    private fun delegated(id: String): AssistantEntry = AssistantEntry(
+        null,
+        listOf(ToolCallPart(ToolCallId(id), DELEGATE_TOOL, """{"profile": "reviewer", "task": "Review it."}""")),
         ModelRef(EndpointId("scripted"), "test-model"),
     )
 

@@ -92,6 +92,7 @@ class RepositoryQuestionTest {
         val requests = model.requests
         assertEquals(
             listOf(
+                "agent.delegate",
                 "agent.jobs",
                 "agent.stop",
                 "command.exec",

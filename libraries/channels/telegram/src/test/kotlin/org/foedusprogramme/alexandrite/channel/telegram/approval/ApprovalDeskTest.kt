@@ -30,6 +30,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -39,6 +40,7 @@ import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.testkit.testDelegatedTurn
 import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testTexts
 import org.foedusprogramme.alexandrite.testkit.testTurn
@@ -153,6 +155,20 @@ class ApprovalDeskTest {
         assertTrue("Requested by: Bob" in member, member)
         assertTrue("Requested by: nobody: the agent started this turn itself" in desk.shown(ADA)[1])
     }
+
+    @Test
+    fun `a sub-agent's request is asked in the chat of the admin's root turn and names the chain of agents`() =
+        runTest {
+            val desk = Desk(this)
+            val run = testDelegatedTurn(turnOf(ada, ADA))
+            val chain = listOf(AgentId.MAIN, AgentId("reviewer"))
+
+            asking(desk, request(run).rebuildChain(chain))
+            advanceTimeBy(5.seconds)
+
+            val text = desk.api.messages.getValue(ADA to 101L)
+            assertTrue(text.startsWith("Approval needed (#k3x9)\nAgent: main → reviewer\nChat: "), text)
+        }
 
     @Test
     fun `a request that no admin can see is answered that no administrator can be reached`() = runTest {
@@ -456,6 +472,9 @@ class ApprovalDeskTest {
 
     private fun buttons(keyboard: InlineKeyboardMarkup): String =
         keyboard.inlineKeyboard.flatten().joinToString("|", "[", "]") { it.text }
+
+    private fun ApprovalRequest.rebuildChain(chain: List<AgentId>) =
+        ApprovalRequest(id, turn, tool, risk, arguments, preview, reason, always, chain)
 
     private fun turnOf(actor: ChatUser, chat: Long): TurnInfo = testTurn(chat = ChatAddress(WORK, "$chat")) {
         actor(actor)
