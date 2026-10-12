@@ -149,6 +149,20 @@ internal object OneBotActions {
 
     private val changing: List<Row> = listOf(
         Row(
+            name = "delete_group_file",
+            said = "The group file was deleted.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("file_id", "The id the group file is known by, which listing its files gives."),
+                Parameter(
+                    "busid",
+                    "Which part of the group's files the file is in, which listing its files gives.",
+                    Kind.NUMBER,
+                ),
+            ),
+            extension = true,
+        ),
+        Row(
             name = "delete_msg",
             said = "The message was taken back.",
             parameters = listOf(message("The message to take back.")),
@@ -286,8 +300,33 @@ internal object OneBotActions {
     private fun message(what: String = "The message to read."): Parameter =
         Parameter(MESSAGE_ID, "$what Default: the message this turn is about.", Kind.NUMBER, required = false)
 
+    /** What a group's files are, which an implementation that offers the extension reports. */
+    private val fileReading: List<Row> = listOf(
+        Row(
+            name = "get_group_root_files",
+            said = "The files of the group were read.",
+            parameters = listOf(Parameter("group_id", "The group.", Kind.NUMBER)),
+            extension = true,
+        ),
+        Row(
+            name = "get_group_files_by_folder",
+            said = "The files of that folder were read.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("folder_id", "The folder to read, as the group names it."),
+            ),
+            extension = true,
+        ),
+        Row(
+            name = "get_group_file_system_info",
+            said = "What the group's files hold was read.",
+            parameters = listOf(Parameter("group_id", "The group.", Kind.NUMBER)),
+            extension = true,
+        ),
+    )
+
     /** Everything this bot may be asked for, the reads first. */
-    val rows: List<Row> = reading + changing
+    val rows: List<Row> = reading + fileReading + changing
 
     private val byName: Map<String, Row> = rows.associateBy(Row::name)
 
