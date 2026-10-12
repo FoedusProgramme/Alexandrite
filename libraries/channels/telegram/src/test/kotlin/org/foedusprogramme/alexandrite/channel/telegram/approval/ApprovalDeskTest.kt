@@ -274,28 +274,30 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `a long preview in parts is folded in each part, and the outcome goes below the fold`() = runTest {
-        val desk = Desk(this)
-        val diff = ReviewPreview.Diff(
-            Path.of("/srv/notes.md"),
-            (1..200).joinToString("\n") {
-                "+line $it of the new file"
-            },
-        )
+    fun `a long preview in parts is folded in each part, and the outcome goes below the fold on every part`() =
+        runTest {
+            val desk = Desk(this)
+            val diff = ReviewPreview.Diff(
+                Path.of("/srv/notes.md"),
+                (1..200).joinToString("\n") {
+                    "+line $it of the new file"
+                },
+            )
 
-        asking(desk, request(preview = diff))
-        advanceTimeBy(10.seconds)
-        desk.press(ada, "apv:k3x9:d", message = 102)
-        advanceTimeBy(5.seconds)
+            asking(desk, request(preview = diff))
+            advanceTimeBy(10.seconds)
+            desk.press(ada, "apv:k3x9:d", message = 102)
+            advanceTimeBy(5.seconds)
 
-        val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
-        val start = first.first.indexOf("+line 1 ")
-        assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
-        assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
-        val edit = desk.api.calls("editMessageText").single()
-        assertEquals("${second.first}\n\nDenied by Ada.", edit.text)
-        assertEquals(second.second, edit.entities)
-    }
+            val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
+            val start = first.first.indexOf("+line 1 ")
+            assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
+            assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
+            val (editFirst, editSecond) = desk.api.calls("editMessageText")
+            assertEquals("${first.first}\n\nDenied by Ada.", editFirst.text)
+            assertEquals("${second.first}\n\nDenied by Ada.", editSecond.text)
+            assertEquals(second.second, editSecond.entities)
+        }
 
     @Test
     fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {

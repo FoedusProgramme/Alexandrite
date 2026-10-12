@@ -20,7 +20,7 @@ public enum class ToolRisk(
     /** Actions on an external system. */
     EXTERNAL_ACTION(4),
 
-    /** File writes in the workspace. */
+    /** Any file write the floor allows; `allowedit` runs it without asking. */
     WORKSPACE_WRITE(4),
 
     /** Program execution. */

@@ -18,6 +18,8 @@ internal interface BotApi {
 
     suspend fun editMessageReplyMarkup(request: EditMessageReplyMarkup)
 
+    suspend fun deleteMessage(chat: Long, message: Long)
+
     suspend fun answerCallbackQuery(request: AnswerCallbackQuery)
 
     /** Shows that the bot is typing in [chat], or in its topic [thread]. */
@@ -43,7 +45,7 @@ internal enum class BotApiFailure {
     /** An edit to the text the message has. */
     NOT_MODIFIED,
 
-    /** An edit of a message that is gone or cannot be edited. */
+    /** A message that is gone or cannot be edited or deleted. */
     EDIT_TARGET_GONE,
 
     /** Entities that Telegram cannot apply to the text. */

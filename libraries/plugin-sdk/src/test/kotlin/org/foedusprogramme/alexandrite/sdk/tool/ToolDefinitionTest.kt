@@ -36,6 +36,21 @@ class ToolDefinitionTest {
     }
 
     @Test
+    fun `the constructor before timeout is kept, hidden, for a plugin built against it`() {
+        val ctor = ToolDefinition::class.java.getDeclaredConstructor(
+            String::class.java,
+            String::class.java,
+            JsonObject::class.java,
+            ToolRisk::class.java,
+        )
+
+        val definition = ctor.newInstance("sample.run", "Runs the sample", JsonObject(emptyMap()), ToolRisk.READ_ONLY)
+
+        assertEquals(ToolRisk.READ_ONLY, definition.risk)
+        assertNull(definition.timeout)
+    }
+
+    @Test
     fun `a tool name is lowercase words joined by dots, 64 characters at most`() {
         val valid = listOf("echo", "notes.add", "a_b.c2.d_", "a" + ".b".repeat(31) + "c")
         val invalid =

@@ -128,8 +128,9 @@ internal class PermissionStatusTool(
 
     private companion object {
         const val HEADER = "Permission status of this chat (only an administrator changes it):"
-        const val RULES = "Allow rules (on an operator's turn, the calls they cover run without asking in every mode " +
-            "but manual):"
+        const val RULES = "Allow rules (on an operator's turn, in ask, allowedit and auto modes, the calls they " +
+            "cover run without asking; not in plan or manual mode, nor for an opaque program or a lasting-state " +
+            "call):"
         const val UNREAD = "Conversation: counted as tainted, as its mark could not be read."
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)
     }

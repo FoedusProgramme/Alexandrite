@@ -188,6 +188,9 @@ internal class AnswerCallbackQuery(
 )
 
 @Serializable
+internal class DeleteMessage(@SerialName("chat_id") val chatId: Long, @SerialName("message_id") val messageId: Long)
+
+@Serializable
 internal class EditMessageText(
     @SerialName("chat_id") val chatId: Long,
     @SerialName("message_id") val messageId: Long,

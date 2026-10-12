@@ -67,6 +67,11 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         call("editMessageReplyMarkup", body, JsonElement.serializer())
     }
 
+    override suspend fun deleteMessage(chat: Long, message: Long) {
+        val body = JSON.encodeToString(DeleteMessage.serializer(), DeleteMessage(chat, message))
+        call("deleteMessage", body, Boolean.serializer())
+    }
+
     override suspend fun answerCallbackQuery(request: AnswerCallbackQuery) {
         call(
             "answerCallbackQuery",
@@ -179,7 +184,12 @@ internal fun classify(method: String, status: Int, description: String?, migrate
 /** The 400 refusals told apart by what their description holds. */
 private val REFUSALS = listOf(
     NOT_MODIFIED to listOf("message is not modified"),
-    EDIT_TARGET_GONE to listOf("message to edit not found", "message can't be edited"),
+    EDIT_TARGET_GONE to listOf(
+        "message to edit not found",
+        "message can't be edited",
+        "message to delete not found",
+        "message can't be deleted",
+    ),
     TOO_LONG to listOf("message is too long", "text is too long"),
     CHAT_GONE to listOf("chat not found", "message thread not found"),
     ENTITIES_REJECTED to listOf("can't parse entities", "entity", "entities"),

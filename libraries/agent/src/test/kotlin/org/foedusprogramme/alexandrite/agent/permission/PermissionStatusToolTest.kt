@@ -109,8 +109,9 @@ class PermissionStatusToolTest {
 
             assertEquals(
                 listOf(
-                    "Allow rules (on an operator's turn, the calls they cover run without asking in every mode but " +
-                        "manual):",
+                    "Allow rules (on an operator's turn, in ask, allowedit and auto modes, the calls they cover " +
+                        "run without asking; not in plan or manual mode, nor for an opaque program or a " +
+                        "lasting-state call):",
                     "1. command.exec: git status (declared in the config file)",
                     "2. deploy.run: every call (declared in the config file)",
                     "3. command.exec: make test (allowed by Admin at 2026-01-01 00:00 Z until /new)",

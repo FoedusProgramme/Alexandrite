@@ -120,9 +120,15 @@ internal class PermissionGate(
         }
     }
 
-    /** The permission mode at the key of [turn] now. */
-    private suspend fun mode(turn: TurnInfo): PermissionMode =
+    /** The permission mode at the key of [turn] now, `ask` (fail closed) when it cannot be read. */
+    private suspend fun mode(turn: TurnInfo): PermissionMode = try {
         settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
+    } catch (e: Throwable) {
+        if (e is VirtualMachineError) throw e
+        currentCoroutineContext().ensureActive()
+        logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
+        PermissionMode.ASK
+    }
 
     private suspend fun ask(call: CheckedCall, reason: String): GateResult {
         val result = running(call, approvals.ask(call, reason))
