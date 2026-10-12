@@ -69,6 +69,7 @@ import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
 import org.foedusprogramme.alexandrite.agent.tool.textResult
+import org.foedusprogramme.alexandrite.agent.tool.toolTitle
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
@@ -78,6 +79,9 @@ import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
@@ -108,6 +112,7 @@ import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
@@ -492,6 +497,7 @@ internal class AgentTurnRunner(
                 usage = usage?.plus(response.usage) ?: response.usage
                 spent += (response.usage.inputTokens ?: 0) + (response.usage.outputTokens ?: 0)
                 warnNearWindow(parts.model, response.usage)
+                emitUsageUpdated(usage, parts.model.info.contextWindow)
                 hooks.llmResponse(turn, round, response).or { return stopped(it) }
                 val message = response.message
                 val calls = message.parts.filterIsInstance<ToolCallPart>()
@@ -566,7 +572,10 @@ internal class AgentTurnRunner(
             return retries.retrying(plan.id) {
                 attempt++
                 try {
-                    collectResponse(model.endpoint, request) { previews?.event(it) }
+                    collectResponse(model.endpoint, request) { event ->
+                        previews?.event(event)
+                        if (event is ModelEvent.ReasoningDelta) emitThoughtChunk(event.text ?: event.summary)
+                    }
                 } catch (e: ModelException) {
                     if (e.error.kind == ModelErrorKind.MALFORMED_OUTPUT) {
                         logger.warn(
@@ -600,6 +609,11 @@ internal class AgentTurnRunner(
             val untrusted = Collections.synchronizedList(mutableListOf<UntrustedFolder>())
             val budget = InstructionBudget()
             var loaded = false
+            for (call in calls) {
+                val definition = tools.offered[call.name]?.definition ?: continue
+                val title = toolTitle(definition, call.parseArguments())
+                emitToolCallStarted(call.id, definition.name, definition.activity, title)
+            }
             try {
                 coroutineScope {
                     for (call in calls) {
@@ -956,6 +970,14 @@ internal class AgentTurnRunner(
 
             override fun ownWords(): List<String> = words.toList()
 
+            override suspend fun running(call: ToolCallId) = emitToolCallUpdated(call, ToolCallStatus.RUNNING)
+
+            override suspend fun waitingApproval(call: ToolCallId) =
+                emitToolCallUpdated(call, ToolCallStatus.WAITING_APPROVAL)
+
+            override suspend fun ended(call: ToolCallId, status: ToolCallStatus, content: TurnEvent.Content?) =
+                emitToolCallUpdated(call, status, content)
+
             override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T? =
                 asking.withLock {
                     if (followedUp()) return@withLock null
@@ -984,6 +1006,37 @@ internal class AgentTurnRunner(
                         }
                     }
                 }
+        }
+
+        /** Shows that the model's call [id] of [tool], of kind [activity], started, titled [title]. */
+        private suspend fun emitToolCallStarted(id: ToolCallId, tool: String, activity: ToolActivity, title: String) {
+            emit(TurnEventKind.TOOL_CALL_STARTED) { TurnEvent.ToolCallStarted(id, tool, activity, title) }
+        }
+
+        private suspend fun emitToolCallUpdated(
+            id: ToolCallId,
+            status: ToolCallStatus,
+            content: TurnEvent.Content? = null,
+        ) {
+            emit(TurnEventKind.TOOL_CALL_UPDATED) { TurnEvent.ToolCallUpdated(id, status, content) }
+        }
+
+        private suspend fun emitThoughtChunk(text: String?) {
+            if (text.isNullOrEmpty()) return
+            emit(TurnEventKind.THOUGHT_CHUNK) { TurnEvent.ThoughtChunk(text) }
+        }
+
+        private suspend fun emitUsageUpdated(usage: Usage?, window: Int?) {
+            emit(TurnEventKind.USAGE_UPDATED) {
+                TurnEvent.UsageUpdated(usage?.contextTokens, usage?.outputTokens, window)
+            }
+        }
+
+        /** Shows [build]'s event through the sink, where the chat's capabilities ask for [kind]. */
+        private suspend fun emit(kind: TurnEventKind, build: () -> TurnEvent) {
+            val sink = sink ?: return
+            if (capabilities?.events?.contains(kind) != true) return
+            attempt("show a turn event") { sink.event(build()) }
         }
 
         private suspend fun attempt(what: String, block: suspend () -> Unit) {

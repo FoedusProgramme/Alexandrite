@@ -18,6 +18,9 @@ import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.slf4j.LoggerFactory
 import java.util.TreeMap
 import kotlin.coroutines.cancellation.CancellationException
@@ -26,7 +29,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * The reply of one turn: a Telegram message per segment, sent at the segment's first preview and edited in place, and
  * the final message in place of the current segment's, its later parts after it.
  *
- * An editor coroutine shows each segment's latest preview at the chat's preview pace, the lower segments first.
+ * An editor coroutine shows each segment's latest preview at the chat's preview pace, the lower segments first; a
+ * second one shows the activity message of each segment's stretch of tool calls, the same way.
  */
 internal class TelegramReply(
     request: ReplyRequest,
@@ -34,14 +38,18 @@ internal class TelegramReply(
     private val streaming: Boolean,
     private val outbox: Outbox,
     private val typing: Typing,
+    private val texts: Texts,
     private val scope: CoroutineScope,
     private val onEnd: (TelegramReply) -> Unit,
 ) : ReplySink {
     private val chat = request.turn.chat
     private val turn = request.turn.id
+    private val language = request.turn.language
     private val lock = Any()
     private val segments = TreeMap<Int, Segment>()
+    private val activities = TreeMap<Int, ActivitySegment>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
+    private val activityWake = Channel<Unit>(Channel.CONFLATED)
     private var current = 0
     private var state = State.OPEN
 
@@ -51,6 +59,7 @@ internal class TelegramReply(
     /** The message the reply's first message quotes. */
     private var quote = trigger
     private var editor: Job? = null
+    private var activityEditor: Job? = null
 
     fun open() {
         typing.start(chat, target)
@@ -72,6 +81,30 @@ internal class TelegramReply(
         }
     }
 
+    override suspend fun event(event: TurnEvent) {
+        synchronized(lock) {
+            if (!accepts("A turn event", current)) return
+            val block = when (event) {
+                is TurnEvent.ToolCallStarted -> activities.getOrPut(current, ::ActivitySegment).also {
+                    it.calls[event.id] = CallState(event.tool, event.activity, event.title)
+                }
+
+                is TurnEvent.ToolCallUpdated -> activities[current]?.also { block ->
+                    val call = block.calls[event.id] ?: return
+                    call.status = event.status
+                    call.content = event.content
+                } ?: return
+
+                else -> return
+            }
+            block.pending = renderActivity(texts, language, block.calls.values)
+            if (activityEditor == null) {
+                activityEditor = scope.launch(CoroutineName("$chat activity editor")) { runActivityEditor() }
+            }
+        }
+        activityWake.trySend(Unit)
+    }
+
     override suspend fun complete(message: OutboundMessage): Delivery {
         when (finish("A final message")) {
             State.OPEN -> Unit
@@ -81,6 +114,7 @@ internal class TelegramReply(
         try {
             close()
             showFrozen()
+            showFrozenActivities()
             return deliver(message)
         } finally {
             onEnd(this)
@@ -91,6 +125,7 @@ internal class TelegramReply(
         if (finish("An abandon ($end)") != State.OPEN) return
         try {
             close()
+            showFrozenActivities()
         } finally {
             onEnd(this)
         }
@@ -102,6 +137,7 @@ internal class TelegramReply(
             if (state == State.OPEN) state = State.STOPPED
             editor
         }?.cancel()
+        synchronized(lock) { activityEditor }?.cancel()
     }
 
     /** Whether the reply takes [what] for [segment], warning when it does not. */
@@ -128,9 +164,10 @@ internal class TelegramReply(
         return was
     }
 
-    /** Stops the editor once its call in flight returned, and the typing. */
+    /** Stops the editors once their call in flight returned, and the typing. */
     private suspend fun close() {
         synchronized(lock) { editor }?.cancelAndJoin()
+        synchronized(lock) { activityEditor }?.cancelAndJoin()
         typing.stop(chat)
     }
 
@@ -177,6 +214,98 @@ internal class TelegramReply(
                 logger.debug("A preview of turn {} did not reach chat {}: {}", turn, chat, e.toString())
             }
         }
+    }
+
+    /** Shows the pending activity update, and after a 429 the limiter gave up on waits for the next one to try again. */
+    private suspend fun runActivityEditor() {
+        while (true) {
+            activityWake.receive()
+            while (synchronized(lock) { activities.values.any { it.pending != null } }) {
+                try {
+                    outbox.previewPaced(target) { showActivityNext() }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.debug("An activity of turn {} did not reach chat {}: {}", turn, chat, e.toString())
+                    if (e is BotApiException && e.failure == BotApiFailure.RATE_LIMITED) break
+                }
+            }
+        }
+    }
+
+    private suspend fun showActivityNext() {
+        val (index, text) = synchronized(lock) {
+            val (index, block) = activities.entries.firstOrNull { it.value.pending != null } ?: return
+            val text = block.pending ?: return
+            block.pending = null
+            index to text
+        }
+        showActivity(index, text)
+    }
+
+    /** Shows the pending activity update of every segment once, in order. */
+    private suspend fun showFrozenActivities() {
+        val pending = synchronized(lock) {
+            activities.mapNotNull { (index, block) -> block.pending?.let { index to it }.also { block.pending = null } }
+        }
+        for ((index, text) in pending) {
+            try {
+                outbox.paced(target) { showActivity(index, text) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.debug("An activity of turn {} did not reach chat {}: {}", turn, chat, e.toString())
+            }
+        }
+    }
+
+    /** Shows [text], cut to one message, as the activity message of segment [index] unless it shows it already. */
+    private suspend fun showActivity(index: Int, text: FormattedText) {
+        val shown = text.clipped(MAX_MESSAGE_LENGTH)
+        val message = synchronized(lock) {
+            val block = activities.getValue(index)
+            if (shown == block.shown) return
+            block.message
+        }
+        try {
+            if (message == null) sendActivity(index, shown) else editActivity(index, message, shown)
+        } catch (e: BotApiException) {
+            if (e.failure == BotApiFailure.RATE_LIMITED) {
+                synchronized(lock) { activities.getValue(index).apply { if (pending == null) pending = text } }
+            }
+            outbox.checkToken(e)
+            throw e
+        }
+    }
+
+    /** Sends [text] as the activity message of segment [index] at once and returns its id. */
+    private suspend fun sendActivity(index: Int, text: FormattedText): Long {
+        val id = outbox.sendText(target, text, null)
+        synchronized(lock) {
+            val block = activities.getValue(index)
+            block.message = id
+            block.shown = text
+        }
+        return id
+    }
+
+    /** Has the activity message [message] of segment [index] read [text] at once. */
+    private suspend fun editActivity(index: Int, message: Long, text: FormattedText) {
+        try {
+            outbox.editText(target, message, text)
+        } catch (e: BotApiException) {
+            when (e.failure) {
+                BotApiFailure.NOT_MODIFIED -> Unit
+
+                BotApiFailure.EDIT_TARGET_GONE -> {
+                    outbox.paced(target) { sendActivity(index, text) }
+                    return
+                }
+
+                else -> throw e
+            }
+        }
+        synchronized(lock) { activities.getValue(index).shown = text }
     }
 
     /** Shows [text], cut to one message, as segment [index] unless the segment shows it already. */
@@ -269,6 +398,20 @@ internal class TelegramReply(
 
         /** The latest text not shown yet. */
         var pending: String? = null
+    }
+
+    /** The activity message of one segment's stretch of tool calls, in the order they started. */
+    private class ActivitySegment {
+        val calls = LinkedHashMap<ToolCallId, CallState>()
+
+        /** The message that shows the calls, null before it is sent. */
+        var message: Long? = null
+
+        /** What [message] reads. */
+        var shown: FormattedText? = null
+
+        /** The latest rendering not shown yet. */
+        var pending: FormattedText? = null
     }
 
     private enum class State { OPEN, ENDED, STOPPED }

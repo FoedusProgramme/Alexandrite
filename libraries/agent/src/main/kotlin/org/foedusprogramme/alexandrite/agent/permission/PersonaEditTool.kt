@@ -29,6 +29,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -72,6 +73,8 @@ internal class PersonaEditTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.PERSISTENT_STATE,
+        activity = ToolActivity.EDIT,
+        titleArguments = listOf("file"),
     )
 
     /** Whether [agent] has a persona directory. */

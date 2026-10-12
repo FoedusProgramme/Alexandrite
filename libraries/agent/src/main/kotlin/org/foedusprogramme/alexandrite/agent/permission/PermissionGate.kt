@@ -71,7 +71,8 @@ internal class PermissionGate(
         rules.denied(checked)?.let { return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(it)) }
         val principal = Principal.of(call.turn)
         if (required == null && !isGated(risk, principal, call.taint.tainted)) {
-            return running(checked, GateResult.Admitted(Clearance(ClearanceKind.NONE, snapshot = review.snapshot)))
+            val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
+            return running(checked, GateResult.Admitted(clearance, review.preview))
         }
         val mode = mode(call.turn)
         if (mode == PermissionMode.PLAN) {
@@ -142,7 +143,8 @@ internal class PermissionGate(
 
     private suspend fun admitted(call: CheckedCall, kind: ClearanceKind): GateResult {
         logged(call.call, "runs, cleared by $kind")
-        return running(call, GateResult.Admitted(Clearance(kind, snapshot = call.review.snapshot)))
+        val clearance = Clearance(kind, snapshot = call.review.snapshot)
+        return running(call, GateResult.Admitted(clearance, call.review.preview))
     }
 
     /** [result], having marked the turn of [call] tainted when it lets a third-party tool read the network. */

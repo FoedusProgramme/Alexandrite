@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.tools.fs
 
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.condition.DisabledOnOs
@@ -30,6 +31,14 @@ class GrepToolTest {
         text = fs.write("repo/src/util/Text.kt", "package demo\n\nfun greet(name: String) = println(\"Hi, \$name\")\n")
         fs.write("repo/README.md", "# Demo\n\nCall greet() from main.\n")
         fs.write("repo/.git/HEAD", "fun greet in git\n")
+    }
+
+    @Test
+    fun `the call is titled by its pattern, of activity search`() {
+        assertEquals(
+            ToolActivity.SEARCH to listOf("pattern"),
+            tool.definition.activity to tool.definition.titleArguments,
+        )
     }
 
     @Test

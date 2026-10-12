@@ -81,6 +81,10 @@ class TelegramApp : AutoCloseable {
     fun messages(chat: FakeChat, count: Int): List<FakeBotMessage> =
         fake.await(WAIT) { botMessages(chat.id).takeIf { it.size >= count } }
 
+    /** The bot's messages in [chat], its activity messages left out, once there are [count]. */
+    fun bodyMessages(chat: FakeChat, count: Int): List<FakeBotMessage> =
+        fake.await(WAIT) { botMessages(chat.id).body().takeIf { it.size >= count } }
+
     /** The bot's message in [chat] that reads [text], once one does. */
     fun message(chat: FakeChat, text: String): FakeBotMessage =
         fake.await(WAIT) { botMessages(chat.id).firstOrNull { it.text == text } }
@@ -138,6 +142,13 @@ suspend fun PluginHarness.Running.idle() {
         while (get<AgentControl>().turns(null).isNotEmpty()) delay(10.milliseconds)
     }
 }
+
+/** Whether this message is an activity message, folding a stretch of tool calls rather than carrying body text. */
+fun FakeBotMessage.isActivity(): Boolean = !text.startsWith("Approval needed") &&
+    entities.any { (it as? JsonObject)?.get("type") == JsonPrimitive("expandable_blockquote") }
+
+/** [messages], its activity messages left out. */
+fun List<FakeBotMessage>.body(): List<FakeBotMessage> = filterNot { it.isActivity() }
 
 /** The entry's text parts, joined. */
 val UserEntry.words: String get() = parts.filterIsInstance<TextPart>().joinToString("") { it.text }

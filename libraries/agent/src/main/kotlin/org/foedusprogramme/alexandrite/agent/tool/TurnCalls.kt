@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 
 /** What a turn does for its tool calls besides running them. */
@@ -18,4 +20,13 @@ internal interface TurnCalls {
      * once the turn's principal sends a message that joins the turn.
      */
     suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T?
+
+    /** Shows that [call] now runs, having passed admission. */
+    suspend fun running(call: ToolCallId) {}
+
+    /** Shows that [call] now waits for an approver. */
+    suspend fun waitingApproval(call: ToolCallId) {}
+
+    /** Shows that [call] ended with [status], shown with [content]. */
+    suspend fun ended(call: ToolCallId, status: ToolCallStatus, content: TurnEvent.Content?) {}
 }

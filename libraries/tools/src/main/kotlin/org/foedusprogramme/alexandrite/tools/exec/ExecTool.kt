@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -57,6 +58,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         },
         risk = ToolRisk.EXEC,
         timeout = config.maxTimeoutSeconds.seconds,
+        activity = ToolActivity.EXECUTE,
+        titleArguments = listOf("command", "argv"),
     )
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =

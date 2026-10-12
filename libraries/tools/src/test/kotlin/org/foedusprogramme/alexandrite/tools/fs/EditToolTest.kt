@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.condition.DisabledOnOs
@@ -43,6 +44,11 @@ class EditToolTest {
         ledger = ReadLedger()
         reader = ReadTool(fs.floor, ledger)
         tool = EditTool(fs.floor, ledger)
+    }
+
+    @Test
+    fun `the call is titled by its path, of activity edit`() {
+        assertEquals(ToolActivity.EDIT to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
     }
 
     private fun read(file: Any, conversation: String = "test", vararg more: Pair<String, Any>) {

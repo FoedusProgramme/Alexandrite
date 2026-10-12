@@ -19,9 +19,13 @@ import org.foedusprogramme.alexandrite.agent.job.backgroundResult
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
@@ -75,12 +79,12 @@ internal class ToolExecutor(
         calls: TurnCalls,
     ): ToolCallEnd {
         val tool = tools[call.name]
-            ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL)
+            ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL, calls)
         if (call.name !in callable) {
-            return ended(call, "This turn may not call '${call.name}'.", NotRunReason.NOT_PERMITTED)
+            return ended(call, "This turn may not call '${call.name}'.", NotRunReason.NOT_PERMITTED, calls)
         }
         val arguments = call.parseArguments()
-            ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS)
+            ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS, calls)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
         val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint)
         val admission = try {
@@ -89,12 +93,19 @@ internal class ToolExecutor(
             reviewing.close()
         }
         return when (admission) {
-            is GateResult.Refused -> ToolCallEnd(textResult(call, admission.text, admission.outcome), admission.notice)
+            is GateResult.Refused -> {
+                calls.ended(call.id, ToolCallStatus.NOT_RUN, null)
+                ToolCallEnd(textResult(call, admission.text, admission.outcome), admission.notice)
+            }
 
             is GateResult.Admitted -> {
                 calls.starting(call.id)
+                calls.running(call.id)
                 val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint)
-                ToolCallEnd(runTool(turn, call, tool, arguments, limit, context), null, context.touchedPaths)
+                val result = runTool(turn, call, tool, arguments, limit, context)
+                val content = contentOf(tool.definition.activity, admission.preview, result)
+                calls.ended(call.id, statusOf(result.outcome), content)
+                ToolCallEnd(result, null, context.touchedPaths)
             }
         }
     }
@@ -160,8 +171,10 @@ internal class ToolExecutor(
         }
     }
 
-    private fun ended(call: ToolCallPart, text: String, reason: NotRunReason): ToolCallEnd =
-        ToolCallEnd(textResult(call, text, ToolOutcome.NotRun(reason)), null)
+    private suspend fun ended(call: ToolCallPart, text: String, reason: NotRunReason, calls: TurnCalls): ToolCallEnd {
+        calls.ended(call.id, ToolCallStatus.NOT_RUN, null)
+        return ToolCallEnd(textResult(call, text, ToolOutcome.NotRun(reason)), null)
+    }
 }
 
 internal fun textResult(call: ToolCallPart, text: String, outcome: ToolOutcome): ToolResultEntry =
@@ -176,6 +189,40 @@ internal fun failedResult(call: ToolCallPart, error: Throwable): ToolResultEntry
 /** The result of [call], whose tool ran past [timeout] and was stopped. */
 internal fun timedOutResult(call: ToolCallPart, timeout: Duration): ToolResultEntry =
     textResult(call, "The call timed out after ${timeout.inWholeSeconds} s.", ToolOutcome.Failed)
+
+/** The [ToolCallStatus] a finished call's [outcome] is shown as. */
+private fun statusOf(outcome: ToolOutcome): ToolCallStatus = when (outcome) {
+    ToolOutcome.Succeeded -> ToolCallStatus.COMPLETED
+    is ToolOutcome.Detached -> ToolCallStatus.BACKGROUNDED
+    is ToolOutcome.NotRun -> ToolCallStatus.NOT_RUN
+    else -> ToolCallStatus.FAILED
+}
+
+/** What a finished call of [activity] is shown with: the review's [preview] for an edit, [result]'s tail for a run. */
+private fun contentOf(activity: ToolActivity, preview: ReviewPreview?, result: ToolResultEntry): TurnEvent.Content? =
+    when (activity) {
+        ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
+            ?.takeIf { result.outcome == ToolOutcome.Succeeded }
+            ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
+
+        ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
+            ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }
+
+        else -> null
+    }
+
+/** The text of [parts], its other kinds left out. */
+private fun textOf(parts: List<ToolOutputPart>): String =
+    parts.filterIsInstance<TextPart>().joinToString("") { it.text }
+
+/** The last [max] lines of [text]. */
+private fun tailLines(text: String, max: Int): String {
+    val lines = text.lines()
+    return if (lines.size <= max) text else lines.takeLast(max).joinToString("\n")
+}
+
+/** How many lines of a run's output a [TurnEvent.Content.Output] keeps. */
+private const val OUTPUT_TAIL_LINES = 20
 
 /** [content] with its text escaped and cut after [MAX_RESULT_CHARS] characters, where a note says so. */
 internal fun shaped(content: List<ToolOutputPart>): List<ToolOutputPart> {

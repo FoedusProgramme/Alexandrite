@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -39,6 +40,8 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
             property("glob", "string", "Only search the files that match this glob, such as *.kt or src/**/*.md.")
         },
         risk = ToolRisk.READ_ONLY,
+        activity = ToolActivity.SEARCH,
+        titleArguments = listOf("pattern"),
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {

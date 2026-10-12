@@ -39,7 +39,7 @@ class TelegramJobsTest {
     fun `a command that runs past the foreground time goes on in the background, and its result comes in a job turn`() {
         val arguments = JsonObject(
             mapOf(
-                "argv" to JsonArray(listOf("sleep", "3").map(::JsonPrimitive)),
+                "argv" to JsonArray(listOf("sleep", "6").map(::JsonPrimitive)),
                 "cwd" to JsonPrimitive("${directory.toRealPath().resolve("work").createDirectories()}"),
             ),
         )
@@ -60,7 +60,7 @@ class TelegramJobsTest {
 
         val job = running.single()
         assertEquals(
-            listOf("command.exec", "sleep 3", "Ada Lovelace"),
+            listOf("command.exec", "sleep 6", "Ada Lovelace"),
             listOf(job.tool, job.title, job.by?.displayName),
         )
         val (_, after, ended) = app.model.requests
@@ -72,14 +72,14 @@ class TelegramJobsTest {
             (result.content.single() as TextPart).text,
         )
         val framing = ((ended.history.last() as UserEntry).parts.single() as ContextPart).text
-        assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job ${job.id}, command.exec sleep 3"))
+        assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job ${job.id}, command.exec sleep 6"))
         assertTrue(framing.endsWith(". It succeeded.\nExit code: 0\n[no output]\n[/alexandrite:job]"), framing)
         val callId = after.history.filterIsInstance<AssistantEntry>().single().parts.filterIsInstance<ToolCallPart>()
             .single().id
         assertEquals("call $callId reported untrusted content: command.exec ran sleep", tainted)
         assertEquals(
             listOf(STARTED, FINISHED),
-            app.fake.botMessages(app.adaChat.id).drop(1).map { it.text },
+            app.fake.botMessages(app.adaChat.id).body().drop(1).map { it.text },
         )
     }
 

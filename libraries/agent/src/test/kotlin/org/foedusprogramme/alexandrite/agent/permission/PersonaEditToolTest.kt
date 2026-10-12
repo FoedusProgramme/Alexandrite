@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.testkit.testDelegatedTurn
 import org.foedusprogramme.alexandrite.testkit.testToolContext
@@ -82,6 +83,12 @@ class PersonaEditToolTest {
 
     private fun hash(file: Path): String = "sha256:" +
         MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)).joinToString("") { "%02x".format(it) }
+
+    @Test
+    fun `the call is titled by its file, of activity edit`() {
+        val definition = tool().definition
+        assertEquals(ToolActivity.EDIT to listOf("file"), definition.activity to definition.titleArguments)
+    }
 
     @Test
     fun `replace changes the one occurrence, and append adds a line break first when the file ends without one`() {

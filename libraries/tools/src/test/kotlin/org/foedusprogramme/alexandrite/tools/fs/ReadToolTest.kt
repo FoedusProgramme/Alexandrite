@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
@@ -21,6 +22,11 @@ class ReadToolTest {
     fun setUp() {
         fs = FsFixture(directory)
         tool = ReadTool(fs.floor, ReadLedger())
+    }
+
+    @Test
+    fun `the call is titled by its path, of activity read`() {
+        assertEquals(ToolActivity.READ to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
     }
 
     @Test

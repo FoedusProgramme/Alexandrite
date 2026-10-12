@@ -67,6 +67,7 @@ internal class ChannelApprovals(
             turn.key,
             reason,
         )
+        gate.calls.waitingApproval(gate.call.id)
         record { awaiting.put(turn.id, gate.call.id, request.id) }
         val answer = try {
             gate.calls.awaitApproval(gate.call.id, request.id) { channel.askApproval(request) }
@@ -110,7 +111,8 @@ internal class ChannelApprovals(
                 logged(request, "is allowed by ${answer.by.address}" + if (always != null) " for good" else "")
                 always?.let { rules.grant(call, it, answer.by) }
                 judge.allowedByAdmin(request.turn.key, request.tool)
-                GateResult.Admitted(Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot))
+                val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
+                GateResult.Admitted(clearance, call.review.preview)
             }
 
             is ApprovalAnswer.Denied -> {

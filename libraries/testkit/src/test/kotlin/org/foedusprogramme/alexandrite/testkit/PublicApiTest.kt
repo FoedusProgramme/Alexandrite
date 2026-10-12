@@ -119,13 +119,14 @@ class PublicApiTest {
                 is RecordingChannel.Event.ApprovalAsked -> event.request
                 is RecordingChannel.Event.ApprovalAnswered -> listOf(event.id, event.answer)
                 is RecordingChannel.Event.ApprovalWithdrawn -> event.id
+                is RecordingChannel.Event.Activity -> listOf(event.turn, event.event)
                 else -> null
             }
             return listOf(
                 command, admissions, described, answer, approvals, preview.segment, preview.text, recorded.request,
                 recorded.turn,
                 recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,
-                recorded.ended,
+                recorded.ended, recorded.activity,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,
                 channel.violations, channel.capabilities(channel.chat()),
                 channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), RecordingChannel.STOPPED,

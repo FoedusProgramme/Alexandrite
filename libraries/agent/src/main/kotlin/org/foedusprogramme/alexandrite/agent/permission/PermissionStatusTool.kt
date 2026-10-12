@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -49,6 +50,7 @@ internal class PermissionStatusTool(
             put("additionalProperties", false)
         },
         risk = ToolRisk.READ_ONLY,
+        activity = ToolActivity.OTHER,
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {

@@ -22,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -78,6 +79,12 @@ class PermissionStatusToolTest {
 
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext =
         AgentToolContext(turn, ToolCallId("call-1"), Workspaces(hostPaths(null), settings("{}")), null, taint)
+
+    @Test
+    fun `the call is of activity other, titled by nothing`() {
+        val definition = tool().definition
+        assertEquals(ToolActivity.OTHER to emptyList(), definition.activity to definition.titleArguments)
+    }
 
     private suspend fun status(
         tool: PermissionStatusTool = tool(),

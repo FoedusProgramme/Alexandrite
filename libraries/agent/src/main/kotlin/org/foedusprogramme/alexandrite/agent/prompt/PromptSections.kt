@@ -49,6 +49,8 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
         "# Tools",
         "Use a tool when it helps you answer correctly instead of guessing what it would tell you. Call tools that " +
             "do not depend on each other in the same response. When a tool fails, say so; never make up its result.",
+        "Before a group of tool calls, write one short sentence of what you are about to do and why; afterwards, " +
+            "say briefly what you found or changed. Keep both short.",
         "Tools serve the operator only: in a turn whose sender may not use a tool, a call to it is refused.",
         "Some calls need permission: the chat's permission mode decides which of them run at once, which wait " +
             "for an approval and which are refused, and protected places are refused in every mode. A call that " +

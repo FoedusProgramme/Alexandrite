@@ -20,6 +20,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -328,6 +329,14 @@ public class RecordingChannel(
             }
         }
 
+        override suspend fun event(event: TurnEvent) {
+            synchronized(lock) {
+                violation("a turn event of turn $turn after its reply ended.".takeIf { reply.end != null })
+                if (stopped) return
+                record(Event.Activity(turn, event))
+            }
+        }
+
         override suspend fun complete(message: OutboundMessage): Delivery = synchronized(lock) {
             checkOpen("completed")
             val delivery = if (stopped) STOPPED else delivery(reply.turn.chat, message, replying = true)
@@ -365,6 +374,9 @@ public class RecordingChannel(
 
         @Poko
         public class Abandoned(public val turn: TurnId, public val end: ReplyEnd) : Event
+
+        @Poko
+        public class Activity(public val turn: TurnId, public val event: TurnEvent) : Event
 
         @Poko
         public class Sent(
@@ -437,6 +449,12 @@ public class RecordedReply internal constructor(
     public val abandoned: ReplyEnd? get() = channel.read { (end as? RecordingChannel.Event.Abandoned)?.end }
 
     public val ended: Boolean get() = channel.read { end != null }
+
+    /** The turn events shown so far, in order. */
+    public val activity: List<TurnEvent>
+        get() = channel.events.filterIsInstance<RecordingChannel.Event.Activity>()
+            .filter { it.turn == turn.id }
+            .map { it.event }
 
     /** Suspends until the reply completes or is abandoned, and returns it. */
     public suspend fun awaitEnd(): RecordedReply {

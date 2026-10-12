@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.testkit.TestToolContext
@@ -45,6 +46,12 @@ class ExecToolTest {
     fun setUp() {
         fs = ExecFixture(directory)
         tool = fs.tool()
+    }
+
+    @Test
+    fun `the call is titled by its command or argv, of activity execute`() {
+        val titleArguments = tool.definition.titleArguments
+        assertEquals(ToolActivity.EXECUTE to listOf("command", "argv"), tool.definition.activity to titleArguments)
     }
 
     private fun run(command: String, context: TestToolContext = fs.context()): ToolResult =

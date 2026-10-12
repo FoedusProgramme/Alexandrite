@@ -21,10 +21,12 @@ import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
+import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import java.util.concurrent.ConcurrentHashMap
 
 /** The front end of one bot, which delivers nothing to a chat that is not paired, nor once the instance stops. */
@@ -36,6 +38,7 @@ internal class TelegramChannel(
     private val gate: AccessGate,
     private val outbox: Outbox,
     private val typing: Typing,
+    private val texts: Texts,
     private val approvals: ApprovalDesk,
 ) : Channel,
     Lifecycle {
@@ -50,6 +53,7 @@ internal class TelegramChannel(
         .finalReplacesPreview(true)
         .proactive(gate.isPaired(chat))
         .markups(setOf(Markup.PLAIN, Markup.MARKDOWN))
+        .events(setOf(TurnEventKind.TOOL_CALL_STARTED, TurnEventKind.TOOL_CALL_UPDATED))
         .build()
 
     override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int =
@@ -59,7 +63,7 @@ internal class TelegramChannel(
         if (stopped) return Undelivered(STOPPED)
         if (!gate.isPaired(request.turn.chat)) return Undelivered(NOT_PAIRED)
         val target = targetOf(request.turn.chat) ?: return Undelivered(Delivery.NotDelivered(DeliveryFailure.CHAT_GONE))
-        val reply = TelegramReply(request, target, config.streaming.enabled, outbox, typing, instance.scope) {
+        val reply = TelegramReply(request, target, config.streaming.enabled, outbox, typing, texts, instance.scope) {
             replies.remove(it)
         }
         replies += reply
