@@ -109,7 +109,6 @@ class RuleEntryTest {
     @Test
     fun `an allow prefix lets a run go only when the run names its program exactly as the entry does`() {
         val status = parse("command.exec(git status)")
-        val gradle = parse("command.exec(./gradlew test)")
 
         val allowed = listOf(
             status.allows("command.exec", run("git", "status", executable = "/usr/bin/git")),
@@ -121,13 +120,21 @@ class RuleEntryTest {
                 run("/opt/tools/git-wrapper", "status", executable = "/opt/tools/libexec/git"),
             ),
             status.allows("command.exec", run("git", "stash", executable = "/usr/bin/git")),
-            gradle.allows("command.exec", run("./gradlew", "test", executable = "/srv/a/gradlew")),
-            gradle.allows("command.exec", run("./gradlew", "test", executable = "/srv/b/gradlew")),
-            gradle.allows("command.exec", run("/srv/a/gradlew", "test", executable = "/srv/a/gradlew")),
-            gradle.allows("command.exec", run("gradlew", "test", executable = "/usr/local/bin/gradlew")),
         )
 
-        assertEquals(listOf(true, true, false, false, false, false, true, true, false, false), allowed)
+        assertEquals(listOf(true, true, false, false, false, false), allowed)
+    }
+
+    @Test
+    fun `a declared allow rule may not name a program by its path, a deny rule may`() {
+        val named = "names a program by its path: declare a program by its bare name, such as \"git status\"; " +
+            "allow a script per session through the approval's \"Always allow\", which binds its real path"
+
+        for (program in listOf("./gradlew test", "bin/x", "/usr/bin/git status", "~/x")) {
+            assertEquals(named, RuleEntry.problem("command.exec($program)", allow = true))
+            assertNull(RuleEntry.problem("command.exec($program)", allow = false))
+        }
+        assertNull(RuleEntry.problem("command.exec(git status)", allow = true))
     }
 
     @Test

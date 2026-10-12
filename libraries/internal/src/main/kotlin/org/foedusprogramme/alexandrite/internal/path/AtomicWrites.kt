@@ -7,29 +7,31 @@ import java.nio.channels.Channels
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
-import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.PosixFilePermission
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.UUID
 
 /**
  * Replaces the entry [target] with a file of what [write] writes, moved there atomically once it is written and synced.
  *
- * The new file takes the permissions of the file it replaces.
+ * The new file takes the permissions of the file it replaces, or is owner-only when there is none to take.
  */
 public fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
     val directory = target.parent ?: throw IOException("$target names no file in a directory.")
-    val temporary = directory.resolve(".${target.fileName}.${UUID.randomUUID()}.tmp")
+    val temporary = directory.resolve(temporaryName(target.fileName.toString()))
+    val options = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+    val attribute = PosixFilePermissions.asFileAttribute(targetPermissions(target))
     try {
-        FileChannel.open(temporary, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { channel ->
+        FileChannel.open(temporary, options, attribute).use { channel ->
             val output = Channels.newOutputStream(channel).buffered()
             write(Unclosed(output))
             output.flush()
             channel.force(true)
         }
-        copyPermissions(target, temporary)
         Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE)
     } catch (e: Throwable) {
         try {
@@ -42,16 +44,24 @@ public fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
     syncDirectory(directory)
 }
 
-private fun copyPermissions(from: Path, to: Path) {
-    val source = Files.getFileAttributeView(from, PosixFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS)
-        ?: return
-    val permissions = try {
-        source.readAttributes().permissions()
-    } catch (e: NoSuchFileException) {
-        return
+/** [target]'s own permissions, or owner-only when it has none to read. */
+private fun targetPermissions(target: Path): Set<PosixFilePermission> {
+    val view = Files.getFileAttributeView(target, PosixFileAttributeView::class.java, LinkOption.NOFOLLOW_LINKS)
+    val existing = try {
+        view?.readAttributes()?.permissions()
+    } catch (e: IOException) {
+        null
     }
-    Files.setPosixFilePermissions(to, permissions)
+    return existing ?: OWNER_ONLY
 }
+
+/** A short temporary name for [name] that fits a filesystem's name length limit. */
+private fun temporaryName(name: String): String {
+    val random = UUID.randomUUID().toString().replace("-", "").take(8)
+    return ".${name.take(16)}.$random.tmp"
+}
+
+private val OWNER_ONLY: Set<PosixFilePermission> = PosixFilePermissions.fromString("rw-------")
 
 /** Syncs the entries of [directory] where the platform can. */
 private fun syncDirectory(directory: Path) {

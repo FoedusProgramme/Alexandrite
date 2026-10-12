@@ -158,8 +158,12 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
         val words = when {
             command != null && argv != null -> throw CallProblem("Give either 'command' or 'argv', not both.")
+
             command != null -> CommandLine.split(command, home())
-            argv != null -> argv
+
+            // argv has no quoting, so a word's leading '~' always expands.
+            argv != null -> argv.map { expandHome(it, home()) }
+
             else -> throw CallProblem("Give 'command' (a command line) or 'argv' (the program and its arguments).")
         }
         if (words.isEmpty() || words.first().isEmpty()) throw CallProblem("The call names no program.")

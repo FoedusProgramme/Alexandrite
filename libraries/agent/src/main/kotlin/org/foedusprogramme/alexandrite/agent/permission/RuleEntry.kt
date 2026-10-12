@@ -51,22 +51,22 @@ internal class RuleEntry private constructor(
     override fun toString(): String = text
 
     companion object {
-        /** Why [text] is no rule, null when it is one. */
-        fun problem(text: String): String? = try {
-            read(text, null)
+        /** Why [text] is no rule, null when it is one. A declared [allow] rule may not name a program by its path. */
+        fun problem(text: String, allow: Boolean = false): String? = try {
+            read(text, null, allow)
             null
         } catch (e: EntryProblem) {
             e.message
         }
 
         /** The rule [text] writes, where a word's leading `~` is [home]. */
-        fun parse(text: String, home: String?): RuleEntry = try {
-            read(text, home)
+        fun parse(text: String, home: String?, allow: Boolean = false): RuleEntry = try {
+            read(text, home, allow)
         } catch (e: EntryProblem) {
             throw IllegalArgumentException("'$text' ${e.message}", e)
         }
 
-        private fun read(text: String, home: String?): RuleEntry {
+        private fun read(text: String, home: String?, allow: Boolean): RuleEntry {
             val trimmed = text.trim()
             val open = trimmed.indexOf('(')
             val tool = (if (open < 0) trimmed else trimmed.substring(0, open)).trim()
@@ -83,10 +83,19 @@ internal class RuleEntry private constructor(
             val written = trimmed.substring(open + 1, trimmed.length - 1).trim()
             val words = split(written, home)
             if (words.isEmpty()) throw EntryProblem("has nothing in its parentheses: write the tool alone")
+            if (allow && isPathNamed(words[0])) {
+                throw EntryProblem(
+                    "names a program by its path: declare a program by its bare name, such as \"git status\"; " +
+                        "allow a script per session through the approval's \"Always allow\", which binds its real " +
+                        "path",
+                )
+            }
             return RuleEntry(trimmed, tool, words, written)
         }
     }
 }
+
+private fun isPathNamed(program: String): Boolean = program.startsWith('~') || '/' in program
 
 private class EntryProblem(override val message: String) : Exception(message)
 

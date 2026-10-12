@@ -126,6 +126,15 @@ class ExecToolTest {
     }
 
     @Test
+    fun `argv's leading tilde expands too, exactly like a command line's`() {
+        val home = System.getProperty("user.home")
+
+        val result = tool.run(fs.context(), "argv" to listOf("echo", "~", "~/docs", "a~b", "~root"))
+
+        assertEquals("Exit code: 0\n$home $home/docs a~b ~root", result.text)
+    }
+
+    @Test
     fun `a program that fails returns its exit code and output as an error, one that prints nothing says so`() {
         val failed = run("cat missing.txt")
 
@@ -320,6 +329,25 @@ class ExecToolTest {
     }
 
     @Test
+    fun `date -s or --set and hostname given an operand or a setting option are not read-only`() {
+        val turn = operatorTurn()
+        val commands = listOf(
+            "date -s 2030-01-01", "date --set=2030-01-01", "date --se 2030-01-01", "date -u", "date",
+            "hostname other", "hostname -b", "hostname --boot", "hostname",
+        )
+
+        val risks = commands.map { review(it, fs.context(turn = turn)).risk }
+
+        assertEquals(
+            listOf(
+                ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.READ_ONLY, ToolRisk.READ_ONLY,
+                ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.READ_ONLY,
+            ),
+            risks,
+        )
+    }
+
+    @Test
     fun `a vetted name outside the system directories is no vetted program`() {
         fs.script("workspace/cat", "echo planted")
 
@@ -509,6 +537,28 @@ class ExecToolTest {
 
         assertTrue(reviewArgv("tar", "-cvfk/id_rsa", "src").refusal != null)
         assertNull(reviewArgv("tar", "-cvfout/x.tar", "src").refusal)
+    }
+
+    @Test
+    fun `a table-less program's equals and colon pieces are checked as paths too`() {
+        val key = "${fs.home}/.ssh/id_rsa"
+
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "if=$key", "y").refusal)
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "host:$key", "y").refusal)
+        assertEquals(
+            reached("../secret", "a place the test protects"),
+            reviewArgv("sort", "../secret:dst", "y").refusal,
+        )
+        assertNull(reviewArgv("sort", "a=b", "c:d").refusal)
+        assertNull(reviewArgv("sort", "https://example.com/${fs.home}").refusal)
+    }
+
+    @Test
+    fun `a dash-prefixed value with no flag letter before it is checked, same as one with a letter`() {
+        val key = "${fs.home}/.ssh/id_rsa"
+
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "-$key").refusal)
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "-o$key").refusal)
     }
 
     @Test

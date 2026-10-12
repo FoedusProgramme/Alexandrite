@@ -68,8 +68,8 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
         "$path.permission.mode must be one of ${CONFIGURABLE_MODES.joinToString()}: a bypass is set per chat, " +
             "for a limited time"
     }
-    checkRules("$path.permission.allow", agent.permission.allow)
-    checkRules("$path.permission.deny", agent.permission.deny)
+    checkRules("$path.permission.allow", agent.permission.allow, allow = true)
+    checkRules("$path.permission.deny", agent.permission.deny, allow = false)
     require(agent.permission.judge == null || ModelRef.parseOrNull(agent.permission.judge) != null) {
         "$path.permission.judge is no model reference: write <endpoint>/<model>, such as " +
             "\"anthropic/claude-haiku-5-5\""
@@ -125,9 +125,9 @@ private fun checkGlobs(path: String, globs: List<String>) {
     }
 }
 
-private fun checkRules(path: String, entries: List<String>) {
+private fun checkRules(path: String, entries: List<String>, allow: Boolean) {
     for ((index, entry) in entries.withIndex()) {
-        val problem = RuleEntry.problem(entry)
+        val problem = RuleEntry.problem(entry, allow)
         require(problem == null) { "$path[$index] $problem" }
     }
 }

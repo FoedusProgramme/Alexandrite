@@ -92,7 +92,10 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
                 if (Files.exists(canonical, LinkOption.NOFOLLOW_LINKS)) reached.add(canonical)
             }
         } else {
-            for (candidate in parsed.operands) checkUnparsed(candidate, directory, glued = false)
+            for (candidate in parsed.operands) {
+                checkUnparsed(candidate, directory, glued = false)
+                for (piece in pathPieces(candidate)) checkUnparsed(piece, directory, glued = true)
+            }
             for (candidate in gluedValues(argv)) checkUnparsed(candidate, directory, glued = true)
         }
         return PlannedRun(
@@ -103,7 +106,8 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
             timeout = request.timeout,
             vetted = vetted,
             opaque = opaque,
-            readOnly = vetted && operator && !parsed.isRecursive && program !in NEVER_READ_ONLY,
+            readOnly = vetted && operator && !parsed.isRecursive && program !in NEVER_READ_ONLY &&
+                !setsState(program, parsed),
             snapshot = snapshot(executable, system, parsed.operands, directory),
             rule = if (opaque) null else rule(name, executable, parsed.operands.firstOrNull()),
             reached = reached.distinct(),
@@ -151,6 +155,15 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
     }
 }
 
+/** Whether a vetted call of [program] parsed as [parsed] still changes system state. */
+private fun setsState(program: String, parsed: ParsedCommand): Boolean = when (program) {
+    "date" -> parsed.options.any { it.name == "--set" }
+    "hostname" -> parsed.operands.isNotEmpty() || parsed.options.any { it.name in HOSTNAME_SETTERS }
+    else -> false
+}
+
+private val HOSTNAME_SETTERS = setOf("-F", "--file", "-b", "--boot")
+
 /**
  * The option values that a program without an option table may take as paths: those of `--option=value`, and every
  * tail of a short cluster that could name a path.
@@ -164,13 +177,34 @@ private fun gluedValues(argv: List<String>): List<String> = buildList {
 
             argument.length > 2 -> {
                 val slashed = '/' in argument
-                for (k in 2 until argument.length) {
+                val from = if (looksLikePath(argument.substring(1, 2))) 1 else 2
+                for (k in from until argument.length) {
                     if (k == 2 || slashed || argument[k] == '~' || argument[k] == '.') add(argument.substring(k))
                 }
             }
         }
     }
 }
+
+/** The path-looking pieces an unparsed operand embeds: after its first `=`, and a `:`-separated side. */
+private fun pathPieces(candidate: String): List<String> = buildList {
+    val equals = candidate.indexOf('=')
+    if (equals >= 0) candidate.substring(equals + 1).takeUnless(::isUrl)?.let(::add)
+    if (isUrl(candidate)) return@buildList
+    val colon = candidate.indexOf(':')
+    if (colon >= 0) {
+        val after = candidate.substring(colon + 1)
+        if (looksLikePath(after) && !isUrl(after)) add(after)
+        candidate.substring(0, colon).takeIf(::looksLikePath)?.let(::add)
+    }
+}
+
+/** Whether [text] starts with a URL scheme. */
+private fun isUrl(text: String): Boolean = URL_SCHEME.containsMatchIn(text)
+
+private fun looksLikePath(text: String): Boolean = '/' in text || text.startsWith('~') || text.startsWith('.')
+
+private val URL_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 
 /** [candidate] as a path: a leading `~` as the home directory, relative to [directory]. */
 private fun candidatePath(candidate: String, directory: Path): Path = try {

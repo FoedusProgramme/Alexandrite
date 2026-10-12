@@ -45,7 +45,7 @@ class AgentSettingsTest {
                   "maxRounds": 10,
                   "toolTimeoutSeconds": 30,
                   "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forMembers": ["fs.read"]},
-                  "permission": {"allow": ["command.exec(./gradlew test)"], "deny": ["persona.edit"]},
+                  "permission": {"allow": ["command.exec(git status)"], "deny": ["command.exec(./gradlew test)"]},
                   "workspace": "coder-files",
                   "channels": {"test:main": {"default": true, "home": "42#7"}}
                 }
@@ -78,7 +78,7 @@ class AgentSettingsTest {
             listOf(tools.allow, tools.deny, tools.forMembers),
         )
         assertEquals(
-            listOf(listOf("command.exec(./gradlew test)"), listOf("persona.edit")),
+            listOf(listOf("command.exec(git status)"), listOf("command.exec(./gradlew test)")),
             listOf(coder.permission.allow, coder.permission.deny),
         )
         val attachment = agent.attachments.single()
@@ -159,6 +159,24 @@ class AgentSettingsTest {
             "agents.coder.permission.deny[0] is no rule: write a tool name, or command.exec with the start of a " +
                 "command line in parentheses, such as \"command.exec(git push)\"",
         )
+    }
+
+    @Test
+    fun `a declared allow rule that names a program by its path fails the start, a deny rule may`() {
+        val named = "names a program by its path: declare a program by its bare name, such as \"git status\"; " +
+            "allow a script per session through the approval's \"Always allow\", which binds its real path"
+        for (program in listOf("./gradlew test", "bin/x", "/usr/bin/git status", "~/x")) {
+            assertConfigFails(
+                agents(""""coder": {"permission": {"allow": ["command.exec($program)"]}}"""),
+                "agents.coder.permission.allow[0] $named",
+            )
+        }
+        assertConfigFails(
+            agents(""""coder": {"permission": {"allow": ["fs.read", "command.exec(./gradlew test)"]}}"""),
+            "agents.coder.permission.allow[1] $named",
+        )
+
+        agentHarness(agents(""""coder": {"permission": {"deny": ["command.exec(./gradlew test)"]}}""")).execute {}
     }
 
     @Test

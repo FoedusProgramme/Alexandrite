@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.turn
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
@@ -16,6 +17,10 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ToolChoice
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
+import org.foedusprogramme.alexandrite.sdk.tool.CallReview
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
@@ -40,6 +45,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordedReply.Preview
+import org.foedusprogramme.alexandrite.testkit.RecordingTool
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
 import java.util.concurrent.atomic.AtomicInteger
@@ -263,6 +269,24 @@ class ToolRoundsTest {
             admission.ticket.outcome()
             assertEquals(6, read.calls.size)
             assertEquals(6, stored().filterIsInstance<ToolResultEntry>().size)
+        }
+    }
+
+    @Test
+    fun `read-only calls of a third-party reviewed tool run one at a time`() {
+        val reviewed = recordingTool("fs.reviewed")
+        reviewed.hold()
+        model.reply { repeat(3) { toolCall("fs.reviewed", """{"path": "$it"}""") } }.reply { text("Read.") }
+
+        harness { tool(ReviewingTool(reviewed)) }.execute {
+            val admission = ask()
+            reviewed.awaitCalls(1)
+            delay(200)
+
+            assertEquals(1, reviewed.calls.size)
+            reviewed.release()
+            admission.ticket.outcome()
+            assertEquals(3, reviewed.calls.size)
         }
     }
 
@@ -529,4 +553,14 @@ private class OneAtATime(private val store: MediaStore) : MediaStore by store {
             running.decrementAndGet()
         }
     }
+}
+
+/** A [ReviewedTool] that otherwise behaves like [inner]. */
+private class ReviewingTool(private val inner: RecordingTool) : ReviewedTool {
+    override val definition: ToolDefinition get() = inner.definition
+
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview()
+
+    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
+        inner.execute(arguments, context)
 }

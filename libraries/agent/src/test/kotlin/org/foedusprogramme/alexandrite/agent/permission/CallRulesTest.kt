@@ -195,9 +195,9 @@ class CallRulesTest {
     @Test
     fun `a declared prefix allows an operator's matching calls in ask, allowedit and auto, never in manual`() =
         runTest {
-            val setup = Setup("""{"allow": ["command.exec(./gradlew test)"]}""")
-            val test = run("./gradlew", "test", "--info", executable = "/srv/a/gradlew")
-            val build = run("./gradlew", "build", executable = "/srv/a/gradlew")
+            val setup = Setup("""{"allow": ["command.exec(npm test)"]}""")
+            val test = run("npm", "test", "--info")
+            val build = run("npm", "build")
 
             val decided = listOf("manual", "ask", "allowedit", "auto").map { mode ->
                 setMode(PermissionMode.of(mode))

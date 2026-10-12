@@ -97,6 +97,7 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
@@ -484,8 +485,12 @@ internal class AgentTurnRunner(
          */
         private suspend fun runCalls(turn: TurnInfo, calls: List<ToolCallPart>, tools: TurnTools) {
             val timeout = agent.config.toolTimeoutSeconds.seconds
-            val risks = calls.mapNotNull { tools.offered[it.name]?.definition?.risk }
-            val slots = Semaphore(if (risks.all { it == ToolRisk.READ_ONLY }) MAX_PARALLEL_CALLS else 1)
+            val registry = this@AgentTurnRunner.tools
+            val parallel = calls.all { call ->
+                val tool = tools.offered[call.name] ?: return@all true
+                tool.definition.risk == ToolRisk.READ_ONLY && (registry.isBuiltIn(tool) || tool !is ReviewedTool)
+            }
+            val slots = Semaphore(if (parallel) MAX_PARALLEL_CALLS else 1)
             val loading = Collections.synchronizedList(mutableListOf<LoadedFile>())
             val untrusted = Collections.synchronizedList(mutableListOf<UntrustedFolder>())
             val budget = InstructionBudget()

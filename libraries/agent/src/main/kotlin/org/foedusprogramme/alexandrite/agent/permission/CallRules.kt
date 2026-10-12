@@ -226,8 +226,15 @@ internal class AgentCallRules(
         }
     }
 
-    private suspend fun mode(turn: TurnInfo): PermissionMode =
+    /** The mode at the key of [turn], `manual` when it cannot be read, so that nothing is offered for good. */
+    private suspend fun mode(turn: TurnInfo): PermissionMode = try {
         settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
+    } catch (e: Throwable) {
+        if (e is VirtualMachineError) throw e
+        currentCoroutineContext().ensureActive()
+        logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
+        PermissionMode.MANUAL
+    }
 
     /** The rule of [record], null when it cannot be read. */
     private fun granted(record: StoredRecord<GrantedRule>): Granted? {

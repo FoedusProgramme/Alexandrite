@@ -52,17 +52,43 @@ class AtomicWritesTest {
 
     @Test
     @DisabledOnOs(OS.WINDOWS)
-    fun `the new file keeps the permissions of the one it replaces, and a new one gets the usual ones`() {
+    fun `the new file keeps the permissions of the one it replaces, and a new one is owner-only`() {
         val file = directory.resolve("script.sh").also { it.writeText("echo old") }
         Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rwxr-x---"))
-        val usual = Files.createFile(directory.resolve("usual"))
         val created = directory.resolve("created.md")
 
         writeAtomically(file) { it.write("echo new".toByteArray()) }
         writeAtomically(created) { it.write("New.".toByteArray()) }
 
         assertEquals("rwxr-x---", PosixFilePermissions.toString(Files.getPosixFilePermissions(file)))
-        assertEquals(Files.getPosixFilePermissions(usual), Files.getPosixFilePermissions(created))
+        assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(created)))
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `the temporary file is never wider than the target while its content is written`() {
+        val file = directory.resolve("secret.env").also { it.writeText("OLD=1") }
+        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"))
+        lateinit var duringWrite: String
+
+        writeAtomically(file) { output ->
+            val temporary = directory.listDirectoryEntries().single { it != file }
+            duringWrite = PosixFilePermissions.toString(Files.getPosixFilePermissions(temporary))
+            output.write("NEW=2".toByteArray())
+        }
+
+        assertEquals("rw-------", duringWrite)
+        assertEquals("NEW=2", file.readText())
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `a target name near the filesystem's name length limit can still be written`() {
+        val file = directory.resolve("x".repeat(250) + ".txt")
+
+        writeAtomically(file) { it.write("content".toByteArray()) }
+
+        assertEquals("content", file.readText())
     }
 
     @Test

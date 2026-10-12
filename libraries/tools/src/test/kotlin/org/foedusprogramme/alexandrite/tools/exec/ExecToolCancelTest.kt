@@ -61,11 +61,11 @@ class ExecToolCancelTest {
 
     @Test
     fun `a program that runs past its timeout is stopped with the processes it started`() {
-        val result = fs.tool().run(fs.allowed(), "argv" to listOf("./spawn.sh", "$pids"), "timeoutSeconds" to 1)
+        val result = fs.tool().run(fs.allowed(), "argv" to listOf("./spawn.sh", "$pids"), "timeoutSeconds" to 3)
 
         val processes = pids.readLines().map { ProcessHandle.of(it.trim().toLong()) }
         assertEquals(
-            true to "The program timed out after 1 s and was stopped with the processes it started. Its output " +
+            true to "The program timed out after 3 s and was stopped with the processes it started. Its output " +
                 "until then:\nstarted",
             result.isError to result.text,
         )
