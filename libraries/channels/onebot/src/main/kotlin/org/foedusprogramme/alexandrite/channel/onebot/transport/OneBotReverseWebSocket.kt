@@ -102,6 +102,10 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
                 socket = null
                 if (state.value.isOpen) lost(IllegalStateException("The connection closed: $code $reason"))
             }
+            // A call that was waiting for this connection is not answered by a connection that is gone, so it is told
+            // so now rather than when its own timeout runs out, which would report a slow implementation instead of a
+            // lost one.
+            failWaiting(IllegalStateException("The connection closed before it answered: $code $reason"))
         }
 
         override fun onError(connection: WebSocket?, ex: Exception) {
@@ -128,6 +132,16 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
         true
     } catch (e: Exception) {
         false
+    }
+
+    /**
+     * Ends every call that waits for an answer, with [reason].
+     *
+     * A call that outlives the connection that would answer it has nothing left to wait for, so it is told why rather
+     * than being left until its own timeout says the implementation was slow.
+     */
+    private fun failWaiting(reason: Exception) {
+        awaiting.keys.toList().forEach { echo -> awaiting.remove(echo)?.completeExceptionally(reason) }
     }
 
     /** The port this connection listens on, which a configured port of 0 leaves to the operating system. */

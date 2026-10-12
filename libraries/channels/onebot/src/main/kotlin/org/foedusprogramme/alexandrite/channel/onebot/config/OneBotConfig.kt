@@ -53,25 +53,15 @@ internal const val ONEBOT_SETTINGS_PATH: String = "settings"
 @ConfigSection(path = ONEBOT_SETTINGS_PATH)
 @Serializable
 public class OneBotConfig(
-    /** How many events wait for the plugin to read them before the oldest are dropped. */
+    /** How many events wait for the plugin to read them before the newest are dropped. */
     @SerialName("eventQueueCapacity") public val eventQueueCapacity: Int = DEFAULT_EVENT_QUEUE,
-    /** The interval between two calls the implementation rate limits, in milliseconds. */
-    @SerialName("rateLimitIntervalMillis") public val rateLimitIntervalMillis: Long = DEFAULT_RATE_LIMIT,
-    /** Whether the transport logs the raw JSON of an answer this version cannot read. */
-    @SerialName("logUnreadableAnswers") public val logUnreadableAnswers: Boolean = false,
 ) {
     init {
         require(eventQueueCapacity > 0) { "An event queue holds at least one event, was $eventQueueCapacity." }
-        require(rateLimitIntervalMillis >= 0) {
-            "A rate limit interval is at least 0, was $rateLimitIntervalMillis."
-        }
     }
 
     public companion object {
         public const val DEFAULT_EVENT_QUEUE: Int = 1024
-
-        /** The interval the standard gives `api.rate_limit_interval`: half a second. */
-        public const val DEFAULT_RATE_LIMIT: Long = 500L
     }
 }
 

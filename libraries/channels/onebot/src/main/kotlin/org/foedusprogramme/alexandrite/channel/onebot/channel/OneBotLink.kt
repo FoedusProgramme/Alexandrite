@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.onebot.channel
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotConfig
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
@@ -15,6 +16,7 @@ import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotHttpApi
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotHttpPostReceiver
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotReverseWebSocket
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotSettings
+import org.foedusprogramme.alexandrite.channel.onebot.transport.envelopeResult
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 
@@ -69,12 +71,12 @@ internal class OneBotLink(private val config: OneBotConfig, private val instance
     }
 
     /** Runs one call of [action], with the suffix the caller chose already applied. */
-    internal suspend fun call(action: String, params: JsonObject): OneBotResult<JsonObject> = when {
+    internal suspend fun call(action: String, params: JsonObject): OneBotResult<JsonElement> = when {
         http != null -> http.call(action, params)
 
-        forward != null -> OneBotResult.Ok(forward.send(action, params))
+        forward != null -> envelopeResult(forward.send(action, params))
 
-        reverse != null -> OneBotResult.Ok(reverse.send(action, params))
+        reverse != null -> envelopeResult(reverse.send(action, params))
 
         else -> OneBotResult.Unreachable(
             OneBotFailure(
