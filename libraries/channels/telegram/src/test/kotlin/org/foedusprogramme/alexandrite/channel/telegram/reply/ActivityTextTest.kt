@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.channel.telegram.reply
 
+import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.Span
+import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
 import org.foedusprogramme.alexandrite.runtime.TextCatalog
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
@@ -11,6 +13,7 @@ import org.foedusprogramme.alexandrite.testkit.testTexts
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ActivityTextTest {
     private val texts = testTexts(PLUGIN)
@@ -105,7 +108,7 @@ class ActivityTextTest {
     }
 
     @Test
-    fun `a call moved to the background says so and keeps its kind running, a grep counts as a search`() {
+    fun `a call moved to the background says so and no longer counts as running, a grep counts as a search`() {
         val calls = listOf(
             call(
                 tool = "command.exec",
@@ -119,7 +122,7 @@ class ActivityTextTest {
         val rendered = renderActivity(texts, null, calls)
 
         assertEquals(
-            "Running 1 shell command · Ran 1 search\nMoved to the background: command.exec ./gradlew test\nTODO",
+            "Ran 1 shell command · Ran 1 search\nMoved to the background: command.exec ./gradlew test\nTODO",
             rendered.text,
         )
     }
@@ -148,7 +151,7 @@ class ActivityTextTest {
     }
 
     @Test
-    fun `a delegation stands alone in the summary, and its sub-agent's calls are aggregated and named after it`() {
+    fun `a running or completed delegation is said only once, in the summary, not in its own detail line`() {
         val reviewer = AgentId("reviewer")
         val delegation = call(tool = "agent.delegate", activity = ToolActivity.OTHER, title = "reviewer")
         val calls = listOf(
@@ -164,12 +167,12 @@ class ActivityTextTest {
         val done = renderActivity(texts, null, calls)
 
         assertEquals(
-            "Delegating to reviewer · Read 2 files · Editing 1 file\nDelegating to reviewer\nreviewer · a.kt\n" +
+            "Delegating to reviewer · Read 2 files · Editing 1 file\nreviewer · a.kt\n" +
                 "reviewer · b.kt\nreviewer · Waiting for approval: fs.edit c.kt",
             running.text,
         )
         assertEquals(
-            "Delegated to reviewer · Read 2 files · Not run: 1 file\nDelegated to reviewer\nreviewer · a.kt\n" +
+            "Delegated to reviewer · Read 2 files · Not run: 1 file\nreviewer · a.kt\n" +
                 "reviewer · b.kt\nreviewer · Not run: fs.edit c.kt",
             done.text,
         )
@@ -184,6 +187,52 @@ class ActivityTextTest {
             "Delegated to writer · Not run: 1 tool\nDelegated to writer — failed\nNot run: agent.delegate nobody",
             renderActivity(texts, null, listOf(failed, refused)).text,
         )
+    }
+
+    @Test
+    fun `a running delegation with no detail line of its own renders as the summary alone, with no blockquote`() {
+        val delegation = call(tool = "agent.delegate", activity = ToolActivity.OTHER, title = "reviewer")
+
+        val rendered = renderActivity(texts, null, listOf(delegation))
+
+        assertEquals("Delegating to reviewer", rendered.text)
+        assertEquals(emptyList(), rendered.entities)
+    }
+
+    @Test
+    fun `when the details do not fit one message, the oldest are dropped and their count is noted first`() {
+        val calls = (1..100).map { n ->
+            call(title = "call-%03d-".format(n) + "x".repeat(70), status = ToolCallStatus.COMPLETED)
+        }
+
+        val rendered = renderActivity(texts, null, calls)
+
+        val lines = rendered.text.lines()
+        val kept = lines.drop(1).filter { it.startsWith("call-") }
+        assertTrue(rendered.text.length <= MAX_MESSAGE_LENGTH, "${rendered.text.length}")
+        assertEquals("Read 100 files", lines.first())
+        assertTrue(kept.size in 1 until calls.size, "${kept.size}")
+        assertEquals(calls.takeLast(kept.size).map { it.title }, kept)
+        val omitted = calls.size - kept.size
+        val notice = texts.text(TextKeys.activityOmitted(omitted != 1), null, "count" to omitted)
+        assertEquals(notice, lines[1])
+        val blockquote = rendered.entities.single()
+        val detailsLength = rendered.text.length - lines.first().length - 1
+        assertEquals(Span("expandable_blockquote", lines.first().length + 1, detailsLength), blockquote)
+    }
+
+    @Test
+    fun `a surrogate pair at the end of a kept or a dropped line is never split`() {
+        val calls = (1..60).map { n ->
+            call(title = "call-%02d-".format(n) + "y".repeat(70) + "😀", status = ToolCallStatus.COMPLETED)
+        }
+
+        val rendered = renderActivity(texts, null, calls)
+
+        assertTrue(rendered.text.length <= MAX_MESSAGE_LENGTH, "${rendered.text.length}")
+        for (line in rendered.text.lines().filter { it.startsWith("call-") }) {
+            assertTrue(line.endsWith("😀"), line)
+        }
     }
 
     @Test

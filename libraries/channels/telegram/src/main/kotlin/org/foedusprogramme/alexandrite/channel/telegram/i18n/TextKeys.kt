@@ -116,6 +116,12 @@ internal object TextKeys {
     /** Takes `{noun}`, the aggregate line of a kind whose calls were all refused. */
     const val ACTIVITY_SUMMARY_NOT_RUN: String = "activity.summary.not_run"
 
+    /** Takes `{count}`, the detail lines dropped to fit one message. */
+    const val ACTIVITY_OMITTED_ONE: String = "activity.omitted.one"
+
+    /** Takes `{count}`. */
+    const val ACTIVITY_OMITTED_MANY: String = "activity.omitted.many"
+
     /** Takes `{tool}` and `{title}`. */
     const val ACTIVITY_WAITING_APPROVAL: String = "activity.call.waiting_approval"
 
@@ -178,4 +184,7 @@ internal object TextKeys {
         val (one, manyKey) = NOUNS.getValue(kind)
         return if (many) manyKey else one
     }
+
+    /** The key, with `{count}`, of the line that says how many earlier calls were dropped to fit one message. */
+    fun activityOmitted(many: Boolean): String = if (many) ACTIVITY_OMITTED_MANY else ACTIVITY_OMITTED_ONE
 }

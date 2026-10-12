@@ -28,6 +28,7 @@ import org.foedusprogramme.alexandrite.tools.fs.schema
 import java.io.IOException
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 @Singleton
@@ -49,7 +50,12 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                 putJsonObject("items") { put("type", "string") }
                 put("description", "The program and its arguments, each passed as it is. Instead of 'command'.")
             }
-            property("cwd", "string", "The directory to run in: an absolute path (~ is home). Default your workspace.")
+            property(
+                "cwd",
+                "string",
+                "The directory to run in: an absolute path, or one relative to your workspace (~ is home). " +
+                    "Default your workspace.",
+            )
             property(
                 "timeoutSeconds",
                 "integer",
@@ -129,22 +135,37 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
     /** What the call would run, or why it cannot run, with the workspace created only when it is [running]. */
     private suspend fun inspect(arguments: JsonObject, context: ToolContext, running: Boolean): Inspection = try {
-        val request = request(arguments)
-        val cwd = request.cwd ?: run {
+        val parsed = request(arguments)
+        val cwd = parsed.cwd?.let { resolveCwd(it, context, running) } ?: run {
             val workspace = context.workspace
                 ?: throw CallProblem("Give 'cwd': you have no workspace to run in by default.")
             if (running) context.openWorkspace() else workspace
         }
         val planner = Planner(floor, context.turn.agent, isOperator(context))
-        val missing = request.cwd == null && !running
-        Inspection.Ready(runInterruptible(Dispatchers.IO) { planner.plan(request, cwd, missingAllowed = missing) })
+        val missing = parsed.cwd == null && !running
+        val run = Request(parsed.argv, cwd, parsed.timeout)
+        Inspection.Ready(runInterruptible(Dispatchers.IO) { planner.plan(run, cwd, missingAllowed = missing) })
     } catch (e: CallProblem) {
         Inspection.Problem(e.message)
     } catch (e: FloorRefusal) {
         Inspection.Refused(e.message)
     }
 
-    private fun request(arguments: JsonObject): Request {
+    /** [text] as an absolute directory: a relative one resolved against the workspace, as the default cwd is. */
+    private suspend fun resolveCwd(text: String, context: ToolContext, running: Boolean): Path {
+        val path = try {
+            Path.of(expandHome(text, home()))
+        } catch (e: InvalidPathException) {
+            throw CallProblem("'cwd' is no valid path.")
+        }
+        if (path.isAbsolute) return path.normalize()
+        val workspace = context.workspace ?: throw CallProblem(
+            "'cwd' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
+        )
+        return (if (running) context.openWorkspace() else workspace).resolve(path).normalize()
+    }
+
+    private fun request(arguments: JsonObject): ParsedRequest {
         val command = arguments.optional("command")?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: throw CallProblem("'command' must be a string.")
@@ -171,9 +192,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             throw CallProblem("An argument holds a NUL character, which no program takes.")
         }
         val cwd = arguments.optional("cwd")?.let { value ->
-            val text = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+            (value as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: throw CallProblem("'cwd' must be a string.")
-            directory(text)
         }
         val seconds = arguments.optional("timeoutSeconds")?.let { value ->
             (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
@@ -182,17 +202,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         if (seconds > config.maxTimeoutSeconds) {
             throw CallProblem("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
         }
-        return Request(words, cwd, seconds.seconds)
-    }
-
-    private fun directory(text: String): Path {
-        val path = try {
-            Path.of(expandHome(text, home()))
-        } catch (e: InvalidPathException) {
-            throw CallProblem("'cwd' is no valid path.")
-        }
-        if (!path.isAbsolute) throw CallProblem("'cwd' must be an absolute path.")
-        return path.normalize()
+        return ParsedRequest(words, cwd, seconds.seconds)
     }
 
     private fun isOperator(context: ToolContext): Boolean =
@@ -205,6 +215,9 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
         class Ready(val run: PlannedRun) : Inspection
     }
+
+    /** The call's arguments before 'cwd' is resolved against the workspace. */
+    private class ParsedRequest(val argv: List<String>, val cwd: String?, val timeout: Duration)
 }
 
 private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == JsonNull }

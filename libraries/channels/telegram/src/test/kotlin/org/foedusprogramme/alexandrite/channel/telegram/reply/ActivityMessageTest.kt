@@ -154,8 +154,8 @@ class ActivityMessageTest {
 
             assertEquals(
                 listOf(
-                    "sendMessage Delegating to reviewer · Read 1 file\nDelegating to reviewer\nreviewer · a.kt",
-                    "editMessageText Delegated to reviewer · Read 1 file\nDelegated to reviewer\nreviewer · a.kt",
+                    "sendMessage Delegating to reviewer · Read 1 file\nreviewer · a.kt",
+                    "editMessageText Delegated to reviewer · Read 1 file\nreviewer · a.kt",
                 ),
                 output.shown(),
             )

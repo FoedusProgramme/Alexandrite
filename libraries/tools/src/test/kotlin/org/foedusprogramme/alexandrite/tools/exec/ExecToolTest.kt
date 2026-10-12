@@ -176,6 +176,25 @@ class ExecToolTest {
     }
 
     @Test
+    fun `a relative cwd resolves against the workspace, and the preview shows it absolute`() {
+        val sub = fs.workspace.resolve("sub").createDirectories()
+        val pwd = resolveProgram("pwd", sub, searchPath(System.getenv()))!!.toRealPath()
+
+        val preview = tool.check(fs.context(), "command" to "pwd", "cwd" to "sub").preview
+        assertEquals(ReviewPreview.Command(listOf("pwd"), sub, pwd, opaque = false), preview)
+        assertEquals("Exit code: 0\n$sub", tool.run(fs.context(), "command" to "pwd", "cwd" to "sub").text)
+    }
+
+    @Test
+    fun `a relative cwd escaping the workspace still resolves, judged by the floor like an absolute one`() {
+        assertEquals(
+            "The working directory ${fs.home} reaches a protected place (a recursive operation would reach SSH " +
+                "keys): command.exec does not run this call.",
+            tool.check(fs.context(), "command" to "pwd", "cwd" to "../home").refusal,
+        )
+    }
+
+    @Test
     fun `bare paths resolve against cwd`() {
         fs.write("home/.netrc", "machine example login user password hunter2")
 
@@ -225,19 +244,21 @@ class ExecToolTest {
     }
 
     @Test
-    fun `cwd is an absolute directory, and without a workspace it must be given`() {
+    fun `cwd must be a directory, resolved against the workspace when relative, which must exist without one`() {
         val missing = fs.root.resolve("missing")
 
         assertEquals(
             listOf(
-                "'cwd' must be an absolute path.",
+                "The working directory ${fs.workspace.resolve("relative")} is no directory.",
                 "The working directory $missing is no directory.",
                 "Give 'cwd': you have no workspace to run in by default.",
+                "'cwd' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
             ),
             listOf(
                 tool.check(fs.context(), "command" to "pwd", "cwd" to "relative"),
                 tool.check(fs.context(), "command" to "pwd", "cwd" to missing),
                 tool.check(fs.context(workspace = null), "command" to "pwd"),
+                tool.check(fs.context(workspace = null), "command" to "pwd", "cwd" to "relative"),
             ).map { it.problem },
         )
     }
