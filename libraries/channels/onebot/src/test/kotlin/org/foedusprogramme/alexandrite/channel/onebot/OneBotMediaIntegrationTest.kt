@@ -62,6 +62,53 @@ class OneBotMediaIntegrationTest {
         }
     }
 
+    @Test
+    fun `a picture in the message that was quoted reaches the agent as well`() {
+        withPicture { url, peer, submitter ->
+            peer.report(pictureMessage(url))
+            awaitSubmissions(submitter, 1)
+            peer.report(questionAbout(12))
+            val message = assertIs<Submission.Message>(awaitSubmissions(submitter, 2).last()).message
+            // The report answers a message holding a picture and says nothing about that picture, so the picture
+            // reaches the turn only because what was read of the quoted message is kept beside its text.
+            val attachment = message.media.single()
+            assertEquals("image/*", attachment.mediaType)
+            assertContentEquals(picture, waiting { runBlocking { attachment.content.read(1024) } })
+        }
+    }
+
+    /** A group report that answers the message [id] and names the bot. */
+    private fun questionAbout(id: Long): String = """
+        {
+          "time": 1515204255,
+          "self_id": 10001000,
+          "post_type": "message",
+          "message_type": "group",
+          "sub_type": "normal",
+          "message_id": 13,
+          "group_id": 987654,
+          "user_id": 12345678,
+          "message": [
+            {"type": "reply", "data": {"id": $id}},
+            {"type": "at", "data": {"qq": 10001000}},
+            {"type": "text", "data": {"text": "what is this"}}
+          ],
+          "raw_message": "[CQ:reply,id=$id] what is this",
+          "sender": {"user_id": 12345678, "nickname": "someone", "role": "member"}
+        }
+    """.trimIndent()
+
+    /** The first [count] turns the agent was asked for. */
+    private suspend fun awaitSubmissions(submitter: RecordingTurnSubmitter, count: Int): List<Submission> {
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (System.nanoTime() < deadline) {
+            val taken = submitter.submissions
+            if (taken.size >= count) return taken
+            Thread.sleep(20)
+        }
+        error("the agent was asked for ${submitter.submissions.size} turns, not $count")
+    }
+
     /** Serves [picture] over HTTP, runs the plugin against [peer], and calls [block]. */
     private fun withPicture(block: suspend Running.(String, MediaPeer, RecordingTurnSubmitter) -> Unit) {
         val http = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)

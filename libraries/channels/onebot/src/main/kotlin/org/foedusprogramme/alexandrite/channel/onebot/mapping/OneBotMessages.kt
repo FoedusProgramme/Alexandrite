@@ -117,7 +117,9 @@ public object OneBotMessages {
             forwarded = null,
         )
             .text(segments.filterIsInstance<OneBotSegment.Text>().joinToString("") { it.text })
-            .media(media(segments, reader))
+            // The quoted message's own media too, since a person who quotes a picture and asks about it is asking
+            // about that picture: without this the quote reaches the model as the marker for an image and no image.
+            .media(media(segments, reader) + media(quoted?.segments.orEmpty(), reader))
             .quote(quote(event, chat, quoted))
             .facts(facts(event, segments))
             .build()
@@ -301,17 +303,20 @@ public object OneBotMessages {
             authorName = reported.card?.takeIf { it.isNotEmpty() } ?: reported.nickname,
             author = OneBotChats.user(instance, event.userId),
             authorIsBot = reported.userId == event.selfId.value,
+            segments = event.message.segments,
         )
     }
 
     /** What the implementation reported about a message is, as a message that another one can quote. */
     public fun quotable(instance: ChannelInstanceId, info: OneBotMessageInfo, selfId: String?): QuotedMessage {
         val reported = info.sender
+        val segments = OneBotSegmentCodec.decodeMessage(info.message ?: JsonNull).segments
         return QuotedMessage(
-            text = quotedText(OneBotSegmentCodec.decodeMessage(info.message ?: JsonNull).segments),
+            text = quotedText(segments),
             authorName = reported?.card?.takeIf { it.isNotEmpty() } ?: reported?.nickname,
             author = reported?.userId?.let { OneBotChats.user(instance, it) },
             authorIsBot = reported?.userId?.value != null && reported.userId.value == selfId,
+            segments = segments,
         )
     }
 
@@ -421,6 +426,11 @@ public class QuotedMessage(
     public val authorName: String?,
     public val author: UserAddress?,
     public val authorIsBot: Boolean,
+    /**
+     * What the quoted message was reported to hold, which is kept beside its text so that the media of a quoted
+     * message reaches whoever answers it: a picture cannot be read out of a text, however it is written.
+     */
+    public val segments: List<OneBotSegment> = emptyList(),
 )
 
 /**
