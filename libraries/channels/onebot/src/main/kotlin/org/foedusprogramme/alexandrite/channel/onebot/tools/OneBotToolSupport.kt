@@ -3,12 +3,9 @@ package org.foedusprogramme.alexandrite.channel.onebot.tools
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.api.OneBotApi
 import org.foedusprogramme.alexandrite.channel.onebot.channel.OneBotApis
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
@@ -35,24 +32,4 @@ internal fun JsonObject.text(name: String): String? =
 internal fun JsonObjectBuilder.putId(name: String, value: String) {
     val number = value.toLongOrNull()
     if (number == null) put(name, JsonPrimitive(value)) else put(name, number)
-}
-
-/**
- * The schema of a call whose arguments are [properties], named with what each one is for.
- *
- * An argument that must be given says so in its description and is checked where it is read, which is how the
- * other tools of this project declare theirs: a schema that marks one required stops a caller from leaving it out,
- * which is exactly what a tool that can work without it must allow.
- */
-internal fun arguments(vararg properties: Pair<String, String>): JsonObject = buildJsonObject {
-    put("type", "object")
-    putJsonObject("properties") {
-        properties.forEach { (name, description) ->
-            putJsonObject(name) {
-                put("type", "string")
-                put("description", description)
-            }
-        }
-    }
-    put("additionalProperties", false)
 }
