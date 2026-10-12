@@ -27,6 +27,8 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Base64
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * Reads what the platform knows about a chat, a member or a message this bot acts in.
@@ -62,6 +64,7 @@ internal class OneBotActTool(private val apis: OneBotApis, private val floor: Ha
         ),
         parameters = schema(),
         risk = ToolRisk.EXTERNAL_ACTION,
+        timeout = actTimeout,
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
@@ -334,6 +337,15 @@ internal suspend fun withFiles(
 
 /** What the platform is told a file's bytes are, which is how it is handed one it cannot reach itself. */
 private const val BYTES_PREFIX: String = "base64://"
+
+/**
+ * How long a change of this channel may take, which a file of the workspace makes long.
+ *
+ * A file larger than one request carries is sent to the implementation in pieces, each of them a call of its own,
+ * and is then sent on, so the timeout a turn takes by default is too short for one and ends the call with nothing
+ * known of what became of it. This is a ceiling rather than a wait: a call that is done sooner ends sooner.
+ */
+private val actTimeout: Duration = 5.minutes
 
 /** The home directory, which a path of a call may name with a leading `~` the way a file tool takes one. */
 private val home: String = System.getProperty("user.home").orEmpty()
