@@ -104,6 +104,8 @@ public object OneBotMessages {
         event: OneBotEvent.Message,
         admins: Set<String> = emptySet(),
         quoted: QuotedMessage? = null,
+        /** How the bytes of a reported image, voice or video are read, null when they cannot be. */
+        reader: MediaReader? = null,
     ): IncomingMessage {
         val chat = OneBotChats.addressOf(instance, event)
         val segments = event.message.segments
@@ -115,7 +117,7 @@ public object OneBotMessages {
             forwarded = null,
         )
             .text(segments.filterIsInstance<OneBotSegment.Text>().joinToString("") { it.text })
-            .media(media(segments))
+            .media(media(segments, reader))
             .quote(quote(event, chat, quoted))
             .facts(facts(event, segments))
             .build()
@@ -252,18 +254,31 @@ public object OneBotMessages {
         is OneBotEvent.Message.Group -> ChatInfo(ChatKind.GROUP, null, null)
     }
 
-    private fun media(segments: List<OneBotSegment>): List<MediaAttachment> = segments.mapNotNull { segment ->
-        val attachment = when (segment) {
-            is OneBotSegment.Image -> MediaKind.IMAGE to (segment.url ?: segment.file)
-            is OneBotSegment.Record -> MediaKind.AUDIO to (segment.url ?: segment.file)
-            is OneBotSegment.Video -> MediaKind.VIDEO to (segment.url ?: segment.file)
-            else -> return@mapNotNull null
+    private fun media(segments: List<OneBotSegment>, reader: MediaReader?): List<MediaAttachment> =
+        segments.mapNotNull { segment ->
+            val attachment = when (segment) {
+                is OneBotSegment.Image -> MediaKind.IMAGE to (segment.url ?: segment.file)
+                is OneBotSegment.Record -> MediaKind.AUDIO to (segment.url ?: segment.file)
+                is OneBotSegment.Video -> MediaKind.VIDEO to (segment.url ?: segment.file)
+                else -> return@mapNotNull null
+            }
+            val (kind, reference) = attachment
+            if (reference.isNullOrEmpty()) return@mapNotNull null
+            val content = reader?.content(segment) ?: unread(reference)
+            MediaAttachment.builder(kind, mediaType(kind), content)
+                .name(reference.substringAfterLast('/').takeIf { it.isNotEmpty() })
+                .build()
         }
-        val (kind, reference) = attachment
-        if (reference.isNullOrEmpty()) return@mapNotNull null
-        MediaAttachment.builder(kind, mediaType(kind), unread(reference))
-            .name(reference.substringAfterLast('/').takeIf { it.isNotEmpty() })
-            .build()
+
+    /**
+     * The bytes of [reference], which this reader does not read.
+     *
+     * A segment is named whether or not its bytes can be read, so that the agent knows the message carried one: a
+     * read that throws is what tells it the file could not be loaded, where naming no attachment at all would hide
+     * that the message held anything.
+     */
+    private fun unread(reference: String): MediaContent = MediaContent {
+        throw UnsupportedOperationException("Reading '$reference' is not implemented yet.")
     }
 
     /** The media type this version reports while it cannot read the file itself. */
@@ -271,16 +286,6 @@ public object OneBotMessages {
         MediaKind.IMAGE -> "image/*"
         MediaKind.AUDIO -> "audio/*"
         else -> "video/*"
-    }
-
-    /**
-     * The bytes of the file an implementation named, which this version does not read yet.
-     *
-     * Reading it needs the plugin's transport, so it stays the task of whoever asks for the bytes; failing here keeps
-     * that visible rather than answering with an empty file.
-     */
-    private fun unread(reference: String): MediaContent = MediaContent {
-        throw UnsupportedOperationException("Reading '$reference' is not implemented yet.")
     }
 
     /**
@@ -417,3 +422,15 @@ public class QuotedMessage(
     public val author: UserAddress?,
     public val authorIsBot: Boolean,
 )
+
+/**
+ * How the bytes a reported segment names are read.
+ *
+ * A report names an image or a voice message by what the implementation knows it as, and reading it needs this
+ * plugin's transport, which the mapping does not have: it is given one of these by whoever asks for the bytes. A
+ * segment it cannot read names no attachment, so the rest of the message is read either way.
+ */
+public fun interface MediaReader {
+    /** How to read [segment], null when this reader does not read that kind. */
+    public fun content(segment: OneBotSegment): MediaContent?
+}

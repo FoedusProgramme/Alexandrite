@@ -65,6 +65,8 @@ internal class OneBotInbox(
     private val gate: OneBotAccessGate,
     /** The texts of this channel for people. */
     private val texts: Texts,
+    /** What reads the bytes of an image or a voice message the implementation reported. */
+    private val media: OneBotMedia,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Lifecycle {
@@ -114,7 +116,7 @@ internal class OneBotInbox(
                 }
                 return@collect
             }
-            val message = OneBotMessages.incoming(instance.id, event, config.admins, quoted(chat, event))
+            val message = OneBotMessages.incoming(instance.id, event, config.admins, quoted(chat, event), media)
             if (command != null) {
                 // Who may run a command is the channel's question to ask: the agent's control takes the operator of a
                 // change as a parameter and does not judge it.
