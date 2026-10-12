@@ -61,7 +61,8 @@ internal class OneBotActTool(private val apis: OneBotApis, private val floor: Ha
     override val definition: ToolDefinition = ToolDefinition(
         name = "onebot.act",
         description = describe(
-            "Changes something of a QQ chat this bot acts in",
+            "Changes something of a QQ chat this bot acts in. A call that ends without an answer may still have " +
+                "been carried out, so look at what that chat or group holds before calling again",
             OneBotActions.rows.filter { it.changes },
         ),
         parameters = schema(),
