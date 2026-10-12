@@ -66,4 +66,10 @@ internal object TextKeys {
 
     /** Takes `{ids}`. */
     const val APPROVAL_SEVERAL: String = "approval.several"
+
+    /** Takes `{command}`. */
+    const val REFUSED_ADMIN: String = "refused.admin"
+
+    /** Takes `{command}`. */
+    const val REFUSED_ADMIN_HERE: String = "refused.admin_here"
 }

@@ -21,6 +21,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
+import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
@@ -56,6 +57,10 @@ internal class OneBotInbox(
     private val sent: OneBotSentMessages,
     /** What this instance read not long ago, which is what a message answering one says it answered. */
     private val recent: OneBotRecentMessages,
+    /** Who may run each command, which nothing else asks. */
+    private val rules: OneBotCommandRules,
+    /** The texts of this channel for people. */
+    private val texts: Texts,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Lifecycle {
@@ -100,6 +105,16 @@ internal class OneBotInbox(
                 return@collect
             }
             val message = OneBotMessages.incoming(instance.id, event, config.admins, quoted(chat, event))
+            if (command != null) {
+                // Who may run a command is the channel's question to ask: the agent's control takes the operator of a
+                // change as a parameter and does not judge it.
+                val invocation = invocationOf(command, message)
+                val refusal = rules.refusal(invocation, message.chatInfo.kind)
+                if (refusal != null) {
+                    sender.send(chat, said(text(refusal, "command" to invocation.name.lowercase())))
+                    return@collect
+                }
+            }
             val submission = if (command == null) Submission.Message(message) else commandOf(command, message)
             report(message, submitter?.submit(submission))
         }
@@ -133,16 +148,23 @@ internal class OneBotInbox(
         }
     }
 
-    /** The message that says [text] as the answer to an approval command. */
+    /** The message that says [text] as an answer to a command rather than as the answer of a turn. */
     private fun said(text: String): OutboundMessage = OutboundMessage.builder(text, MessageKind.REPLY).build()
+
+    /** [text] in the host's language, with [args] put where they are named. */
+    private fun text(key: String, vararg args: Pair<String, Any?>): String = texts.text(key, null, *args)
+
+    /** The invocation [command] makes in [message]. */
+    private fun invocationOf(command: OneBotCommands.Parsed, message: IncomingMessage): CommandInvocation =
+        CommandInvocation.builder(message.chat, command.name, message.sender)
+            .arguments(command.arguments)
+            .trigger(message.ref)
+            .build()
 
     /** The submission of [command] in [message], which an operator's commands pass the queue with. */
     private fun commandOf(command: OneBotCommands.Parsed, message: IncomingMessage): Submission.Command =
         Submission.Command(
-            invocation = CommandInvocation.builder(message.chat, command.name, message.sender)
-                .arguments(command.arguments)
-                .trigger(message.ref)
-                .build(),
+            invocation = invocationOf(command, message),
             message = message,
             capacity = if (message.sender.isAdmin) Capacity.EXEMPT else Capacity.COUNTED,
         )
