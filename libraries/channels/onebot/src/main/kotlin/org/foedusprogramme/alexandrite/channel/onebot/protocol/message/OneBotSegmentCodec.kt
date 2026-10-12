@@ -97,6 +97,12 @@ public object OneBotSegmentCodec {
                 optional("timeout", segment.timeout)
             }
 
+            is OneBotSegment.File -> putJsonObject("data") {
+                put("file", segment.file)
+                optional("name", segment.name)
+                optional("url", segment.url)
+            }
+
             is OneBotSegment.At -> putJsonObject("data") { put("qq", user(segment.userId)) }
 
             is OneBotSegment.Rps, is OneBotSegment.Dice, is OneBotSegment.Shake -> putJsonObject("data") {}
@@ -204,6 +210,12 @@ public object OneBotSegmentCodec {
             cache = data.flag("cache"),
             proxy = data.flag("proxy"),
             timeout = data.number("timeout"),
+        )
+
+        OneBotSegment.FILE -> OneBotSegment.File(
+            file = data.string("file").orEmpty(),
+            name = data.string("name"),
+            url = data.string("url"),
         )
 
         OneBotSegment.AT -> OneBotSegment.At(data.string("qq").orEmpty())

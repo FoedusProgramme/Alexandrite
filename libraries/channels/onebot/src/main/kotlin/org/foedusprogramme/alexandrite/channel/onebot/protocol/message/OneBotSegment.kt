@@ -64,6 +64,24 @@ public sealed interface OneBotSegment {
         override val type: String get() = OneBotSegment.VIDEO
     }
 
+    /**
+     * A file, which an implementation that offers the extension carries as a segment of its own.
+     *
+     * The standard sends a file through the actions for files rather than in a message, so this is a segment the
+     * standard does not declare: an implementation that reports one names the file and what to call it, and may name
+     * more about it than this version carries.
+     */
+    public data class File(
+        /** How the implementation knows the file, which is also what an upload takes. */
+        public val file: String,
+        /** What the file is called. */
+        public val name: String? = null,
+        /** Where the file can be read, when the implementation names a place. */
+        public val url: String? = null,
+    ) : OneBotSegment {
+        override val type: String get() = OneBotSegment.FILE
+    }
+
     /** A mention of one member, or of everyone when [userId] is [At.ALL]. */
     public data class At(public val userId: String) : OneBotSegment {
         override val type: String get() = OneBotSegment.AT
@@ -199,6 +217,7 @@ public sealed interface OneBotSegment {
         public const val IMAGE: String = "image"
         public const val RECORD: String = "record"
         public const val VIDEO: String = "video"
+        public const val FILE: String = "file"
         public const val AT: String = "at"
         public const val RPS: String = "rps"
         public const val DICE: String = "dice"

@@ -101,6 +101,13 @@ public object CqCode {
             "timeout" to segment.timeout?.toString(),
         )
 
+        is OneBotSegment.File -> parameters(
+            "file",
+            "file" to segment.file,
+            "name" to segment.name,
+            "url" to segment.url,
+        )
+
         is OneBotSegment.Video -> parameters(
             "video",
             "file" to segment.file,
