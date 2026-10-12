@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.onebot.tools
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -8,17 +10,23 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.channel.OneBotApis
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
+import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Base64
 
 /**
  * Reads what the platform knows about a chat, a member or a message this bot acts in.
@@ -30,7 +38,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
  */
 @Singleton
 @Contribute(Tool::class)
-internal class OneBotReadTool(private val apis: OneBotApis) : Tool {
+internal class OneBotReadTool(private val apis: OneBotApis, private val floor: HardFloor?) : Tool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "onebot.read",
         description = describe("Reads what the QQ platform knows", OneBotActions.rows.filterNot { it.changes }),
@@ -39,13 +47,13 @@ internal class OneBotReadTool(private val apis: OneBotApis) : Tool {
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
-        call(apis, OneBotActions.rows.filterNot { it.changes }, arguments, context)
+        call(apis, OneBotActions.rows.filterNot { it.changes }, floor, arguments, context)
 }
 
 /** Changes something of a chat or a member of the platform this bot acts in. */
 @Singleton
 @Contribute(Tool::class)
-internal class OneBotActTool(private val apis: OneBotApis) : Tool {
+internal class OneBotActTool(private val apis: OneBotApis, private val floor: HardFloor?) : Tool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "onebot.act",
         description = describe(
@@ -57,7 +65,7 @@ internal class OneBotActTool(private val apis: OneBotApis) : Tool {
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
-        call(apis, OneBotActions.rows.filter { it.changes }, arguments, context)
+        call(apis, OneBotActions.rows.filter { it.changes }, floor, arguments, context)
 }
 
 /** The arguments every call of these tools takes, which is the action and whatever that action takes. */
@@ -102,6 +110,7 @@ private fun describe(header: String, rows: List<OneBotActions.Row>): String = bu
 private suspend fun call(
     apis: OneBotApis,
     rows: List<OneBotActions.Row>,
+    floor: HardFloor?,
     arguments: JsonObject,
     context: ToolContext,
 ): ToolResult {
@@ -118,8 +127,14 @@ private suspend fun call(
         is Prepared.Refused -> return ToolResult(prepared.said, isError = true)
         is Prepared.Ready -> prepared.params
     }
+    // A file of the workspace is read here rather than where the arguments are written, because whether this call may
+    // read one is the floor's to say, which a function of the row and the arguments has no way to ask.
+    val carried = when (val files = withFiles(row, params, floor, context)) {
+        is Prepared.Refused -> return ToolResult(files.said, isError = true)
+        is Prepared.Ready -> files.params
+    }
     val api = apis.serving(context.turn.chat)
-    val result = api.raw(name, params)
+    val result = api.raw(name, carried)
     // What a read answers is what other people wrote, so a turn that carries it carries content this bot cannot vouch
     // for, and the conversation is marked the way any other content read from outside is marked.
     if (!row.changes && result is OneBotResult.Ok) {
@@ -156,6 +171,8 @@ internal fun prepare(row: OneBotActions.Row, given: JsonObject, messageId: Strin
                     OneBotActions.Kind.TEXT -> put(parameter.name, value)
 
                     OneBotActions.Kind.NUMBER -> put(parameter.name, number(value))
+
+                    OneBotActions.Kind.FILE -> put(parameter.name, value)
 
                     OneBotActions.Kind.FLAG -> {
                         val flag = boolean(value)
@@ -209,3 +226,69 @@ private fun number(value: JsonElement): JsonElement {
     val text = (value as? JsonPrimitive)?.contentOrNull ?: return value
     return text.toLongOrNull()?.let { JsonPrimitive(it) } ?: value
 }
+
+/**
+ * [params] with every argument that names a file of this workspace carrying the file itself instead.
+ *
+ * A path of this machine means nothing to an implementation on another one, so the file is read and handed over as
+ * the bytes the platform takes, written the way it takes them. What may be read is the floor's to say: a path it
+ * denies is refused here with the reason it gave, and one it allows is read at the path it names, which is the path a
+ * link is followed to. A runtime with no floor is one where nothing decides what may be read, so a call that needs a
+ * file is refused rather than read of its own accord.
+ *
+ * A file larger than a call should carry is refused rather than sent, since the bytes grow on the way and an
+ * implementation refuses what is too large without saying what the call got wrong.
+ */
+internal suspend fun withFiles(
+    row: OneBotActions.Row,
+    params: JsonObject,
+    floor: HardFloor?,
+    context: ToolContext,
+): Prepared {
+    val named = row.parameters.filter { it.kind == OneBotActions.Kind.FILE }
+    if (named.isEmpty()) return Prepared.Ready(params)
+    val reading = floor ?: return Prepared.Refused(
+        "The action '${row.name}' cannot read a file of your workspace: nothing in this runtime decides what may " +
+            "be read, so no file is sent.",
+    )
+    val carried = buildJsonObject {
+        params.forEach { (key, value) -> put(key, value) }
+        named.forEach { parameter ->
+            val path = params[parameter.name]?.jsonPrimitive?.contentOrNull
+                ?: return Prepared.Refused(
+                    "The action '${row.name}' needs ${parameter.name}: ${parameter.description}",
+                )
+            val named = try {
+                Path.of(path)
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                return Prepared.Refused("'$path' is no path: ${parameter.description}")
+            }
+            val allowed = when (val check = reading.checkRead(named, context.turn.agent)) {
+                is FloorCheck.Denied -> return Prepared.Refused(
+                    "The action '${row.name}' may not read '$path': ${check.reason}.",
+                )
+
+                is FloorCheck.Allowed -> check.canonical
+            }
+            val bytes = try {
+                if (Files.size(allowed) > FILE_LIMIT) {
+                    return Prepared.Refused(
+                        "The action '${row.name}' cannot send '$path', which is larger than the " +
+                            "${FILE_LIMIT / (1024 * 1024)} MiB a call may carry.",
+                    )
+                }
+                Files.readAllBytes(allowed)
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                return Prepared.Refused("The action '${row.name}' could not read '$path': ${e.message}")
+            }
+            context.touched(allowed)
+            put(parameter.name, BYTES_PREFIX + Base64.getEncoder().encodeToString(bytes))
+        }
+    }
+    return Prepared.Ready(carried)
+}
+
+/** What the platform is told a file's bytes are, which is how it is handed one it cannot reach itself. */
+private const val BYTES_PREFIX: String = "base64://"

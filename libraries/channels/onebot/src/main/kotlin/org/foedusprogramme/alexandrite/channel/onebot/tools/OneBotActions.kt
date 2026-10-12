@@ -27,6 +27,15 @@ internal object OneBotActions {
 
         /** Whether to do something: yes or no. */
         FLAG,
+
+        /**
+         * A file of the agent's own workspace, named by its path.
+         *
+         * The platform is usually on another machine, where a path of this one means nothing, so the tool reads the
+         * file and hands it over as the bytes the platform takes. What may be read is not decided here: the floor
+         * that decides what the tools for files may read decides it, where a runtime has one.
+         */
+        FILE,
     }
 
     /**
@@ -112,6 +121,29 @@ internal object OneBotActions {
                 Parameter("group_id", "The group.", Kind.NUMBER),
                 Parameter("type", "Which honors to read, such as all, talkative or performer."),
             ),
+        ),
+        Row(
+            name = "get_file",
+            said = "The file was read.",
+            parameters = listOf(
+                Parameter("file", "How the implementation knows the file."),
+                Parameter(
+                    "type",
+                    "Which kind of reference to answer with, where the implementation asks.",
+                    required = false,
+                ),
+            ),
+            extension = true,
+        ),
+        Row(
+            name = "get_group_file_url",
+            said = "Where the group file can be read was read.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("file_id", "The id the group file is known by."),
+                Parameter("busid", "Which part of the group's files the file is in.", Kind.NUMBER),
+            ),
+            extension = true,
         ),
     )
 
@@ -226,6 +258,27 @@ internal object OneBotActions {
                 Parameter("special_title", "The title to give them, empty to clear it."),
                 Parameter("duration", "How many seconds the title lasts.", Kind.NUMBER, false),
             ),
+        ),
+        Row(
+            name = "upload_group_file",
+            said = "The file was uploaded to the group.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("file", "The path of the file to upload, in your workspace.", Kind.FILE),
+                Parameter("name", "What to call the file in the group."),
+                Parameter("folder", "Which folder of the group's files to put it in.", required = false),
+            ),
+            extension = true,
+        ),
+        Row(
+            name = "upload_private_file",
+            said = "The file was uploaded to the chat.",
+            parameters = listOf(
+                Parameter("user_id", "The account to send the file to.", Kind.NUMBER),
+                Parameter("file", "The path of the file to upload, in your workspace.", Kind.FILE),
+                Parameter("name", "What to call the file."),
+            ),
+            extension = true,
         ),
     )
 

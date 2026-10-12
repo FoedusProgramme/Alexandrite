@@ -102,4 +102,43 @@ class OneBotActionsTest {
         assertNull(OneBotActions.of("delete_msg_async"))
         assertNull(OneBotActions.of(""))
     }
+
+    @Test
+    fun `uploading a file takes a path of the workspace as the file`() {
+        listOf("upload_group_file", "upload_private_file").forEach { name ->
+            val row = assertNotNull(OneBotActions.of(name))
+            assertTrue(row.extension, "$name is an action the standard does not declare")
+            val file = assertNotNull(row.parameters.firstOrNull { it.name == "file" })
+            assertEquals(
+                OneBotActions.Kind.FILE,
+                file.kind,
+                "$name takes a file of the workspace rather than a name of one",
+            )
+        }
+    }
+
+    @Test
+    fun `reading a file of the platform takes its name rather than a path of the workspace`() {
+        val row = assertNotNull(OneBotActions.of("get_file"))
+        assertTrue(row.extension)
+        val file = assertNotNull(row.parameters.firstOrNull { it.name == "file" })
+        assertEquals(OneBotActions.Kind.TEXT, file.kind)
+        assertTrue(row.parameters.none { it.kind == OneBotActions.Kind.FILE })
+    }
+
+    @Test
+    fun `the actions for files name the arguments the implementation asks for`() {
+        assertEquals(
+            listOf("group_id", "file", "name", "folder"),
+            assertNotNull(OneBotActions.of("upload_group_file")).parameters.map { it.name },
+        )
+        assertEquals(
+            listOf("user_id", "file", "name"),
+            assertNotNull(OneBotActions.of("upload_private_file")).parameters.map { it.name },
+        )
+        assertEquals(
+            listOf("group_id", "file_id", "busid"),
+            assertNotNull(OneBotActions.of("get_group_file_url")).parameters.map { it.name },
+        )
+    }
 }
