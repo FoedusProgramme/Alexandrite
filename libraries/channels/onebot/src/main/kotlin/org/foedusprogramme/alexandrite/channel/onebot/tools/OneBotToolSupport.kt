@@ -15,13 +15,33 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 internal fun OneBotApis.serving(chat: ChatAddress): OneBotApi =
     of(chat.instance) ?: throw IllegalStateException("No OneBot channel instance serves ${chat.instance}.")
 
-/** What [what] says when the call was taken, and what the implementation said when it was not. */
-internal fun OneBotResult<*>.outcome(what: String): String = when (this) {
-    is OneBotResult.Ok -> what
+/** How much of an answer is shown, since an answer to a read may be far longer than a turn should carry. */
+internal const val ANSWER_LIMIT: Int = 4_000
+
+/**
+ * What [what] says when the call was taken, and what the implementation said when it was not.
+ *
+ * A call that only reads is answered with what the platform gave it, because what was asked for *is* that answer: a
+ * call told only that its action was carried out leaves the model with nothing to read, which is what a read that
+ * discards the answer amounts to. A call that changes something is answered with what it did, since the platform's
+ * answer to it carries nothing the model can use.
+ */
+internal fun OneBotResult<*>.outcome(what: String, answered: Boolean = false): String = when (this) {
+    is OneBotResult.Ok -> if (answered) answer() else what
     is OneBotResult.Async -> "$what The implementation answers later."
     is OneBotResult.Failed -> "The implementation refused it: ${message ?: "it gave no reason"} (retcode $retcode)."
     is OneBotResult.Unreachable -> "The implementation could not be reached: ${failure.message}."
     is OneBotResult.Malformed -> "The implementation answered something this channel cannot read."
+}
+
+/** What the platform answered, as the text it is, cut where it is longer than a turn should carry. */
+private fun OneBotResult.Ok<*>.answer(): String {
+    val shown = data?.toString().orEmpty()
+    return when {
+        shown.isEmpty() || shown == "null" -> "The implementation answered with nothing."
+        shown.length <= ANSWER_LIMIT -> shown
+        else -> shown.take(ANSWER_LIMIT) + " … (the answer was longer and stops here.)"
+    }
 }
 
 /** The text of [name], null when the call gave none. */

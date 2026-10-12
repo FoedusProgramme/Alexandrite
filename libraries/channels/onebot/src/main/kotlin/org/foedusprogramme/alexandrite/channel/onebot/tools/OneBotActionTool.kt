@@ -11,6 +11,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.channel.OneBotApis
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -118,7 +119,13 @@ private suspend fun call(
         is Prepared.Ready -> prepared.params
     }
     val api = apis.serving(context.turn.chat)
-    return ToolResult(api.raw(name, params).outcome(row.said))
+    val result = api.raw(name, params)
+    // What a read answers is what other people wrote, so a turn that carries it carries content this bot cannot vouch
+    // for, and the conversation is marked the way any other content read from outside is marked.
+    if (!row.changes && result is OneBotResult.Ok) {
+        context.untrusted("the platform answered what '$name' asked for")
+    }
+    return ToolResult(result.outcome(row.said, answered = !row.changes))
 }
 
 /** What a call to an action amounts to: the arguments to send, or why they cannot be sent. */
