@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.channel.onebot.tools
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,6 +19,7 @@ import kotlin.io.path.writeBytes
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -139,6 +143,18 @@ class OneBotUploadTest {
         assertEquals("true", only["is_complete"]!!.jsonPrimitive.content)
         assertFalse(only.containsKey("chunk_data"))
         assertEquals("file-path", reference)
+    }
+
+    @Test
+    fun `a call cancelled while a piece is being sent ends cancelled rather than answered`() = runBlocking<Unit> {
+        val file = home.resolve("cancelled.bin")
+        file.writeBytes(bytes)
+
+        // The file is read on another dispatcher so that reading it does not hold the one the turn runs on, and a
+        // call ended while it waits is cancelled rather than answered, since nothing is known of what it did.
+        assertFailsWith<CancellationException> {
+            withTimeout(50L) { streamFile(file, "cancelled.bin") { awaitCancellation() } }
+        }
     }
 
     /** What an implementation answers to [call], naming the file it was sent when [call] ends the sending. */

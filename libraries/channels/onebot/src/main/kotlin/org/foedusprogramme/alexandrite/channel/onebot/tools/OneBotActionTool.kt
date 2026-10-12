@@ -1,7 +1,9 @@
 package org.foedusprogramme.alexandrite.channel.onebot.tools
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -303,7 +305,7 @@ internal suspend fun withFiles(
                 is FloorCheck.Allowed -> check.canonical
             }
             val size = try {
-                Files.size(allowed)
+                withContext(Dispatchers.IO) { Files.size(allowed) }
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
                 return Prepared.Refused("The action '${row.name}' could not read '$given': ${e.message}")
@@ -323,7 +325,7 @@ internal suspend fun withFiles(
                 return@forEach
             }
             val bytes = try {
-                Files.readAllBytes(allowed)
+                withContext(Dispatchers.IO) { Files.readAllBytes(allowed) }
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
                 return Prepared.Refused("The action '${row.name}' could not read '$given': ${e.message}")

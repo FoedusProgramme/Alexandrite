@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.onebot.tools
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -51,7 +53,7 @@ internal suspend fun streamFile(
     path: Path,
     name: String,
     send: suspend (JsonObject) -> OneBotResult<JsonElement>,
-): String? {
+): String? = withContext(Dispatchers.IO) {
     val size = Files.size(path)
     val digest = digest(path)
     val total = ((size + STREAM_CHUNK - 1) / STREAM_CHUNK).toInt()
@@ -73,7 +75,7 @@ internal suspend fun streamFile(
                 put("filename", name)
                 put("file_retention", STREAM_RETENTION_MS)
             }
-            if (send(call) !is OneBotResult.Ok) return null
+            if (send(call) !is OneBotResult.Ok) return@withContext null
             index++
         }
     }
@@ -84,7 +86,7 @@ internal suspend fun streamFile(
             put("file_retention", STREAM_RETENTION_MS)
         },
     )
-    return (completed as? OneBotResult.Ok)?.data?.reference()
+    (completed as? OneBotResult.Ok)?.data?.reference()
 }
 
 /**
