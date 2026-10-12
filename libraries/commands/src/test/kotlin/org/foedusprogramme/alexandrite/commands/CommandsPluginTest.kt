@@ -62,6 +62,7 @@ class CommandsPluginTest {
             "allow",
             "cancel",
             "home",
+            "jobs",
             "language",
             "link",
             "mode",

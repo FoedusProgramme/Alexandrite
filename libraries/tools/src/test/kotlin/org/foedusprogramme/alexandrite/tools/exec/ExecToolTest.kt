@@ -314,9 +314,10 @@ class ExecToolTest {
     }
 
     @Test
-    fun `a vetted program reads only on an operator's message turn`() {
+    fun `a vetted program reads only on an operator's message turn or the turn of a job one started`() {
         val risks = listOf(
             operatorTurn() to "ls -la",
+            operatorTurn(TurnKind.JOB) to "ls -la",
             testTurn() to "ls -la",
             operatorTurn(TurnKind.COMMAND) to "ls -la",
             testTurn(TurnKind.HEARTBEAT) to "ls -la",
@@ -325,7 +326,7 @@ class ExecToolTest {
             operatorTurn() to "du -sh .",
         ).map { (turn, command) -> review(command, fs.context(turn = turn)).risk }
 
-        assertEquals(listOf(ToolRisk.READ_ONLY) + List(6) { ToolRisk.EXEC }, risks)
+        assertEquals(List(2) { ToolRisk.READ_ONLY } + List(6) { ToolRisk.EXEC }, risks)
     }
 
     @Test

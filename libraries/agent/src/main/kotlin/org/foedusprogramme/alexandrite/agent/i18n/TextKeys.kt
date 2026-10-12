@@ -12,6 +12,7 @@ internal object TextKeys {
     const val OUTPUT_LIMIT_UNANSWERED: String = "notice.output_limit_unanswered"
     const val REPLY_TOO_LONG: String = "notice.reply_too_long"
     const val ROUND_LIMIT: String = "notice.round_limit"
+    const val BUDGET: String = "notice.budget"
     const val FAILED: String = "notice.failed"
     const val INTERRUPTED: String = "notice.interrupted"
 
@@ -23,6 +24,12 @@ internal object TextKeys {
 
     /** Takes `{agent}`, `{folders}` and `{count}`. */
     const val UNTRUSTED_FOLDERS_MORE: String = "notice.untrusted_folders_more"
+
+    /** Takes `{job}` and `{call}`. */
+    const val JOB_DROPPED: String = "notice.job_dropped"
+
+    /** Takes `{job}` and `{call}`. */
+    const val JOB_INTERRUPTED: String = "notice.job_interrupted"
 
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"

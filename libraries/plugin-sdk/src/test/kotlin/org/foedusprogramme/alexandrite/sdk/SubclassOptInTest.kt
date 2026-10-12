@@ -237,6 +237,12 @@ class SubclassOptInTest {
                 tree: Boolean,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override fun jobs(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override fun stopJob(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                job: org.foedusprogramme.alexandrite.sdk.chat.RunId,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
             override suspend fun newConversation(
                 chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,

@@ -68,6 +68,20 @@ class ToolsPluginTest {
         }
 
         assertEquals(30.seconds, definition.timeout)
-        assertContains(description, "Default 30, at most 30.")
+        assertContains(description, "at most 30, which is the default.")
+    }
+
+    @Test
+    fun `command exec lets a program run half an hour unless the exec section says otherwise`() {
+        lateinit var definition: ToolDefinition
+
+        runBlocking {
+            PluginHarness.builder(AlexandriteToolsIndex()).hardFloor(testHardFloor()).build().run {
+                definition = getAll<Tool>().single { it.definition.name == "command.exec" }.definition
+            }
+        }
+
+        assertEquals(1800.seconds, definition.timeout)
+        assertContains(definition.parameters.toString(), "at most 1800, which is the default.")
     }
 }

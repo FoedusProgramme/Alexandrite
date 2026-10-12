@@ -8,6 +8,13 @@ internal object TextKeys {
     const val CANCEL_DONE: String = "cancel.done"
     const val CANCEL_NONE: String = "cancel.none"
 
+    const val JOBS_LIST: String = "jobs.list"
+    const val JOBS_NONE: String = "jobs.none"
+    const val JOBS_ITEM: String = "jobs.item"
+    const val JOBS_ITEM_BY: String = "jobs.item_by"
+    const val JOBS_STOPPED: String = "jobs.stopped"
+    const val JOBS_UNKNOWN: String = "jobs.unknown"
+
     const val AGENT_CURRENT: String = "agent.current"
     const val AGENT_CHOICES: String = "agent.choices"
     const val AGENT_CHOICE: String = "agent.choice"

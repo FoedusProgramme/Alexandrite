@@ -48,6 +48,8 @@ class ToolRegistryTest {
             assertEquals(listOf("fs.glob", "fs.read", "fs.write", "notes.find"), offered("coder"))
             assertEquals(
                 listOf(
+                    "agent.jobs",
+                    "agent.stop",
                     "exec.run",
                     "fs.glob",
                     "fs.read",
@@ -86,12 +88,12 @@ class ToolRegistryTest {
     }
 
     @Test
-    fun `an agent is offered permission status only beside other tools`() {
+    fun `an agent is offered permission status and the job tools only beside other tools`() {
         val config = """
             {
               "agents": {
-                "coder": {"tools": {"allow": ["permission.*"]}},
-                "helper": {"tools": {"allow": ["permission.*", "fs.read"]}}
+                "coder": {"tools": {"allow": ["permission.*", "agent.*"]}},
+                "helper": {"tools": {"allow": ["permission.*", "agent.*", "fs.read"]}}
               }
             }
         """.trimIndent()
@@ -101,7 +103,7 @@ class ToolRegistryTest {
             fun offered(agent: String) = registry.offered(AgentId(agent)).map { it.definition.name }
 
             assertEquals(emptyList(), offered("coder"))
-            assertEquals(listOf("fs.read", "permission.status"), offered("helper"))
+            assertEquals(listOf("agent.jobs", "agent.stop", "fs.read", "permission.status"), offered("helper"))
         }
     }
 

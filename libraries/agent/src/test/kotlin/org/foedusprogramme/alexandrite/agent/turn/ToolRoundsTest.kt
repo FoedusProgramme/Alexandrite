@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
 import org.foedusprogramme.alexandrite.sdk.model.FinishKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ToolChoice
+import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
@@ -24,6 +25,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
@@ -38,6 +40,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome.NotRun
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.ToolCallDone
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
@@ -124,7 +127,12 @@ class ToolRoundsTest {
             assertEquals(listOf(0, 0, 0), requests.map { it.turnStart })
             val shared = requests.map { listOf(it.instructions, it.turnContext, it.tools, it.options, it.cacheKey) }
             assertEquals(1, shared.distinct().size)
-            assertEquals(listOf("fs.read", "permission.status"), requests[0].tools.map { it.name })
+            assertEquals(
+                listOf("agent.jobs", "agent.stop", "fs.read", "permission.status"),
+                requests[0].tools.map {
+                    it.name
+                },
+            )
             assertEquals(List(3) { ToolChoice.Auto }, requests.map { it.toolChoice })
             val calls = entries.filterIsInstance<AssistantEntry>().flatMap { it.parts.filterIsInstance<ToolCallPart>() }
             assertEquals(calls.map { it.id }, read.calls.map { it.call })
@@ -322,7 +330,23 @@ class ToolRoundsTest {
     // Ends.
 
     @Test
-    fun `the round after the last tool round lets the model call no tool, and calls made anyway do not run`() {
+    fun `a turn has no round limit unless its agent sets one`() {
+        repeat(40) { model.reply { toolCall("fs.read", """{"path": "$it"}""") } }
+        model.reply { text("Read all forty.") }
+
+        harness().execute {
+            val admission = ask()
+            admission.ticket.outcome()
+
+            assertEquals(40, read.calls.size)
+            assertEquals(List(41) { ToolChoice.Auto }, model.requests.map { it.toolChoice })
+            assertEquals("Read all forty.", channel().reply(admission.ticket.turn).completed?.text)
+            assertEquals(emptyList(), channel().sent)
+        }
+    }
+
+    @Test
+    fun `the round after the last tool round is asked to sum up and call no tool, and calls made anyway do not run`() {
         model.reply { toolCall("fs.read", """{"path": "a"}""") }.reply {
             text("Partial.")
             toolCall("fs.read", """{"path": "b"}""")
@@ -335,8 +359,14 @@ class ToolRoundsTest {
             val entries = stored()
             val requests = model.requests
             assertEquals(listOf(ToolChoice.Auto, ToolChoice.None), requests.map { it.toolChoice })
-            assertEquals(listOf("fs.read", "permission.status"), requests[1].tools.map { it.name })
+            assertEquals(
+                listOf("agent.jobs", "agent.stop", "fs.read", "permission.status"),
+                requests[1].tools.map { it.name },
+            )
             assertEquals(1, read.calls.size)
+            val note = limitNote("its limit of tool rounds (1)")
+            assertEquals(entries.take(3) + note, requests[1].history)
+            assertEquals(note, entries[3].withoutRecord())
             val last = entries.filterIsInstance<ToolResultEntry>().last()
             assertEquals(
                 NotRun(NotRunReason.ROUND_LIMIT) to "Not run: the turn used up its tool rounds.",
@@ -347,7 +377,38 @@ class ToolRoundsTest {
             assertEquals("Partial.", channel().reply(admission.ticket.turn).completed?.text)
             val sent = channel().sent.map { it.message.text to it.message.kind }
             assertEquals(listOf(notice to MessageKind.NOTICE), sent)
-            assertEquals<TranscriptEntry?>(entries[3], (outcome as TurnOutcome.Completed).reply)
+            assertEquals<TranscriptEntry?>(entries[4], (outcome as TurnOutcome.Completed).reply)
+        }
+    }
+
+    @Test
+    fun `a turn whose model calls used up its token budget sums up in a round without tools, with the notice`() {
+        val used = Usage.builder().inputTokens(600).outputTokens(100).build()
+        model.reply {
+            toolCall("fs.read", """{"path": "a"}""")
+            usage(used)
+        }.reply {
+            toolCall("fs.read", """{"path": "b"}""")
+            usage(used)
+        }.reply { text("Read a and b; c is left.") }
+
+        harness(""", "maxTurnTokens": 1000""").execute {
+            val admission = ask()
+            admission.ticket.outcome()
+
+            val entries = stored()
+            assertEquals(
+                listOf(ToolChoice.Auto, ToolChoice.Auto, ToolChoice.None),
+                model.requests.map {
+                    it.toolChoice
+                },
+            )
+            assertEquals(2, read.calls.size)
+            assertEquals(limitNote("its token budget (1000 tokens)"), entries[5].withoutRecord())
+            val notice = "The model used up the token budget of this message, so the answer may be incomplete."
+            assertEquals(NoticeEntry(null, notice, NoticeKind.BUDGET), entries.last().withoutRecord())
+            assertEquals("Read a and b; c is left.", channel().reply(admission.ticket.turn).completed?.text)
+            assertEquals(listOf(notice), channel().sent.map { it.message.text })
         }
     }
 
@@ -454,7 +515,10 @@ class ToolRoundsTest {
             member.ticket.outcome()
 
             assertEquals(
-                List(3) { listOf("fs.glob", "fs.read", "fs.write", "permission.status") to ToolChoice.Auto },
+                List(3) {
+                    listOf("agent.jobs", "agent.stop", "fs.glob", "fs.read", "fs.write", "permission.status") to
+                        ToolChoice.Auto
+                },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             val results = results(store.transcripts.turnEntries(member.ticket.turn))
@@ -479,7 +543,7 @@ class ToolRoundsTest {
 
             val member = model.requests.drop(2)
             assertEquals(
-                List(2) { listOf("fs.read", "permission.status") to ToolChoice.Auto },
+                List(2) { listOf("agent.jobs", "agent.stop", "fs.read", "permission.status") to ToolChoice.Auto },
                 member.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             assertEquals(model.requests[0].tools, member[0].tools)
@@ -499,7 +563,7 @@ class ToolRoundsTest {
             ask().ticket.outcome()
 
             assertEquals(
-                List(2) { listOf("fs.read", "permission.status") to ToolChoice.Auto },
+                List(2) { listOf("agent.jobs", "agent.stop", "fs.read", "permission.status") to ToolChoice.Auto },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
             val result = stored().filterIsInstance<ToolResultEntry>().single()
@@ -526,6 +590,18 @@ class ToolRoundsTest {
         assertEquals(listOf(emptyList(), emptyList()), model.requests.map { it.tools })
         assertEquals(1, lines.count { it.startsWith("WARN Model scripted/plain takes no tools") })
     }
+}
+
+/** The note that asks the model to sum up a turn that reached [reached]. */
+private fun limitNote(reached: String): UserEntry {
+    val text =
+        "[alexandrite:limit]\nThis turn reached $reached, so this response can call no tool. Say what you have " +
+            "done, what is left and how to go on from here.\n[/alexandrite:limit]"
+    return UserEntry(
+        null,
+        listOf(ContextPart("alexandrite.limit", text)),
+        UserOrigin.SystemWritten("alexandrite.limit"),
+    )
 }
 
 /** The media of [store], which counts how many puts run at once. */

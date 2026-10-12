@@ -80,8 +80,10 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {
         "$path.temperature must be a number of at least 0"
     }
-    require(agent.maxRounds > 0) { "$path.maxRounds must be positive" }
+    require(agent.maxRounds == null || agent.maxRounds > 0) { "$path.maxRounds must be positive" }
+    require(agent.maxTurnTokens == null || agent.maxTurnTokens > 0) { "$path.maxTurnTokens must be positive" }
     require(agent.toolTimeoutSeconds > 0) { "$path.toolTimeoutSeconds must be positive" }
+    require(agent.foregroundSeconds > 0) { "$path.foregroundSeconds must be positive" }
     checkGlobs("$path.tools.allow", agent.tools.allow)
     checkGlobs("$path.tools.deny", agent.tools.deny)
     checkGlobs("$path.tools.forMembers", agent.tools.forMembers)

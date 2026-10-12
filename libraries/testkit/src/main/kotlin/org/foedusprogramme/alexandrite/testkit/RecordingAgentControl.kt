@@ -27,6 +27,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
+import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
@@ -38,10 +39,11 @@ import java.time.Duration
 import java.time.ZoneOffset
 
 /**
- * An [AgentControl] and [ChatSettings] that records its calls, lists the [statuses] the test sets, mints conversations
- * `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance, linked groups,
- * trusted folders and allow rules, where [defaultAgent] serves every chat that is no other agent's home until an update
- * switches it. A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after it at most.
+ * An [AgentControl] and [ChatSettings] that records its calls, lists the [statuses] and [jobStatuses] the test sets,
+ * mints conversations `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance,
+ * linked groups, trusted folders and allow rules, where [defaultAgent] serves every chat that is no other agent's home
+ * until an update switches it. A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after
+ * it at most.
  *
  * Homes, groups, folders and allow rules that the test declares stand for the config file's, and those changed at
  * runtime over them are set at [TEST_TIME]. A chat's granted allow rules end with its conversation. It refuses with a
@@ -71,6 +73,10 @@ public class RecordingAgentControl(
     /** The running and queued turns that [turns] lists and the cancels find. */
     @Volatile
     public var statuses: List<TurnStatus> = emptyList()
+
+    /** The running jobs that [jobs] lists and the cancels and [stopJob] find. */
+    @Volatile
+    public var jobStatuses: List<JobStatus> = emptyList()
 
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
 
@@ -136,10 +142,11 @@ public class RecordingAgentControl(
     override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
         statuses.filter { chat == null || it.turn.chat == chat }
 
-    /** Whether a turn at [chat] runs. */
+    /** Whether a turn or a job at [chat] runs. */
     override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
         record(Call.Cancel(chat, by))
-        return statuses.any { it.turn.chat == chat && it.phase == TurnPhase.RUNNING }
+        return statuses.any { it.turn.chat == chat && it.phase == TurnPhase.RUNNING } ||
+            jobStatuses.any { it.chat == chat }
     }
 
     /** Whether [turn] is listed. */
@@ -148,10 +155,18 @@ public class RecordingAgentControl(
         return statuses.any { it.turn.id == turn }
     }
 
-    /** Whether a turn of [run] is listed. */
+    /** Whether a turn of [run], or a job [run], is listed. */
     override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean {
         record(Call.CancelRun(run, tree, by))
-        return statuses.any { it.turn.lineage?.run == run }
+        return statuses.any { it.turn.lineage?.run == run } || jobStatuses.any { it.id == run }
+    }
+
+    override fun jobs(chat: ChatAddress): List<JobStatus> = jobStatuses.filter { it.chat == chat }
+
+    /** Whether [job] is listed at [chat]. */
+    override fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean {
+        record(Call.StopJob(chat, job, by))
+        return jobStatuses.any { it.chat == chat && it.id == job }
     }
 
     override suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId = synchronized(lock) {
@@ -424,6 +439,9 @@ public class RecordingAgentControl(
 
         @Poko
         public class CancelRun(public val run: RunId, public val tree: Boolean, public val by: ChatUser?) : Call
+
+        @Poko
+        public class StopJob(public val chat: ChatAddress, public val job: RunId, public val by: ChatUser?) : Call
 
         @Poko
         public class NewConversation(

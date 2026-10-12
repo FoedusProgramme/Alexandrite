@@ -91,7 +91,17 @@ class RepositoryQuestionTest {
 
         val requests = model.requests
         assertEquals(
-            listOf("command.exec", "fs.edit", "fs.glob", "fs.grep", "fs.read", "fs.write", "permission.status"),
+            listOf(
+                "agent.jobs",
+                "agent.stop",
+                "command.exec",
+                "fs.edit",
+                "fs.glob",
+                "fs.grep",
+                "fs.read",
+                "fs.write",
+                "permission.status",
+            ),
             requests.first().tools.map { it.name },
         )
         assertEquals(true, requests.first().instructions.any { it.id == "workspace" })

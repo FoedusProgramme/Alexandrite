@@ -33,6 +33,12 @@ import org.foedusprogramme.alexandrite.agent.hook.Hooked
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.hook.or
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
+import org.foedusprogramme.alexandrite.agent.job.EndedJob
+import org.foedusprogramme.alexandrite.agent.job.InterruptedComparison
+import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
+import org.foedusprogramme.alexandrite.agent.job.Jobs
+import org.foedusprogramme.alexandrite.agent.job.described
+import org.foedusprogramme.alexandrite.agent.job.jobEntry
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.model.RetryPolicy
 import org.foedusprogramme.alexandrite.agent.model.SelectedModel
@@ -95,6 +101,7 @@ import org.foedusprogramme.alexandrite.sdk.model.RequestIds
 import org.foedusprogramme.alexandrite.sdk.model.ToolChoice
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.Usage
+import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
@@ -105,6 +112,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
@@ -115,6 +123,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UnknownEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.UserPart
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
@@ -144,6 +153,8 @@ internal class AgentTurnRunner(
     private val offeredTools: OfferedTools,
     private val pendingCommands: PendingCommands,
     private val executor: ToolExecutor,
+    private val jobs: Jobs,
+    private val interruptedJobs: InterruptedJobs,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
     private val reads: ReadTaint,
@@ -199,11 +210,15 @@ internal class AgentTurnRunner(
         private val stored = mutableListOf<TranscriptEntry>()
         private val appending = Mutex()
         private var usage: Usage? = null
+
+        /** The input and output tokens of the turn's model calls so far. */
+        private var spent = 0L
         private var outcome: TurnOutcome? = null
 
         suspend fun execute(): TurnOutcome {
             val input = plan.input
             val message = input.message
+            if (input is TurnSource.FromJob && !stillActive(input.job)) return dropped(input.job)
             val turn = dequeue()
             if (!openReply(turn)) return TurnOutcome.Failed("Channel instance ${turn.chat.instance} is not open.")
             withContext(NonCancellable) {
@@ -225,13 +240,19 @@ internal class AgentTurnRunner(
             val opening = opening(turn, input, text, context.baked)
             val comparison = offeredTools.compare(turn.conversation, definitions)
             val commands = pendingCommands.pending(turn.conversation)
+            val interrupted = interruptedJobs.pending(turn.conversation)
             val loaded = history.entries(turn.conversation)
             hooks.contextLoaded(turn, loaded)
             val sections = hooks.promptSections(turn, prompt.sections(turn, message?.chatInfo?.kind))
             val parts = RequestParts(selected, options, loaded.filter(::isSent), sections, definitions, context)
             val turnTools = TurnTools(offered.associateBy { it.definition.name }, callable)
-            val unstored = listOfNotNull(comparison?.notice, commands?.notice, opening)
-            return rounds(parts, unstored, turnTools, comparison, commands)
+            val unstored = listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, opening)
+            if (input !is TurnSource.FromJob) {
+                return rounds(parts, unstored, turnTools, comparison, commands, interrupted)
+            }
+            store(unstored, comparison, commands, interrupted)
+            jobs.delivered(input.job.job)
+            return rounds(parts, emptyList(), turnTools, null, null, null)
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -282,10 +303,17 @@ internal class AgentTurnRunner(
             model = settings.model(key) ?: checkNotNull(agent.model) { "Agent '${agent.id}' has no model." }
             reasoning = settings.reasoning(key) ?: agent.reasoning
             val language = settings.language(key) ?: agent.language
-            val conversation = if (plan.kind == TurnKind.HEARTBEAT) {
-                conversations.heartbeatBase(key)
-            } else {
-                conversations.current(key)
+            val input = plan.input
+            val conversation = when {
+                input is TurnSource.FromJob -> checkNotNull(
+                    conversations.conversation(input.job.job.turn.conversation),
+                ) {
+                    "The conversation of job ${input.job.job.id} is gone."
+                }
+
+                plan.kind == TurnKind.HEARTBEAT -> conversations.heartbeatBase(key)
+
+                else -> conversations.current(key)
             }
             resolved(conversation.id)
             taint = taints.open(plan.id, key, conversation.id)
@@ -350,6 +378,66 @@ internal class AgentTurnRunner(
                 if (input.trust == Trust.UNTRUSTED) taint.mark("an untrusted prompt of plugin '${input.plugin}'")
                 initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
             }
+
+            is TurnSource.FromJob -> jobOpening(turn, input.job, text)
+        }
+
+        /** The unstored entry of the result of [job], which reads [text], after the turn took in the job's taint. */
+        private suspend fun jobOpening(turn: TurnInfo, job: EndedJob, text: String): UserEntry {
+            job.untrusted?.let { taint.mark(it) }
+            reads.reason(turn.agent, job.job.call.name, job.touched)?.let { taint.mark(it) }
+            val stored = media.stored(job.result)
+            val carried = job.result.content.zip(stored.content).mapNotNull { (part, kept) ->
+                (kept as? UserPart)?.takeIf { part is MediaPart }
+            }
+            return jobEntry(job, text, clock.zone, carried)
+        }
+
+        /** Whether the conversation of [job] still takes entries. */
+        private suspend fun stillActive(job: EndedJob): Boolean =
+            conversations.conversation(job.job.turn.conversation)?.state == ConversationState.ACTIVE
+
+        /** Drops the result of [job], whose conversation was sealed since the job started, telling its chat. */
+        private suspend fun dropped(job: EndedJob): TurnOutcome = withContext(NonCancellable) {
+            val started = job.job
+            logger.info(
+                "The result of job {} ({}) is dropped: its conversation {} of {} was sealed",
+                started.id,
+                described(started),
+                started.turn.conversation,
+                plan.key,
+            )
+            val text = notices.text(
+                started.turn,
+                TextKeys.JOB_DROPPED,
+                "job" to started.id,
+                "call" to described(started),
+            )
+            val chat = started.turn.chat
+            val delivery = channels.channel(chat.instance)?.let { channel ->
+                delivered { channel.send(chat, notice(text, null, null)) }
+            }
+            if (delivery !is Delivery.Delivered) {
+                logger.warn("Chat {} is not told that the result of job {} is dropped: {}", chat, started.id, delivery)
+            }
+            jobs.delivered(started)
+            TurnOutcome.Completed(null)
+        }
+
+        /** Stores the [opening] entries before the first round. */
+        private suspend fun store(
+            opening: List<UserEntry>,
+            comparison: ToolComparison?,
+            commands: PendingComparison?,
+            interrupted: InterruptedComparison?,
+        ) {
+            withContext(NonCancellable) {
+                val turn = checkNotNull(turn)
+                append(*opening.toTypedArray())
+                comparison?.let { offeredTools.record(turn.conversation, it) }
+                commands?.let { pendingCommands.clear(turn.conversation, it) }
+                interrupted?.let { interruptedJobs.clear(turn.conversation, it) }
+            }
         }
 
         /** The unstored entry of [message] in [turn], whose words read [text], with the turn context [baked]. */
@@ -378,15 +466,22 @@ internal class AgentTurnRunner(
             tools: TurnTools,
             comparison: ToolComparison?,
             commands: PendingComparison?,
+            interrupted: InterruptedComparison?,
         ): TurnOutcome {
             val turn = checkNotNull(turn)
             var pending = opening
             var round = 0
             var toolRounds = 0
             var pauses = 0
+            var noted = false
             while (true) {
                 if (round > 0) previews?.nextSegment()
-                val final = toolRounds == agent.config.maxRounds
+                val limit = limit(toolRounds)
+                if (limit != null && !noted) {
+                    pending = pending + limitEntry(limit, agent.config)
+                    noted = true
+                }
+                val final = limit != null
                 val built = request(parts, pending, round, final)
                 val request = hooks.llmRequest(turn, round, built).or { return stopped(it) }
                 val response = try {
@@ -395,6 +490,7 @@ internal class AgentTurnRunner(
                     return modelFailed(e.error)
                 }
                 usage = usage?.plus(response.usage) ?: response.usage
+                spent += (response.usage.inputTokens ?: 0) + (response.usage.outputTokens ?: 0)
                 warnNearWindow(parts.model, response.usage)
                 hooks.llmResponse(turn, round, response).or { return stopped(it) }
                 val message = response.message
@@ -418,6 +514,7 @@ internal class AgentTurnRunner(
                     val entries = append(*(pending + message).toTypedArray())
                     if (first && comparison != null) offeredTools.record(turn.conversation, comparison)
                     if (first && commands != null) pendingCommands.clear(turn.conversation, commands)
+                    if (first && interrupted != null) interruptedJobs.clear(turn.conversation, interrupted)
                     entries.last() as AssistantEntry
                 }
                 pending = emptyList()
@@ -425,15 +522,16 @@ internal class AgentTurnRunner(
                 when {
                     paused -> pauses++
 
+                    limit != null -> return withContext(NonCancellable) { limited(reply, calls, limit) }
+
                     calls.isEmpty() -> return withContext(NonCancellable) {
                         val cutShort = finish == FinishKind.MAX_OUTPUT_TOKENS
                         answer(reply, (NoticeKind.OUTPUT_LIMIT to TextKeys.OUTPUT_LIMIT).takeIf { cutShort })
                     }
 
-                    final -> return withContext(NonCancellable) { roundLimit(reply, calls) }
-
                     else -> {
                         runCalls(turn, calls, tools)
+                        absorbJobs(turn)
                         absorbFollowUps(turn)
                         toolRounds++
                     }
@@ -555,6 +653,45 @@ internal class AgentTurnRunner(
             notify(NoticeKind.UNTRUSTED_FOLDER, text)
         }
 
+        /** What makes the turn's next round its last after [toolRounds] tool rounds, null when nothing does. */
+        private fun limit(toolRounds: Int): TurnLimit? {
+            val config = agent.config
+            return when {
+                config.maxRounds?.let { toolRounds >= it } == true -> TurnLimit.ROUNDS
+                config.maxTurnTokens?.let { spent >= it } == true -> TurnLimit.BUDGET
+                else -> null
+            }
+        }
+
+        /** Takes in the results of the jobs that turns from the turn's chat started in its conversation. */
+        private suspend fun absorbJobs(turn: TurnInfo) {
+            val taken = ArrayDeque(followUps.takeJobs(turn.chat, turn.conversation))
+            try {
+                while (taken.isNotEmpty()) absorbJob(turn, taken)
+            } finally {
+                if (taken.isNotEmpty()) followUps.restore(taken.toList())
+            }
+        }
+
+        /** Takes the result of the first job of [taken] into the turn. */
+        private suspend fun absorbJob(turn: TurnInfo, taken: ArrayDeque<FollowUp>) {
+            val followUp = taken.first()
+            val job = (followUp.plan.input as TurnSource.FromJob).job
+            val entry = jobOpening(turn, job, job.text)
+            withContext(NonCancellable) {
+                taken.removeFirst()
+                try {
+                    append(entry)
+                    jobs.delivered(job.job)
+                    followUp.complete(TurnOutcome.Absorbed(turn.id))
+                    logger.debug("Turn {} of {} takes in the result of job {}", turn.id, turn.key, job.job.id)
+                } catch (e: Throwable) {
+                    followUp.complete(TurnOutcome.Failed(e.toString()))
+                    throw e
+                }
+            }
+        }
+
         /** Absorbs the messages that the turn's principal queued since the turn started. */
         private suspend fun absorbFollowUps(turn: TurnInfo) {
             val principal = principal ?: return
@@ -616,12 +753,24 @@ internal class AgentTurnRunner(
             }
         }
 
-        /** Answers [calls] of the final round as not run, and ends the turn on [reply] with a notice. */
-        private suspend fun roundLimit(reply: AssistantEntry, calls: List<ToolCallPart>): TurnOutcome {
-            logger.info("Turn {} of {} used up its {} tool rounds", plan.id, plan.key, agent.config.maxRounds)
-            val notRun = ToolOutcome.NotRun(NotRunReason.ROUND_LIMIT)
-            append(*calls.map { textResult(it, ROUND_LIMIT_RESULT, notRun) }.toTypedArray())
-            return answer(reply, NoticeKind.ROUND_LIMIT to TextKeys.ROUND_LIMIT)
+        /** Answers [calls] of the final round as not run, and ends the turn on [reply] with the notice of [limit]. */
+        private suspend fun limited(reply: AssistantEntry, calls: List<ToolCallPart>, limit: TurnLimit): TurnOutcome {
+            val config = agent.config
+            when (limit) {
+                TurnLimit.ROUNDS ->
+                    logger.info("Turn {} of {} used up its {} tool rounds", plan.id, plan.key, config.maxRounds)
+
+                TurnLimit.BUDGET -> logger.info(
+                    "Turn {} of {} used up its budget of {} tokens with {}",
+                    plan.id,
+                    plan.key,
+                    config.maxTurnTokens,
+                    spent,
+                )
+            }
+            val notRun = ToolOutcome.NotRun(limit.reason)
+            if (calls.isNotEmpty()) append(*calls.map { textResult(it, limit.result, notRun) }.toTypedArray())
+            return answer(reply, limit.notice to limit.key)
         }
 
         /** Delivers the stored [reply] as the turn's answer, followed by the notice [after]. */
@@ -872,6 +1021,7 @@ private val TurnSource.text: String
     get() = when (this) {
         is TurnSource.FromMessage -> message.text
         is TurnSource.FromInitiated -> prompt
+        is TurnSource.FromJob -> job.text
     }
 
 /** The words that the sender of [message] wrote themselves, null when it holds none of theirs. */
@@ -897,7 +1047,5 @@ private const val MAX_PARALLEL_CALLS = 4
 
 /** The untrusted folders that one notice names. */
 private const val MAX_NAMED_FOLDERS = 10
-
-private const val ROUND_LIMIT_RESULT = "Not run: the turn used up its tool rounds."
 
 private val logger = LoggerFactory.getLogger(AgentTurnRunner::class.java)

@@ -138,6 +138,9 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** The turn used up its tool rounds. */
         public val ROUND_LIMIT: NoticeKind = NoticeKind("round_limit")
 
+        /** The turn used up its token budget. */
+        public val BUDGET: NoticeKind = NoticeKind("budget")
+
         /** A folder's project instructions were not loaded, as the folder is not trusted. */
         public val UNTRUSTED_FOLDER: NoticeKind = NoticeKind("untrusted_folder")
 
@@ -151,6 +154,7 @@ public value class NoticeKind internal constructor(public val id: String) {
             OUTPUT_LIMIT,
             TOO_LONG,
             ROUND_LIMIT,
+            BUDGET,
             UNTRUSTED_FOLDER,
         )
 

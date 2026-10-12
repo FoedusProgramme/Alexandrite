@@ -8,6 +8,8 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 internal class AgentSettings(
     /** Turns that run at once across all agents and chats. */
     val maxConcurrentTurns: Int = 4,
+    /** Tool calls that run in the background at once per chat. */
+    val maxJobsPerChat: Int = 4,
     val queue: QueueConfig = QueueConfig(),
     val shutdown: ShutdownConfig = ShutdownConfig(),
     val models: ModelCallConfig = ModelCallConfig(),
@@ -25,6 +27,7 @@ internal class AgentSettings(
 ) {
     init {
         require(maxConcurrentTurns > 0) { "maxConcurrentTurns must be positive" }
+        require(maxJobsPerChat > 0) { "maxJobsPerChat must be positive" }
         require(previewIntervalMillis >= 0) { "previewIntervalMillis may not be negative" }
         require(maxMediaBytes > 0) { "maxMediaBytes must be positive" }
         require(trustedFolders.all(::isPath)) { "trustedFolders holds a blank or malformed path" }

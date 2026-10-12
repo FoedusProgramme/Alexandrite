@@ -6,7 +6,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 
 /** Whose authority a turn carries. */
 internal enum class Principal {
-    /** An admin's message turn. */
+    /** An admin's message turn, or the turn of a job that one started. */
     OPERATOR,
 
     /** A turn of any other person. */
@@ -19,7 +19,7 @@ internal enum class Principal {
     companion object {
         fun of(turn: TurnInfo): Principal = when {
             turn.actor == null -> AUTOMATION
-            turn.actorIsAdmin && turn.kind == TurnKind.MESSAGE -> OPERATOR
+            turn.actorIsAdmin && (turn.kind == TurnKind.MESSAGE || turn.kind == TurnKind.JOB) -> OPERATOR
             else -> MEMBER
         }
     }

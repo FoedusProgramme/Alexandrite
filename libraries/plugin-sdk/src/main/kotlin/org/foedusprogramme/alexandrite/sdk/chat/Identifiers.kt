@@ -24,7 +24,7 @@ public value class TurnId(public val value: String) {
     override fun toString(): String = value
 }
 
-/** One delegated run, minted by the agent. */
+/** One delegated run or background job, minted by the agent. */
 @JvmInline
 @Serializable
 public value class RunId(public val value: String) {

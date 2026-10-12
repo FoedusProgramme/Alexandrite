@@ -153,6 +153,22 @@ internal class TurnWorkers(
         taken
     }
 
+    /**
+     * Takes the results of the jobs that turns from [chat] started in [conversation] and that wait at [key] off its
+     * queue, in queue order, up to the first change of the key's state.
+     */
+    fun takeJobResults(key: AgentChatKey, chat: ChatAddress, conversation: ConversationId): List<WorkerJob.Turn> =
+        lock.locked {
+            val queue = workers[key]?.queue ?: return@locked emptyList()
+            val taken = queue.asSequence()
+                .takeWhile { it is WorkerJob.Turn }
+                .filterIsInstance<WorkerJob.Turn>()
+                .filter { it.plan.origin == chat && it.plan.jobConversation == conversation }
+                .toList()
+            queue.removeAll { job -> taken.any { it === job } }
+            taken
+        }
+
     /** Whether [takeFollowUps] would return a message now. */
     fun hasFollowUp(key: AgentChatKey, principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =
         lock.locked { workers[key]?.queue?.followUps(principal, chat, since)?.any() == true }
@@ -306,10 +322,10 @@ internal class TurnWorkers(
                 runner.run(turn.plan, QueuedFollowUps(turn.plan.key), permit) { conversation ->
                     lock.locked {
                         current.conversation = conversation
-                        if (turn.plan.kind == TurnKind.HEARTBEAT) {
-                            worker.heartbeatBase = conversation
-                        } else {
-                            worker.conversation = conversation
+                        when (turn.plan.kind) {
+                            TurnKind.HEARTBEAT -> worker.heartbeatBase = conversation
+                            TurnKind.JOB -> Unit
+                            else -> worker.conversation = conversation
                         }
                     }
                 }
@@ -395,6 +411,12 @@ internal class TurnWorkers(
         override suspend fun await(principal: UserAddress, chat: ChatAddress, since: Instant) {
             awaitFollowUp(key, principal, chat, since)
         }
+
+        override fun takeJobs(chat: ChatAddress, conversation: ConversationId): List<FollowUp> =
+            takeJobResults(key, chat, conversation).map { job ->
+                taken[job.plan.id] = job
+                FollowUp(job.plan) { job.ticket.complete(it) }
+            }
     }
 
     /** The permit of one turn, which it holds while it runs and gives up while it waits for a person. */
@@ -459,7 +481,11 @@ private class Worker(val key: AgentChatKey) {
             current.turn?.let { Listed(it.plan, current.startedAt, current.conversation) }
         }
         val queued = queue.filterIsInstance<WorkerJob.Turn>().map { turn ->
-            val known = if (turn.plan.kind == TurnKind.HEARTBEAT) heartbeatBase else conversation
+            val known = when (turn.plan.kind) {
+                TurnKind.HEARTBEAT -> heartbeatBase
+                TurnKind.JOB -> turn.plan.jobConversation
+                else -> conversation
+            }
             Listed(turn.plan, null, known)
         }
         return (listOfNotNull(running) + queued).filter { chat == null || it.plan.origin == chat }
@@ -491,6 +517,10 @@ private fun ArrayDeque<WorkerJob>.followUps(principal: UserAddress, chat: ChatAd
     .takeWhile { it is WorkerJob.Turn }
     .filterIsInstance<WorkerJob.Turn>()
     .filter { it.plan.isFollowUp(principal, chat, since) }
+
+/** The conversation of the job whose result this turn answers, null for any other turn. */
+private val TurnPlan.jobConversation: ConversationId?
+    get() = (input as? TurnSource.FromJob)?.job?.job?.turn?.conversation
 
 /** Whether this turn answers a message that [principal] sent in [chat] and queued since [since]. */
 private fun TurnPlan.isFollowUp(principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =

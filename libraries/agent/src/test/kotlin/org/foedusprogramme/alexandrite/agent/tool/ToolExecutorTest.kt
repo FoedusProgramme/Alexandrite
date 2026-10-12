@@ -2,7 +2,9 @@ package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
@@ -18,8 +20,11 @@ import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.hostPaths
+import org.foedusprogramme.alexandrite.agent.job.JobRecords
+import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
+import org.foedusprogramme.alexandrite.agent.pluginScope
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
@@ -36,6 +41,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.testkit.RecordingTool
 import org.foedusprogramme.alexandrite.testkit.recordingTool
+import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
@@ -43,6 +49,7 @@ import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.time.Clock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -73,7 +80,11 @@ class ToolExecutorTest {
     private fun executor(
         gate: ToolGate = AdmittingGate(),
         workspaces: Workspaces = Workspaces(hostPaths(null), settings("{}")),
-    ) = ToolExecutor(gate, settings("""{"shutdown": {"cancelJoinSeconds": 3}}"""), workspaces)
+    ): ToolExecutor {
+        val settings = settings("""{"shutdown": {"cancelJoinSeconds": 3}}""")
+        val jobs = Jobs(settings, JobRecords(testRecords()), { true }, Clock.systemUTC(), pluginScope(GlobalJobs))
+        return ToolExecutor(gate, settings, workspaces, jobs)
+    }
 
     private fun abandoned(after: String) =
         "WARN Tool fs.read still runs $after after its call call-1 in turn test-turn was cancelled: it is abandoned " +
@@ -336,6 +347,9 @@ class ToolExecutorTest {
         assertTrue(taint.tainted)
     }
 }
+
+/** The scope of jobs that the calls of these tests never start. */
+private val GlobalJobs = CoroutineScope(Job())
 
 /** A gate that admits every call with [clearance] and records the calls it saw. */
 private class AdmittingGate(private val clearance: Clearance = Clearance(ClearanceKind.NONE)) : ToolGate {

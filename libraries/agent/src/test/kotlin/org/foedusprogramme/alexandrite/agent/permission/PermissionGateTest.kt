@@ -223,6 +223,17 @@ class PermissionGateTest {
     }
 
     @Test
+    fun `the turn of a job that an admin's turn started is an operator's, as the job's principal is the admin`() =
+        runTest {
+            val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
+            val job = testTurn(TurnKind.JOB) { actor(testUser("admin", isAdmin = true)) }
+            setMode(job, PermissionMode.BYPASS, clock.now + Duration.ofHours(1))
+
+            assertEquals("mode", outcome(gate(listOf(write)).admit(write, job)))
+            assertEquals("ask", outcome(gate(listOf(write)).admit(write, testTurn(TurnKind.JOB))))
+        }
+
+    @Test
     fun `a person is asked why the call needs one`() = runTest {
         val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
         val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)

@@ -39,9 +39,9 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `anyone may read the settings anywhere`() {
+    fun `anyone may read the settings and the jobs anywhere`() {
         assertRow("settings", "", direct = null, others = null)
-        for (command in listOf("agent", "model", "mode", "reasoning", "language")) {
+        for (command in listOf("agent", "model", "mode", "reasoning", "language", "jobs")) {
             assertRow(command, "", direct = null, others = null)
             assertRow(command, "  ", direct = null, others = null)
         }
@@ -63,7 +63,7 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `only admins may change the model, the permission mode, homes, links, trust and allow rules`() {
+    fun `only admins may change the model, the permission mode, homes, links, trust and allow rules, or stop a job`() {
         for ((command, arguments) in listOf(
             "model" to "deepseek/deepseek-chat",
             "model" to "reset",
@@ -80,6 +80,7 @@ class CommandRulesTest {
             "untrust" to "/srv/repo",
             "allow" to "",
             "allow" to "revoke 1",
+            "jobs" to "stop j-7kq2mx",
         )) {
             assertRow(command, arguments, direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
         }

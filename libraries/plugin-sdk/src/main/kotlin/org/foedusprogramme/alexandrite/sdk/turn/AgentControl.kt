@@ -38,14 +38,22 @@ public interface AgentControl {
      */
     public suspend fun turns(chat: ChatAddress? = null): List<TurnStatus>
 
-    /** Cancels the running turns at [chat] and every run they delegated, leaving queued turns alone. */
+    /**
+     * Cancels the running turns at [chat] and every run they delegated and stops its jobs, leaving queued turns alone.
+     */
     public fun cancel(chat: ChatAddress, by: ChatUser?): Boolean
 
     /** Drops [turn] while it is queued, held or waiting, or cancels it while it runs. */
     public fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean
 
-    /** Cancels [run], and the runs it delegated when [tree] is true. */
+    /** Cancels [run], and the runs it delegated when [tree] is true, or stops it when it is a job. */
     public fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean
+
+    /** The jobs that turns at [chat] moved to the background and that still run, oldest first. */
+    public fun jobs(chat: ChatAddress): List<JobStatus>
+
+    /** Stops the job [job] of [chat], false when [chat] runs no such job. */
+    public fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean
 
     /**
      * Seals the conversation of the chat's agent once the turns queued at its key before the call have ended, and
@@ -210,6 +218,21 @@ public class AgentSummary(
     public val homeSetAt: Instant? = null,
     /** Who set [home] at runtime, null for the host or when nobody did. */
     public val homeSetBy: ChatUser? = null,
+)
+
+/** A tool call that runs on in the background after its turn went on. */
+@Poko
+public class JobStatus(
+    public val id: RunId,
+    /** The chat of the turn that made the call. */
+    public val chat: ChatAddress,
+    public val tool: String,
+    /** The call's main argument, such as its command line or path, empty when it has none. */
+    public val title: String,
+    /** When the call started to run. */
+    public val startedAt: Instant,
+    /** The principal of the turn that made the call, null when it had none. */
+    public val by: ChatUser?,
 )
 
 /** A running or queued turn. */

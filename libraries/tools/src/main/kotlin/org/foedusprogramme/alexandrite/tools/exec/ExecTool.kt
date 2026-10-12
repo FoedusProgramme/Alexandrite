@@ -32,8 +32,6 @@ import kotlin.time.Duration.Companion.seconds
 @Singleton
 @Contribute(Tool::class)
 internal class ExecTool(private val floor: HardFloor, private val config: ExecConfig) : ReviewedTool {
-    private val defaultTimeout = minOf(DEFAULT_TIMEOUT_SECONDS, config.maxTimeoutSeconds)
-
     override val definition: ToolDefinition = ToolDefinition(
         name = "command.exec",
         description = "Runs one program with its arguments, without a shell, and returns its exit code and its " +
@@ -54,8 +52,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             property(
                 "timeoutSeconds",
                 "integer",
-                "How long the program may run, in seconds. Default $defaultTimeout, at most " +
-                    "${config.maxTimeoutSeconds}.",
+                "How long the program may run, in seconds: at most ${config.maxTimeoutSeconds}, which is the default.",
             )
         },
         risk = ToolRisk.EXEC,
@@ -178,7 +175,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val seconds = arguments.optional("timeoutSeconds")?.let { value ->
             (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
                 ?: throw CallProblem("'timeoutSeconds' must be a whole number of at least 1.")
-        } ?: defaultTimeout
+        } ?: config.maxTimeoutSeconds
         if (seconds > config.maxTimeoutSeconds) {
             throw CallProblem("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
         }
@@ -196,7 +193,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun isOperator(context: ToolContext): Boolean =
-        context.turn.actorIsAdmin && context.turn.kind == TurnKind.MESSAGE
+        context.turn.actorIsAdmin && (context.turn.kind == TurnKind.MESSAGE || context.turn.kind == TurnKind.JOB)
 
     private sealed interface Inspection {
         class Problem(val text: String) : Inspection
@@ -210,5 +207,3 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == JsonNull }
 
 private fun home(): String? = System.getProperty("user.home")?.takeIf { it.isNotEmpty() }
-
-private const val DEFAULT_TIMEOUT_SECONDS = 120

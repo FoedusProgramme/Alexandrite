@@ -10,8 +10,8 @@ internal class ExecConfig(
     val environment: List<String> = emptyList(),
     /** The characters of a program's output that a call returns. */
     val maxOutputChars: Int = 30_000,
-    /** The longest that a call may let its program run. */
-    val maxTimeoutSeconds: Int = 600,
+    /** The longest that a call may let its program run, and its default. */
+    val maxTimeoutSeconds: Int = 1800,
 ) {
     init {
         require(maxOutputChars >= MIN_OUTPUT_CHARS) { "maxOutputChars must be at least $MIN_OUTPUT_CHARS" }

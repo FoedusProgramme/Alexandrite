@@ -35,6 +35,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
+import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
@@ -244,6 +245,33 @@ class FakesTest {
         assertEquals(Markup.MARKDOWN, context.replies.first().markup)
         assertFailsWith<IllegalArgumentException> { blocking { context.reply(" ") } }
         assertNull(TestCommandContext().replies.firstOrNull())
+    }
+
+    @Test
+    fun `a recording agent control lists the jobs of a chat and finds them when it stops or cancels`() {
+        val control = RecordingAgentControl()
+        val (chat, other) = listOf(testChat(), testChat("other"))
+        val admin = testUser("ada", isAdmin = true)
+        val job = JobStatus(RunId("j-1"), chat, "command.exec", "./gradlew test", TEST_TIME, admin)
+        control.jobStatuses = listOf(job)
+
+        val stopped = control.stopJob(chat, RunId("j-1"), admin)
+        val elsewhere = control.stopJob(other, RunId("j-1"), admin)
+        val cancelled = control.cancel(chat, admin)
+        val run = control.cancelRun(RunId("j-1"), tree = false, by = null)
+
+        assertEquals(listOf(job), control.jobs(chat))
+        assertEquals(emptyList(), control.jobs(other))
+        assertEquals(listOf(true, false, true, true), listOf(stopped, elsewhere, cancelled, run))
+        assertEquals(
+            listOf(
+                RecordingAgentControl.Call.StopJob(chat, RunId("j-1"), admin),
+                RecordingAgentControl.Call.StopJob(other, RunId("j-1"), admin),
+                RecordingAgentControl.Call.Cancel(chat, admin),
+                RecordingAgentControl.Call.CancelRun(RunId("j-1"), false, null),
+            ),
+            control.calls,
+        )
     }
 
     @Test

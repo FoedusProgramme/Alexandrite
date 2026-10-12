@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.config
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
 import org.foedusprogramme.alexandrite.agent.execute
+import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
@@ -43,7 +44,9 @@ class AgentSettingsTest {
                   "maxOutputTokens": 16000,
                   "temperature": 0.5,
                   "maxRounds": 10,
+                  "maxTurnTokens": 500000,
                   "toolTimeoutSeconds": 30,
+                  "foregroundSeconds": 20,
                   "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forMembers": ["fs.read"]},
                   "permission": {"allow": ["command.exec(git status)"], "deny": ["command.exec(./gradlew test)"]},
                   "workspace": "coder-files",
@@ -59,10 +62,17 @@ class AgentSettingsTest {
 
         val coder = agent.config
         assertEquals(
-            listOf("coder", "Coder", "Reads code.", listOf("Be careful."), 16000, 0.5, 10, 30, "coder-files"),
+            listOf(
+                "coder", "Coder", "Reads code.",
+                listOf(
+                    "Be careful.",
+                ),
+                16000, 0.5, 10, 500000L, 30, 20, "coder-files",
+            ),
             listOf(
                 agent.id.value, agent.name, coder.description, coder.instructions, coder.maxOutputTokens,
-                coder.temperature, coder.maxRounds, coder.toolTimeoutSeconds, coder.workspace,
+                coder.temperature, coder.maxRounds, coder.maxTurnTokens, coder.toolTimeoutSeconds,
+                coder.foregroundSeconds, coder.workspace,
             ),
         )
         assertEquals(
@@ -85,6 +95,23 @@ class AgentSettingsTest {
         assertEquals(
             listOf("test:main", "true", "test:main:42#7"),
             listOf("${attachment.instance}", "${attachment.default}", "${attachment.home}"),
+        )
+    }
+
+    @Test
+    fun `an agent sets no round limit or token budget unless configured, and backgrounds a call after five minutes`() {
+        val settings = settings(agents(""""coder": {}"""))
+        val coder = settings.agents.getValue("coder")
+
+        assertEquals(
+            listOf(null, null, 1800, 300, 4),
+            listOf(
+                coder.maxRounds,
+                coder.maxTurnTokens,
+                coder.toolTimeoutSeconds,
+                coder.foregroundSeconds,
+                settings.maxJobsPerChat,
+            ),
         )
     }
 
@@ -215,7 +242,10 @@ class AgentSettingsTest {
             agents(""""coder": {"maxOutputTokens": 0}""") to "agents.coder.maxOutputTokens must be positive",
             agents(""""coder": {"temperature": -0.5}""") to "agents.coder.temperature must be a number of at least 0",
             agents(""""coder": {"maxRounds": 0}""") to "agents.coder.maxRounds must be positive",
+            agents(""""coder": {"maxTurnTokens": 0}""") to "agents.coder.maxTurnTokens must be positive",
             agents(""""coder": {"toolTimeoutSeconds": 0}""") to "agents.coder.toolTimeoutSeconds must be positive",
+            agents(""""coder": {"foregroundSeconds": 0}""") to "agents.coder.foregroundSeconds must be positive",
+            """{"maxJobsPerChat": 0}""" to "maxJobsPerChat must be positive",
         )
 
         for ((config, message) in cases) assertConfigFails(config, message)
@@ -325,7 +355,7 @@ class AgentSettingsTest {
             agents(""""coder": {"instructionFiles": [{"file": "me.md", "when": ["private", "direct"]}]}"""),
             "agents.coder.instructionFiles names \"private\" in \"when\", which is no chat kind or turn kind: use " +
                 "direct, group, broadcast, unknown, message, command, heartbeat, reminder, approval, delegated, " +
-                "agent_message",
+                "agent_message, job",
         )
     }
 

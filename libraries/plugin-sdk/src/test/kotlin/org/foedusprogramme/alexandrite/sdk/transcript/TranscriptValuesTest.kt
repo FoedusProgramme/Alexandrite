@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import kotlin.test.Test
@@ -119,8 +120,9 @@ class TranscriptValuesTest {
     }
 
     @Test
-    fun `only the outcome of a call that succeeded is no error`() {
+    fun `only the outcomes of a call that succeeded or went on in the background are no error`() {
         assertFalse(ToolOutcome.Succeeded.isError)
+        assertFalse(ToolOutcome.Detached(RunId("j-1")).isError)
         assertTrue(
             listOf(ToolOutcome.Failed, ToolOutcome.Cancelled, ToolOutcome.NotRun(NotRunReason.UNKNOWN_TOOL)).all {
                 it.isError

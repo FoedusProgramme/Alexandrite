@@ -4,12 +4,17 @@ import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.execute
+import org.foedusprogramme.alexandrite.agent.job.BackgroundJob
+import org.foedusprogramme.alexandrite.agent.job.InterruptedJob
+import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
+import org.foedusprogramme.alexandrite.agent.job.JobRecords
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.permission.AwaitingCalls
 import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -36,11 +41,13 @@ import org.foedusprogramme.alexandrite.testkit.TestRecords
 import org.foedusprogramme.alexandrite.testkit.testUser
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Duration.Companion.seconds
 
 class RecoveryTest {
     private val clock = TestClock()
     private val store = MemoryStore(clock)
     private val key = AgentChatKey.parse("coder@test:main:chat")
+    private val chat = key.chat
     private val received = clock.now
     private val notice =
         NoticeEntry(null, "The agent stopped before it finished answering this message.", NoticeKind.INTERRUPTED)
@@ -173,6 +180,53 @@ class RecoveryTest {
             blocking { entries(turn) },
         )
         assertEquals(TurnEndKind.SHUT_DOWN, blocking { record(turn) }?.end)
+    }
+
+    @Test
+    fun `a job left running is noted as interrupted in its conversation, or only logged once that is sealed`() {
+        val sealed = blocking { store.conversations.current(key).id }
+        val old = blocking { seed("t-old", sealed, listOf(message("Build it."))) }
+        val current = blocking { store.conversations.newConversation(key).successor.id }
+        val new = blocking { seed("t-new", current, listOf(message("Test it."))) }
+        val jobs = JobRecords(TestRecords(store).of("alexandrite-agent"))
+        blocking {
+            listOf(old, new).forEach { store.conversations.endTurn(it, TurnEndKind.COMPLETED) }
+            jobs.put(job("j-old", old, sealed, "./gradlew build"))
+            jobs.put(job("j-new", new, current, "./gradlew test"))
+        }
+
+        val lines = recovered()
+
+        assertEquals(
+            listOf(
+                "INFO Job j-old (command.exec ./gradlew build) of $chat was interrupted by a restart, after its " +
+                    "conversation $sealed was sealed",
+                "INFO Job j-new (command.exec ./gradlew test) of $chat was interrupted by a restart: it is not run again",
+            ),
+            lines,
+        )
+        val notice = "Job j-new (command.exec ./gradlew test) was interrupted by a restart; it was not run again."
+        assertEquals(listOf(message("Build it.")), blocking { entries(old) })
+        assertEquals(
+            listOf(message("Test it."), NoticeEntry(null, notice, NoticeKind.INTERRUPTED)),
+            blocking { entries(new) },
+        )
+        assertEquals(emptyMap(), blocking { jobs.all() })
+        val interrupted = InterruptedJobs(TestRecords(store).of("alexandrite-agent"), store.conversations)
+        val shown = listOf(InterruptedJob(RunId("j-new"), "command.exec", "./gradlew test"))
+        assertEquals(shown to null, blocking { interrupted.pending(current)?.jobs to interrupted.pending(sealed) })
+        assertEquals(emptyList(), recovered())
+        assertEquals(shown, blocking { interrupted.pending(current)?.jobs })
+    }
+
+    private fun job(id: String, turn: TurnId, conversation: ConversationId, command: String): BackgroundJob {
+        val info = TurnInfo.builder(turn, key.chat, conversation, TurnKind.MESSAGE)
+            .actor(testUser())
+            .agent(key.agent)
+            .key(key)
+            .build()
+        val call = ToolCallPart(ToolCallId("call-$id"), "command.exec", "{}")
+        return BackgroundJob(RunId(id), info, call, command, clock.now, 1800.seconds)
     }
 
     private fun message(text: String): UserEntry = UserEntry(

@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
 import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -167,6 +168,13 @@ internal val goldens: Map<String, List<TranscriptEntry>> = mapOf(
             "browser.snapshot",
             listOf(TextPart("The page:"), MediaPart(MediaKind.IMAGE, "image/jpeg", StoredMedia(MediaId("m-2")))),
             ToolOutcome.Succeeded,
+        ),
+        ToolResultEntry(
+            null,
+            ToolCallId("toolu_07"),
+            "shell.run",
+            listOf(TextPart("Still running as job j-7kq2mx.")),
+            ToolOutcome.Detached(RunId("j-7kq2mx")),
         ),
     ),
     "summary" to listOf(SummaryEntry(record(7), "Ada asked for notes; three were saved.", EntryId(6))),

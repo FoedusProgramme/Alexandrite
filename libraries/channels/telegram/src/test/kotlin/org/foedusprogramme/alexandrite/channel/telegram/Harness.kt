@@ -74,7 +74,7 @@ class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : Aut
 
         val DEFAULT_COMMANDS = arrayOf(
             "new", "cancel", "agent", "model", "mode", "reasoning", "language", "home", "link", "unlink", "settings",
-            "trust", "untrust", "allow",
+            "trust", "untrust", "allow", "jobs",
         )
     }
 }

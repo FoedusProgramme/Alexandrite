@@ -100,5 +100,20 @@
     "outcome": {
       "type": "succeeded"
     }
+  },
+  {
+    "type": "tool_result",
+    "callId": "toolu_07",
+    "toolName": "shell.run",
+    "content": [
+      {
+        "type": "text",
+        "text": "Still running as job j-7kq2mx."
+      }
+    ],
+    "outcome": {
+      "type": "detached",
+      "job": "j-7kq2mx"
+    }
   }
 ]

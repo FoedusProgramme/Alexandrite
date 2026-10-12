@@ -133,12 +133,15 @@ public value class TurnKind internal constructor(public val id: String) {
         /** A message from another main agent. */
         public val AGENT_MESSAGE: TurnKind = TurnKind("agent_message")
 
+        /** The result of a tool call that ran on in the background. */
+        public val JOB: TurnKind = TurnKind("job")
+
         /** The values this version knows. */
         public val entries: List<TurnKind> =
-            listOf(MESSAGE, COMMAND, HEARTBEAT, REMINDER, APPROVAL, DELEGATED, AGENT_MESSAGE)
+            listOf(MESSAGE, COMMAND, HEARTBEAT, REMINDER, APPROVAL, DELEGATED, AGENT_MESSAGE, JOB)
 
         /** The kinds that the agent starts itself, which no plugin initiates. */
-        public val agentStarted: Set<TurnKind> = setOf(APPROVAL, AGENT_MESSAGE)
+        public val agentStarted: Set<TurnKind> = setOf(APPROVAL, AGENT_MESSAGE, JOB)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): TurnKind = TurnKind(id)

@@ -23,7 +23,9 @@ internal class Escaper(reserved: List<String>) {
     companion object {
         /** The headers that only Alexandrite writes. */
         val HEADERS: Escaper =
-            Escaper(listOf("[alexandrite:", "[/alexandrite:", PROJECT_HEADER, TOOLS_HEADER, COMMANDS_HEADER))
+            Escaper(
+                listOf("[alexandrite:", "[/alexandrite:", PROJECT_HEADER, TOOLS_HEADER, COMMANDS_HEADER, JOB_HEADER),
+            )
     }
 }
 
@@ -35,6 +37,9 @@ internal const val TOOLS_HEADER: String = "Your tools changed"
 
 /** How the line that tells the model which commands ran starts. */
 internal const val COMMANDS_HEADER: String = "Commands run in this chat"
+
+/** How the line that tells the model that a background job ended starts. */
+internal const val JOB_HEADER: String = "A background job ended"
 
 /** A code point that a line may start with unseen. */
 internal const val INVISIBLE: String = "[\\h\\p{Zs}\\p{Cc}\\p{Cf}\\p{Mn}\\p{Me}\\u115F\\u1160\\u3164\\uFFA0\\u2800]"

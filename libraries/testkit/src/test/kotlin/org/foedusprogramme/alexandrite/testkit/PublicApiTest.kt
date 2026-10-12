@@ -150,12 +150,14 @@ class PublicApiTest {
             val invoked = testCommandContext(testCommand("new"))
             val control = RecordingAgentControl(AgentId.MAIN)
             control.statuses = emptyList()
+            control.jobStatuses = emptyList()
             control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
             control.refuseNext("No agent serves the chat.")
             control.cancel(testChat(), null)
             control.cancelTurn(TurnId("t"), null)
             control.cancelRun(RunId("r"), true, null)
+            control.stopJob(testChat(), RunId("j"), null)
             control.newConversation(testChat(), null)
             control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.link(AgentId.MAIN, testChat(), testChat("other"), null)
@@ -169,6 +171,7 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.Cancel -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
                 is RecordingAgentControl.Call.CancelRun -> listOf(recorded.run, recorded.tree, recorded.by)
+                is RecordingAgentControl.Call.StopJob -> listOf(recorded.chat, recorded.job, recorded.by)
                 is RecordingAgentControl.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
                 is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
@@ -185,7 +188,8 @@ class PublicApiTest {
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies,
                 context.repliesForModel, invoked, call,
-                control.turns(null), control.settings(testChat()), control.links(), control.trustedFolders(),
+                control.turns(null), control.jobs(testChat()), control.settings(testChat()), control.links(),
+                control.trustedFolders(),
                 control.allowRules(testChat()),
                 control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),
                 control.models(EndpointId("scripted")),

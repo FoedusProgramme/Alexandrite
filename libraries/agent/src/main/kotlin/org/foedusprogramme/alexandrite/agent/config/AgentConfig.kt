@@ -27,9 +27,14 @@ internal class AgentConfig(
     val language: String? = null,
     val maxOutputTokens: Int? = null,
     val temperature: Double? = null,
-    /** The tool rounds of one turn. */
-    val maxRounds: Int = 25,
-    val toolTimeoutSeconds: Int = 120,
+    /** The tool rounds of one turn, unlimited when null. */
+    val maxRounds: Int? = null,
+    /** The input and output tokens of one turn's model calls together, unlimited when null. */
+    val maxTurnTokens: Long? = null,
+    /** How long a tool call may run in the foreground and the background together, unless its tool declares longer. */
+    val toolTimeoutSeconds: Int = 1800,
+    /** How long a tool call runs before it moves to the background. */
+    val foregroundSeconds: Int = 300,
     val tools: ToolSelection = ToolSelection(),
     val permission: PermissionConfig = PermissionConfig(),
     /** The agent's own directory. */
