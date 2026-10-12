@@ -76,13 +76,15 @@ public sealed interface OneBotResult<out T> {
     }
 
     /** An answer this version cannot read, with what the implementation sent. */
-    public data class Malformed(public val detail: String, override val echo: JsonElement? = null) :
-        OneBotResult<Nothing> {
+    public data class Malformed(
+        public val detail: String,
+        override val echo: JsonElement? = null,
+        /** The answer as it arrived, so that a caller can read the field this version misread. */
+        override val raw: JsonObject = JsonObject(emptyMap()),
+    ) : OneBotResult<Nothing> {
         override val status: OneBotStatus get() = OneBotStatus.FAILED
 
         override val retcode: Int get() = OneBotRetcode.BAD_REQUEST
-
-        override val raw: JsonObject get() = JsonObject(emptyMap())
     }
 }
 
