@@ -33,6 +33,8 @@ internal class OneBotChannel(
     private val instance: ChannelInstance,
     private val config: OneBotInstanceConfig,
     private val link: OneBotLink,
+    /** The messages this instance sent, which tell a reply to the bot from a reply to somebody else. */
+    private val sent: OneBotSentMessages,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Channel {
@@ -75,10 +77,15 @@ internal class OneBotChannel(
             action(chat) ?: return Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "This instance serves no $chat.")
         val params = params(chat, message)
             ?: return Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "This instance serves no $chat.")
-        return OneBotMessages.delivery(link.call(target.first, params), chat)
+        return remembered(OneBotMessages.delivery(link.call(target.first, params), chat))
     }
 
-    /** The reply of one turn, which delivers the final message of the agent. */
+    /**
+     * The reply of one turn, which delivers the final message of the agent.
+     *
+     * Every delivery of this instance goes through here or through [send], so that a later message answering this one
+     * is known to be answering the bot.
+     */
     private class Sink(private val channel: OneBotChannel, private val request: ReplyRequest) : ReplySink {
         override suspend fun preview(segment: Int, text: String) = Unit
 
@@ -87,9 +94,17 @@ internal class OneBotChannel(
                 ?: return Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "This instance serves no chat of this turn.")
             val params = channel.params(request.turn.chat, message)
                 ?: return Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "This instance serves no chat of this turn.")
-            return OneBotMessages.delivery(channel.link.call(target.first, params), request.turn.chat)
+            return channel.remembered(
+                OneBotMessages.delivery(channel.link.call(target.first, params), request.turn.chat),
+            )
         }
 
         override suspend fun abandon(end: ReplyEnd) = Unit
+    }
+
+    /** Remembers the ids of what [delivery] delivered, which is what a reply is matched against. */
+    private fun remembered(delivery: Delivery): Delivery {
+        (delivery as? Delivery.Delivered)?.messages?.forEach { sent.remember(it.id) }
+        return delivery
     }
 }

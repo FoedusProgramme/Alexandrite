@@ -72,6 +72,108 @@ class OneBotChannelIntegrationTest {
         }
     }
 
+    @Test
+    fun `a group message that names nobody reaches no agent`() {
+        val peer = ImplementationPeer()
+        val port = peer.startAndPort()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelOnebotIndex())
+                    .config(config(port))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
+                        peer.report(groupMessage(text = "hello there"))
+                        assertTrue(
+                            awaitNoSubmission(submitter),
+                            "the agent was asked for a turn of a message that names nobody",
+                        )
+                    }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
+    @Test
+    fun `a group message that names the bot reaches the agent`() {
+        val peer = ImplementationPeer()
+        val port = peer.startAndPort()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelOnebotIndex())
+                    .config(config(port))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
+                        peer.report(groupMessage(text = "hello there", at = "10001000"))
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter))
+                        assertEquals("hello there", message.message.text)
+                    }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
+    @Test
+    fun `a command in a group reaches the agent as a command without naming the bot`() {
+        val peer = ImplementationPeer()
+        val port = peer.startAndPort()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelOnebotIndex())
+                    .config(config(port))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
+                        peer.report(groupMessage(text = "/model deepseek/one"))
+                        val command = assertIs<Submission.Command>(awaitSubmission(submitter))
+                        assertEquals("model", command.invocation.name)
+                        assertEquals("deepseek/one", command.invocation.arguments)
+                    }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
+    @Test
+    fun `a group message answering a message the bot sent reaches the agent`() {
+        val peer = ImplementationPeer()
+        val port = peer.startAndPort()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelOnebotIndex())
+                    .config(config(port))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
+                        val group = ChatAddress(instance, "group:987654")
+                        assertIs<Delivery.Delivered>(sendTo(group))
+                        peer.report(groupMessage(text = "hello there", reply = "8"))
+                        assertTrue(
+                            awaitNoSubmission(submitter),
+                            "the agent was asked for a turn of a message answering somebody else",
+                        )
+                        peer.report(groupMessage(text = "hello there", reply = "7"))
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter))
+                        assertEquals("hello there", message.message.text)
+                    }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
     private suspend fun org.foedusprogramme.alexandrite.testkit.PluginHarness.Running.awaitSubmission(
         submitter: RecordingTurnSubmitter,
     ): Submission {
@@ -119,6 +221,27 @@ class OneBotChannelIntegrationTest {
           "sender": {"user_id": 12345678, "nickname": "someone"}
         }
     """.trimIndent()
+
+    /** A group report of [text], whose message names [at] or answers [reply] when they are given. */
+    private fun groupMessage(text: String, at: String? = null, reply: String? = null): String = buildString {
+        append("""{"time":1515204254,"self_id":10001000,"post_type":"message","message_type":"group",""")
+        append(""""sub_type":"normal","message_id":12,"group_id":987654,"user_id":12345678,"message":[""")
+        at?.let { append("""{"type":"at","data":{"qq":$it}},""") }
+        reply?.let { append("""{"type":"reply","data":{"id":$it}},""") }
+        append("""{"type":"text","data":{"text":"$text"}}],""")
+        append(""""raw_message":"$text",""")
+        append(""""sender":{"user_id":12345678,"nickname":"someone","role":"member"}}""")
+    }
+
+    /** Whether the agent was asked for no turn within the time one would arrive in. */
+    private suspend fun awaitNoSubmission(submitter: RecordingTurnSubmitter): Boolean {
+        val deadline = System.nanoTime() + 500_000_000L
+        while (System.nanoTime() < deadline) {
+            if (submitter.submissions.isNotEmpty()) return false
+            kotlinx.coroutines.delay(20)
+        }
+        return true
+    }
 
     /** An implementation that serves the API and reports what the test tells it to. */
     private class ImplementationPeer : WebSocketServer(InetSocketAddress("127.0.0.1", 0)) {
