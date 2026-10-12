@@ -2,7 +2,9 @@ package org.foedusprogramme.alexandrite.channel.onebot.tools
 
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.channel.onebot.channel.OneBotApis
@@ -111,25 +113,56 @@ private suspend fun call(
             isError = true,
         )
     val given = arguments["params"] as? JsonObject ?: JsonObject(emptyMap())
-    val params = buildJsonObject {
-        row.parameters.forEach { parameter ->
-            val value = given[parameter.name]
-            if (value == null || value is JsonNull) {
-                val message = parameter.name == OneBotActions.MESSAGE_ID && parameter.optional
-                val fallback = if (message) context.trigger?.id else null
-                when {
-                    fallback != null -> putId(parameter.name, fallback)
-
-                    parameter.required -> return ToolResult(
-                        "The action '$name' needs ${parameter.name}: ${parameter.description}",
-                        isError = true,
-                    )
-                }
-            } else {
-                put(parameter.name, value)
-            }
-        }
+    val params = when (val prepared = prepare(row, given, context.trigger?.id)) {
+        is Prepared.Refused -> return ToolResult(prepared.said, isError = true)
+        is Prepared.Ready -> prepared.params
     }
     val api = apis.serving(context.turn.chat)
     return ToolResult(api.raw(name, params).outcome(row.said))
+}
+
+/** What a call to an action amounts to: the arguments to send, or why they cannot be sent. */
+internal sealed interface Prepared {
+    /** The arguments to send, which are the ones [OneBotActions.Row.parameters] declares. */
+    class Ready(val params: JsonObject) : Prepared
+
+    /** Why nothing is sent. */
+    class Refused(val said: String) : Prepared
+}
+
+/**
+ * The arguments [row] sends when a call gave [given], with [messageId] standing in for the id of the message of the
+ * turn where the row allows it to be left out.
+ *
+ * Only the arguments the row declares are sent, so nothing a call writes under `params` can reach the platform
+ * unless the action takes it by that name. An argument that must be given and was not is refused, naming it and
+ * what it is for, rather than sending a request the platform would refuse for a reason the model cannot act on.
+ */
+internal fun prepare(row: OneBotActions.Row, given: JsonObject, messageId: String?): Prepared {
+    val params = buildJsonObject {
+        row.parameters.forEach { parameter ->
+            val value = given[parameter.name]
+            if (value != null && value !is JsonNull) {
+                val text = (value as? JsonPrimitive)?.contentOrNull
+                if (parameter.numeric && text != null) putId(parameter.name, text) else put(parameter.name, value)
+                return@forEach
+            }
+            // An action about a message means the message of this turn when the call named none. A turn no message
+            // started leaves nothing to mean, and a call that had to name one is refused rather than sent without it,
+            // which the platform would answer in a way that says nothing about what the call got wrong.
+            if (parameter.name == OneBotActions.MESSAGE_ID && parameter.optional) {
+                val fallback = messageId ?: return Prepared.Refused(
+                    "The action '${row.name}' needs ${parameter.name}: ${parameter.description}",
+                )
+                putId(parameter.name, fallback)
+                return@forEach
+            }
+            if (parameter.required) {
+                return Prepared.Refused(
+                    "The action '${row.name}' needs ${parameter.name}: ${parameter.description}",
+                )
+            }
+        }
+    }
+    return Prepared.Ready(params)
 }

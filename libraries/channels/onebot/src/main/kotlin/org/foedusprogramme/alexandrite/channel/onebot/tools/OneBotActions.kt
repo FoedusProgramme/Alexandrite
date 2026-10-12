@@ -164,3 +164,12 @@ internal object OneBotActions {
     /** The row of [name], null when this bot may not be asked for it. */
     fun of(name: String): Row? = byName[name]
 }
+
+/**
+ * Whether this argument is one the standard writes as a number rather than as text.
+ *
+ * A model writes every argument as text, so one that names a message, a group, a member or a length has to be written
+ * as the number the standard asks for, while one that names a title, a flag or a reason stays the text it was given.
+ */
+internal val OneBotActions.Parameter.numeric: Boolean
+    get() = name.endsWith("_id") || name == "duration"
