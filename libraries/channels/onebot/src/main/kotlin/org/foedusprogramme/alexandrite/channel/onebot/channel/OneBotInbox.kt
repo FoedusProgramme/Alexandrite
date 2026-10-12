@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.foedusprogramme.alexandrite.channel.onebot.api.OneBotApi
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotChats
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotMessages
@@ -72,12 +73,19 @@ internal class OneBotInbox(
     private val media: OneBotMedia,
     /** Where a report that is not a message is published for the plugins that subscribe to it. */
     private val hooks: Hooks,
+    /** The API of this instance, which a tool of the runtime reads to act on a chat of it. */
+    private val api: OneBotApi,
+    /** Where this instance is served from, for whoever acts on its chats. */
+    private val apis: OneBotApis,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Lifecycle {
     private var reading: Job? = null
 
     override suspend fun onStart() {
+        // The instance is served from here on, whatever else it does: a tool that acts on a chat of it finds its API
+        // whether or not the runtime has an agent to take its messages.
+        apis.register(instance.id, api)
         if (submitter == null) {
             logger.warn(
                 "{}: the runtime has no agent, so the messages of channel instance {} reach nobody",
@@ -92,6 +100,7 @@ internal class OneBotInbox(
     override suspend fun onClose() {
         reading?.cancel()
         reading = null
+        apis.forget(instance.id)
     }
 
     private suspend fun read() {
