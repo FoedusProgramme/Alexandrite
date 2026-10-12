@@ -177,7 +177,10 @@ internal val goldens: Map<String, List<TranscriptEntry>> = mapOf(
             ToolOutcome.Detached(RunId("j-7kq2mx")),
         ),
     ),
-    "summary" to listOf(SummaryEntry(record(7), "Ada asked for notes; three were saved.", EntryId(6))),
+    "summary" to listOf(
+        SummaryEntry(record(7), "Ada asked for notes; three were saved.", EntryId(6)),
+        SummaryEntry(record(10), "Three notes were read.", EntryId(9), listOf(EntryId(8))),
+    ),
     "notice" to listOf(
         NoticeEntry(record(8), "The model answered with nothing.", NoticeKind.BLANK_REPLY),
         NoticeEntry(null, "A hook stopped the turn.", NoticeKind.HOOK_ABORTED),

@@ -36,9 +36,11 @@ import kotlin.time.Duration.Companion.seconds
  * The app's agent, tools, commands and Telegram plugins over a [FakeBotApi] whose bot has Ada as its admin, Bob as a
  * member and the group Backend, with [model] answering for the agent `coder`.
  */
-class TelegramApp : AutoCloseable {
+class TelegramApp(
+    val model: ScriptedModel =
+        ScriptedModel(models = listOf(ScriptedModel.modelInfo(), ScriptedModel.modelInfo(FAST_MODEL))),
+) : AutoCloseable {
     val fake = FakeBotApi()
-    val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo(), ScriptedModel.modelInfo(FAST_MODEL)))
     val store = MemoryStore()
     val ada = FakeUser(ADA, "Ada", "Lovelace", "ada_test")
     val bob = FakeUser(BOB, "Bob", username = "bob_test")

@@ -2,6 +2,8 @@ package org.foedusprogramme.alexandrite.agent.config
 
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
+import org.foedusprogramme.alexandrite.agent.context.Limits
+import org.foedusprogramme.alexandrite.agent.context.limits
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.runtime.StartStage
@@ -113,6 +115,52 @@ class AgentSettingsTest {
                 settings.maxJobsPerChat,
             ),
         )
+    }
+
+    @Test
+    fun `an agent compacts from 95 percent of the window down to 20, and clears tool results from 60`() {
+        val defaults = settings(agents(""""coder": {}""")).agents.getValue("coder").compaction
+        val compaction = """{"trigger": 150000, "target": 0.1, "clearAt": "off", "clearAtLeast": 2000, """ +
+            """"keepToolRounds": 3, "keepTurns": 1, "maxSummaryTokens": 2000, "model": "scripted/fast"}"""
+        val set = settings(agents(""""coder": {"compaction": $compaction}""")).agents.getValue("coder").compaction
+
+        assertEquals(listOf(190_000L, 40_000L, 120_000L, 10_000L), defaults.limits(200_000).values())
+        assertEquals(
+            listOf(5, 2, 4000, null),
+            listOf(defaults.keepToolRounds, defaults.keepTurns, defaults.maxSummaryTokens, defaults.model),
+        )
+        assertEquals(listOf(150_000L, 20_000L, null, 2000L), set.limits(200_000).values())
+        assertEquals(listOf(100_000L, 10_000L, null, 2000L), set.limits(100_000).values())
+        assertEquals(
+            listOf(3, 1, 2000, "scripted/fast"),
+            listOf(set.keepToolRounds, set.keepTurns, set.maxSummaryTokens, set.model),
+        )
+    }
+
+    private fun Limits.values(): List<Long?> = listOf(trigger, target, clearAt, clearAtLeast)
+
+    @Test
+    fun `a compaction threshold that is neither a fraction nor tokens, or a target at its trigger, fails the start`() {
+        val threshold = "must be a fraction of the context window above 0 and at most 1, such as 0.6, or a whole " +
+            "number of tokens"
+        val cases = mapOf(
+            """{"trigger": 0}""" to "trigger $threshold",
+            """{"trigger": "off"}""" to "trigger $threshold",
+            """{"target": 1.5}""" to "target $threshold",
+            """{"clearAtLeast": "half"}""" to "clearAtLeast $threshold",
+            """{"clearAt": -1}""" to "clearAt $threshold, or \"off\"",
+            """{"target": 0.95}""" to "target must be below agents.coder.compaction.trigger",
+            """{"trigger": 50000, "target": 50000}""" to "target must be below agents.coder.compaction.trigger",
+            """{"keepToolRounds": -1}""" to "keepToolRounds may not be negative",
+            """{"keepTurns": -1}""" to "keepTurns may not be negative",
+            """{"maxSummaryTokens": 0}""" to "maxSummaryTokens must be positive",
+            """{"model": "fast"}""" to
+                "model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\"",
+        )
+
+        for ((compaction, message) in cases) {
+            assertConfigFails(agents(""""coder": {"compaction": $compaction}"""), "agents.coder.compaction.$message")
+        }
     }
 
     @Test

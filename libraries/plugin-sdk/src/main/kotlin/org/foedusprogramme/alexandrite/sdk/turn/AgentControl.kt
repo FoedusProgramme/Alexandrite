@@ -64,6 +64,18 @@ public interface AgentControl {
      */
     public suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId
 
+    /**
+     * Folds the older part of the conversation of the chat's agent into its rolling summary once the turns queued at its
+     * key before the call have ended, with [focus] added to the summarizer's instructions.
+     *
+     * Throws [ControlRefusedException] when there is nothing to fold or no summary was written, and
+     * [IllegalStateException] where [newConversation] does.
+     */
+    public suspend fun compact(chat: ChatAddress, focus: String?, by: ChatUser?): CompactionReport
+
+    /** How much of its model's context window the current conversation of the chat's agent takes. */
+    public suspend fun context(chat: ChatAddress): ContextStatus
+
     /** The agents that serve [instance], in config order. */
     public fun agents(instance: ChannelInstanceId): List<AgentSummary>
 
@@ -233,6 +245,39 @@ public class JobStatus(
     public val startedAt: Instant,
     /** The principal of the turn that made the call, null when it had none. */
     public val by: ChatUser?,
+)
+
+/** What a compaction folded into the rolling summary. */
+@Poko
+public class CompactionReport(
+    /** The stored entries that the compaction folded into the summary. */
+    public val folded: Int,
+    /** The prompt tokens before the compaction, as the agent estimates them. */
+    public val tokensBefore: Long,
+    /** The prompt tokens after the compaction, as the agent estimates them. */
+    public val tokensAfter: Long,
+)
+
+/** How much of its model's context window a conversation takes. */
+@Poko
+public class ContextStatus(
+    public val conversation: ConversationId,
+    /** The model the conversation's turns call now, null when its agent has none. */
+    public val model: ModelRef?,
+    /** The prompt tokens of the conversation's last request, as its backend counted them, null before one. */
+    public val promptTokens: Long?,
+    /** When [promptTokens] was counted. */
+    public val measuredAt: Instant?,
+    /** Null when the model's window is unknown. */
+    public val window: Int?,
+    /** The prompt tokens from which the conversation is compacted, null without a [window]. */
+    public val trigger: Long?,
+    /** The prompt tokens a compaction sheds down to, null without a [window]. */
+    public val target: Long?,
+    /** When the conversation was last compacted, null when it never was. */
+    public val compactedAt: Instant?,
+    /** The stored entries that the conversation's summary stands in for. */
+    public val summarized: Int,
 )
 
 /** A running or queued turn. */

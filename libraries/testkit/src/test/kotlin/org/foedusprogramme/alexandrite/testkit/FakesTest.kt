@@ -33,6 +33,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.CompactionReport
+import org.foedusprogramme.alexandrite.sdk.turn.ContextStatus
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
 import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
@@ -245,6 +247,35 @@ class FakesTest {
         assertEquals(Markup.MARKDOWN, context.replies.first().markup)
         assertFailsWith<IllegalArgumentException> { blocking { context.reply(" ") } }
         assertNull(TestCommandContext().replies.firstOrNull())
+    }
+
+    @Test
+    fun `a recording agent control reports the compaction and the contexts it is scripted with`() = blocking {
+        val control = RecordingAgentControl()
+        val chat = testChat()
+        val admin = testUser("ada", isAdmin = true)
+        val status = ContextStatus(ConversationId("c"), TEST_MODEL, 900, TEST_TIME, 1000, 950, 200, null, 0)
+        control.compaction = CompactionReport(3, 900, 150)
+        control.scriptContext(chat, status)
+
+        val report = control.compact(chat, "the tests", admin)
+        control.refuseNext("Nothing to compact.")
+        val refused = assertFailsWith<ControlRefusedException> { control.compact(chat, null, admin) }
+
+        assertEquals(CompactionReport(3, 900, 150), report)
+        assertEquals("Nothing to compact.", refused.message)
+        assertEquals(status, control.context(chat))
+        assertEquals(
+            ContextStatus(ConversationId("conversation-0"), null, null, null, null, null, null, null, 0),
+            control.context(testChat("other")),
+        )
+        assertEquals(
+            listOf(
+                RecordingAgentControl.Call.Compact(chat, "the tests", admin),
+                RecordingAgentControl.Call.Compact(chat, null, admin),
+            ),
+            control.calls,
+        )
     }
 
     @Test

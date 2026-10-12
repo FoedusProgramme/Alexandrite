@@ -152,6 +152,17 @@ class AgentDirectoryTest {
     }
 
     @Test
+    fun `a summarizer of an endpoint that no provider contributes fails the start`() {
+        val config = """{"agents": {"reviewer": {"compaction": {"model": "local/llama"}}}}"""
+
+        agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
+            StartStage.GRAPH,
+            "Invalid config at 'agent.agents.reviewer.compaction.model': no model provider contributes the endpoint " +
+                "'local'. Endpoints: scripted.",
+        )
+    }
+
+    @Test
     fun `the judge's model is the agent's own unless its permission section names one`() {
         val config = """
             {

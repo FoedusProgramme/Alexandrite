@@ -8,6 +8,18 @@ internal object TextKeys {
     const val CANCEL_DONE: String = "cancel.done"
     const val CANCEL_NONE: String = "cancel.none"
 
+    const val COMPACT_DONE: String = "compact.done"
+
+    const val CONTEXT_TITLE: String = "context.title"
+    const val CONTEXT_TITLE_NO_MODEL: String = "context.title_no_model"
+    const val CONTEXT_USED: String = "context.used"
+    const val CONTEXT_USED_NO_WINDOW: String = "context.used_no_window"
+    const val CONTEXT_UNMEASURED: String = "context.unmeasured"
+    const val CONTEXT_LIMITS: String = "context.limits"
+    const val CONTEXT_NO_WINDOW: String = "context.no_window"
+    const val CONTEXT_COMPACTED: String = "context.compacted"
+    const val CONTEXT_NOT_COMPACTED: String = "context.not_compacted"
+
     const val JOBS_LIST: String = "jobs.list"
     const val JOBS_NONE: String = "jobs.none"
     const val JOBS_ITEM: String = "jobs.item"

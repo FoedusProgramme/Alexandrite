@@ -251,6 +251,12 @@ class SubclassOptInTest {
                 chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun compact(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                focus: String?,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun context(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override fun agents(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
             override suspend fun settings(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun updateSettings(
@@ -485,6 +491,7 @@ class SubclassOptInTest {
             is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.ToolCallUpdated -> 1
             is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.ThoughtChunk -> 2
             is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.UsageUpdated -> 3
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Compacted -> 4
             ELSE
         }
 
@@ -525,6 +532,7 @@ class SubclassOptInTest {
             org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.TOOL_CALL_UPDATED -> 1
             org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.THOUGHT_CHUNK -> 2
             org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.USAGE_UPDATED -> 3
+            org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.COMPACTED -> 4
             ELSE
         }
     """.trimIndent()

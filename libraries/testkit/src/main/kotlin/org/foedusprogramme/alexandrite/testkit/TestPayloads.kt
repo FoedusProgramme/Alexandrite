@@ -23,6 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryRecord
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.transcript.SummaryEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
@@ -30,6 +31,9 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
+import org.foedusprogramme.alexandrite.sdk.turn.ContextCleared
+import org.foedusprogramme.alexandrite.sdk.turn.ContextCompacted
+import org.foedusprogramme.alexandrite.sdk.turn.ContextCompaction
 import org.foedusprogramme.alexandrite.sdk.turn.ContextLoaded
 import org.foedusprogramme.alexandrite.sdk.turn.ConversationSealed
 import org.foedusprogramme.alexandrite.sdk.turn.ModelCall
@@ -172,3 +176,30 @@ public fun testConversationSealed(
     successor: ConversationId = ConversationId("test-next"),
     sealed: ConversationId = turn.conversation,
 ): ConversationSealed = ConversationSealed(turn, sealed, successor)
+
+/** By default, a compaction of a stored user entry and reply of [turn]'s conversation that no summary preceded. */
+public fun testContextCompaction(
+    turn: TurnInfo = testTurn(),
+    entries: List<TranscriptEntry> = listOf(
+        testUserEntry(turn, record = testRecord(1, turn)),
+        AssistantEntry(testRecord(2, turn), listOf(TextPart("Hello")), TEST_MODEL),
+    ),
+    previous: SummaryEntry? = null,
+    focus: String? = null,
+): ContextCompaction = ContextCompaction(turn, entries, previous, focus)
+
+/** A stored summary of [text] through entry [through]. */
+public fun testContextCompacted(
+    turn: TurnInfo = testTurn(),
+    text: String = "The user said hello.",
+    through: EntryId = EntryId(2),
+    tokensBefore: Long = 1000,
+    tokensAfter: Long = 200,
+): ContextCompacted =
+    ContextCompacted(turn, SummaryEntry(testRecord(3, turn), text, through), tokensBefore, tokensAfter)
+
+public fun testContextCleared(
+    turn: TurnInfo = testTurn(),
+    calls: List<ToolCallPart> = listOf(ToolCallPart(ToolCallId("test-call"), "test.tool", "{}")),
+    tokensFreed: Long = 500,
+): ContextCleared = ContextCleared(turn, calls, tokensFreed)

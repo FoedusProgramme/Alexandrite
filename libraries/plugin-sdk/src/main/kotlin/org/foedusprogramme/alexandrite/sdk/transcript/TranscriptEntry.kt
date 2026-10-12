@@ -82,8 +82,22 @@ public class SummaryEntry(
     public val text: String,
     /** The last entry the summary covers. */
     public val through: EntryId,
+    /** The entries before [through] that the summary does not cover, which requests read right after it. */
+    public val kept: List<EntryId> = emptyList(),
 ) : TranscriptEntry {
-    override fun withRecord(record: EntryRecord): SummaryEntry = SummaryEntry(record, text, through)
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(record: EntryRecord?, text: String, through: EntryId) : this(record, text, through, emptyList())
+
+    init {
+        require(kept.all { it.value < through.value } && kept.toSet().size == kept.size) {
+            "A summary keeps distinct entries before the last one it covers, was $kept through $through."
+        }
+    }
+
+    /** Whether the summary stands in for the entry [id]. */
+    public fun covers(id: EntryId): Boolean = id.value <= through.value && id !in kept
+
+    override fun withRecord(record: EntryRecord): SummaryEntry = SummaryEntry(record, text, through, kept)
 }
 
 /** A notice the agent sent the chat, which no model is sent. */

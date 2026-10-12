@@ -39,8 +39,9 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `anyone may read the settings and the jobs anywhere`() {
+    fun `anyone may read the settings, the jobs and the context anywhere`() {
         assertRow("settings", "", direct = null, others = null)
+        assertRow("context", "", direct = null, others = null)
         for (command in listOf("agent", "model", "mode", "reasoning", "language", "jobs")) {
             assertRow(command, "", direct = null, others = null)
             assertRow(command, "  ", direct = null, others = null)
@@ -51,6 +52,8 @@ class CommandRulesTest {
     fun `anyone may change their direct chat, only admins a group`() {
         for ((command, arguments) in listOf(
             "new" to "",
+            "compact" to "",
+            "compact" to "the open bugs",
             "cancel" to "",
             "agent" to "coder",
             "agent" to "reset",
@@ -108,7 +111,12 @@ class CommandRulesTest {
             control.link(AgentId.MAIN, group, linked, testUser("ada", isAdmin = true))
 
             for (chat in listOf(linked, testChat("42", "7"))) {
-                for ((command, arguments) in listOf("new" to "", "reasoning" to "high", "language" to "en")) {
+                for ((command, arguments) in listOf(
+                    "new" to "",
+                    "compact" to "",
+                    "reasoning" to "high",
+                    "language" to "en",
+                )) {
                     val refused = refusals(command, arguments, ChatKind.DIRECT, chat)
                     assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refused, "/$command $arguments")
                 }
@@ -117,6 +125,7 @@ class CommandRulesTest {
                     assertEquals(null to null, refused, "/$command $arguments")
                 }
                 assertEquals(null to null, refusals("settings", "", ChatKind.DIRECT, chat))
+                assertEquals(null to null, refusals("context", "", ChatKind.DIRECT, chat))
                 assertEquals(null to null, refusals("language", "", ChatKind.DIRECT, chat))
             }
             assertEquals(null to null, refusals("new", "", ChatKind.DIRECT, testChat("43")))

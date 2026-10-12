@@ -61,6 +61,8 @@ class CommandsPluginTest {
             "agent",
             "allow",
             "cancel",
+            "compact",
+            "context",
             "home",
             "jobs",
             "language",

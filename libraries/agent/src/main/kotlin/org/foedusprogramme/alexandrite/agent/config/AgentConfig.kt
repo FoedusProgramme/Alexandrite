@@ -37,6 +37,7 @@ internal class AgentConfig(
     val foregroundSeconds: Int = 300,
     val tools: ToolSelection = ToolSelection(),
     val permission: PermissionConfig = PermissionConfig(),
+    val compaction: CompactionConfig = CompactionConfig(),
     /** The agent's own directory. */
     val workspace: String? = null,
     /** The channel instances the agent serves, by `<type>:<name>`. */

@@ -152,6 +152,8 @@ class PublicApiTest {
             val control = RecordingAgentControl(AgentId.MAIN)
             control.statuses = emptyList()
             control.jobStatuses = emptyList()
+            control.compaction = CompactionReport(1, 2, 1)
+            control.scriptContext(testChat(), ContextStatus(ConversationId("c"), null, null, null, null, null, null, null, 0))
             control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
             control.refuseNext("No agent serves the chat.")
@@ -160,6 +162,7 @@ class PublicApiTest {
             control.cancelRun(RunId("r"), true, null)
             control.stopJob(testChat(), RunId("j"), null)
             control.newConversation(testChat(), null)
+            control.compact(testChat(), "the tests", null)
             control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.unlink(AgentId.MAIN, testChat("other"), null)
@@ -175,6 +178,7 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.StopJob -> listOf(recorded.chat, recorded.job, recorded.by)
                 is RecordingAgentControl.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
+                is RecordingAgentControl.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
                 is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
                 is RecordingAgentControl.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
                 is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
@@ -190,6 +194,7 @@ class PublicApiTest {
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies,
                 context.repliesForModel, invoked, call,
                 control.turns(null), control.jobs(testChat()), control.settings(testChat()), control.links(),
+                control.context(testChat()), control.compaction,
                 control.trustedFolders(),
                 control.allowRules(testChat()),
                 control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),
@@ -228,6 +233,9 @@ class PublicApiTest {
             testReplyDraft(testTurn(), "Hi", MessageKind.REPLY, destination = testChat("other")),
             testTurnCommitted(testTurn(), usage = null),
             testConversationSealed(testTurn(), ConversationId("next")),
+            testContextCompaction(testTurn(), focus = "the tests"),
+            testContextCompacted(testTurn(), "Said hello.", EntryId(2), 900, 100),
+            testContextCleared(testTurn(), tokensFreed = 300),
         )
 
         suspend fun tools(): List<Any?> {

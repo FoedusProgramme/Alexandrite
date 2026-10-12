@@ -93,6 +93,11 @@ internal object TextKeys {
     /** Takes `{folder}` and `{reason}`. */
     const val FOLDER_PROTECTED: String = "control.folder_protected"
 
+    /** Takes `{turns}`. */
+    const val NOTHING_TO_COMPACT: String = "control.nothing_to_compact"
+    const val COMPACT_FAILED: String = "control.compact_failed"
+    const val COMPACT_STOPPED: String = "control.compact_stopped"
+
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {
         ModelErrorKind.AUTHENTICATION -> MODEL_AUTHENTICATION

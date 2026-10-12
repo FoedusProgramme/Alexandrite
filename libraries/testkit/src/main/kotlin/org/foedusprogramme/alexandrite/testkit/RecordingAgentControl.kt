@@ -26,6 +26,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.CompactionReport
+import org.foedusprogramme.alexandrite.sdk.turn.ContextStatus
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
@@ -40,10 +42,10 @@ import java.time.ZoneOffset
 
 /**
  * An [AgentControl] and [ChatSettings] that records its calls, lists the [statuses] and [jobStatuses] the test sets,
- * mints conversations `conversation-<n>` and keeps chat settings per agent and chat, home chats per agent and instance,
- * linked groups, trusted folders and allow rules, where [defaultAgent] serves every chat that is no other agent's home
- * until an update switches it. A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after
- * it at most.
+ * reports the [compaction] and contexts it is scripted with, mints conversations `conversation-<n>` and keeps chat
+ * settings per agent and chat, home chats per agent and instance, linked groups, trusted folders and allow rules, where
+ * [defaultAgent] serves every chat that is no other agent's home until an update switches it. A bypass ends as the
+ * agent's does: an hour after [clock]'s time by default, a day after it at most.
  *
  * Homes, groups, folders and allow rules that the test declares stand for the config file's, and those changed at
  * runtime over them are set at [TEST_TIME]. A chat's granted allow rules end with its conversation. It refuses with a
@@ -68,6 +70,7 @@ public class RecordingAgentControl(
     private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
     private val refusals = ArrayDeque<String>()
+    private val contexts = HashMap<ChatAddress, ContextStatus>()
     private var conversations = 0
 
     /** The running and queued turns that [turns] lists and the cancels find. */
@@ -77,6 +80,10 @@ public class RecordingAgentControl(
     /** The running jobs that [jobs] lists and the cancels and [stopJob] find. */
     @Volatile
     public var jobStatuses: List<JobStatus> = emptyList()
+
+    /** What [compact] reports. */
+    @Volatile
+    public var compaction: CompactionReport = CompactionReport(0, 0, 0)
 
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
 
@@ -102,12 +109,17 @@ public class RecordingAgentControl(
     }
 
     /**
-     * Makes the next call that changes something, of [newConversation], [updateSettings], [link], [unlink],
+     * Makes the next call that changes something, of [newConversation], [compact], [updateSettings], [link], [unlink],
      * [trustFolder], [untrustFolder] or [revokeAllowRule], record itself and throw [ControlRefusedException] with
      * [message].
      */
     public fun refuseNext(message: String) {
         synchronized(lock) { refusals.addLast(message) }
+    }
+
+    /** Makes [context] report [status] at [chat]. */
+    public fun scriptContext(chat: ChatAddress, status: ContextStatus) {
+        synchronized(lock) { contexts[chat] = status }
     }
 
     /** Lists [folder] as a trusted folder that the config file declares. */
@@ -176,6 +188,28 @@ public class RecordingAgentControl(
         }
         grantedRules.remove(chat)
         ConversationId("conversation-${++conversations}").also { recorded += Call.NewConversation(chat, by, it) }
+    }
+
+    override suspend fun compact(chat: ChatAddress, focus: String?, by: ChatUser?): CompactionReport =
+        synchronized(lock) {
+            recorded += Call.Compact(chat, focus, by)
+            refuseQueued()
+            compaction
+        }
+
+    /** The status scripted at [chat], else that of an unmeasured conversation of a model with an unknown window. */
+    override suspend fun context(chat: ChatAddress): ContextStatus = synchronized(lock) {
+        contexts[chat] ?: ContextStatus(
+            ConversationId("conversation-$conversations"),
+            snapshot(chat).run { model ?: defaultModel },
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            0,
+        )
     }
 
     /** [defaultAgent] and the scripted agents, in order. */
@@ -450,6 +484,9 @@ public class RecordingAgentControl(
             /** The conversation the call returned, null when it was refused. */
             public val conversation: ConversationId?,
         ) : Call
+
+        @Poko
+        public class Compact(public val chat: ChatAddress, public val focus: String?, public val by: ChatUser?) : Call
 
         @Poko
         public class UpdateSettings(

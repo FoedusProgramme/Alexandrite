@@ -43,6 +43,11 @@ public interface TurnEvent {
         public val window: Int?,
     ) : TurnEvent
 
+    /** The turn compacted its conversation, which shrank its prompt from [tokensBefore] to about [tokensAfter] tokens. */
+    @OptIn(InternalAlexandriteApi::class)
+    @Poko
+    public class Compacted(public val tokensBefore: Long, public val tokensAfter: Long) : TurnEvent
+
     /** What a [ToolCallUpdated] shows of its call. */
     @SubclassOptInRequired(InternalAlexandriteApi::class)
     public interface Content {
@@ -115,9 +120,11 @@ public value class TurnEventKind internal constructor(public val id: String) {
 
         public val USAGE_UPDATED: TurnEventKind = TurnEventKind("usage_updated")
 
+        public val COMPACTED: TurnEventKind = TurnEventKind("compacted")
+
         /** The values this version knows. */
         public val entries: List<TurnEventKind> =
-            listOf(TOOL_CALL_STARTED, TOOL_CALL_UPDATED, THOUGHT_CHUNK, USAGE_UPDATED)
+            listOf(TOOL_CALL_STARTED, TOOL_CALL_UPDATED, THOUGHT_CHUNK, USAGE_UPDATED, COMPACTED)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): TurnEventKind = TurnEventKind(id)

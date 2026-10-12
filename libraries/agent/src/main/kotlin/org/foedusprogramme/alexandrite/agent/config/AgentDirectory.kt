@@ -26,6 +26,9 @@ internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: 
 
     val judgeModel: ModelRef? = config.permission.judge?.let(ModelRef::parse) ?: model
 
+    /** The model that writes the agent's summaries, null for the model of the turn. */
+    val summaryModel: ModelRef? = config.compaction.model?.let(ModelRef::parse)
+
     val linkedChats: List<List<ChatAddress>> = config.linkedChats.map { group -> group.map(ChatAddress::parse) }
 }
 
@@ -58,7 +61,12 @@ internal class AgentDirectory(settings: AgentSettings, channels: ChannelDirector
 
 private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirectory, endpoints: Endpoints): Agent {
     val path = "agent.agents.$id"
-    for ((key, text) in listOf("model" to config.model, "permission.judge" to config.permission.judge)) {
+    val models = listOf(
+        "model" to config.model,
+        "permission.judge" to config.permission.judge,
+        "compaction.model" to config.compaction.model,
+    )
+    for ((key, text) in models) {
         val model = text?.let(ModelRef::parse) ?: continue
         if (endpoints.endpoint(model.endpoint) == null) {
             val known = endpoints.ids.joinToString().ifEmpty { "none" }

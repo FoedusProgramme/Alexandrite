@@ -276,10 +276,16 @@ private class ToolResultEntryForm(
 
 @Serializable
 @SerialName("summary")
-private class SummaryEntryForm(val record: RecordForm? = null, val text: String, val through: EntryId) {
-    constructor(entry: SummaryEntry) : this(entry.record?.let(::RecordForm), entry.text, entry.through)
+private class SummaryEntryForm(
+    val record: RecordForm? = null,
+    val text: String,
+    val through: EntryId,
+    val kept: List<EntryId>? = null,
+) {
+    constructor(entry: SummaryEntry) :
+        this(entry.record?.let(::RecordForm), entry.text, entry.through, entry.kept.takeIf { it.isNotEmpty() })
 
-    fun toEntry(): SummaryEntry = SummaryEntry(record?.toRecord(), text, through)
+    fun toEntry(): SummaryEntry = SummaryEntry(record?.toRecord(), text, through, kept.orEmpty())
 }
 
 @Serializable

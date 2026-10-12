@@ -12,12 +12,14 @@ import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
+import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Commands that call the agent's [control] as a command plugin does: `/new`, `/cancel` (which runs alongside),
- * `/agent <id>`, `/tune <model> <effort> <language>`, `/home`, `/nohome`, `/wait <gate>` and `/boom`, which throws.
+ * `/compact [focus]`, `/agent <id>`, `/tune <model> <effort> <language>`, `/home`, `/nohome`, `/wait <gate>` and
+ * `/boom`, which throws.
  */
 internal class TestCommands : CommandHandler {
     lateinit var control: AgentControl
@@ -29,7 +31,7 @@ internal class TestCommands : CommandHandler {
 
     val snapshots: MutableList<ChatSettingsSnapshot> = CopyOnWriteArrayList()
 
-    override val commands: List<CommandSpec> = "new cancel agent tune home nohome wait boom".split(' ')
+    override val commands: List<CommandSpec> = "new cancel compact agent tune home nohome wait boom".split(' ')
         .map { CommandSpec.builder(it, "Test command /$it.").runsAlongside(it == "cancel").build() }
 
     /** The gate that `/wait <name>` waits for. */
@@ -44,6 +46,17 @@ internal class TestCommands : CommandHandler {
             "new" -> context.reply("Started ${control.newConversation(chat, by)}.")
 
             "cancel" -> context.reply(if (control.cancel(chat, by)) "Cancelled." else "Nothing runs.")
+
+            "compact" -> {
+                val focus = invocation.arguments.ifBlank { null }
+                val report = try {
+                    control.compact(chat, focus, by)
+                } catch (e: ControlRefusedException) {
+                    context.reply("Refused: ${e.message}")
+                    return
+                }
+                context.reply("Folded ${report.folded}.")
+            }
 
             "boom" -> throw IllegalStateException("Bang.")
 

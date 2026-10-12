@@ -19,6 +19,9 @@ import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.Agent
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.context.Compaction
+import org.foedusprogramme.alexandrite.agent.context.Compactor
+import org.foedusprogramme.alexandrite.agent.context.contextView
 import org.foedusprogramme.alexandrite.agent.control.PendingCommands
 import org.foedusprogramme.alexandrite.agent.control.PendingComparison
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
@@ -122,11 +125,11 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeKind
+import org.foedusprogramme.alexandrite.sdk.transcript.SummaryEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
-import org.foedusprogramme.alexandrite.sdk.transcript.UnknownEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserPart
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
@@ -153,6 +156,7 @@ internal class AgentTurnRunner(
     private val endpoints: Endpoints,
     private val retries: RetryPolicy,
     private val history: HistoryCache,
+    private val compactor: Compactor,
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
     private val offeredTools: OfferedTools,
@@ -246,10 +250,12 @@ internal class AgentTurnRunner(
             val comparison = offeredTools.compare(turn.conversation, definitions)
             val commands = pendingCommands.pending(turn.conversation)
             val interrupted = interruptedJobs.pending(turn.conversation)
-            val loaded = history.entries(turn.conversation)
-            hooks.contextLoaded(turn, loaded)
+            val view = contextView(history.entries(turn.conversation))
+            hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, prompt.sections(turn, message?.chatInfo?.kind))
-            val parts = RequestParts(selected, options, loaded.filter(::isSent), sections, definitions, context)
+            val summaryModel = agent.summaryModel ?: selected.ref
+            val window = compactor.open(turn, agent.config.compaction, selected.info.contextWindow, summaryModel, view)
+            val parts = RequestParts(selected, options, window, sections, definitions, context)
             val turnTools = TurnTools(offered.associateBy { it.definition.name }, callable)
             val unstored = listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, opening)
             if (input !is TurnSource.FromJob) {
@@ -271,7 +277,8 @@ internal class AgentTurnRunner(
             val outcome = if (cancelled) {
                 TurnOutcome.Cancelled
             } else {
-                TurnOutcome.ShutDown(replayable = stored.isEmpty() && !replied && previews?.shown != true)
+                val replayable = stored.all { it is SummaryEntry } && !replied && previews?.shown != true
+                TurnOutcome.ShutDown(replayable)
             }
             return end(outcome, if (cancelled) TurnEndKind.CANCELLED else TurnEndKind.SHUT_DOWN)
         }
@@ -487,7 +494,7 @@ internal class AgentTurnRunner(
                     noted = true
                 }
                 val final = limit != null
-                val built = request(parts, pending, round, final)
+                val built = fitted(parts, pending, round, final) ?: return windowFull(parts.model)
                 val request = hooks.llmRequest(turn, round, built).or { return stopped(it) }
                 val response = try {
                     call(parts.model, request)
@@ -495,8 +502,8 @@ internal class AgentTurnRunner(
                     return modelFailed(e.error)
                 }
                 usage = usage?.plus(response.usage) ?: response.usage
-                spent += (response.usage.inputTokens ?: 0) + (response.usage.outputTokens ?: 0)
-                warnNearWindow(parts.model, response.usage)
+                spent += spentOn(response.usage)
+                parts.window.measured(request, response.usage)
                 emitUsageUpdated(usage, parts.model.info.contextWindow)
                 hooks.llmResponse(turn, round, response).or { return stopped(it) }
                 val message = response.message
@@ -545,6 +552,28 @@ internal class AgentTurnRunner(
             }
         }
 
+        /**
+         * The request of [round] once old tool results are cleared or old entries folded where it grew past its
+         * thresholds, null when it cannot fit into the model's context window.
+         */
+        private suspend fun fitted(
+            parts: RequestParts,
+            pending: List<UserEntry>,
+            round: Int,
+            toolless: Boolean,
+        ): ModelRequest? {
+            val current = appending.withLock { stored.toList() } + pending
+            val fit = parts.window.fit(current, round, { request(parts, pending, round, toolless) }) { summary ->
+                append(summary).single() as SummaryEntry
+            }
+            val compaction = fit.compaction
+            compaction?.usage?.let { spent += spentOn(it) }
+            if (compaction is Compaction.Done) {
+                emit(TurnEventKind.COMPACTED) { TurnEvent.Compacted(compaction.tokensBefore, compaction.tokensAfter) }
+            }
+            return fit.request
+        }
+
         /** The request of [round], whose history ends with what the turn stored and the unstored [pending]. */
         private suspend fun request(
             parts: RequestParts,
@@ -553,10 +582,10 @@ internal class AgentTurnRunner(
             toolless: Boolean,
         ): ModelRequest {
             val turn = checkNotNull(turn)
-            val current = appending.withLock { stored.filter(::isSent) } + pending
-            val history = media.inline(parts.earlier + current)
+            val (entries, turnStart) = parts.window.history(appending.withLock { stored.toList() } + pending)
+            val history = media.inline(entries)
             val ids = RequestIds(turn.conversation, turn.id, round)
-            return ModelRequest.builder(parts.model.ref, history, parts.earlier.size, ids)
+            return ModelRequest.builder(parts.model.ref, history, turnStart, ids)
                 .instructions(parts.sections)
                 .turnContext(parts.context.kept)
                 .tools(parts.tools)
@@ -893,22 +922,6 @@ internal class AgentTurnRunner(
             )
         }
 
-        private fun warnNearWindow(model: SelectedModel, usage: Usage) {
-            val window = model.info.contextWindow ?: return
-            val used = usage.contextTokens ?: return
-            if (used * 10 < window * 9L) return
-            val turn = checkNotNull(turn)
-            logger.warn(
-                "Conversation {} of {} takes {} of the {} tokens of the context window of {}: once it is full, its " +
-                    "turns fail until /new starts another",
-                turn.conversation,
-                turn.key,
-                used,
-                window,
-                model.ref,
-            )
-        }
-
         /** Stores a notice of [kind] with [text], shows it and ends the turn with [outcome] as [end]. */
         private suspend fun ended(kind: NoticeKind, text: String, outcome: TurnOutcome, end: TurnEndKind): TurnOutcome =
             withContext(NonCancellable) {
@@ -1055,8 +1068,7 @@ internal class AgentTurnRunner(
 private class RequestParts(
     val model: SelectedModel,
     val options: ModelOptions,
-    /** The stored entries before the turn that the model reads. */
-    val earlier: List<TranscriptEntry>,
+    val window: Compactor.TurnWindow,
     val sections: List<PromptSection>,
     val tools: List<ToolDefinition>,
     val context: TurnContextPlan,
@@ -1089,8 +1101,8 @@ internal fun openCalls(entries: List<TranscriptEntry>): List<ToolCallPart> {
         .filter { it.id !in answered }
 }
 
-/** Whether models read [entry]. */
-private fun isSent(entry: TranscriptEntry): Boolean = entry !is NoticeEntry && entry !is UnknownEntry
+/** The input and output tokens that [usage] counts. */
+private fun spentOn(usage: Usage): Long = (usage.inputTokens ?: 0) + (usage.outputTokens ?: 0)
 
 /** The pauses after which a turn goes on. */
 private const val MAX_PAUSES = 3

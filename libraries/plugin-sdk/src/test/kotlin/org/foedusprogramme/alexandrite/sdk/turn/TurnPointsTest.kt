@@ -25,7 +25,7 @@ class TurnPointsTest {
             setOf(
                 "prompt.sections", "turn.start", "turn.input", "context.loaded", "context.inject", "llm.request",
                 "llm.response", "tool.before", "tool.after", "response.preview", "response.before", "turn.committed",
-                "conversation.sealed",
+                "conversation.sealed", "context.compact", "context.compacted", "context.cleared",
             ),
             ids.toSet(),
         )
@@ -49,6 +49,7 @@ class TurnPointsTest {
                 "tool.before" to (setOf(REPLACE, ABORT) to FAIL_CLOSED),
                 "response.preview" to (setOf(REPLACE, ABORT) to FAIL_CLOSED),
                 "response.before" to (setOf(REPLACE) to FAIL_OPEN),
+                "context.compact" to (setOf(REPLACE, ABORT) to FAIL_OPEN),
             ),
             interceptors,
         )

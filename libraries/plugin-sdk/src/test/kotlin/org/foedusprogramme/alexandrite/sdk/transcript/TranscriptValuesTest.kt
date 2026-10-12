@@ -120,6 +120,20 @@ class TranscriptValuesTest {
     }
 
     @Test
+    fun `a summary covers the entries up to the last it names, but the ones it keeps`() {
+        val summary = SummaryEntry(record(10), "Three notes were read.", EntryId(9), listOf(EntryId(4), EntryId(5)))
+
+        assertEquals(
+            listOf(true, false, false, true, false),
+            listOf(3L, 4L, 5L, 9L, 10L).map { summary.covers(EntryId(it)) },
+        )
+        assertFailsWith<IllegalArgumentException> { SummaryEntry(null, "x", EntryId(9), listOf(EntryId(9))) }
+        assertFailsWith<IllegalArgumentException> {
+            SummaryEntry(null, "x", EntryId(9), listOf(EntryId(4), EntryId(4)))
+        }
+    }
+
+    @Test
     fun `only the outcomes of a call that succeeded or went on in the background are no error`() {
         assertFalse(ToolOutcome.Succeeded.isError)
         assertFalse(ToolOutcome.Detached(RunId("j-1")).isError)

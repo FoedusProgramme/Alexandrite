@@ -84,6 +84,7 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.maxTurnTokens == null || agent.maxTurnTokens > 0) { "$path.maxTurnTokens must be positive" }
     require(agent.toolTimeoutSeconds > 0) { "$path.toolTimeoutSeconds must be positive" }
     require(agent.foregroundSeconds > 0) { "$path.foregroundSeconds must be positive" }
+    checkCompaction("$path.compaction", agent.compaction)
     checkGlobs("$path.tools.allow", agent.tools.allow)
     checkGlobs("$path.tools.deny", agent.tools.deny)
     checkGlobs("$path.tools.forMembers", agent.tools.forMembers)
@@ -118,6 +119,36 @@ private fun checkLinks(path: String, agent: AgentConfig) {
             val first = linked.putIfAbsent(chat, at)
             require(first == null) { "$path.$at is the chat of $first again: a chat is in one group of an agent" }
         }
+    }
+}
+
+private fun checkCompaction(path: String, compaction: CompactionConfig) {
+    val thresholds = listOf(
+        "trigger" to compaction.trigger,
+        "target" to compaction.target,
+        "clearAt" to compaction.clearAt,
+        "clearAtLeast" to compaction.clearAtLeast,
+    )
+    for ((key, threshold) in thresholds) {
+        val off = key == "clearAt"
+        require(threshold !is Threshold.Malformed && (off || threshold != Threshold.Off)) {
+            "$path.$key must be a fraction of the context window above 0 and at most 1, such as 0.6, or a whole " +
+                "number of tokens" + if (off) ", or \"off\"" else ""
+        }
+    }
+    val trigger = compaction.trigger
+    val target = compaction.target
+    val below = when {
+        trigger is Threshold.Fraction && target is Threshold.Fraction -> target.value < trigger.value
+        trigger is Threshold.Tokens && target is Threshold.Tokens -> target.count < trigger.count
+        else -> true
+    }
+    require(below) { "$path.target must be below $path.trigger" }
+    require(compaction.keepToolRounds >= 0) { "$path.keepToolRounds may not be negative" }
+    require(compaction.keepTurns >= 0) { "$path.keepTurns may not be negative" }
+    require(compaction.maxSummaryTokens > 0) { "$path.maxSummaryTokens must be positive" }
+    require(compaction.model == null || ModelRef.parseOrNull(compaction.model) != null) {
+        "$path.model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\""
     }
 }
 
