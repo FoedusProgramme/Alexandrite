@@ -19,6 +19,8 @@ import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.Agent
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.control.PendingCommands
+import org.foedusprogramme.alexandrite.agent.control.PendingComparison
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.delivery.ReplyStream
@@ -140,6 +142,7 @@ internal class AgentTurnRunner(
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
     private val offeredTools: OfferedTools,
+    private val pendingCommands: PendingCommands,
     private val executor: ToolExecutor,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
@@ -221,12 +224,14 @@ internal class AgentTurnRunner(
             val context = turnContext(turn, text, selected, options)
             val opening = opening(turn, input, text, context.baked)
             val comparison = offeredTools.compare(turn.conversation, definitions)
+            val commands = pendingCommands.pending(turn.conversation)
             val loaded = history.entries(turn.conversation)
             hooks.contextLoaded(turn, loaded)
             val sections = hooks.promptSections(turn, prompt.sections(turn, message?.chatInfo?.kind))
             val parts = RequestParts(selected, options, loaded.filter(::isSent), sections, definitions, context)
             val turnTools = TurnTools(offered.associateBy { it.definition.name }, callable)
-            return rounds(parts, listOfNotNull(comparison?.notice, opening), turnTools, comparison)
+            val unstored = listOfNotNull(comparison?.notice, commands?.notice, opening)
+            return rounds(parts, unstored, turnTools, comparison, commands)
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -372,6 +377,7 @@ internal class AgentTurnRunner(
             opening: List<UserEntry>,
             tools: TurnTools,
             comparison: ToolComparison?,
+            commands: PendingComparison?,
         ): TurnOutcome {
             val turn = checkNotNull(turn)
             var pending = opening
@@ -411,6 +417,7 @@ internal class AgentTurnRunner(
                 val reply = withContext(NonCancellable) {
                     val entries = append(*(pending + message).toTypedArray())
                     if (first && comparison != null) offeredTools.record(turn.conversation, comparison)
+                    if (first && commands != null) pendingCommands.clear(turn.conversation, commands)
                     entries.last() as AssistantEntry
                 }
                 pending = emptyList()

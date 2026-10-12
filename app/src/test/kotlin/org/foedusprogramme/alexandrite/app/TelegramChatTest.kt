@@ -61,7 +61,7 @@ class TelegramChatTest {
         val (cancelled, next) = app.model.requests
         val ended = runBlocking { app.store.conversations.turn(cancelled.ids.turn)?.end }
         assertEquals(TurnEndKind.CANCELLED, ended)
-        assertEquals(listOf("Are you there?"), next.history.filterIsInstance<UserEntry>().map { it.words })
+        assertEquals(listOf("", "Are you there?"), next.history.filterIsInstance<UserEntry>().map { it.words })
     }
 
     @Test
@@ -176,7 +176,7 @@ class TelegramChatTest {
             }.toSet(),
         )
         assertEquals(
-            listOf("Remember: the release is on Friday.", "when is the release?"),
+            listOf("", "Remember: the release is on Friday.", "when is the release?"),
             group.history.filterIsInstance<UserEntry>().map { it.words },
         )
         assertEquals(

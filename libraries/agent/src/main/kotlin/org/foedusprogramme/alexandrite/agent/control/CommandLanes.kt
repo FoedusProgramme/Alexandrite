@@ -25,6 +25,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -63,6 +64,7 @@ internal class CommandLanes(
     private val states: SettingsStates,
     private val notices: Notices,
     private val channels: ChannelDirectory,
+    private val pendingCommands: PendingCommands,
     private val scope: PluginScope,
     private val clock: Clock,
 ) {
@@ -236,6 +238,13 @@ internal class CommandLanes(
             }
             val context = AgentCommandContext(turn, invocation.command.trigger, channels)
             withContext(running) { invocation.handler.handle(invocation.command, context) }
+            val recordedIn = recordedConversation(invocation, turn)
+            pendingCommands.record(
+                recordedIn,
+                invocation.command.issuer,
+                commandLine(invocation.command),
+                context.replies,
+            )
             TurnOutcome.Completed(null, context.deliveries)
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
@@ -259,6 +268,15 @@ internal class CommandLanes(
             .agent(key.agent)
             .key(key)
             .build()
+    }
+
+    /**
+     * Where [invocation] is recorded: [turn]'s own conversation, unless the command moved its chat to another key
+     * (e.g. a `/link` redemption), in which case it is that key's current conversation instead.
+     */
+    private suspend fun recordedConversation(invocation: Invocation, turn: TurnInfo): ConversationId {
+        val moved = router.resolve(invocation.command.chat) as? Resolution.Served
+        return if (moved != null && moved.key != turn.key) conversations.current(moved.key).id else turn.conversation
     }
 
     /** Tells the chat that the handler of [invocation] failed with [error]. */
@@ -346,6 +364,12 @@ private class Invocation(
         val turn = info ?: return null
         return TurnStatus.builder(turn, TurnPhase.RUNNING, queuedAt).startedAt(startedAt).build()
     }
+}
+
+/** [command] as it was typed: `/<name>`, with its arguments when it took any. */
+private fun commandLine(command: CommandInvocation): String {
+    val arguments = command.arguments.trim()
+    return if (arguments.isEmpty()) "/${command.name}" else "/${command.name} $arguments"
 }
 
 private val logger = LoggerFactory.getLogger(CommandLanes::class.java)

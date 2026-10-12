@@ -183,7 +183,8 @@ class PublicApiTest {
             return listOf(
                 submitter.submissions, submitter.results, submitter.tickets, submitter.awaitSubmissions(1),
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
-                ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies, invoked, call,
+                ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies,
+                context.repliesForModel, invoked, call,
                 control.turns(null), control.settings(testChat()), control.links(), control.trustedFolders(),
                 control.allowRules(testChat()),
                 control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),

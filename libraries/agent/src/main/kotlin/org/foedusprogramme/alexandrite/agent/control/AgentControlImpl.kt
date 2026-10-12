@@ -83,6 +83,7 @@ internal class AgentControlImpl(
     private val trust: FolderTrust,
     private val rules: AgentCallRules,
     private val offeredTools: OfferedTools,
+    private val pendingCommands: PendingCommands,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val clock: Clock,
@@ -357,6 +358,7 @@ internal class AgentControlImpl(
         val sealed = rotation.sealed?.id ?: return
         rules.sealed(sealed)
         offeredTools.sealed(sealed)
+        pendingCommands.sealed(sealed)
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)

@@ -126,8 +126,8 @@ public interface CommandContext {
     /** The invocation's turn, of kind COMMAND, whose actor is the issuer. */
     public val turn: TurnInfo
 
-    /** Sends [text] to the chat as a notice in reply to the invocation. */
-    public suspend fun reply(text: String, markup: Markup = Markup.PLAIN): Delivery
+    /** Sends [text] to the chat as a notice in reply to the invocation, kept from the model when [forModel] is false. */
+    public suspend fun reply(text: String, markup: Markup = Markup.PLAIN, forModel: Boolean = true): Delivery
 }
 
 private val COMMAND_NAME = Regex("[a-z0-9_]{1,32}")

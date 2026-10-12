@@ -218,6 +218,7 @@ class SubclassOptInTest {
             override suspend fun reply(
                 text: String,
                 markup: org.foedusprogramme.alexandrite.sdk.channel.Markup,
+                forModel: Boolean,
             ) = TODO()
         }
 
