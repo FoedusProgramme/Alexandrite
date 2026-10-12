@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotChats
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotMessages
+import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotNotices
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.QuotedMessage
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.GetMessage
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.OneBotMessageInfo
@@ -15,6 +16,7 @@ import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotSeg
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
 import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotWire
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelPoints
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
@@ -23,6 +25,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
@@ -67,6 +70,8 @@ internal class OneBotInbox(
     private val texts: Texts,
     /** What reads the bytes of an image or a voice message the implementation reported. */
     private val media: OneBotMedia,
+    /** Where a report that is not a message is published for the plugins that subscribe to it. */
+    private val hooks: Hooks,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Lifecycle {
@@ -91,7 +96,13 @@ internal class OneBotInbox(
 
     private suspend fun read() {
         link.events.collect { event ->
-            if (event !is OneBotEvent.Message) return@collect
+            // A report of anything but a message is published for whoever cares: it is not a turn, and nothing else
+            // would carry it to a plugin. It is published whether or not the chat is served, because a chat that is not
+            // served yet is where somebody asks to join.
+            if (event !is OneBotEvent.Message) {
+                OneBotNotices.of(instance.id, event, event.selfId.value)?.let { hooks.fire(ChannelPoints.NOTICE, it) }
+                return@collect
+            }
             val chat = OneBotChats.addressOf(instance.id, event)
             // Every message is kept as it arrives, whether or not it is meant for the bot: what a later message answers
             // is usually one of these, and the one it answers need not have been meant for the bot at all.
