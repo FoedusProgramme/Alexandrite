@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.routing.LinkGroup
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
+import org.foedusprogramme.alexandrite.agent.tool.OfferedTools
 import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
 import org.foedusprogramme.alexandrite.agent.worker.RunningControl
@@ -81,6 +82,7 @@ internal class AgentControlImpl(
     private val endpoints: Endpoints,
     private val trust: FolderTrust,
     private val rules: AgentCallRules,
+    private val offeredTools: OfferedTools,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val clock: Clock,
@@ -354,6 +356,7 @@ internal class AgentControlImpl(
     ) {
         val sealed = rotation.sealed?.id ?: return
         rules.sealed(sealed)
+        offeredTools.sealed(sealed)
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)

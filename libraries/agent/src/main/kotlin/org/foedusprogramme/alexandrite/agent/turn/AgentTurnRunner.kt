@@ -55,6 +55,8 @@ import org.foedusprogramme.alexandrite.agent.prompt.messageEntry
 import org.foedusprogramme.alexandrite.agent.prompt.turnContextPlan
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.tool.CANCELLED_RESULT
+import org.foedusprogramme.alexandrite.agent.tool.OfferedTools
+import org.foedusprogramme.alexandrite.agent.tool.ToolComparison
 import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
@@ -136,6 +138,7 @@ internal class AgentTurnRunner(
     private val history: HistoryCache,
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
+    private val offeredTools: OfferedTools,
     private val executor: ToolExecutor,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
@@ -216,11 +219,13 @@ internal class AgentTurnRunner(
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
             val opening = opening(turn, input, text, context.baked)
+            val comparison = offeredTools.compare(turn.conversation, definitions)
             val loaded = history.entries(turn.conversation)
             hooks.contextLoaded(turn, loaded)
             val sections = hooks.promptSections(turn, prompt.sections(turn, message?.chatInfo?.kind))
             val parts = RequestParts(selected, options, loaded.filter(::isSent), sections, definitions, context)
-            return rounds(parts, opening, TurnTools(offered.associateBy { it.definition.name }, callable))
+            val turnTools = TurnTools(offered.associateBy { it.definition.name }, callable)
+            return rounds(parts, listOfNotNull(comparison?.notice, opening), turnTools, comparison)
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -360,10 +365,15 @@ internal class AgentTurnRunner(
             }
         }
 
-        /** Runs the turn's rounds from its [opening] entry until the turn ends. */
-        private suspend fun rounds(parts: RequestParts, opening: UserEntry, tools: TurnTools): TurnOutcome {
+        /** Runs the turn's rounds from its [opening] entries until the turn ends. */
+        private suspend fun rounds(
+            parts: RequestParts,
+            opening: List<UserEntry>,
+            tools: TurnTools,
+            comparison: ToolComparison?,
+        ): TurnOutcome {
             val turn = checkNotNull(turn)
-            var pending: UserEntry? = opening
+            var pending = opening
             var round = 0
             var toolRounds = 0
             var pauses = 0
@@ -384,7 +394,7 @@ internal class AgentTurnRunner(
                 val calls = message.parts.filterIsInstance<ToolCallPart>()
                 val finish = response.finish.kind
                 val paused = finish == FinishKind.PAUSED && calls.isEmpty() && pauses < MAX_PAUSES
-                val first = pending != null
+                val first = pending.isNotEmpty()
                 when {
                     finish == FinishKind.CONTEXT_WINDOW_EXCEEDED -> return windowFull(parts.model)
 
@@ -397,8 +407,12 @@ internal class AgentTurnRunner(
 
                     message.blank -> return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
                 }
-                val reply = append(*listOfNotNull(pending, message).toTypedArray()).last() as AssistantEntry
-                pending = null
+                val reply = withContext(NonCancellable) {
+                    val entries = append(*(pending + message).toTypedArray())
+                    if (first && comparison != null) offeredTools.record(turn.conversation, comparison)
+                    entries.last() as AssistantEntry
+                }
+                pending = emptyList()
                 round++
                 when {
                     paused -> pauses++
@@ -422,12 +436,12 @@ internal class AgentTurnRunner(
         /** The request of [round], whose history ends with what the turn stored and the unstored [pending]. */
         private suspend fun request(
             parts: RequestParts,
-            pending: UserEntry?,
+            pending: List<UserEntry>,
             round: Int,
             toolless: Boolean,
         ): ModelRequest {
             val turn = checkNotNull(turn)
-            val current = appending.withLock { stored.filter(::isSent) } + listOfNotNull(pending)
+            val current = appending.withLock { stored.filter(::isSent) } + pending
             val history = media.inline(parts.earlier + current)
             val ids = RequestIds(turn.conversation, turn.id, round)
             return ModelRequest.builder(parts.model.ref, history, parts.earlier.size, ids)

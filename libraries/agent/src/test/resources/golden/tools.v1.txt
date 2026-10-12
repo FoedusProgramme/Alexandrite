@@ -1,0 +1,7 @@
+[alexandrite:tools]
+Your tools changed since your last turn in this conversation.
+Added: command.exec, fs.edit.
+Removed: notes.write.
+Changed: permission.status (its description, parameters, risk or timeout).
+What you said about your tools earlier in this conversation may be out of date.
+[/alexandrite:tools]
