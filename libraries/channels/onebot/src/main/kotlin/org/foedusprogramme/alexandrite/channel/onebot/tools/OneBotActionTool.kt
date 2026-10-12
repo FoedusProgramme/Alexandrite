@@ -254,19 +254,42 @@ internal suspend fun withFiles(
     val carried = buildJsonObject {
         params.forEach { (key, value) -> put(key, value) }
         named.forEach { parameter ->
-            val path = params[parameter.name]?.jsonPrimitive?.contentOrNull
+            val given = params[parameter.name]?.jsonPrimitive?.contentOrNull
                 ?: return Prepared.Refused(
                     "The action '${row.name}' needs ${parameter.name}: ${parameter.description}",
                 )
-            val named = try {
-                Path.of(path)
+            // A file tool takes a path that is absolute, one relative to the workspace or one under the home
+            // directory, and asks the floor about the path that comes of it. What a call may name is the same, so the
+            // path is resolved the same way before the floor is asked, which is told of an absolute path alone.
+            val expanded = when {
+                given == "~" -> home
+                given.startsWith("~/") || given.startsWith("~\\") -> "$home${given.substring(1)}"
+                else -> given
+            }
+            val path = try {
+                Path.of(expanded)
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
-                return Prepared.Refused("'$path' is no path: ${parameter.description}")
+                return Prepared.Refused("'$given' is no path: ${parameter.description}")
             }
-            val allowed = when (val check = reading.checkRead(named, context.turn.agent)) {
+            val absolute = when {
+                path.isAbsolute -> path.normalize()
+
+                context.workspace == null -> return Prepared.Refused(
+                    "'$given' is a relative path, and this call has no workspace to resolve it against: " +
+                        "give an absolute path.",
+                )
+
+                else -> try {
+                    context.openWorkspace().resolve(path).normalize()
+                } catch (e: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    return Prepared.Refused("'$given' could not be resolved against your workspace: ${e.message}")
+                }
+            }
+            val allowed = when (val check = reading.checkRead(absolute, context.turn.agent)) {
                 is FloorCheck.Denied -> return Prepared.Refused(
-                    "The action '${row.name}' may not read '$path': ${check.reason}.",
+                    "The action '${row.name}' may not read '$given': ${check.reason}.",
                 )
 
                 is FloorCheck.Allowed -> check.canonical
@@ -274,14 +297,14 @@ internal suspend fun withFiles(
             val bytes = try {
                 if (Files.size(allowed) > FILE_LIMIT) {
                     return Prepared.Refused(
-                        "The action '${row.name}' cannot send '$path', which is larger than the " +
+                        "The action '${row.name}' cannot send '$given', which is larger than the " +
                             "${FILE_LIMIT / (1024 * 1024)} MiB a call may carry.",
                     )
                 }
                 Files.readAllBytes(allowed)
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
-                return Prepared.Refused("The action '${row.name}' could not read '$path': ${e.message}")
+                return Prepared.Refused("The action '${row.name}' could not read '$given': ${e.message}")
             }
             context.touched(allowed)
             put(parameter.name, BYTES_PREFIX + Base64.getEncoder().encodeToString(bytes))
@@ -292,3 +315,6 @@ internal suspend fun withFiles(
 
 /** What the platform is told a file's bytes are, which is how it is handed one it cannot reach itself. */
 private const val BYTES_PREFIX: String = "base64://"
+
+/** The home directory, which a path of a call may name with a leading `~` the way a file tool takes one. */
+private val home: String = System.getProperty("user.home").orEmpty()

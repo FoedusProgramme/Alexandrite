@@ -90,6 +90,28 @@ class OneBotFileArgumentTest {
         assertTrue(prepared.params.containsKey("duration"), prepared.params.toString())
     }
 
+    @Test
+    fun `a path relative to the workspace is resolved against it, as a file tool resolves one`() = runBlocking {
+        val file = home.resolve("relative.txt")
+        file.writeBytes(byteArrayOf(7, 8))
+        val context = testToolContext(workspace = home)
+
+        val prepared = assertIs<Prepared.Ready>(
+            withFiles(upload, given(Path.of("relative.txt")), allows(), context),
+        )
+
+        val carried = prepared.params.getValue("file").jsonPrimitive.content
+        assertContentEquals(byteArrayOf(7, 8), Base64.getDecoder().decode(carried.removePrefix("base64://")))
+    }
+
+    @Test
+    fun `a relative path with no workspace is refused rather than resolved against something else`() = runBlocking {
+        val refused = assertIs<Prepared.Refused>(
+            withFiles(upload, given(Path.of("relative.txt")), allows(), testToolContext(workspace = null)),
+        )
+        assertTrue(refused.said.contains("no workspace"), refused.said)
+    }
+
     /** What the action was given, which names [file] as a call of a model would. */
     private fun given(file: Path) = buildJsonObject {
         put("group_id", JsonPrimitive("987654"))
