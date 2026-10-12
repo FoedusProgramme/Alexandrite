@@ -89,6 +89,33 @@ class OneBotPrepareTest {
         assertTrue(prepared.said.contains("user_id"), prepared.said)
     }
 
+    @Test
+    fun `an argument that asks whether to do something is sent as yes or no, however a call wrote it`() {
+        listOf("true" to true, "yes" to true, "false" to false, "no" to false).forEach { (written, expected) ->
+            val prepared = assertIs<Prepared.Ready>(
+                prepare(row("set_friend_add_request"), params(mapOf("flag" to "f", "approve" to written)), null),
+            )
+            assertEquals(JsonPrimitive(expected), prepared.params["approve"], written)
+        }
+    }
+
+    @Test
+    fun `an argument that asks whether to do something is not sent when it was not given`() {
+        val prepared = assertIs<Prepared.Ready>(
+            prepare(row("set_group_kick"), params(mapOf("group_id" to "987654", "user_id" to "2222")), null),
+        )
+        assertNull(prepared.params["reject_add_request"])
+    }
+
+    @Test
+    fun `an argument that asks whether to do something and cannot be read as one is refused`() {
+        val prepared = assertIs<Prepared.Refused>(
+            prepare(row("set_friend_add_request"), params(mapOf("flag" to "f", "approve" to "maybe")), null),
+        )
+        assertTrue(prepared.said.contains("approve"), prepared.said)
+        assertTrue(prepared.said.contains("yes or no"), prepared.said)
+    }
+
     /** The row of [name], which the test expects the table to hold. */
     private fun row(name: String): OneBotActions.Row =
         checkNotNull(OneBotActions.of(name)) { "the table holds no action $name" }

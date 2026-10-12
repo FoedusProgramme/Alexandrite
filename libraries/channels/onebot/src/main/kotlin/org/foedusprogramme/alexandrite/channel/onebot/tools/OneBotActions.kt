@@ -6,15 +6,29 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 /**
  * The actions of the platform this bot may be asked for, each declared once.
  *
- * One row says what an action is for, which arguments it takes, what they mean and how risky it is. A tool reads the
- * row rather than a class of its own, so an action is added by adding a row, and the ones that must never be called
- * are left out of the table rather than guarded in each tool.
+ * One row says what an action is for, which arguments it takes, what they mean and how each is written. A tool reads
+ * the row rather than a class of its own, so an action is added by adding a row, and the ones that must never be
+ * called are left out of the table rather than guarded in each tool.
  *
  * An action the standard declares is checked against the registry, so a row naming one that does not exist, or one
  * the standard hides, fails where the table is read rather than at the platform. An action the standard does not
  * declare at all is a row that says so, which is how an implementation's own actions are reached.
+ *
+ * The names of the arguments are the ones the platform takes, which are the keys its own requests are written with.
  */
 internal object OneBotActions {
+    /** How the standard writes an argument, which a model writes as text either way. */
+    internal enum class Kind {
+        /** A name, a title, a flag it was given, a reason: the text as it was written. */
+        TEXT,
+
+        /** A message, a group, a member, a length: the number the text names. */
+        NUMBER,
+
+        /** Whether to do something: yes or no. */
+        FLAG,
+    }
+
     /**
      * What an action is, and what calling it takes.
      *
@@ -37,7 +51,12 @@ internal object OneBotActions {
     }
 
     /** One argument of an action. */
-    internal class Parameter(val name: String, val description: String, val required: Boolean = true) {
+    internal class Parameter(
+        val name: String,
+        val description: String,
+        val kind: Kind = Kind.TEXT,
+        val required: Boolean = true,
+    ) {
         /** Whether this argument may be left out. */
         val optional: Boolean get() = !required
     }
@@ -45,37 +64,86 @@ internal object OneBotActions {
     /** The argument that names the message an action is about. */
     const val MESSAGE_ID: String = "message_id"
 
+    private val reading: List<Row> = listOf(
+        Row(
+            name = "get_msg",
+            said = "The message was read.",
+            parameters = listOf(message()),
+        ),
+        Row(
+            name = "get_forward_msg",
+            said = "The forwarded messages were read.",
+            parameters = listOf(Parameter("id", "The id of the forwarded message to read.")),
+        ),
+        Row(
+            name = "get_stranger_info",
+            said = "The account was read.",
+            parameters = listOf(
+                Parameter("user_id", "The account to read.", Kind.NUMBER),
+                Parameter("no_cache", "Whether to read it afresh rather than from the cache.", Kind.FLAG, false),
+            ),
+        ),
+        Row(
+            name = "get_group_info",
+            said = "The group was read.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("no_cache", "Whether to read it afresh rather than from the cache.", Kind.FLAG, false),
+            ),
+        ),
+        Row(
+            name = "get_group_member_info",
+            said = "The member was read.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("user_id", "The member to read.", Kind.NUMBER),
+                Parameter("no_cache", "Whether to read them afresh rather than from the cache.", Kind.FLAG, false),
+            ),
+        ),
+        Row(
+            name = "get_group_member_list",
+            said = "The members were read.",
+            parameters = listOf(Parameter("group_id", "The group.", Kind.NUMBER)),
+        ),
+        Row(
+            name = "get_group_honor_info",
+            said = "The honors were read.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("type", "Which honors to read, such as all, talkative or performer."),
+            ),
+        ),
+    )
+
     private val changing: List<Row> = listOf(
         Row(
             name = "delete_msg",
             said = "The message was taken back.",
-            parameters = listOf(
-                Parameter(
-                    MESSAGE_ID,
-                    "The message to take back. Default: the message this turn is about.",
-                    required = false,
-                ),
-            ),
+            parameters = listOf(message("The message to take back.")),
         ),
         Row(
             name = "set_msg_emoji_like",
             said = "The emoji response was added.",
             parameters = listOf(
-                Parameter(
-                    MESSAGE_ID,
-                    "The message to respond to. Default: the message this turn is about.",
-                    required = false,
-                ),
-                Parameter("emoji_id", "The number of the emoji, such as 128077 for a thumbs up."),
+                message("The message to respond to."),
+                Parameter("emoji_id", "The number of the emoji, such as 128077 for a thumbs up.", Kind.NUMBER),
             ),
             extension = true,
+        ),
+        Row(
+            name = "send_like",
+            said = "The account was given a like.",
+            parameters = listOf(
+                Parameter("user_id", "The account to like.", Kind.NUMBER),
+                Parameter("times", "How many likes to give.", Kind.NUMBER, false),
+            ),
         ),
         Row(
             name = "set_friend_add_request",
             said = "The friend request was answered.",
             parameters = listOf(
                 Parameter("flag", "The flag the request reported."),
-                Parameter("approve", "Whether to accept the request: true or false."),
+                Parameter("approve", "Whether to accept the request.", Kind.FLAG),
                 Parameter("remark", "The remark to keep with a friend the call accepts.", required = false),
             ),
         ),
@@ -85,65 +153,85 @@ internal object OneBotActions {
             parameters = listOf(
                 Parameter("flag", "The flag the request reported."),
                 Parameter("sub_type", "add when somebody asks to join, invite when the bot is invited."),
-                Parameter("approve", "Whether to accept the request: true or false."),
+                Parameter("approve", "Whether to accept the request.", Kind.FLAG),
                 Parameter("reason", "The reason to give for a request the call refuses.", required = false),
-            ),
-        ),
-        Row(
-            name = "set_group_ban",
-            said = "The mute was set.",
-            parameters = listOf(
-                Parameter("group_id", "The group."),
-                Parameter("user_id", "The member to mute."),
-                Parameter("duration", "How many seconds the mute lasts, 0 to lift it."),
             ),
         ),
         Row(
             name = "set_group_kick",
             said = "The member was removed from the group.",
             parameters = listOf(
-                Parameter("group_id", "The group."),
-                Parameter("user_id", "The member to remove."),
-                Parameter("reject_add_request", "Whether to refuse their requests to join again.", required = false),
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("user_id", "The member to remove.", Kind.NUMBER),
+                Parameter("reject_add_request", "Whether to refuse their requests to join again.", Kind.FLAG, false),
+            ),
+        ),
+        Row(
+            name = "set_group_ban",
+            said = "The mute was set.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("user_id", "The member to mute.", Kind.NUMBER),
+                Parameter("duration", "How many seconds the mute lasts, 0 to lift it.", Kind.NUMBER),
+            ),
+        ),
+        Row(
+            name = "set_group_whole_ban",
+            said = "The mute of the whole group was set.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("enable", "Whether every member is muted.", Kind.FLAG),
+            ),
+        ),
+        Row(
+            name = "set_group_admin",
+            said = "Whether the member is an administrator was set.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("user_id", "The member.", Kind.NUMBER),
+                Parameter("enable", "Whether they administer the group.", Kind.FLAG),
+            ),
+        ),
+        Row(
+            name = "set_group_card",
+            said = "The name the member goes by in the group was set.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("user_id", "The member.", Kind.NUMBER),
+                Parameter("card", "The name they go by in the group, empty to clear it."),
+            ),
+        ),
+        Row(
+            name = "set_group_name",
+            said = "The name of the group was set.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("group_name", "The name to give the group."),
+            ),
+        ),
+        Row(
+            name = "set_group_leave",
+            said = "The bot left the group.",
+            parameters = listOf(
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("is_dismiss", "Whether to dismiss the group rather than only leave it.", Kind.FLAG, false),
             ),
         ),
         Row(
             name = "set_group_special_title",
             said = "The title was set.",
             parameters = listOf(
-                Parameter("group_id", "The group."),
-                Parameter("user_id", "The member."),
-                Parameter("special_title", "The title to give them."),
+                Parameter("group_id", "The group.", Kind.NUMBER),
+                Parameter("user_id", "The member.", Kind.NUMBER),
+                Parameter("special_title", "The title to give them, empty to clear it."),
+                Parameter("duration", "How many seconds the title lasts.", Kind.NUMBER, false),
             ),
         ),
     )
 
-    private val reading: List<Row> = listOf(
-        Row(
-            name = "get_msg",
-            said = "The message was read.",
-            parameters = listOf(
-                Parameter(
-                    MESSAGE_ID,
-                    "The message to read. Default: the message this turn is about.",
-                    required = false,
-                ),
-            ),
-        ),
-        Row(
-            name = "get_group_member_info",
-            said = "The member was read.",
-            parameters = listOf(
-                Parameter("group_id", "The group."),
-                Parameter("user_id", "The member to read."),
-                Parameter(
-                    "no_cache",
-                    "Whether to read the member afresh rather than from the cache.",
-                    required = false,
-                ),
-            ),
-        ),
-    )
+    /** An action that is about the message of this turn when a call names none. */
+    private fun message(what: String = "The message to read."): Parameter =
+        Parameter(MESSAGE_ID, "$what Default: the message this turn is about.", Kind.NUMBER, required = false)
 
     /** Everything this bot may be asked for, the reads first. */
     val rows: List<Row> = reading + changing
@@ -164,12 +252,3 @@ internal object OneBotActions {
     /** The row of [name], null when this bot may not be asked for it. */
     fun of(name: String): Row? = byName[name]
 }
-
-/**
- * Whether this argument is one the standard writes as a number rather than as text.
- *
- * A model writes every argument as text, so one that names a message, a group, a member or a length has to be written
- * as the number the standard asks for, while one that names a title, a flag or a reason stays the text it was given.
- */
-internal val OneBotActions.Parameter.numeric: Boolean
-    get() = name.endsWith("_id") || name == "duration"

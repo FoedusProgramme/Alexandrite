@@ -1,8 +1,11 @@
 package org.foedusprogramme.alexandrite.channel.onebot.tools
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
@@ -21,21 +24,21 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
  *
  * One tool serves every action it may be asked for rather than one tool per action, because an action is a row of
  * [OneBotActions] and not a class: the platform's surface is large, and a row says what an action takes and what it
- * is worth. What the call may ask for is the table, so an action the table leaves out cannot be named at all, which
- * is where the actions that hand out the account's credentials and the ones that restart the implementation are kept.
+ * is worth. What a call may ask for is the table, so an action the table leaves out cannot be named at all, which is
+ * where the actions that hand out the account's credentials and the ones that restart the implementation are kept.
  */
 @Singleton
 @Contribute(Tool::class)
 internal class OneBotReadTool(private val apis: OneBotApis) : Tool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "onebot.read",
-        description = describe("Reads what the QQ platform knows", OneBotActions.rows.filter { !it.changes }),
+        description = describe("Reads what the QQ platform knows", OneBotActions.rows.filterNot { it.changes }),
         parameters = schema(),
         risk = ToolRisk.READ_ONLY,
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
-        call(apis, OneBotActions.rows.filter { !it.changes }, arguments, context)
+        call(apis, OneBotActions.rows.filterNot { it.changes }, arguments, context)
 }
 
 /** Changes something of a chat or a member of the platform this bot acts in. */
@@ -46,9 +49,7 @@ internal class OneBotActTool(private val apis: OneBotApis) : Tool {
         name = "onebot.act",
         description = describe(
             "Changes something of a QQ chat this bot acts in",
-            OneBotActions.rows.filter {
-                it.changes
-            },
+            OneBotActions.rows.filter { it.changes },
         ),
         parameters = schema(),
         risk = ToolRisk.EXTERNAL_ACTION,
@@ -64,15 +65,15 @@ private fun schema(): JsonObject = buildJsonObject {
     putJsonObject("properties") {
         putJsonObject("action") {
             put("type", "string")
-            put("description", "The action to call, named as one of the actions listed in the description.")
+            put("description", "The action to call, named as one of the actions the description lists.")
         }
         putJsonObject("params") {
             put("type", "object")
-            put("description", "The arguments of that action, by the names the description gives them.")
+            put("description", "That action's arguments, by the names the description gives them.")
             put("additionalProperties", true)
         }
     }
-    put("required", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("action"))))
+    put("required", JsonArray(listOf(JsonPrimitive("action"))))
     put("additionalProperties", false)
 }
 
@@ -80,7 +81,7 @@ private fun schema(): JsonObject = buildJsonObject {
 private fun describe(header: String, rows: List<OneBotActions.Row>): String = buildString {
     append(header)
     append(". It calls one action per call, named as 'action', with that action's arguments under 'params'. ")
-    append("The actions it may be asked for:\n")
+    append("The actions it may be asked for, with a ? on the arguments that may be left out:\n")
     rows.forEach { row ->
         append("- ").append(row.name).append('(')
         append(row.parameters.joinToString(", ") { it.name + (if (it.required) "" else "?") })
@@ -92,11 +93,10 @@ private fun describe(header: String, rows: List<OneBotActions.Row>): String = bu
 }
 
 /**
- * Calls [action] of [rows] in the chat of [context], and says what the platform answered.
+ * Calls [name] of [rows] in the chat of [context], and says what the platform answered.
  *
- * Only the arguments the row declares are sent, so a call cannot put anything of its own into the request. An
- * argument that was left out falls back to the message of this turn where the row allows it, and is refused
- * otherwise, because a prompt does not name that id.
+ * An action the call may not ask for is refused rather than passed on, and only the arguments its row declares are
+ * sent, so nothing a call writes under `params` can reach the platform unless the action takes it by that name.
  */
 private suspend fun call(
     apis: OneBotApis,
@@ -134,27 +134,40 @@ internal sealed interface Prepared {
  * The arguments [row] sends when a call gave [given], with [messageId] standing in for the id of the message of the
  * turn where the row allows it to be left out.
  *
- * Only the arguments the row declares are sent, so nothing a call writes under `params` can reach the platform
- * unless the action takes it by that name. An argument that must be given and was not is refused, naming it and
- * what it is for, rather than sending a request the platform would refuse for a reason the model cannot act on.
+ * Every argument is written the way the standard asks for it, since a model writes them all as text: one that names a
+ * message, a group or a length is sent as the number it names, and one that asks whether to do something is sent as
+ * yes or no. An argument that must be given and was not, or one that cannot be read as what the row says it is, is
+ * refused, naming it and what it is for, rather than sent as something the platform would answer without saying what
+ * the call got wrong.
  */
 internal fun prepare(row: OneBotActions.Row, given: JsonObject, messageId: String?): Prepared {
     val params = buildJsonObject {
         row.parameters.forEach { parameter ->
             val value = given[parameter.name]
             if (value != null && value !is JsonNull) {
-                val text = (value as? JsonPrimitive)?.contentOrNull
-                if (parameter.numeric && text != null) putId(parameter.name, text) else put(parameter.name, value)
+                when (parameter.kind) {
+                    OneBotActions.Kind.TEXT -> put(parameter.name, value)
+
+                    OneBotActions.Kind.NUMBER -> put(parameter.name, number(value))
+
+                    OneBotActions.Kind.FLAG -> {
+                        val flag = boolean(value)
+                            ?: return Prepared.Refused(
+                                "The action '${row.name}' takes ${parameter.name} as yes or no, not '$value': " +
+                                    parameter.description,
+                            )
+                        put(parameter.name, flag)
+                    }
+                }
                 return@forEach
             }
             // An action about a message means the message of this turn when the call named none. A turn no message
-            // started leaves nothing to mean, and a call that had to name one is refused rather than sent without it,
-            // which the platform would answer in a way that says nothing about what the call got wrong.
+            // started leaves nothing to mean, and a call that had to name one is refused rather than sent without it.
             if (parameter.name == OneBotActions.MESSAGE_ID && parameter.optional) {
                 val fallback = messageId ?: return Prepared.Refused(
                     "The action '${row.name}' needs ${parameter.name}: ${parameter.description}",
                 )
-                putId(parameter.name, fallback)
+                put(parameter.name, number(JsonPrimitive(fallback)))
                 return@forEach
             }
             if (parameter.required) {
@@ -165,4 +178,27 @@ internal fun prepare(row: OneBotActions.Row, given: JsonObject, messageId: Strin
         }
     }
     return Prepared.Ready(params)
+}
+
+/**
+ * [value] as yes or no, null when it says neither.
+ *
+ * A model writes an argument as text even when it asks whether to do something, so both the words it may write and
+ * the values a call may carry are read, and anything else is refused rather than sent as something the platform
+ * would answer without saying what the call got wrong.
+ */
+private fun boolean(value: JsonElement): Boolean? {
+    val primitive = value as? JsonPrimitive ?: return null
+    primitive.booleanOrNull?.let { return it }
+    return when (primitive.contentOrNull?.trim()?.lowercase()) {
+        "yes", "y", "1" -> true
+        "no", "n", "0" -> false
+        else -> null
+    }
+}
+
+/** [value] as the number it names, or as the text it is when it names no number. */
+private fun number(value: JsonElement): JsonElement {
+    val text = (value as? JsonPrimitive)?.contentOrNull ?: return value
+    return text.toLongOrNull()?.let { JsonPrimitive(it) } ?: value
 }
