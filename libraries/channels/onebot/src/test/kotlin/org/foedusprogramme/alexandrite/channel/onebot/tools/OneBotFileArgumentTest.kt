@@ -1,9 +1,12 @@
 package org.foedusprogramme.alexandrite.channel.onebot.tools
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
@@ -16,6 +19,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.io.path.writeBytes
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -28,6 +32,9 @@ import kotlin.test.assertTrue
  */
 class OneBotFileArgumentTest {
     private val upload = row("upload_group_file")
+
+    /** What a call of the streaming action answers, which a file small enough to carry never reaches. */
+    private val stream: suspend (JsonObject) -> OneBotResult<JsonElement> = { OneBotResult.Ok(JsonPrimitive("ok")) }
     private val home: Path = createTempDirectory("onebot-file")
 
     @Test
@@ -35,7 +42,7 @@ class OneBotFileArgumentTest {
         val file = home.resolve("notes.zip")
         file.writeBytes(byteArrayOf(1, 2, 3))
         val context = testToolContext()
-        val prepared = assertIs<Prepared.Ready>(withFiles(upload, given(file), allows(), context))
+        val prepared = assertIs<Prepared.Ready>(withFiles(upload, given(file), allows(), context, stream))
         val carried = prepared.params.getValue("file").jsonPrimitive.content
         assertTrue(carried.startsWith("base64://"), carried)
         assertContentEquals(byteArrayOf(1, 2, 3), Base64.getDecoder().decode(carried.removePrefix("base64://")))
@@ -49,32 +56,61 @@ class OneBotFileArgumentTest {
         file.writeBytes(byteArrayOf(1))
         val refused =
             assertIs<Prepared.Refused>(
-                withFiles(upload, given(file), denies("a place the test protects"), testToolContext()),
+                withFiles(upload, given(file), denies("a place the test protects"), testToolContext(), stream),
             )
         assertTrue(refused.said.contains("a place the test protects"), refused.said)
         assertTrue(refused.said.contains("may not read"), refused.said)
     }
 
     @Test
-    fun `a file larger than a call may carry is refused, naming what it passed`() = runBlocking {
+    fun `a file too large to carry in one request goes to the implementation in pieces, which names it`() =
+        runBlocking {
+            val file = home.resolve("big.zip")
+            file.writeBytes(ByteArray((FILE_LIMIT + 1).toInt()))
+            val calls = mutableListOf<JsonObject>()
+            val prepared = assertIs<Prepared.Ready>(
+                withFiles(upload, given(file), allows(), testToolContext()) { call ->
+                    calls += call
+                    if (call["is_complete"] != null) {
+                        OneBotResult.Ok(
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("file_path", JsonPrimitive("streamed"))
+                            },
+                        )
+                    } else {
+                        OneBotResult.Ok(JsonPrimitive("stream"))
+                    }
+                },
+            )
+
+            assertEquals("streamed", prepared.params.getValue("file").jsonPrimitive.content)
+            assertTrue(calls.size > 1, "a file this large takes more than one call")
+        }
+
+    @Test
+    fun `a file the implementation took no pieces of is refused rather than sent on`() = runBlocking {
         val file = home.resolve("big.zip")
         file.writeBytes(ByteArray((FILE_LIMIT + 1).toInt()))
-        val refused = assertIs<Prepared.Refused>(withFiles(upload, given(file), allows(), testToolContext()))
-        assertTrue(refused.said.contains("8 MiB"), refused.said)
+
+        val refused = assertIs<Prepared.Refused>(
+            withFiles(upload, given(file), allows(), testToolContext()) { _ -> OneBotResult.Failed(retcode = 200) },
+        )
+
+        assertTrue(refused.said.contains("took no file in pieces"), refused.said)
     }
 
     @Test
     fun `a call that needs a file and a runtime with no floor is refused rather than read on its own`() = runBlocking {
         val file = home.resolve("notes.zip")
         file.writeBytes(byteArrayOf(1))
-        val refused = assertIs<Prepared.Refused>(withFiles(upload, given(file), null, testToolContext()))
+        val refused = assertIs<Prepared.Refused>(withFiles(upload, given(file), null, testToolContext(), stream))
         assertTrue(refused.said.contains("no file is sent"), refused.said)
     }
 
     @Test
     fun `a call that names no file is refused, naming the argument`() = runBlocking {
         val given = buildJsonObject { put("group_id", JsonPrimitive("987654")) }
-        val refused = assertIs<Prepared.Refused>(withFiles(upload, given, allows(), testToolContext()))
+        val refused = assertIs<Prepared.Refused>(withFiles(upload, given, allows(), testToolContext(), stream))
         assertTrue(refused.said.contains("file"), refused.said)
     }
 
@@ -86,7 +122,7 @@ class OneBotFileArgumentTest {
             put("user_id", JsonPrimitive("2222"))
             put("duration", JsonPrimitive("60"))
         }
-        val prepared = assertIs<Prepared.Ready>(withFiles(mute, given, null, testToolContext()))
+        val prepared = assertIs<Prepared.Ready>(withFiles(mute, given, null, testToolContext(), stream))
         assertTrue(prepared.params.containsKey("duration"), prepared.params.toString())
     }
 
@@ -97,7 +133,7 @@ class OneBotFileArgumentTest {
         val context = testToolContext(workspace = home)
 
         val prepared = assertIs<Prepared.Ready>(
-            withFiles(upload, given(Path.of("relative.txt")), allows(), context),
+            withFiles(upload, given(Path.of("relative.txt")), allows(), context, stream),
         )
 
         val carried = prepared.params.getValue("file").jsonPrimitive.content
@@ -107,7 +143,7 @@ class OneBotFileArgumentTest {
     @Test
     fun `a relative path with no workspace is refused rather than resolved against something else`() = runBlocking {
         val refused = assertIs<Prepared.Refused>(
-            withFiles(upload, given(Path.of("relative.txt")), allows(), testToolContext(workspace = null)),
+            withFiles(upload, given(Path.of("relative.txt")), allows(), testToolContext(workspace = null), stream),
         )
         assertTrue(refused.said.contains("no workspace"), refused.said)
     }

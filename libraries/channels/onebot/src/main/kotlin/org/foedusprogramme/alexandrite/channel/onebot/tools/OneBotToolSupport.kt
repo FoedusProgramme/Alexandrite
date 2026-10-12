@@ -19,7 +19,7 @@ internal fun OneBotApis.serving(chat: ChatAddress): OneBotApi =
 internal const val ANSWER_LIMIT: Int = 4_000
 
 /**
- * How large a file a call may hand to the platform.
+ * How large a file a call carries in one request, above which the file goes to the implementation in pieces.
  *
  * The bytes are written the way the platform takes them, which grows them by about a third, and an implementation
  * refuses what is larger than it takes without saying so in a way a model can act on, so a call is refused here

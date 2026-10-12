@@ -129,7 +129,10 @@ private suspend fun call(
     }
     // A file of the workspace is read here rather than where the arguments are written, because whether this call may
     // read one is the floor's to say, which a function of the row and the arguments has no way to ask.
-    val carried = when (val files = withFiles(row, params, floor, context)) {
+    val carried = when (
+        val files =
+            withFiles(row, params, floor, context) { call -> apis.serving(context.turn.chat).raw(UPLOAD_STREAM, call) }
+    ) {
         is Prepared.Refused -> return ToolResult(files.said, isError = true)
         is Prepared.Ready -> files.params
     }
@@ -236,14 +239,16 @@ private fun number(value: JsonElement): JsonElement {
  * link is followed to. A runtime with no floor is one where nothing decides what may be read, so a call that needs a
  * file is refused rather than read of its own accord.
  *
- * A file larger than a call should carry is refused rather than sent, since the bytes grow on the way and an
- * implementation refuses what is too large without saying what the call got wrong.
+ * A file larger than a call should carry goes to the implementation in pieces instead, which names it in answer, and
+ * what the action carries is that name: a file of any size can be sent, and neither side ever holds it whole. [send]
+ * is one call of the action that takes a file in pieces.
  */
 internal suspend fun withFiles(
     row: OneBotActions.Row,
     params: JsonObject,
     floor: HardFloor?,
     context: ToolContext,
+    send: suspend (JsonObject) -> OneBotResult<JsonElement>,
 ): Prepared {
     val named = row.parameters.filter { it.kind == OneBotActions.Kind.FILE }
     if (named.isEmpty()) return Prepared.Ready(params)
@@ -294,13 +299,27 @@ internal suspend fun withFiles(
 
                 is FloorCheck.Allowed -> check.canonical
             }
+            val size = try {
+                Files.size(allowed)
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                return Prepared.Refused("The action '${row.name}' could not read '$given': ${e.message}")
+            }
+            if (size > FILE_LIMIT) {
+                // Too large to carry in one request, so it goes in pieces and what is carried is the name the
+                // implementation gives it. A file it did not take whole is never sent on as if it were.
+                val called = params["name"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotEmpty)
+                    ?: allowed.fileName?.toString()
+                    ?: "file"
+                val name = streamFile(allowed, called, send) ?: return Prepared.Refused(
+                    "The action '${row.name}' could not send '$given': the implementation took no file in pieces, " +
+                        "or named none to send on by.",
+                )
+                context.touched(allowed)
+                put(parameter.name, name)
+                return@forEach
+            }
             val bytes = try {
-                if (Files.size(allowed) > FILE_LIMIT) {
-                    return Prepared.Refused(
-                        "The action '${row.name}' cannot send '$given', which is larger than the " +
-                            "${FILE_LIMIT / (1024 * 1024)} MiB a call may carry.",
-                    )
-                }
                 Files.readAllBytes(allowed)
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
