@@ -17,7 +17,9 @@
         "main": {
           "transport": "ws_reverse",
           "listenHost": "127.0.0.1",
-          "listenPort": 8080
+          "listenPort": 8080,
+          "admins": [],
+          "approvalMinutes": 10
         }
       }
     }

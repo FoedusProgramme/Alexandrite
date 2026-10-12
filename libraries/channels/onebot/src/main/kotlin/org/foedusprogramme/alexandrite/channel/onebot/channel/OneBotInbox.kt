@@ -4,11 +4,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
+import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotChats
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotMessages
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotSegment
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
+import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -38,6 +41,10 @@ internal class OneBotInbox(
     private val instance: ChannelInstance,
     private val config: OneBotInstanceConfig,
     private val link: OneBotLink,
+    /** What this instance sends, which answers an approval command. */
+    private val sender: OneBotSender,
+    /** The approvals this instance asks its admins about. */
+    private val approvals: OneBotApprovals,
     /** The messages this instance sent, which tell a reply to the bot from a reply to somebody else. */
     private val sent: OneBotSentMessages,
     /** The agent, null while the runtime has none. */
@@ -69,11 +76,24 @@ internal class OneBotInbox(
             // would each become a turn of the agent.
             val command = OneBotCommands.of(event)
             if (command == null && !addressed(event)) return@collect
+            // An approval is answered here rather than by the agent: the command registry of the runtime knows nothing
+            // of it, and a command it does not claim is refused to everyone but an operator.
+            if (command != null && approvals.answers(command.name)) {
+                val asked = OneBotMessages.senderOf(instance.id, event, config.admins)
+                val answer = approvals.answer(event, command, asked)
+                if (answer != null) {
+                    sender.send(OneBotChats.addressOf(instance.id, event), said(answer))
+                }
+                return@collect
+            }
             val message = OneBotMessages.incoming(instance.id, event, config.admins)
             val submission = if (command == null) Submission.Message(message) else commandOf(command, message)
             report(message, submitter?.submit(submission))
         }
     }
+
+    /** The message that says [text] as the answer to an approval command. */
+    private fun said(text: String): OutboundMessage = OutboundMessage.builder(text, MessageKind.REPLY).build()
 
     /** The submission of [command] in [message], which an operator's commands pass the queue with. */
     private fun commandOf(command: OneBotCommands.Parsed, message: IncomingMessage): Submission.Command =

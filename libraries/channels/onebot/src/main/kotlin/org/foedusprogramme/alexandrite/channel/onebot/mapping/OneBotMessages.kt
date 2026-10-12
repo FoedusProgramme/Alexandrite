@@ -218,6 +218,10 @@ public object OneBotMessages {
         else -> DeliveryFailure.UNKNOWN
     }
 
+    /** Who sent [event], as an operator of the instance when the report or the list of [admins] says so. */
+    public fun senderOf(instance: ChannelInstanceId, event: OneBotEvent.Message, admins: Set<String>): ChatUser =
+        sender(instance, event, admins)
+
     private fun sender(instance: ChannelInstanceId, event: OneBotEvent.Message, admins: Set<String>): ChatUser {
         val reported = event.sender
         val id = event.userId.value

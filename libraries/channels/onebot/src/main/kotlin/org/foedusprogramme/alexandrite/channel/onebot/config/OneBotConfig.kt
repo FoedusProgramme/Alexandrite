@@ -101,6 +101,8 @@ public class OneBotInstanceConfig(
     @SerialName("reconnectIntervalMillis") public val reconnectIntervalMillis: Long = DEFAULT_RECONNECT,
     /** The accounts that may operate this instance, which the channel marks as admins. */
     public val admins: Set<String> = emptySet(),
+    /** How long an approval request waits for an admin's answer, in minutes. */
+    @SerialName("approvalMinutes") public val approvalMinutes: Int = DEFAULT_APPROVAL_MINUTES,
 ) {
     /** How this instance reaches its implementation. */
     public val kind: OneBotTransport = OneBotTransport.of(transport) ?: throw IllegalArgumentException(
@@ -112,6 +114,7 @@ public class OneBotInstanceConfig(
         require(firstByteTimeoutMillis > 0) { "A first byte timeout is positive, was $firstByteTimeoutMillis." }
         require(idleTimeoutMillis > 0) { "An idle timeout is positive, was $idleTimeoutMillis." }
         require(reconnectIntervalMillis > 0) { "A reconnect interval is positive, was $reconnectIntervalMillis." }
+        require(approvalMinutes > 0) { "An approval waits at least a minute, was $approvalMinutes." }
         if (kind.isReceiver) {
             // Port 0 lets the operating system pick one, which a test and a host that only needs to bind use; the
             // caller reads the port it took from the transport.
@@ -152,6 +155,8 @@ public class OneBotInstanceConfig(
         public const val DEFAULT_IDLE_TIMEOUT: Long = 60_000L
 
         public const val DEFAULT_RECONNECT: Long = 3_000L
+
+        public const val DEFAULT_APPROVAL_MINUTES: Int = 10
 
         public const val MAX_PORT: Int = 65_535
     }
