@@ -174,7 +174,17 @@ class InitiatedTurnsTest {
             )
             val request = model.requests.single()
             assertEquals(
-                listOf("agent.jobs", "agent.stop", "fs.read", "permission.status") to ToolChoice.Auto,
+                listOf(
+                    "agent.jobs",
+                    "agent.stop",
+                    "fs.read",
+                    "permission.status",
+                    "profile.create",
+                    "profile.edit",
+                    "profile.list",
+                    "profile.remove",
+                ) to
+                    ToolChoice.Auto,
                 request.tools.map { it.name } to request.toolChoice,
             )
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.turn)?.end)

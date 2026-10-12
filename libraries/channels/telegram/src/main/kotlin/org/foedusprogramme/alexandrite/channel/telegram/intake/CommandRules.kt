@@ -53,6 +53,7 @@ internal class CommandRules(handlers: List<CommandHandler>, private val control:
         val MATRIX: Map<String, CommandRule> = mapOf(
             "settings" to CommandRule(Who.ANYONE),
             "context" to CommandRule(Who.ANYONE),
+            "profiles" to CommandRule(Who.ANYONE),
             "agent" to CommandRule(Who.ANYONE, Who.DIRECT),
             "reasoning" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "language" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),

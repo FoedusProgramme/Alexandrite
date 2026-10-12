@@ -17,7 +17,8 @@ import java.nio.file.Path
 /** The ids that an instruction file's `when` may name. */
 internal val CONDITION_IDS: List<String> = ChatKind.entries.map { it.id } + TurnKind.entries.map { it.id }
 
-private val CONFIGURABLE_MODES = PermissionMode.entries - PermissionMode.BYPASS
+/** The permission modes a config entry or a created profile may set: every mode but [PermissionMode.BYPASS]. */
+internal val CONFIGURABLE_MODES = PermissionMode.entries - PermissionMode.BYPASS
 
 /** Throws when [agents] break a rule that the config alone decides. */
 internal fun checkAgents(agents: Map<String, AgentConfig>) {
@@ -99,6 +100,9 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     require(agent.channels.isEmpty() || agent.model != null) {
         "$path.model is missing: an agent that serves channels needs a model"
+    }
+    require(agent.channels.isNotEmpty() || !agent.description.isNullOrBlank()) {
+        "$path.description is missing: an agent that serves no channels is a profile, which needs one"
     }
     checkLinks(path, agent)
 }

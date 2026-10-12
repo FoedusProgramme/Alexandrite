@@ -268,7 +268,8 @@ class ToolExecutorTest {
     @Test
     @DisabledOnOs(OS.WINDOWS)
     fun `a call's context names its agent's workspace and creates it owner-only once a tool opens it`() = runBlocking {
-        val workspaces = Workspaces(hostPaths(null, directory), settings("""{"agents": {"main": {}}}"""))
+        val workspaces =
+            Workspaces(hostPaths(null, directory), settings("""{"agents": {"main": {"description": "Main."}}}"""))
         val workspace = directory.resolve("workspaces/main")
         var existed: Boolean? = null
         val tool = recordingTool("fs.read") { _, context ->

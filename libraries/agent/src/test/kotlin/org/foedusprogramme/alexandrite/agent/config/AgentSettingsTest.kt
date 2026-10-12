@@ -102,7 +102,7 @@ class AgentSettingsTest {
 
     @Test
     fun `an agent sets no round limit or token budget unless configured, and backgrounds a call after five minutes`() {
-        val settings = settings(agents(""""coder": {}"""))
+        val settings = settings(agents(""""coder": {"description": "Codes."}"""))
         val coder = settings.agents.getValue("coder")
 
         assertEquals(
@@ -119,10 +119,11 @@ class AgentSettingsTest {
 
     @Test
     fun `an agent compacts from 95 percent of the window down to 20, and clears tool results from 60`() {
-        val defaults = settings(agents(""""coder": {}""")).agents.getValue("coder").compaction
+        val defaults = settings(agents(""""coder": {"description": "Codes."}""")).agents.getValue("coder").compaction
         val compaction = """{"trigger": 150000, "target": 0.1, "clearAt": "off", "clearAtLeast": 2000, """ +
             """"keepToolRounds": 3, "keepTurns": 1, "maxSummaryTokens": 2000, "model": "scripted/fast"}"""
-        val set = settings(agents(""""coder": {"compaction": $compaction}""")).agents.getValue("coder").compaction
+        val set = settings(agents(""""coder": {"description": "Codes.", "compaction": $compaction}"""))
+            .agents.getValue("coder").compaction
 
         assertEquals(listOf(190_000L, 40_000L, 120_000L, 10_000L), defaults.limits(200_000).values())
         assertEquals(
@@ -251,7 +252,9 @@ class AgentSettingsTest {
             "agents.coder.permission.allow[1] $named",
         )
 
-        agentHarness(agents(""""coder": {"permission": {"deny": ["command.exec(./gradlew test)"]}}""")).execute {}
+        val denied =
+            """"coder": {"description": "Codes.", "permission": {"deny": ["command.exec(./gradlew test)"]}}"""
+        agentHarness(agents(denied)).execute {}
     }
 
     @Test
@@ -381,6 +384,15 @@ class AgentSettingsTest {
             agents(""""coder": {"channels": {"test:main": {"default": true}}}"""),
             "agents.coder.model is missing: an agent that serves channels needs a model",
         )
+    }
+
+    @Test
+    fun `an agent without channels is a profile, and needs a description`() {
+        assertConfigFails(
+            agents(""""coder": {}"""),
+            "agents.coder.description is missing: an agent that serves no channels is a profile, which needs one",
+        )
+        settings(agents(""""coder": {"description": "Codes."}"""))
     }
 
     @Test

@@ -83,7 +83,9 @@ class PermissionGateTest {
 
     /** A gate where `main` sets [mode] for its chats and the plugins in [builtIn] contributed their tools. */
     private fun gate(tools: List<Tool>, mode: String? = null, builtIn: Set<Tool> = emptySet()): PermissionGate {
-        val config = mode?.let { """{"agents": {"main": {"permission": {"mode": "$it"}}}}""" } ?: """{"agents": {}}"""
+        val config =
+            mode?.let { """{"agents": {"main": {"description": "Main.", "permission": {"mode": "$it"}}}}""" }
+                ?: """{"agents": {}}"""
         val directory = agentDirectory(settings(config))
         val origins = object : PluginOrigins {
             override fun isBuiltIn(instance: Any): Boolean = builtIn.any { it === instance }

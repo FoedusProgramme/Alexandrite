@@ -139,6 +139,10 @@ class TelegramRepositoryTest {
                 "fs.read",
                 "fs.write",
                 "permission.status",
+                "profile.create",
+                "profile.edit",
+                "profile.list",
+                "profile.remove",
             ),
             requests.first().tools.map { it.name },
         )

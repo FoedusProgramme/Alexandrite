@@ -56,7 +56,13 @@ class SideModelJudgeTest {
 
     /** A judge of agent `main` over [endpoints], with [permission] in the agent's permission section. */
     private fun judge(permission: String = "", vararg endpoints: ModelEndpoint = arrayOf(model)): SideModelJudge {
-        val config = """{"agents": {"main": {"model": "scripted/test-model", "permission": {$permission}}}}"""
+        val config = """
+            {
+              "agents": {
+                "main": {"description": "Main.", "model": "scripted/test-model", "permission": {$permission}}
+              }
+            }
+        """.trimIndent()
         val settings = settings(config)
         val providers = listOf(provider(*endpoints))
         return SideModelJudge(

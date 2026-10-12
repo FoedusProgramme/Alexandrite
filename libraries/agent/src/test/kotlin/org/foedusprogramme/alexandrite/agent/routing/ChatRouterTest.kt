@@ -40,7 +40,7 @@ class ChatRouterTest {
               "channels": {"test:main": {"home": "2#7"}, "test:solo": {"default": true}}
             },
             "reviewer": {"model": "scripted/test-model", "channels": {"test:main": {"home": "1"}}},
-            "planner": {"model": "scripted/test-model"},
+            "planner": {"description": "Plans.", "model": "scripted/test-model"},
             "loner": {"model": "scripted/test-model", "channels": {"test:lone": {}}}
           }
         }

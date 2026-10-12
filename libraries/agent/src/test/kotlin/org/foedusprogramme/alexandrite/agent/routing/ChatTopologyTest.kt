@@ -34,7 +34,7 @@ class ChatTopologyTest {
               "model": "scripted/test-model",
               "channels": {"test:main": {"home": "2"}, "test:solo": {"default": true}}
             },
-            "planner": {"model": "scripted/test-model"}
+            "planner": {"description": "Plans.", "model": "scripted/test-model"}
           }
         }
     """.trimIndent()

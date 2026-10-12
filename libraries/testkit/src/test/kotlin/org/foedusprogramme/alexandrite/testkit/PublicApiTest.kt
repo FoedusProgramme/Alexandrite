@@ -28,6 +28,7 @@ class PublicApiTest {
         import kotlinx.serialization.json.JsonObject
         import kotlinx.serialization.json.JsonPrimitive
         import org.foedusprogramme.alexandrite.runtime.TextCatalog
+        import org.foedusprogramme.alexandrite.sdk.agent.*
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
         import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
@@ -156,6 +157,7 @@ class PublicApiTest {
             control.scriptContext(testChat(), ContextStatus(ConversationId("c"), null, null, null, null, null, null, null, 0))
             control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
+            control.scriptProfile(AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict."))
             control.refuseNext("No agent serves the chat.")
             control.cancel(testChat(), null)
             control.cancelTurn(TurnId("t"), null)
@@ -197,7 +199,7 @@ class PublicApiTest {
                 control.context(testChat()), control.compaction,
                 control.trustedFolders(),
                 control.allowRules(testChat()),
-                control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),
+                control.agents(TEST_INSTANCE), control.profiles(), control.language(testChat()), control.endpoints(),
                 control.models(EndpointId("scripted")),
                 states.of("probe"),
                 testChatStates("probe"),

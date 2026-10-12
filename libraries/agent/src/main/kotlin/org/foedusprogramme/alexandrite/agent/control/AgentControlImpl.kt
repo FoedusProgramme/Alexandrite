@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.permission.AgentCallRules
+import org.foedusprogramme.alexandrite.agent.profile.Profiles
 import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
@@ -62,6 +63,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.CompactionReport
 import org.foedusprogramme.alexandrite.sdk.turn.ContextStatus
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
+import org.foedusprogramme.alexandrite.sdk.turn.ProfileSummary
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
@@ -97,6 +99,7 @@ internal class AgentControlImpl(
     private val contextRecords: ContextRecords,
     private val hooks: TurnHooks,
     private val notices: Notices,
+    private val profileCatalog: Profiles,
     private val clock: Clock,
 ) : AgentControl,
     ChatSettings {
@@ -169,6 +172,8 @@ internal class AgentControlImpl(
     }
 
     override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot = snapshot(refusing(null) { served(chat) })
+
+    override suspend fun profiles(): List<ProfileSummary> = profileCatalog.all()
 
     override suspend fun updateSettings(
         chat: ChatAddress,

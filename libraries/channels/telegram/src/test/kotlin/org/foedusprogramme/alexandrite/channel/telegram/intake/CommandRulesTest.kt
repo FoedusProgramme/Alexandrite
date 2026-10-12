@@ -42,6 +42,7 @@ class CommandRulesTest {
     fun `anyone may read the settings, the jobs and the context anywhere`() {
         assertRow("settings", "", direct = null, others = null)
         assertRow("context", "", direct = null, others = null)
+        assertRow("profiles", "", direct = null, others = null)
         for (command in listOf("agent", "model", "mode", "reasoning", "language", "jobs")) {
             assertRow(command, "", direct = null, others = null)
             assertRow(command, "  ", direct = null, others = null)

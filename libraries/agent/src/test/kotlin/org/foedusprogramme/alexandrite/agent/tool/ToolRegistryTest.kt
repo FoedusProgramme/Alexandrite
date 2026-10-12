@@ -31,10 +31,11 @@ class ToolRegistryTest {
         {
           "agents": {
             "coder": {
+              "description": "Codes.",
               "tools": {"allow": ["fs.*", "notes.find"], "deny": ["fs.secret"], "forMembers": ["fs.g*", "notes.*"]}
             },
-            "helper": {},
-            "reviewer": {"tools": {"allow": []}}
+            "helper": {"description": "Helps."},
+            "reviewer": {"description": "Reviews.", "tools": {"allow": []}}
           }
         }
     """.trimIndent()
@@ -58,6 +59,10 @@ class ToolRegistryTest {
                     "notes.add",
                     "notes.find",
                     "permission.status",
+                    "profile.create",
+                    "profile.edit",
+                    "profile.list",
+                    "profile.remove",
                 ),
                 offered("helper"),
             )
@@ -92,8 +97,8 @@ class ToolRegistryTest {
         val config = """
             {
               "agents": {
-                "coder": {"tools": {"allow": ["permission.*", "agent.*"]}},
-                "helper": {"tools": {"allow": ["permission.*", "agent.*", "fs.read"]}}
+                "coder": {"description": "Codes.", "tools": {"allow": ["permission.*", "agent.*"]}},
+                "helper": {"description": "Helps.", "tools": {"allow": ["permission.*", "agent.*", "fs.read"]}}
               }
             }
         """.trimIndent()

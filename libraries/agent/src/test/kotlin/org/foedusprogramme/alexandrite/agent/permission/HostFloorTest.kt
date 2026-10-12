@@ -63,7 +63,8 @@ class HostFloorTest {
         PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
     )
 
-    private fun coder(workspace: Path) = """{"coder": {"workspace": ${JsonPrimitive(workspace.toString())}}}"""
+    private fun coder(workspace: Path) =
+        """{"coder": {"description": "Codes.", "workspace": ${JsonPrimitive(workspace.toString())}}}"""
 
     private fun assertDenied(kind: String, path: Path, floor: HostFloor, agent: AgentId? = null) =
         assertEquals(FloorDecision.Denied(kind), floor.checkRead(path, agent), "$path for $agent")
@@ -119,7 +120,12 @@ class HostFloorTest {
         val backup = target.resolveSibling("alexandrite.json.bak")
 
         val floor = floor(
-            """{"coder": {"workspace": "coder-files"}, "helper": {"workspace": "../dotfiles/helper"}}""",
+            """
+            {
+              "coder": {"description": "Codes.", "workspace": "coder-files"},
+              "helper": {"description": "Helps.", "workspace": "../dotfiles/helper"}
+            }
+            """.trimIndent(),
             paths(configTarget = target, configBackup = backup),
         )
 
@@ -156,7 +162,7 @@ class HostFloorTest {
 
     @Test
     fun `each agent's default workspace is carved out of the data root`() {
-        val floor = floor("""{"coder": {}, "helper": {}}""")
+        val floor = floor("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""")
 
         assertAllowed(data.resolve("workspaces/coder/notes.md"), floor)
         assertAllowed(data.resolve("workspaces/helper/notes.md"), floor)
@@ -169,7 +175,7 @@ class HostFloorTest {
     fun `a relative workspace lies in the config directory and is carved out of it`() {
         val workspace = configFile.resolveSibling("coder-files")
 
-        val floor = floor("""{"coder": {"workspace": "coder-files"}}""")
+        val floor = floor("""{"coder": {"description": "Codes.", "workspace": "coder-files"}}""")
 
         assertAllowed(workspace.resolve("notes.md"), floor)
         assertDenied("Alexandrite's configuration", configFile, floor)
@@ -182,7 +188,7 @@ class HostFloorTest {
         Files.createSymbolicLink(workspace.resolve("config.json"), configFile)
         Files.createSymbolicLink(workspace.resolve("keys"), home.resolve(".ssh"))
 
-        val floor = floor("""{"coder": {"workspace": "coder-files"}}""")
+        val floor = floor("""{"coder": {"description": "Codes.", "workspace": "coder-files"}}""")
 
         assertDenied("Alexandrite's configuration", workspace.resolve("config.json"), floor)
         assertDenied("SSH keys", workspace.resolve("keys/id_rsa"), floor)
@@ -196,7 +202,7 @@ class HostFloorTest {
         Files.createSymbolicLink(venv.resolve("python"), python)
         Files.createSymbolicLink(venv.resolve("lock"), data.resolve("runtime.lock"))
 
-        val floor = floor("""{"coder": {}}""")
+        val floor = floor("""{"coder": {"description": "Codes."}}""")
 
         assertEquals(FloorDecision.Allowed(python), floor.checkRead(venv.resolve("python"), AgentId("coder")))
         assertEquals(FloorDecision.Allowed(python), floor.checkWrite(venv.resolve("python")))
@@ -212,7 +218,10 @@ class HostFloorTest {
 
     @Test
     fun `a workspace in a config directory inside the data root is carved out of both`() {
-        val floor = floor("""{"coder": {}}""", paths(configFile = data.resolve("alexandrite.json")))
+        val floor = floor(
+            """{"coder": {"description": "Codes."}}""",
+            paths(configFile = data.resolve("alexandrite.json")),
+        )
 
         assertAllowed(data.resolve("workspaces/coder/notes.md"), floor)
         assertDenied("Alexandrite's configuration", data.resolve("alexandrite.json"), floor)
@@ -244,7 +253,11 @@ class HostFloorTest {
     fun `agents that share a workspace are warned of`() {
         val shared = Files.createDirectories(root.resolve("shared"))
         val agents = """
-            {"coder": {"workspace": "$shared"}, "helper": {"workspace": "$shared/."}, "reviewer": {}}
+            {
+              "coder": {"description": "Codes.", "workspace": "$shared"},
+              "helper": {"description": "Helps.", "workspace": "$shared/."},
+              "reviewer": {"description": "Reviews."}
+            }
         """.trimIndent()
 
         val lines = logged { floor(agents) }
@@ -259,7 +272,7 @@ class HostFloorTest {
     fun `without a home directory the floor refuses every path, saying so once`() {
         lateinit var floor: HostFloor
 
-        val lines = logged { floor = floor("""{"coder": {}}""", home = null) }
+        val lines = logged { floor = floor("""{"coder": {"description": "Codes."}}""", home = null) }
 
         assertEquals(listOf("ERROR The home directory is unknown: the hard floor refuses every path"), lines)
         for (agent in listOf(null, AgentId("coder"))) {
@@ -292,7 +305,7 @@ class HostFloorTest {
         val coder = AgentId("coder")
         val helper = AgentId("helper")
 
-        val floor = floor("""{"coder": {}, "helper": {}}""")
+        val floor = floor("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""")
 
         assertEquals(FloorDecision.Allowed(root.resolve("away.md")), floor.checkRead(away, coder))
         assertDenied(CONFIGURATION, away, floor, helper)
@@ -312,7 +325,10 @@ class HostFloorTest {
 
     @Test
     fun `a persona directory in a config directory inside the data root is carved out of both`() {
-        val floor = floor("""{"coder": {}}""", paths(configFile = data.resolve("alexandrite.json")))
+        val floor = floor(
+            """{"coder": {"description": "Codes."}}""",
+            paths(configFile = data.resolve("alexandrite.json")),
+        )
 
         assertAllowed(data.resolve("agents/coder/PERSONA.md"), floor, AgentId("coder"))
         assertDenied(CONFIGURATION, data.resolve("agents/coder/PERSONA.md"), floor)
@@ -336,7 +352,7 @@ class HostFloorTest {
     fun `an agent reads its own persona directory but cannot write it`() {
         val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
 
-        val floor = floor("""{"coder": {}}""")
+        val floor = floor("""{"coder": {"description": "Codes."}}""")
 
         assertAllowed(persona, floor, AgentId("coder"))
         assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkWrite(persona))
@@ -353,7 +369,7 @@ class HostFloorTest {
         val coder = AgentId("coder")
         val outside = FloorDecision.Denied("a place outside the persona directory of agent 'coder'")
 
-        val floor = floor("""{"coder": {}, "helper": {}}""")
+        val floor = floor("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""")
 
         for (name in listOf("PERSONA.md", "Notes.MD")) {
             val file = personas.resolve("coder/$name")
@@ -391,9 +407,10 @@ class HostFloorTest {
         val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
 
         val decisions = listOf(
-            floor("""{"coder": {}}""", paths(configFile = null)).checkPersonaWrite(persona, AgentId("coder")),
-            floor("""{"coder": {}}""").checkPersonaWrite(persona, AgentId("helper")),
-            floor("""{"coder": {}}""", home = null).checkPersonaWrite(persona, AgentId("coder")),
+            floor("""{"coder": {"description": "Codes."}}""", paths(configFile = null))
+                .checkPersonaWrite(persona, AgentId("coder")),
+            floor("""{"coder": {"description": "Codes."}}""").checkPersonaWrite(persona, AgentId("helper")),
+            floor("""{"coder": {"description": "Codes."}}""", home = null).checkPersonaWrite(persona, AgentId("coder")),
         )
 
         val none = FloorDecision.Denied("every path, as the agent has no persona directory")
@@ -405,7 +422,10 @@ class HostFloorTest {
         val inConfig = configFile.resolveSibling("coder-files")
         val inData = data.resolve("workspaces/helper")
 
-        val floor = floor("""{"coder": {"workspace": "coder-files"}, "helper": {}}""")
+        val agents = """
+            {"coder": {"description": "Codes.", "workspace": "coder-files"}, "helper": {"description": "Helps."}}
+        """.trimIndent()
+        val floor = floor(agents)
 
         for (workspace in listOf(inConfig, inData)) {
             val notes = workspace.resolve("notes.md")

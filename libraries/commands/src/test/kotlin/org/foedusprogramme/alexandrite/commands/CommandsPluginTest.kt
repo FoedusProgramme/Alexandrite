@@ -70,6 +70,7 @@ class CommandsPluginTest {
             "mode",
             "model",
             "new",
+            "profiles",
             "reasoning",
             "settings",
             "trust",

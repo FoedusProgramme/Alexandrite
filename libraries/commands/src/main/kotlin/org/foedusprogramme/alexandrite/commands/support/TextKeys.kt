@@ -146,6 +146,16 @@ internal object TextKeys {
     const val VALUE_HOST: String = "value.host"
     const val LIST_ITEM: String = "list.item"
 
+    const val PROFILES_LIST: String = "profiles.list"
+    const val PROFILES_NONE: String = "profiles.none"
+    const val PROFILES_ITEM: String = "profiles.item"
+    const val PROFILES_MODEL_DEFAULT: String = "profiles.model_default"
+    const val PROFILES_MODE_DEFAULT: String = "profiles.mode_default"
+    const val PROFILES_SOURCE_CONFIG: String = "profiles.source_config"
+    const val PROFILES_SOURCE_PLUGIN: String = "profiles.source_plugin"
+    const val PROFILES_SOURCE_CREATED: String = "profiles.source_created"
+    const val PROFILES_SOURCE_CREATED_HOST: String = "profiles.source_created_host"
+
     const val DURATION_MINUTES: String = "duration.minutes"
     const val DURATION_HOURS: String = "duration.hours"
     const val DURATION_HOURS_MINUTES: String = "duration.hours_minutes"

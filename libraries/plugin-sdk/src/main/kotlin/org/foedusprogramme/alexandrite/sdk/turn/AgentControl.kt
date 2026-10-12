@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.sdk.turn
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
+import org.foedusprogramme.alexandrite.sdk.agent.ProfileSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -138,6 +140,9 @@ public interface AgentControl {
      */
     public suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation
 
+    /** The profiles a delegating agent may run as a sub-agent, config ones first, then plugin ones, then created ones. */
+    public suspend fun profiles(): List<ProfileSummary> = emptyList()
+
     /** The model endpoints the agents can use. */
     public fun endpoints(): List<EndpointId>
 
@@ -231,6 +236,10 @@ public class AgentSummary(
     /** Who set [home] at runtime, null for the host or when nobody did. */
     public val homeSetBy: ChatUser? = null,
 )
+
+/** A profile as [AgentControl.profiles] shows it. */
+@Poko
+public class ProfileSummary(public val profile: AgentProfile, public val source: ProfileSource)
 
 /** A tool call that runs on in the background after its turn went on. */
 @Poko

@@ -46,7 +46,7 @@ class PersonaEditToolTest {
     }
 
     private fun tool(
-        agents: String = """{"coder": {}, "helper": {}}""",
+        agents: String = """{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""",
         configFile: Path? = this.configFile,
     ): PersonaEditTool {
         val settings = settings("""{"agents": $agents}""")
@@ -110,7 +110,7 @@ class PersonaEditToolTest {
         personas.resolve("coder").createDirectories()
         val persona = personas.resolve("coder/PERSONA.md")
         val notes = personas.resolve("coder/NOTES.md")
-        val listed = """{"coder": {"instructionFiles": ["agents/coder/NOTES.md"]}}"""
+        val listed = """{"coder": {"description": "Codes.", "instructionFiles": ["agents/coder/NOTES.md"]}}"""
 
         val conventional = tool().run(arguments("PERSONA.md", "append", "Be kind.\n"))
         val unlisted = tool().run(arguments("NOTES.md", "append", "Tea.\n"))

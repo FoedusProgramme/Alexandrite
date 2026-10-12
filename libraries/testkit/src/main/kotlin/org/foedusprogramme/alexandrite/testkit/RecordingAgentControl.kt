@@ -2,6 +2,8 @@ package org.foedusprogramme.alexandrite.testkit
 
 import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
+import org.foedusprogramme.alexandrite.sdk.agent.ProfileSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -30,6 +32,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.CompactionReport
 import org.foedusprogramme.alexandrite.sdk.turn.ContextStatus
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
+import org.foedusprogramme.alexandrite.sdk.turn.ProfileSummary
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
@@ -69,6 +72,7 @@ public class RecordingAgentControl(
     private val declaredRules = mutableListOf<RuleSubject>()
     private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
+    private val agentProfiles = mutableListOf<ProfileSummary>()
     private val refusals = ArrayDeque<String>()
     private val contexts = HashMap<ChatAddress, ContextStatus>()
     private var conversations = 0
@@ -106,6 +110,11 @@ public class RecordingAgentControl(
     /** Lists [endpoint], in its place when it is listed already, with [models]. */
     public fun scriptModels(endpoint: EndpointId, models: List<ModelInfo>) {
         synchronized(lock) { endpointModels[endpoint] = models.toList() }
+    }
+
+    /** Lists [profile] as what [profiles] returns, from [source]. */
+    public fun scriptProfile(profile: AgentProfile, source: ProfileSource = ProfileSource.Config) {
+        synchronized(lock) { agentProfiles += ProfileSummary(profile, source) }
     }
 
     /**
@@ -231,6 +240,9 @@ public class RecordingAgentControl(
     }
 
     override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot = synchronized(lock) { snapshot(chat) }
+
+    /** The profiles [scriptProfile] listed, in order. */
+    override suspend fun profiles(): List<ProfileSummary> = synchronized(lock) { agentProfiles.toList() }
 
     /** The language stored at [chat], else the one its agent is scripted with. */
     override suspend fun language(chat: ChatAddress): LanguageTag? = synchronized(lock) {

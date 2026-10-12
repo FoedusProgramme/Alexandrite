@@ -32,11 +32,15 @@ class AgentFloorTest {
             protect(logs)
         }
 
-    private fun coder(workspace: Path) = """{"coder": {"workspace": ${JsonPrimitive(workspace.toString())}}}"""
+    private fun coder(workspace: Path) =
+        """{"coder": {"description": "Codes.", "workspace": ${JsonPrimitive(workspace.toString())}}}"""
 
     @Test
     fun `the agent binds a floor over the host's places with each workspace carved out`() {
-        harness("""{"coder": {"workspace": "coder-files"}, "helper": {}}""").execute {
+        val agents = """
+            {"coder": {"description": "Codes.", "workspace": "coder-files"}, "helper": {"description": "Helps."}}
+        """.trimIndent()
+        harness(agents).execute {
             val floor = get<HardFloor>()
             val paths = get<HostPaths>()
             val notes = configFile.resolveSibling("coder-files/notes.md")
@@ -62,7 +66,7 @@ class AgentFloorTest {
 
     @Test
     fun `the floor lets each agent alone read its own persona directory`() {
-        harness("""{"coder": {}, "helper": {}}""").execute {
+        harness("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""").execute {
             val floor = get<HardFloor>()
             val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
             val denied = FloorCheck.Denied("Alexandrite's configuration")
@@ -76,7 +80,7 @@ class AgentFloorTest {
 
     @Test
     fun `the floor writes no persona directory and refuses a tree that would reach a protected place`() {
-        harness("""{"coder": {}}""").execute {
+        harness("""{"coder": {"description": "Codes."}}""").execute {
             val floor = get<HardFloor>()
             val coder = AgentId("coder")
             val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
@@ -106,7 +110,12 @@ class AgentFloorTest {
 
     @Test
     fun `the operator's protected paths are denied, and a relative one fails the start without a config file`() {
-        val config = """{"protectedPaths": ["vault", ${JsonPrimitive("$root/keys")}], "agents": {"coder": {}}}"""
+        val config = """
+            {
+              "protectedPaths": ["vault", ${JsonPrimitive("$root/keys")}],
+              "agents": {"coder": {"description": "Codes."}}
+            }
+        """.trimIndent()
 
         agentHarness(config) {
             dataRoot(data)
@@ -126,7 +135,7 @@ class AgentFloorTest {
 
     @Test
     fun `a relative workspace fails the start when the host read no config file`() {
-        harness("""{"coder": {"workspace": "notes"}}""", configFile = null).assertStartFails(
+        harness("""{"coder": {"description": "Codes.", "workspace": "notes"}}""", configFile = null).assertStartFails(
             StartStage.GRAPH,
             "Invalid config at 'agent.agents.coder.workspace': the workspace 'notes' is relative, but the host read " +
                 "no config file to resolve it against: give an absolute path",

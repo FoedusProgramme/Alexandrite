@@ -102,15 +102,27 @@ class PersonaEditTurnsTest {
 
     @Test
     fun `only an agent with a persona directory is offered the tool`() {
-        harness(""", "helper": {}""").execute {
+        harness(""", "helper": {"description": "Helps."}""").execute {
             val tools = get<ToolRegistry>()
 
             val offered = listOf("coder", "helper").map { id -> tools.offered(AgentId(id)).map { it.definition.name } }
 
             assertEquals(
                 listOf(
-                    listOf("agent.jobs", "agent.stop", "permission.status", "persona.edit", "web.fetch"),
-                    listOf("agent.jobs", "agent.stop", "permission.status", "web.fetch"),
+                    listOf(
+                        "agent.jobs", "agent.stop", "permission.status", "persona.edit",
+                        "profile.create", "profile.edit", "profile.list", "profile.remove", "web.fetch",
+                    ),
+                    listOf(
+                        "agent.jobs",
+                        "agent.stop",
+                        "permission.status",
+                        "profile.create",
+                        "profile.edit",
+                        "profile.list",
+                        "profile.remove",
+                        "web.fetch",
+                    ),
                 ),
                 offered,
             )

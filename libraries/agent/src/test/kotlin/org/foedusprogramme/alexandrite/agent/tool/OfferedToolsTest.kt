@@ -113,6 +113,10 @@ class OfferedToolsTest {
                         "fs.read",
                         "notes.write",
                         "permission.status",
+                        "profile.create",
+                        "profile.edit",
+                        "profile.list",
+                        "profile.remove",
                     ),
                 ),
                 recorded(),
@@ -146,12 +150,11 @@ class OfferedToolsTest {
             assertEquals(entries.take(2) + entries.subList(2, 4).map(::unstored), request.history)
             assertEquals(2, request.turnStart)
             assertEquals(entries.take(5), model.requests[2].history.take(5))
-            assertEquals(
-                mapOf(
-                    "${conversation()}" to setOf("agent.jobs", "agent.stop", "fs.edit", "fs.read", "permission.status"),
-                ),
-                recorded(),
+            val tools = setOf(
+                "agent.jobs", "agent.stop", "fs.edit", "fs.read", "permission.status",
+                "profile.create", "profile.edit", "profile.list", "profile.remove",
             )
+            assertEquals(mapOf("${conversation()}" to tools), recorded())
         }
     }
 
@@ -209,12 +212,11 @@ class OfferedToolsTest {
         blocking {
             assertEquals(emptyList(), notices(stored(sealed)) + notices(stored()))
             assertEquals(listOf("UserEntry", "AssistantEntry"), kinds(stored()))
-            assertEquals(
-                mapOf(
-                    "${conversation()}" to setOf("agent.jobs", "agent.stop", "fs.edit", "fs.read", "permission.status"),
-                ),
-                recorded(),
+            val tools = setOf(
+                "agent.jobs", "agent.stop", "fs.edit", "fs.read", "permission.status",
+                "profile.create", "profile.edit", "profile.list", "profile.remove",
             )
+            assertEquals(mapOf("${conversation()}" to tools), recorded())
         }
     }
 

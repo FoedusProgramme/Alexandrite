@@ -48,7 +48,7 @@ class PersonaTest {
             Files.setLastModifiedTime(it, FileTime.from(modified))
         }
 
-    private fun coder(fields: String) = """{"agents": {"coder": {$fields}}}"""
+    private fun coder(fields: String) = """{"agents": {"coder": {"description": "Codes.", $fields}}}"""
 
     @Test
     fun `inline instructions come first, then the files in config order, each a section numbered from 1`() {
@@ -75,9 +75,9 @@ class PersonaTest {
         val config = """
             {
               "agents": {
-                "coder": {"instructions": ["Inline."]},
-                "helper": {"instructions": ["Help."]},
-                "reviewer": {"instructionFiles": ["other.md"]}
+                "coder": {"description": "Codes.", "instructions": ["Inline."]},
+                "helper": {"description": "Helps.", "instructions": ["Help."]},
+                "reviewer": {"description": "Reviews.", "instructionFiles": ["other.md"]}
               }
             }
         """.trimIndent()
@@ -167,7 +167,7 @@ class PersonaTest {
         val config = """
             {
               "persona": {"maxFileChars": 10, "maxTotalChars": 15},
-              "agents": {"coder": {"instructionFiles": ["a.md", "b.md", "c.md"]}}
+              "agents": {"coder": {"description": "Codes.", "instructionFiles": ["a.md", "b.md", "c.md"]}}
             }
         """.trimIndent()
 
@@ -200,7 +200,12 @@ class PersonaTest {
         val config = """
             {
               "persona": {"maxFileChars": 20, "maxTotalChars": 15},
-              "agents": {"coder": {"instructionFiles": [{"file": "private.md", "when": ["direct"]}, "shared.md"]}}
+              "agents": {
+                "coder": {
+                  "description": "Codes.",
+                  "instructionFiles": [{"file": "private.md", "when": ["direct"]}, "shared.md"]
+                }
+              }
             }
         """.trimIndent()
 
@@ -216,7 +221,12 @@ class PersonaTest {
     @Test
     fun `a cut never splits a character outside the basic plane`() {
         write("a.md", "abc😀def")
-        val config = """{"persona": {"maxFileChars": 4}, "agents": {"coder": {"instructionFiles": ["a.md"]}}}"""
+        val config = """
+            {
+              "persona": {"maxFileChars": 4},
+              "agents": {"coder": {"description": "Codes.", "instructionFiles": ["a.md"]}}
+            }
+        """.trimIndent()
 
         val persona = persona(config)
 

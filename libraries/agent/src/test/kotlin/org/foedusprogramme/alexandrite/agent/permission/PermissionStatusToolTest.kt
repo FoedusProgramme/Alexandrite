@@ -57,7 +57,7 @@ class PermissionStatusToolTest {
         val modeField = mode?.let { """"mode": "$it", """ }.orEmpty()
         val allowed = allow.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
         val directory = agentDirectory(
-            settings("""{"agents": {"main": {"permission": {$modeField"allow": $allowed}}}}"""),
+            settings("""{"agents": {"main": {"description": "Main.", "permission": {$modeField"allow": $allowed}}}}"""),
         )
         val registry = ToolRegistry(listOf(exec, deploy), directory, NO_BUILT_INS)
         val records = TestRecords(store.records).of("alexandrite-agent")

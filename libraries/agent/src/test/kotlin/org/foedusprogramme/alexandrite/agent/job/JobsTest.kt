@@ -62,7 +62,7 @@ class JobsTest {
             {
               "maxJobsPerChat": $maxJobsPerChat,
               "shutdown": {"cancelJoinSeconds": 4},
-              "agents": {"main": {"foregroundSeconds": 10}}
+              "agents": {"main": {"description": "Main.", "foregroundSeconds": 10}}
             }
             """.trimIndent(),
         ),
