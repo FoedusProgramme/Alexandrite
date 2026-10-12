@@ -1,17 +1,24 @@
 package org.foedusprogramme.alexandrite.channel.onebot.channel
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotChats
 import org.foedusprogramme.alexandrite.channel.onebot.mapping.OneBotMessages
+import org.foedusprogramme.alexandrite.channel.onebot.mapping.QuotedMessage
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.GetMessage
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.OneBotMessageInfo
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotSegment
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
+import org.foedusprogramme.alexandrite.channel.onebot.transport.OneBotWire
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -47,6 +54,8 @@ internal class OneBotInbox(
     private val approvals: OneBotApprovals,
     /** The messages this instance sent, which tell a reply to the bot from a reply to somebody else. */
     private val sent: OneBotSentMessages,
+    /** What this instance read not long ago, which is what a message answering one says it answered. */
+    private val recent: OneBotRecentMessages,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Lifecycle {
@@ -72,6 +81,10 @@ internal class OneBotInbox(
     private suspend fun read() {
         link.events.collect { event ->
             if (event !is OneBotEvent.Message) return@collect
+            val chat = OneBotChats.addressOf(instance.id, event)
+            // Every message is kept as it arrives, whether or not it is meant for the bot: what a later message answers
+            // is usually one of these, and the one it answers need not have been meant for the bot at all.
+            recent.remember(chat, event.messageId.value, OneBotMessages.quotable(instance.id, event))
             // A command is run wherever it is written; anything else has to be meant for the bot, or a group's talk
             // would each become a turn of the agent.
             val command = OneBotCommands.of(event)
@@ -82,13 +95,41 @@ internal class OneBotInbox(
                 val asked = OneBotMessages.senderOf(instance.id, event, config.admins)
                 val answer = approvals.answer(event, command, asked)
                 if (answer != null) {
-                    sender.send(OneBotChats.addressOf(instance.id, event), said(answer))
+                    sender.send(chat, said(answer))
                 }
                 return@collect
             }
-            val message = OneBotMessages.incoming(instance.id, event, config.admins)
+            val message = OneBotMessages.incoming(instance.id, event, config.admins, quoted(chat, event))
             val submission = if (command == null) Submission.Message(message) else commandOf(command, message)
             report(message, submitter?.submit(submission))
+        }
+    }
+
+    /**
+     * What [event] answers, as the channel read it, null when it answers nothing.
+     *
+     * What the channel kept is read first, which is what a chat normally answers. Only a message older than what is
+     * kept is read back from the implementation, and that read can fail: a message may be withdrawn, or unknown to the
+     * implementation, and a chat goes on whether or not what a message quoted can be read.
+     */
+    private suspend fun quoted(chat: ChatAddress, event: OneBotEvent.Message): QuotedMessage? {
+        val id = event.message.segments.filterIsInstance<OneBotSegment.Reply>().firstOrNull()?.id ?: return null
+        recent.find(chat, id.value)?.let { return it }
+        val result = try {
+            link.call("get_msg", GetMessage(id).toJson())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.debug("{} cannot read what message {} answers: {}", instance.id, event.messageId, e.toString())
+            return null
+        }
+        val data = (result as? OneBotResult.Ok)?.data ?: return null
+        return try {
+            val info = OneBotWire.decodeFromJsonElement(OneBotMessageInfo.serializer(), data)
+            OneBotMessages.quotable(instance.id, info, event.selfId.value).also { recent.remember(chat, id.value, it) }
+        } catch (e: Exception) {
+            logger.debug("{} cannot read the report about message {}: {}", instance.id, id, e.toString())
+            null
         }
     }
 

@@ -1,14 +1,17 @@
 package org.foedusprogramme.alexandrite.channel.onebot.mapping
 
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.GroupId
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.MessageId
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.UserId
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.api.OneBotMessageInfo
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotMessage
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotSegment
+import org.foedusprogramme.alexandrite.channel.onebot.protocol.message.OneBotSegmentCodec
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotFailureKind
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.result.OneBotResult
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
@@ -90,11 +93,17 @@ public object OneBotMessages {
         .maxPartsPerReply(null)
         .build()
 
-    /** The message [event] reported, as Alexandrite reads it. */
+    /**
+     * The message [event] is, where [fetched] is what the implementation reported about the message it answers.
+     *
+     * A report says which message is answered and nothing about it, so what it says is read from the implementation
+     * before this is called; without it the quote names the message that is answered and carries no text.
+     */
     public fun incoming(
         instance: ChannelInstanceId,
         event: OneBotEvent.Message,
         admins: Set<String> = emptySet(),
+        quoted: QuotedMessage? = null,
     ): IncomingMessage {
         val chat = OneBotChats.addressOf(instance, event)
         val segments = event.message.segments
@@ -107,7 +116,7 @@ public object OneBotMessages {
         )
             .text(segments.filterIsInstance<OneBotSegment.Text>().joinToString("") { it.text })
             .media(media(segments))
-            .quote(quote(event, chat))
+            .quote(quote(event, chat, quoted))
             .facts(facts(event, segments))
             .build()
     }
@@ -274,12 +283,89 @@ public object OneBotMessages {
         throw UnsupportedOperationException("Reading '$reference' is not implemented yet.")
     }
 
-    private fun quote(event: OneBotEvent.Message, chat: ChatAddress): Quote? {
+    /**
+     * What [event] is, as a message that another one can quote.
+     *
+     * Every report is read this way and kept for a while, because a report names the message it answers and says
+     * nothing about it, and reading it back from the implementation costs a call it usually does not need.
+     */
+    public fun quotable(instance: ChannelInstanceId, event: OneBotEvent.Message): QuotedMessage {
+        val reported = event.sender
+        return QuotedMessage(
+            text = quotedText(event.message.segments),
+            authorName = reported.card?.takeIf { it.isNotEmpty() } ?: reported.nickname,
+            author = OneBotChats.user(instance, event.userId),
+            authorIsBot = reported.userId == event.selfId.value,
+        )
+    }
+
+    /** What the implementation reported about a message is, as a message that another one can quote. */
+    public fun quotable(instance: ChannelInstanceId, info: OneBotMessageInfo, selfId: String?): QuotedMessage {
+        val reported = info.sender
+        return QuotedMessage(
+            text = quotedText(OneBotSegmentCodec.decodeMessage(info.message ?: JsonNull).segments),
+            authorName = reported?.card?.takeIf { it.isNotEmpty() } ?: reported?.nickname,
+            author = reported?.userId?.let { OneBotChats.user(instance, it) },
+            authorIsBot = reported?.userId?.value != null && reported.userId.value == selfId,
+        )
+    }
+
+    /**
+     * What [event] answers, where [quoted] is what was read about the message it answers.
+     *
+     * A report names the message it answers and says nothing else about it, so [quoted] is read separately and can be
+     * missing, since a message may be older than what the channel kept and no longer readable at all. The quote then
+     * still names the message that is answered, and says that it holds nothing.
+     */
+    private fun quote(event: OneBotEvent.Message, chat: ChatAddress, quoted: QuotedMessage?): Quote? {
         val reply = event.message.segments.filterIsInstance<OneBotSegment.Reply>().firstOrNull() ?: return null
-        return Quote.builder("")
-            .target(ChannelMessageRef(chat, reply.id.value))
+        val target = ChannelMessageRef(chat, reply.id.value)
+        if (quoted == null) {
+            return Quote.builder("").target(target).trust(QuoteTrust.UNTRUSTED).build()
+        }
+        return Quote.builder(quoted.text)
+            .senderName(quoted.authorName)
+            .sender(quoted.author)
+            .senderIsBot(quoted.authorIsBot)
+            .target(target)
             .trust(QuoteTrust.UNTRUSTED)
             .build()
+    }
+
+    /**
+     * What a quoted message says: its texts, and what its other parts are.
+     *
+     * A part that carries something a reader would know is named after that, because a quote of a card that showed
+     * only its type would say nothing of what the sender meant.
+     */
+    private fun quotedText(segments: List<OneBotSegment>): String = segments.joinToString("") { segment ->
+        when (segment) {
+            is OneBotSegment.Text -> segment.text
+
+            is OneBotSegment.At -> "@${segment.userId}"
+
+            is OneBotSegment.Image -> "[image]"
+
+            is OneBotSegment.Record -> "[voice]"
+
+            is OneBotSegment.Video -> "[video]"
+
+            is OneBotSegment.Face -> "[face]"
+
+            is OneBotSegment.Music -> {
+                val named = listOfNotNull(segment.title, segment.content).joinToString(" - ")
+                val where = segment.url ?: segment.audio
+                "[music${if (named.isEmpty()) "" else ": $named"}]${if (where == null) "" else " $where"}"
+            }
+
+            is OneBotSegment.Share -> "[link: ${segment.title}] ${segment.url}"
+
+            is OneBotSegment.Json -> "[json] ${segment.data.take(QUOTED_CHARS)}"
+
+            is OneBotSegment.Xml -> "[xml] ${segment.data.take(QUOTED_CHARS)}"
+
+            else -> "[${segment.type}]"
+        }
     }
 
     private fun facts(event: OneBotEvent.Message, segments: List<OneBotSegment>): List<DisplayFact> = buildList {
@@ -315,3 +401,19 @@ public object OneBotMessages {
 
     private const val NOT_FOUND = 100
 }
+
+/** The characters of a quoted card that are kept, which is enough of it to know what it is. */
+private const val QUOTED_CHARS = 500
+
+/**
+ * What a message holds, as the channel read it, so that a message answering it can say what it answered.
+ *
+ * This is what a channel keeps of the messages it read: a report names the message it answers and nothing about it,
+ * so what that message holds is either read when it arrives and kept, or read back from the implementation.
+ */
+public class QuotedMessage(
+    public val text: String,
+    public val authorName: String?,
+    public val author: UserAddress?,
+    public val authorIsBot: Boolean,
+)
