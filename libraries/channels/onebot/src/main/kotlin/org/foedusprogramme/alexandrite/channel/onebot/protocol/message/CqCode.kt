@@ -15,6 +15,9 @@ import org.foedusprogramme.alexandrite.channel.onebot.protocol.UserId
 public object CqCode {
     private const val PREFIX = "[CQ:"
     private const val SUFFIX = ']'
+
+    /** The entity a parameter uses for a comma, which is the one entity plain text leaves as it is. */
+    private const val COMMA_ENTITY = "&#44;"
     private const val SEPARATOR = ','
     private const val ASSIGNMENT = '='
 
@@ -163,21 +166,37 @@ public object CqCode {
         is OneBotSegment.Json -> parameters("json", "data" to segment.data)
     }
 
-    /** The value of [text] with the characters that end a code escaped. */
-    public fun escape(text: String): String = buildString(text.length) {
+    /**
+     * The value of [text] with the characters that end a code escaped.
+     *
+     * A comma separates the parameters of a code and means nothing in the text outside one, so it is escaped only by
+     * [escapeValue]: escaping it in ordinary text would turn every comma a person types into an entity the standard
+     * does not ask for.
+     */
+    public fun escape(text: String): String = escape(text, comma = false)
+
+    /** The value of a parameter, where a comma also ends it and is therefore escaped. */
+    public fun escapeValue(value: String): String = escape(value, comma = true)
+
+    private fun escape(text: String, comma: Boolean): String = buildString(text.length) {
         for (char in text) {
-            when (char) {
-                '&' -> append("&amp;")
-                '[' -> append("&#91;")
-                ']' -> append("&#93;")
-                ',' -> append("&#44;")
+            when {
+                char == '&' -> append("&amp;")
+                char == '[' -> append("&#91;")
+                char == ']' -> append("&#93;")
+                char == ',' && comma -> append("&#44;")
                 else -> append(char)
             }
         }
     }
 
     /** The value of [text] with the entities the format uses turned back into their characters. */
-    public fun unescape(text: String): String = buildString(text.length) {
+    public fun unescape(text: String): String = unescape(text, comma = false)
+
+    /** The value of a parameter, where `&#44;` names the comma that would otherwise end it. */
+    public fun unescapeValue(value: String): String = unescape(value, comma = true)
+
+    private fun unescape(text: String, comma: Boolean): String = buildString(text.length) {
         var at = 0
         while (at < text.length) {
             val char = text[at]
@@ -186,7 +205,7 @@ public object CqCode {
                 at++
                 continue
             }
-            val entity = ENTITIES.firstOrNull { text.startsWith(it.first, at) }
+            val entity = ENTITIES.firstOrNull { text.startsWith(it.first, at) && (comma || it.first != COMMA_ENTITY) }
             if (entity == null) {
                 append(char)
                 at++
@@ -207,7 +226,7 @@ public object CqCode {
         append(PREFIX).append(type)
         for ((key, value) in pairs) {
             if (value == null) continue
-            append(SEPARATOR).append(key).append(ASSIGNMENT).append(escape(value))
+            append(SEPARATOR).append(key).append(ASSIGNMENT).append(escapeValue(value))
         }
         append(SUFFIX)
     }
@@ -229,7 +248,7 @@ public object CqCode {
         for (part in parts.drop(1)) {
             val assignment = part.indexOf(ASSIGNMENT)
             if (assignment <= 0) continue
-            parameters[part.substring(0, assignment).trim()] = unescape(part.substring(assignment + 1))
+            parameters[part.substring(0, assignment).trim()] = unescapeValue(part.substring(assignment + 1))
         }
         return segment(type, parameters)
     }

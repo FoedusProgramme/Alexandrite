@@ -20,7 +20,10 @@ class CqCodeTest {
     fun `plain text is one segment and is escaped`() {
         assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("hello")), CqCode.decode("hello"))
         assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("a[b]c")), CqCode.decode("a&#91;b&#93;c"))
-        assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("x,y")), CqCode.decode("x&#44;y"))
+        // A comma means nothing in the text outside a code, so the entity is only a comma inside a parameter: plain
+        // text keeps `&#44;` as the characters it is.
+        assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("x,y")), CqCode.decode("x,y"))
+        assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("x&#44;y")), CqCode.decode("x&#44;y"))
         assertEquals(listOf<OneBotSegment>(OneBotSegment.Text("a&b")), CqCode.decode("a&amp;b"))
         assertEquals(emptyList(), CqCode.decode(""))
     }
@@ -54,8 +57,10 @@ class CqCodeTest {
         val decoded = CqCode.decode(text)
         assertEquals(OneBotSegment.Text("look "), decoded[0])
         assertEquals(OneBotSegment.Face("1"), decoded[1])
-        assertEquals(" and [CQ:not a code], ok&", assertIs<OneBotSegment.Text>(decoded[2]).text)
-        assertEquals(text, CqCode.encode(decoded))
+        assertEquals(" and [CQ:not a code]&#44; ok&", assertIs<OneBotSegment.Text>(decoded[2]).text)
+        // A comma is not an entity of plain text, so writing this text escapes only its `&`, and reading that back
+        // returns the text the segments hold.
+        assertEquals(decoded, CqCode.decode(CqCode.encode(decoded)))
     }
 
     @Test
@@ -163,6 +168,16 @@ class CqCodeTest {
 
         val one = assertIs<OneBotMessage.SingleSegment>(OneBotSegmentCodec.decodeMessage(single))
         assertEquals(OneBotSegment.At("1"), one.segment)
+    }
+
+    @Test
+    fun `an optional parameter of a segment is left out when it is absent`() {
+        // The standard's request contract has no room for a parameter that is present and null: an implementation
+        // reading `type` as a string meets a null, and one reading `timeout` as a number does too.
+        val written = OneBotSegmentCodec.encodeSegment(OneBotSegment.Image(file = "1.jpg"))
+
+        val data = assertIs<JsonObject>(written["data"])
+        assertEquals(setOf("file"), data.keys)
     }
 
     @Test

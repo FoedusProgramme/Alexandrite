@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
+import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnSubmitter
 import org.slf4j.Logger
@@ -55,7 +56,18 @@ internal class OneBotInbox(
         link.events.collect { event ->
             if (event !is OneBotEvent.Message) return@collect
             val message = OneBotMessages.incoming(instance.id, event, config.admins)
-            submitter?.submit(Submission.Message(message))
+            val admission = submitter?.submit(Submission.Message(message))
+            // A message the agent refuses never becomes a turn, so it is said here rather than dropped in silence:
+            // the reason is what tells an operator that the chat is not linked, which nothing else reports.
+            if (admission is Admission.Refused) {
+                logger.warn(
+                    "{}: instance {} took a message of {} no further: {}",
+                    PLUGIN,
+                    instance.id,
+                    message.chat,
+                    admission.reason,
+                )
+            }
         }
     }
 

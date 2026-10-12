@@ -118,7 +118,13 @@ public object OneBotMessages {
             Markup.MARKDOWN.id -> markdown(message.text)
             else -> listOf(OneBotSegment.Text(message.text))
         }
-        val reply = message.replyTo?.let { OneBotSegment.Reply(MessageId(it.id)) }
+        // A reply names a message of the implementation by its numeric id. A reference this version made up because
+        // no id came back, `sent` or `async`, names no message there, so a message that answers one is sent without
+        // the reply segment rather than failing before it is sent.
+        val reply = message.replyTo
+            ?.id
+            ?.takeIf { it.toLongOrNull() != null }
+            ?.let { OneBotSegment.Reply(MessageId(it)) }
         return OneBotMessage.ArrayValue(if (reply == null) segments else listOf(reply) + segments)
     }
 
@@ -155,9 +161,11 @@ public object OneBotMessages {
             // The data of the answer of a send is either the object that names the message or the message itself,
             // which is what an implementation that answers with the identifier alone sends.
             val data = (result.data as? JsonObject)?.get("data") as? JsonObject ?: result.data
+            // The `echo` of an answer is the key this client sent to match it to its call, not an id the
+            // implementation gave the message, so an answer that names no message is a delivery this version cannot
+            // name rather than one named after a correlation key.
             val id =
                 ((data as? JsonObject)?.get("message_id") as? JsonPrimitive)?.content
-                    ?: result.echo?.toString()
                     ?: "sent"
             Delivery.Delivered(listOf(ChannelMessageRef(chat, id)))
         }
@@ -167,9 +175,13 @@ public object OneBotMessages {
         is OneBotResult.Failed -> Delivery.NotDelivered(failureKind(result.retcode), result.message)
 
         is OneBotResult.Unreachable -> Delivery.NotDelivered(
-            when (result.failure.kind) {
-                OneBotFailureKind.TIMEOUT, OneBotFailureKind.CONNECTION -> DeliveryFailure.TRANSIENT
-                OneBotFailureKind.AUTHENTICATION -> DeliveryFailure.FORBIDDEN
+            when {
+                // Whether the same call may succeed again is the one thing a caller can act on, and the transport
+                // already answers it: a 5xx is retryable where a 4xx is not.
+                result.failure.retryable -> DeliveryFailure.TRANSIENT
+
+                result.failure.kind == OneBotFailureKind.AUTHENTICATION -> DeliveryFailure.FORBIDDEN
+
                 else -> DeliveryFailure.UNKNOWN
             },
             result.failure.message,
@@ -221,7 +233,10 @@ public object OneBotMessages {
 
     private fun chatInfo(event: OneBotEvent.Message): ChatInfo = when (event) {
         is OneBotEvent.Message.Private -> ChatInfo(ChatKind.DIRECT, null, null)
-        is OneBotEvent.Message.Group -> ChatInfo(ChatKind.GROUP, event.sender.card, null)
+
+        // A group message carries no name of the group, and the card of whoever spoke is the name of that member, so
+        // putting it here would label the chat with the last person who said something.
+        is OneBotEvent.Message.Group -> ChatInfo(ChatKind.GROUP, null, null)
     }
 
     private fun media(segments: List<OneBotSegment>): List<MediaAttachment> = segments.mapNotNull { segment ->

@@ -158,7 +158,7 @@ internal class OneBotHttpPostReceiver(
             // sending rather than lost to a connection that closed under it.
             val request = when (val outcome = read(input, deadline)) {
                 is ReadOutcome.TooLarge -> {
-                    drain(input, outcome.declaredBytes)
+                    drain(input, outcome.declaredBytes, deadline)
                     return respond(client, OneBotReportRejection.TOO_LARGE)
                 }
 
@@ -196,12 +196,22 @@ internal class OneBotHttpPostReceiver(
             if (selfId != null && reported != selfId) {
                 return respond(client, OneBotReportRejection.WRONG_ACCOUNT)
             }
-            report(event)
-            acceptedReports.incrementAndGet()
+            // The decision of this instance is taken first: a report it refuses is answered with that refusal and is
+            // not reported to anyone, because the implementation has already been told it was not taken.
             when (val taken = answer(event)) {
-                is OneBotReportAnswer.QuickOperation -> respond(client, taken.operation)
-                is OneBotReportAnswer.Rejected -> respond(client, taken.rejection)
-                OneBotReportAnswer.Accepted -> respond(client, null)
+                is OneBotReportAnswer.Rejected -> return respond(client, taken.rejection)
+
+                is OneBotReportAnswer.QuickOperation -> {
+                    report(event)
+                    acceptedReports.incrementAndGet()
+                    respond(client, taken.operation)
+                }
+
+                OneBotReportAnswer.Accepted -> {
+                    report(event)
+                    acceptedReports.incrementAndGet()
+                    respond(client, null)
+                }
             }
         } catch (e: IOException) {
             failure = e
@@ -222,11 +232,14 @@ internal class OneBotHttpPostReceiver(
         val status = if (operation == null && initialStatus == 200) 204 else initialStatus
         val body = operation?.let(OneBotWire::encodeToString) ?: detail.orEmpty()
         val bytes = body.toByteArray(StandardCharsets.UTF_8)
+        // A quick operation is an object the implementation reads as JSON; a rejection is a sentence for whoever wrote
+        // it, and a client that parses it as JSON would fail instead of showing the reason.
+        val type = if (operation == null) "text/plain; charset=utf-8" else "application/json"
         val out = client.getOutputStream()
         out.write(
             buildString {
                 append("HTTP/1.1 $status ${if (status == 204) "No Content" else "OK"}\r\n")
-                if (status != 204) append("Content-Type: application/json\r\n")
+                if (status != 204) append("Content-Type: $type\r\n")
                 append("Content-Length: ${bytes.size}\r\n")
                 append("Connection: close\r\n\r\n")
             }.toByteArray(StandardCharsets.US_ASCII),
@@ -264,10 +277,13 @@ internal class OneBotHttpPostReceiver(
      * Reading nothing would answer a peer that is still sending, and reading it in one piece is what the limit
      * exists to prevent, so it is read in pieces small enough to be forgotten.
      */
-    private fun drain(input: BufferedInputStream, declaredBytes: Int) {
+    private fun drain(input: BufferedInputStream, declaredBytes: Int, deadline: Long) {
         val piece = ByteArray(DRAIN_PIECE_BYTES)
         var left = declaredBytes.toLong()
         while (left > 0) {
+            // An over-limit body is dropped under the same deadline as any other request, so a sender that drips it
+            // just faster than the idle timeout cannot hold a reader past the deadline.
+            if (System.nanoTime() > deadline) return
             val count = input.read(piece, 0, minOf(piece.size.toLong(), left).toInt())
             if (count < 0) return
             left -= count

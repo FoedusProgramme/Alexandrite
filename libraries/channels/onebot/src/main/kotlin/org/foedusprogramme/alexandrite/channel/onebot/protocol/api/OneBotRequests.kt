@@ -28,7 +28,7 @@ public class SendPrivateMessage(
     public val autoEscape: Boolean = false,
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("user_id", userId.value)
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         put("message", OneBotSegmentCodec.encodeMessage(message))
         // Only a whole message as one piece of text can be taken as it is written, which is what an implementation
         // reads `auto_escape` as. A message of segments is sent as segments, so that the CQ text one of them holds
@@ -44,7 +44,7 @@ public class SendGroupMessage(
     public val autoEscape: Boolean = false,
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         put("message", OneBotSegmentCodec.encodeMessage(message))
         // Only a whole message as one piece of text can be taken as it is written, which is what an implementation
         // reads `auto_escape` as. A message of segments is sent as segments, so that the CQ text one of them holds
@@ -71,8 +71,8 @@ public class SendMessage(
 
     override fun toJson(): JsonObject = buildJsonObject {
         messageType?.let { put("message_type", it) }
-        userId?.let { put("user_id", it.value) }
-        groupId?.let { put("group_id", it.value) }
+        userId?.let { put("user_id", OneBotSegmentCodec.number(it.value)) }
+        groupId?.let { put("group_id", OneBotSegmentCodec.number(it.value)) }
         put("message", OneBotSegmentCodec.encodeMessage(message))
         // Only a whole message as one piece of text can be taken as it is written, which is what an implementation
         // reads `auto_escape` as. A message of segments is sent as segments, so that the CQ text one of them holds
@@ -88,12 +88,16 @@ public class SendMessage(
 
 /** `delete_msg`: recalls a message. */
 public class DeleteMessage(public val messageId: MessageId) : OneBotRequest {
-    override fun toJson(): JsonObject = buildJsonObject { put("message_id", messageId.value) }
+    override fun toJson(): JsonObject = buildJsonObject {
+        put("message_id", OneBotSegmentCodec.number(messageId.value))
+    }
 }
 
 /** `get_msg`: reads one message. */
 public class GetMessage(public val messageId: MessageId) : OneBotRequest {
-    override fun toJson(): JsonObject = buildJsonObject { put("message_id", messageId.value) }
+    override fun toJson(): JsonObject = buildJsonObject {
+        put("message_id", OneBotSegmentCodec.number(messageId.value))
+    }
 }
 
 /** `get_forward_msg`: reads the nodes of a forwarded message. */
@@ -108,7 +112,7 @@ public class SendLike(public val userId: UserId, public val times: Int = 1) : On
     }
 
     override fun toJson(): JsonObject = buildJsonObject {
-        put("user_id", userId.value)
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         put("times", times)
     }
 }
@@ -121,8 +125,8 @@ public class SetGroupKick(
     public val rejectAddRequest: Boolean = false,
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
-        put("user_id", userId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         if (rejectAddRequest) put("reject_add_request", true)
     }
 }
@@ -139,8 +143,8 @@ public class SetGroupBan(
     }
 
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
-        put("user_id", userId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         put("duration", duration)
     }
 
@@ -162,7 +166,7 @@ public class SetGroupAnonymousBan(
     }
 
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         put("anonymous_flag", flag)
         put("duration", duration)
     }
@@ -171,7 +175,7 @@ public class SetGroupAnonymousBan(
 /** `set_group_whole_ban`: mutes everyone in a group, or lifts it. */
 public class SetGroupWholeBan(public val groupId: GroupId, public val enable: Boolean = true) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         put("enable", enable)
     }
 }
@@ -180,8 +184,8 @@ public class SetGroupWholeBan(public val groupId: GroupId, public val enable: Bo
 public class SetGroupAdmin(public val groupId: GroupId, public val userId: UserId, public val enable: Boolean = true) :
     OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
-        put("user_id", userId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         put("enable", enable)
     }
 }
@@ -189,7 +193,7 @@ public class SetGroupAdmin(public val groupId: GroupId, public val userId: UserI
 /** `set_group_anonymous`: allows or forbids anonymous messages in a group. */
 public class SetGroupAnonymous(public val groupId: GroupId, public val enable: Boolean = true) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         put("enable", enable)
     }
 }
@@ -198,8 +202,8 @@ public class SetGroupAnonymous(public val groupId: GroupId, public val enable: B
 public class SetGroupCard(public val groupId: GroupId, public val userId: UserId, public val card: String = "") :
     OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
-        put("user_id", userId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         put("card", card)
     }
 }
@@ -211,7 +215,7 @@ public class SetGroupName(public val groupId: GroupId, public val groupName: Str
     }
 
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         put("group_name", groupName)
     }
 }
@@ -219,7 +223,7 @@ public class SetGroupName(public val groupId: GroupId, public val groupName: Str
 /** `set_group_leave`: leaves a group, or dismisses it when the account owns it and [isDismiss] is set. */
 public class SetGroupLeave(public val groupId: GroupId, public val isDismiss: Boolean = false) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         if (isDismiss) put("is_dismiss", true)
     }
 }
@@ -233,8 +237,8 @@ public class SetGroupSpecialTitle(
     public val duration: Long = PERMANENT,
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
-        put("user_id", userId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         put("special_title", specialTitle)
         put("duration", duration)
     }
@@ -293,7 +297,7 @@ public class SetGroupAddRequest(
 /** `get_stranger_info`: reads a user's information. */
 public class GetStrangerInfo(public val userId: UserId, public val noCache: Boolean = false) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("user_id", userId.value)
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         if (noCache) put("no_cache", true)
     }
 }
@@ -301,7 +305,7 @@ public class GetStrangerInfo(public val userId: UserId, public val noCache: Bool
 /** `get_group_info`: reads a group's information. */
 public class GetGroupInfo(public val groupId: GroupId, public val noCache: Boolean = false) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         if (noCache) put("no_cache", true)
     }
 }
@@ -313,15 +317,15 @@ public class GetGroupMemberInfo(
     public val noCache: Boolean = false,
 ) : OneBotRequest {
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
-        put("user_id", userId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
+        put("user_id", OneBotSegmentCodec.number(userId.value))
         if (noCache) put("no_cache", true)
     }
 }
 
 /** `get_group_member_list`: reads the members of a group. */
 public class GetGroupMemberList(public val groupId: GroupId) : OneBotRequest {
-    override fun toJson(): JsonObject = buildJsonObject { put("group_id", groupId.value) }
+    override fun toJson(): JsonObject = buildJsonObject { put("group_id", OneBotSegmentCodec.number(groupId.value)) }
 }
 
 /** `get_group_honor_info`: reads the honors of a group. */
@@ -331,7 +335,7 @@ public class GetGroupHonorInfo(public val groupId: GroupId, public val type: Str
     }
 
     override fun toJson(): JsonObject = buildJsonObject {
-        put("group_id", groupId.value)
+        put("group_id", OneBotSegmentCodec.number(groupId.value))
         put("type", type)
     }
 

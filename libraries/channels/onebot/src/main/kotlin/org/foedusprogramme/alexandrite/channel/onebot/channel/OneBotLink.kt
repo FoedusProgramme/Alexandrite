@@ -74,9 +74,9 @@ internal class OneBotLink(private val config: OneBotConfig, private val instance
     internal suspend fun call(action: String, params: JsonObject): OneBotResult<JsonElement> = when {
         http != null -> http.call(action, params)
 
-        forward != null -> envelopeResult(forward.send(action, params))
+        forward != null -> overSocket { forward.send(action, params) }
 
-        reverse != null -> envelopeResult(reverse.send(action, params))
+        reverse != null -> overSocket { reverse.send(action, params) }
 
         else -> OneBotResult.Unreachable(
             OneBotFailure(
@@ -84,6 +84,21 @@ internal class OneBotLink(private val config: OneBotConfig, private val instance
                 "A transport of '${instanceConfig.transport}' only takes reports; it has no endpoint to call.",
             ),
         )
+    }
+
+    /**
+     * Runs one call over a socket, as a result rather than as a throw.
+     *
+     * A socket that is gone throws where an HTTP answer would have been a result, so a channel that sends a reply
+     * would fail the turn instead of reporting a delivery that did not happen. A caller that gave up is not a failure
+     * of the transport and is left to travel as it is.
+     */
+    private suspend fun overSocket(send: suspend () -> JsonObject): OneBotResult<JsonElement> = try {
+        envelopeResult(send())
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        OneBotResult.Unreachable(OneBotFailure(OneBotFailureKind.CONNECTION, e.message ?: "the call failed"))
     }
 
     /** The port a listener took, which a test reads and a log may name. */
