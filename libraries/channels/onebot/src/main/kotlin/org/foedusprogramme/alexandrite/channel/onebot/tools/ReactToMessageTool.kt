@@ -25,14 +25,16 @@ internal class ReactToMessageTool(private val apis: OneBotApis) : Tool {
         description = "Adds a QQ emoji response to a message of a chat this bot acts in, such as a thumbs up. The " +
             "implementation must offer the action; a number names the emoji.",
         parameters = arguments(
-            "message_id" to "The id of the message to respond to.",
-            "emoji_id" to "The number of the emoji to add, such as 128077 for a thumbs up.",
+            "message_id" to "The id of the message to respond to. Default: the message this turn is about.",
+            "emoji_id" to "The number of the emoji to add, such as 128077 for a thumbs up. Required.",
         ),
         risk = ToolRisk.EXTERNAL_ACTION,
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-        val id = arguments.text("message_id")
+        // The message this turn is about is what "this message" means, and its id is the one thing a prompt does not
+        // name. A turn that no message started has none, so such a call must say which message it means.
+        val id = arguments.text("message_id") ?: context.trigger?.id
             ?: return ToolResult("A call needs the id of the message, as message_id.", isError = true)
         val emoji = arguments.text("emoji_id")
             ?: return ToolResult("A call needs the number of the emoji, as emoji_id.", isError = true)

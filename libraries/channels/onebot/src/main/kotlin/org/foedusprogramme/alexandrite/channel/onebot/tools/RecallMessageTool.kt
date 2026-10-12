@@ -22,13 +22,16 @@ internal class RecallMessageTool(private val apis: OneBotApis) : Tool {
         "Takes back a message in a QQ chat this bot acts in. Only what the platform allows can be taken " +
             "back: usually the bot's own messages, and anyone's within a short time of sending them.",
         parameters = arguments(
-            "message_id" to "The id of the message to take back, as a reported or quoted message named it.",
+            "message_id" to
+                "The id of the message to take back. Default: the message this turn is about.",
         ),
         risk = ToolRisk.EXTERNAL_ACTION,
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-        val id = arguments.text("message_id")
+        // The message this turn is about is what a call about the message just written means, and its id is the one
+        // thing a prompt does not name. A turn that no message started has none, so such a call must say which.
+        val id = arguments.text("message_id") ?: context.trigger?.id
             ?: return ToolResult("A call needs the id of the message, as message_id.", isError = true)
         val api = apis.serving(context.turn.chat)
         return ToolResult(api.deleteMsg(DeleteMessage(MessageId(id))).outcome("The message was taken back."))

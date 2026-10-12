@@ -26,11 +26,13 @@ internal class AnswerRequestTool(private val apis: OneBotApis) : Tool {
         description = "Answers a QQ friend request or a request to join a group, accepting or refusing it. The flag " +
             "must be the one the request reported, which this bot was told about.",
         parameters = arguments(
-            "flag" to "The flag the request reported.",
-            "kind" to "Either friend or group.",
-            "sub_type" to "For a group request, add when somebody asks to join and invite when the bot is invited.",
-            "approve" to "yes to accept the request, no to refuse it.",
-            "message" to "A remark to keep with a friend the call accepts, or the reason to give for a refusal.",
+            "flag" to "The flag the request reported. Required.",
+            "kind" to "Either friend or group. Required.",
+            "sub_type" to
+                "For a group request: add when somebody asks to join, invite when the bot is invited. Required for a group request.",
+            "approve" to "yes to accept the request, no to refuse it. Required.",
+            "message" to
+                "A remark to keep with a friend the call accepts, or the reason to give for a refusal. Optional.",
         ),
         risk = ToolRisk.EXTERNAL_ACTION,
     )

@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -65,6 +66,8 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         callable: Set<String>,
         taint: TurnTaint,
         calls: TurnCalls,
+        /** The message the turn was started by, which a tool that acts on it reads from its context. */
+        trigger: ChannelMessageRef?,
     ): ToolCallEnd {
         val tool = tools[call.name]
             ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL)
@@ -74,7 +77,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
-        val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint)
+        val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint, trigger)
         val admission = try {
             gate.admit(GateCall(turn, call, tool, arguments, limit, taint, reviewing, calls))
         } finally {
@@ -85,7 +88,7 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
 
             is GateResult.Admitted -> {
                 calls.starting(call.id)
-                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint)
+                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, trigger)
                 ToolCallEnd(runTool(turn, call, tool, arguments, limit, context), null, context.touchedPaths)
             }
         }

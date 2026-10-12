@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.sdk.tool
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
@@ -65,6 +66,15 @@ public interface ToolContext {
 
     /** What let the call run, null while it is being reviewed. */
     public val clearance: Clearance?
+
+    /**
+     * The message this turn was started by, null when no message started it.
+     *
+     * A tool that acts on what a person just said reads it from here, because a prompt does not name the message it
+     * answers: a call that needs an id it was never shown would otherwise have to be told one by the person who wrote
+     * the message, which is what a turn about that message should not require.
+     */
+    public val trigger: ChannelMessageRef? get() = null
 
     /** Reports that the call brought untrusted content into the conversation, for [reason]. */
     public fun untrusted(reason: String)

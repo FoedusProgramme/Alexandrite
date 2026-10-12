@@ -77,7 +77,7 @@ class PermissionStatusToolTest {
     }
 
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext =
-        AgentToolContext(turn, ToolCallId("call-1"), Workspaces(hostPaths(null), settings("{}")), null, taint)
+        AgentToolContext(turn, ToolCallId("call-1"), Workspaces(hostPaths(null), settings("{}")), null, taint, null)
 
     private suspend fun status(
         tool: PermissionStatusTool = tool(),

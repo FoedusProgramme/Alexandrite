@@ -37,7 +37,13 @@ internal fun JsonObjectBuilder.putId(name: String, value: String) {
     if (number == null) put(name, JsonPrimitive(value)) else put(name, number)
 }
 
-/** The schema of a call whose arguments are [properties], every one of them required. */
+/**
+ * The schema of a call whose arguments are [properties], named with what each one is for.
+ *
+ * An argument that must be given says so in its description and is checked where it is read, which is how the
+ * other tools of this project declare theirs: a schema that marks one required stops a caller from leaving it out,
+ * which is exactly what a tool that can work without it must allow.
+ */
 internal fun arguments(vararg properties: Pair<String, String>): JsonObject = buildJsonObject {
     put("type", "object")
     putJsonObject("properties") {
@@ -48,6 +54,5 @@ internal fun arguments(vararg properties: Pair<String, String>): JsonObject = bu
             }
         }
     }
-    putJsonArray("required") { properties.forEach { add(JsonPrimitive(it.first)) } }
     put("additionalProperties", false)
 }
