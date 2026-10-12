@@ -220,10 +220,11 @@ class OneBotMessagesTest {
 
     @Test
     fun `the capabilities of the channel name what it can do`() {
-        val capabilities = OneBotMessages.capabilities()
+        val capabilities = OneBotMessages.capabilities(proactive = true)
         assertTrue(capabilities.markups.contains(Markup.PLAIN))
         assertTrue(capabilities.markups.contains(Markup.MARKDOWN))
         assertTrue(capabilities.proactive)
+        assertTrue(!OneBotMessages.capabilities(proactive = false).proactive)
         assertEquals(false, capabilities.streaming)
         assertNull(capabilities.maxPartsPerReply)
     }

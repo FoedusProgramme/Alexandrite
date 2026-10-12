@@ -18,7 +18,9 @@ import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
@@ -59,6 +61,8 @@ internal class OneBotInbox(
     private val recent: OneBotRecentMessages,
     /** Who may run each command, which nothing else asks. */
     private val rules: OneBotCommandRules,
+    /** The chats this instance serves, and the code a chat it does not serve is offered. */
+    private val gate: OneBotAccessGate,
     /** The texts of this channel for people. */
     private val texts: Texts,
     /** The agent, null while the runtime has none. */
@@ -93,11 +97,17 @@ internal class OneBotInbox(
             // A command is run wherever it is written; anything else has to be meant for the bot, or a group's talk
             // would each become a turn of the agent.
             val command = OneBotCommands.of(event)
-            if (command == null && !addressed(event)) return@collect
+            val addressed = addressed(event)
+            if (command == null && !addressed) return@collect
+            // Nothing of a chat that is not paired passes, commands included: a bot that was invited somewhere answers
+            // and obeys nobody until somebody says it may.
+            val asked = OneBotMessages.senderOf(instance.id, event, config.admins)
+            val kind = if (event is OneBotEvent.Message.Private) ChatKind.DIRECT else ChatKind.GROUP
+            val ref = ChannelMessageRef(chat, event.messageId.value)
+            if (!gate.admit(chat, kind, null, ref, asked, addressed)) return@collect
             // An approval is answered here rather than by the agent: the command registry of the runtime knows nothing
             // of it, and a command it does not claim is refused to everyone but an operator.
             if (command != null && approvals.answers(command.name)) {
-                val asked = OneBotMessages.senderOf(instance.id, event, config.admins)
                 val answer = approvals.answer(event, command, asked)
                 if (answer != null) {
                     sender.send(chat, said(answer))

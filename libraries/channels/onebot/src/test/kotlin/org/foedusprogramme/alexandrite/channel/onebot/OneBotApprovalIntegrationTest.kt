@@ -227,6 +227,7 @@ class OneBotApprovalIntegrationTest {
               "firstByteTimeoutMillis": 5000,
               "idleTimeoutMillis": 5000,
               "reconnectIntervalMillis": 200,
+          "allowedChats": ["group:987654", "private:12345678"],
               "admins": ["$USER"],
               "approvalMinutes": 1
             }

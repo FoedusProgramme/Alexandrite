@@ -4,6 +4,7 @@ plugins {
 }
 
 dependencies {
+    implementation(project(":libraries:channel-common"))
     implementation(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
 

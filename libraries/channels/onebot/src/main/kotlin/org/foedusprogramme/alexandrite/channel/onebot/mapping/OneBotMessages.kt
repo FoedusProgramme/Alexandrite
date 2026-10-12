@@ -86,10 +86,10 @@ public object OneBotChats {
  */
 public object OneBotMessages {
     /** What an OneBot channel can do, as this module reports it. */
-    public fun capabilities(): ChannelCapabilities = ChannelCapabilities.builder()
+    public fun capabilities(proactive: Boolean): ChannelCapabilities = ChannelCapabilities.builder()
         .markups(setOf(Markup.PLAIN, Markup.MARKDOWN))
         .streaming(false)
-        .proactive(true)
+        .proactive(proactive)
         .maxPartsPerReply(null)
         .build()
 

@@ -163,7 +163,8 @@ class OneBotQuoteIntegrationTest {
               "connectTimeoutMillis": 5000,
               "firstByteTimeoutMillis": 5000,
               "idleTimeoutMillis": 5000,
-              "reconnectIntervalMillis": 200
+              "reconnectIntervalMillis": 200,
+          "allowedChats": ["group:987654", "private:12345678"]
             }
           }
         }

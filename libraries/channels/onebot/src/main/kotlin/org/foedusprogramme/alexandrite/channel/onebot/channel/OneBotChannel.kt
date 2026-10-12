@@ -34,10 +34,13 @@ internal class OneBotChannel(
     private val sender: OneBotSender,
     /** The approvals this instance asks its admins about. */
     private val approvals: OneBotApprovals,
+    /** The chats this instance serves, which decides whether it speaks unprompted. */
+    private val gate: OneBotAccessGate,
     /** The agent, null while the runtime has none. */
     private val submitter: TurnSubmitter?,
 ) : Channel {
-    override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities = OneBotMessages.capabilities()
+    override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities =
+        OneBotMessages.capabilities(proactive = gate.isPaired(chat))
 
     override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int =
         if (text.isEmpty()) 0 else 1

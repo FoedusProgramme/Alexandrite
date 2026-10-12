@@ -174,6 +174,53 @@ class OneBotChannelIntegrationTest {
         }
     }
 
+    @Test
+    fun `a chat this instance does not serve is offered its pairing code and reaches no agent`() {
+        val peer = ImplementationPeer()
+        val port = peer.startAndPort()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelOnebotIndex())
+                    .config(config(port))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
+                        peer.report(unservedGroupMessage())
+                        val said = peer.awaitCall("send_group_msg")
+                        assertTrue(said.contains("not paired"), "the chat was not offered a code: $said")
+                        assertTrue(
+                            awaitNoSubmission(submitter),
+                            "a message of a chat this instance does not serve reached the agent",
+                        )
+                    }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
+    /** A group report of a chat that the config of the test does not declare. */
+    private fun unservedGroupMessage(): String = """
+        {
+          "time": 1515204254,
+          "self_id": 10001000,
+          "post_type": "message",
+          "message_type": "group",
+          "sub_type": "normal",
+          "message_id": 12,
+          "group_id": 111111,
+          "user_id": 12345678,
+          "message": [
+            {"type": "at", "data": {"qq": 10001000}},
+            {"type": "text", "data": {"text": "hello there"}}
+          ],
+          "raw_message": "hello there",
+          "sender": {"user_id": 12345678, "nickname": "someone", "role": "member"}
+        }
+    """.trimIndent()
+
     private suspend fun org.foedusprogramme.alexandrite.testkit.PluginHarness.Running.awaitSubmission(
         submitter: RecordingTurnSubmitter,
     ): Submission {
@@ -201,7 +248,8 @@ class OneBotChannelIntegrationTest {
               "connectTimeoutMillis": 5000,
               "firstByteTimeoutMillis": 5000,
               "idleTimeoutMillis": 5000,
-              "reconnectIntervalMillis": 200
+              "reconnectIntervalMillis": 200,
+          "allowedChats": ["group:987654", "private:12345678"]
             }
           }
         }

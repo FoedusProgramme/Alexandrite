@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.channel.onebot.config
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
@@ -101,6 +102,8 @@ public class OneBotInstanceConfig(
     @SerialName("reconnectIntervalMillis") public val reconnectIntervalMillis: Long = DEFAULT_RECONNECT,
     /** The accounts that may operate this instance, which the channel marks as admins. */
     public val admins: Set<String> = emptySet(),
+    /** The chats this instance serves, by their key, such as `group:987654` or `private:12345678`. */
+    public val allowedChats: List<String> = emptyList(),
     /** How long an approval request waits for an admin's answer, in minutes. */
     @SerialName("approvalMinutes") public val approvalMinutes: Int = DEFAULT_APPROVAL_MINUTES,
 ) {
@@ -161,3 +164,7 @@ public class OneBotInstanceConfig(
         public const val MAX_PORT: Int = 65_535
     }
 }
+
+/** The config path of [key] in the config of [instance], of the instance itself when [key] is null. */
+internal fun configPath(instance: ChannelInstanceId, key: String? = null): String =
+    listOfNotNull("channels.onebot.instances.${instance.name}", key).joinToString(".")
