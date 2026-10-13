@@ -262,6 +262,7 @@ class PublicApiTest {
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             return listOf(
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
+                context.trigger,
                 context.turn, context.call, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
                 context.clearance, context.untrustedReasons,
             )
