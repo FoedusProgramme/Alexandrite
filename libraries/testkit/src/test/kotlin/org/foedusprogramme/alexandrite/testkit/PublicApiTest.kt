@@ -258,6 +258,8 @@ class PublicApiTest {
             val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"), clearance = cleared)
             context.touched(Path.of("/srv/work/notes.md"))
             context.untrusted("a web page")
+            val backgroundAttachment = runCatching { context.awaitBackground() }.exceptionOrNull()
+            val backgroundDelivery = runCatching { context.backgroundUpdate(ToolResult("MATCH event")) }.exceptionOrNull()
             testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             val quotaRefusal = context.conversationQuotaRefusal(Path.of("/srv/conversation/notes.md"), 10L)
@@ -265,7 +267,7 @@ class PublicApiTest {
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
                 context.turn, context.call, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
                 context.clearance, context.untrustedReasons, context.conversationDirectory,
-                context.openConversationDirectory(), quotaRefusal,
+                context.openConversationDirectory(), quotaRefusal, backgroundAttachment, backgroundDelivery,
             )
         }
 

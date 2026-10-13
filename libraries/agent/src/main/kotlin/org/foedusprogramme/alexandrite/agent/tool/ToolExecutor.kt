@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -10,6 +11,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
@@ -127,17 +130,41 @@ internal class ToolExecutor(
         context: AgentToolContext,
     ): ToolResultEntry {
         var detached = false
+        val explicit = call.name == "command.exec" &&
+            ((arguments["background"] as? JsonPrimitive)?.booleanOrNull == true || arguments["monitor"] is JsonObject)
+        if (explicit && turn.lineage != null) {
+            context.close()
+            return textResult(
+                call,
+                "A delegated run cannot start background commands; run the command synchronously.",
+                ToolOutcome.NotRun(NotRunReason.NOT_PERMITTED),
+            )
+        }
         try {
-            val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async {
-                tool.execute(arguments, context)
-            }
+            val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async(
+                start = if (explicit) CoroutineStart.LAZY else CoroutineStart.DEFAULT,
+            ) { tool.execute(arguments, context) }
             val returned = try {
-                val foreground = if (turn.lineage == null) minOf(jobs.foreground(turn.agent), timeout) else timeout
-                withTimeoutOrNull(foreground) { running.await() } ?: run {
+                val foreground = if (explicit) {
+                    Duration.ZERO
+                } else if (turn.lineage == null) {
+                    minOf(jobs.foreground(turn.agent), timeout)
+                } else {
+                    timeout
+                }
+                (if (explicit) null else withTimeoutOrNull(foreground) { running.await() }) ?: run {
                     val job = jobs.detach(Detaching(turn, call, arguments, running, context, foreground, timeout))
                     if (job != null) {
                         detached = true
                         return backgroundResult(call, job)
+                    }
+                    if (explicit) {
+                        stop(running, turn, call, ABANDON_AFTER)
+                        return textResult(
+                            call,
+                            "Background capacity is full; the command was stopped.",
+                            ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT),
+                        )
                     }
                     withTimeoutOrNull(timeout - foreground) { running.await() }
                 }
@@ -170,8 +197,10 @@ internal class ToolExecutor(
         arguments: JsonObject,
         context: AgentToolContext,
     ): ToolResultEntry {
+        var detached = false
         try {
             val result = tool.call(arguments, context)
+            detached = result.outcome is ToolOutcome.Detached
             return ToolResultEntry(null, call.id, call.name, result.content, result.outcome)
         } catch (e: CancellationException) {
             if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
@@ -181,7 +210,7 @@ internal class ToolExecutor(
             logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
             return failedResult(call, e)
         } finally {
-            context.close()
+            if (!detached) context.close()
         }
     }
 

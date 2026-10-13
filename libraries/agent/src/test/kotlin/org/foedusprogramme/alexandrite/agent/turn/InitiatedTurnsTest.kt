@@ -177,6 +177,7 @@ class InitiatedTurnsTest {
                 listOf(
                     "agent.delegate",
                     "agent.jobs",
+                    "agent.send",
                     "agent.stop",
                     "chat.send_file",
                     "fs.read",

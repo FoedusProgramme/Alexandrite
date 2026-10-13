@@ -94,6 +94,7 @@ class RepositoryQuestionTest {
             listOf(
                 "agent.delegate",
                 "agent.jobs",
+                "agent.send",
                 "agent.stop",
                 "chat.send_file",
                 "command.exec",
@@ -107,6 +108,8 @@ class RepositoryQuestionTest {
                 "profile.edit",
                 "profile.list",
                 "profile.remove",
+                "web.fetch",
+                "web.search",
             ),
             requests.first().tools.map { it.name },
         )

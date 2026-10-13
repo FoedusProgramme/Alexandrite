@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
@@ -9,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -25,6 +27,24 @@ internal class AgentToolContext(
 ) : ToolContext {
     @Volatile
     private var open = true
+
+    private val backgroundReady = CompletableDeferred<Unit>()
+    private var updates: (suspend (ToolResult) -> Unit)? = null
+
+    override suspend fun awaitBackground() {
+        backgroundReady.await()
+        checkOpen()
+    }
+
+    override suspend fun backgroundUpdate(result: ToolResult) {
+        awaitBackground()
+        checkNotNull(updates)(result)
+    }
+
+    fun background(updates: suspend (ToolResult) -> Unit) {
+        this.updates = updates
+        backgroundReady.complete(Unit)
+    }
 
     private val reported = CopyOnWriteArrayList<Path>()
 

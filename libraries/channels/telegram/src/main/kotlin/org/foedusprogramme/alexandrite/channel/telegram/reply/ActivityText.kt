@@ -22,7 +22,7 @@ internal class CallState(val tool: String, val activity: ToolActivity, val title
 }
 
 /** The statuses that end a call, after which a delegation's own line speaks of it in the past tense. */
-private val ENDED = setOf(ToolCallStatus.COMPLETED, ToolCallStatus.FAILED)
+private val ENDED = setOf(ToolCallStatus.COMPLETED, ToolCallStatus.FAILED, ToolCallStatus.BACKGROUNDED)
 
 /** The statuses that count as still running, for a kind's aggregate verb. */
 private val ACTIVE = setOf(ToolCallStatus.RUNNING, ToolCallStatus.WAITING_APPROVAL)

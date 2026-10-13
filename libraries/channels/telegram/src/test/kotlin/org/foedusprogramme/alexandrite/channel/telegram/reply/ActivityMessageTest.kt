@@ -136,30 +136,88 @@ class ActivityMessageTest {
     }
 
     @Test
-    fun `a sub-agent's calls join the activity message under its profile, apart from the turn's own call ids`() =
-        runTest {
-            val output = output()
-            val reply = output.open()
-            val run = RunId("r-1")
-            val delegate = ToolCallId("c1")
+    fun `a sub-agent's calls keep their own activity message apart from the delegation`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val run = RunId("r-1")
+        val delegate = ToolCallId("c1")
 
-            reply.event(TurnEvent.ToolCallStarted(delegate, "agent.delegate", ToolActivity.OTHER, "reviewer"))
+        reply.event(TurnEvent.ToolCallStarted(delegate, "agent.delegate", ToolActivity.OTHER, "reviewer"))
+        reply.event(
+            TurnEvent.ToolCallStarted(delegate, "fs.read", ToolActivity.READ, "a.kt", run, AgentId("reviewer")),
+        )
+        reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED, null, run))
+        advanceTimeBy(2_200)
+        reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED))
+        advanceTimeBy(1_100)
+
+        assertEquals(
+            listOf(
+                "sendMessage Delegating to reviewer",
+                "sendMessage Read 1 file\nreviewer · a.kt",
+                "editMessageText Delegated to reviewer",
+            ),
+            output.shown(),
+        )
+    }
+
+    @Test
+    fun `four delegation calls to the same profile have four independently updated records`() = runTest {
+        val output = output()
+        val reply = output.open()
+        for (number in 1..4) {
             reply.event(
-                TurnEvent.ToolCallStarted(delegate, "fs.read", ToolActivity.READ, "a.kt", run, AgentId("reviewer")),
-            )
-            reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED, null, run))
-            advanceTimeBy(1_100)
-            reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED))
-            advanceTimeBy(1_100)
-
-            assertEquals(
-                listOf(
-                    "sendMessage Delegating to reviewer · Read 1 file\nreviewer · a.kt",
-                    "editMessageText Delegated to reviewer · Read 1 file\nreviewer · a.kt",
+                TurnEvent.ToolCallStarted(
+                    ToolCallId("delegate-$number"),
+                    "agent.delegate",
+                    ToolActivity.OTHER,
+                    "reviewer",
                 ),
-                output.shown(),
             )
         }
+        advanceTimeBy(5_000)
+        for (number in 1..4) {
+            reply.event(TurnEvent.ToolCallUpdated(ToolCallId("delegate-$number"), ToolCallStatus.BACKGROUNDED))
+        }
+        advanceTimeBy(5_000)
+        assertEquals(List(4) { "Delegating to reviewer" }, output.api.calls("sendMessage").map { it.text })
+        assertEquals(List(4) { "Delegated to reviewer" }, output.api.calls("editMessageText").map { it.text })
+    }
+
+    @Test
+    fun `four concurrent runs of the same profile keep separate activity messages`() = runTest {
+        val output = output()
+        val reply = output.open()
+        for (number in 1..4) {
+            reply.event(
+                TurnEvent.ToolCallStarted(
+                    ToolCallId("read"),
+                    "fs.read",
+                    ToolActivity.READ,
+                    "file-$number.kt",
+                    RunId("r-$number"),
+                    AgentId("reviewer"),
+                ),
+            )
+        }
+        advanceTimeBy(5_000)
+        for (number in 1..4) {
+            reply.event(
+                TurnEvent.ToolCallUpdated(
+                    ToolCallId("read"),
+                    ToolCallStatus.COMPLETED,
+                    run = RunId("r-$number"),
+                ),
+            )
+        }
+        advanceTimeBy(5_000)
+        val sent = output.api.calls("sendMessage")
+        assertEquals(4, sent.size)
+        for (number in 1..4) {
+            assertEquals("Reading 1 file\nreviewer · file-$number.kt", sent[number - 1].text)
+        }
+        assertEquals(4, output.api.calls("editMessageText").size)
+    }
 
     @Test
     fun `a text-less round edits the same activity message instead of sending a new one`() = runTest {

@@ -6,9 +6,14 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.context.ContextRecords
 import org.foedusprogramme.alexandrite.agent.delivery.visibleText
+import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.permission.Principal
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.profile.Profiles
@@ -25,6 +30,8 @@ import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
 import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.agent.worker.newTurnId
 import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
@@ -36,19 +43,24 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.ForkPoint
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
+import org.foedusprogramme.alexandrite.sdk.turn.AgentRunLifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
+import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.util.concurrent.ThreadLocalRandom
+import kotlin.time.Duration
 
 /** Runs each sub-agent run that a call of `agent.delegate` starts, inside that call. */
 @Singleton
@@ -61,9 +73,21 @@ internal class Delegator(
     private val runs: DelegatedRuns,
     private val runner: Lazy<TurnRunner>,
     private val clock: Clock,
+    private val jobs: Jobs,
+    private val channels: ChannelDirectory,
+    private val hooks: Hooks,
+    settings: AgentSettings,
 ) {
+    private val permits = Semaphore(settings.maxBackgroundRuns)
+
     /** What the model reads once a run of the profile [id] on [task] ended, forked from the history if [fork]. */
-    suspend fun delegate(id: String, task: String, fork: Boolean, context: AgentToolContext): InTurnResult {
+    suspend fun delegate(
+        id: String,
+        task: String,
+        fork: Boolean,
+        context: AgentToolContext,
+        background: Boolean = false,
+    ): InTurnResult {
         val parent = checkNotNull(context.delegating) { "Call ${context.call} delegates outside a turn." }
         val turn = parent.turn
         val depth = (turn.lineage?.depth ?: 0) + 1
@@ -90,7 +114,27 @@ internal class Delegator(
             if (context.taint.tainted) inherit(created.id, run, turn, context.taint)
             created
         }
-        val delegation = Delegation(run, lineage, conversation, profile, task, parent, chain(parent, profile, task))
+        val detachedParent = if (background) {
+            BackgroundParent(
+                parent,
+                channels,
+                newTurnId(now),
+                run,
+                profile.id,
+            )
+        } else {
+            null
+        }
+        val delegation = Delegation(
+            run,
+            lineage,
+            conversation,
+            profile,
+            task,
+            detachedParent ?: parent,
+            chain(parent, profile, task),
+            background,
+        )
         val plan = TurnPlan(
             id = newTurnId(now),
             key = turn.key,
@@ -112,11 +156,56 @@ internal class Delegator(
             conversation.id,
             if (fork) ", forked from its history" else "",
         )
+        if (background) {
+            val callPart = ToolCallPart(call, DELEGATE_TOOL, "{}")
+            val arguments = JsonObject(mapOf("profile" to kotlinx.serialization.json.JsonPrimitive(id)))
+            val messageBudget = currentCoroutineContext()[org.foedusprogramme.alexandrite.agent.messaging.MessageBudget]
+            val job = jobs.start(
+                turn,
+                callPart,
+                arguments,
+                context,
+                Duration.INFINITE,
+                run,
+                cleanup = { if (delegation.turn == null) seal(delegation) },
+            ) {
+                withContext(messageBudget ?: kotlin.coroutines.EmptyCoroutineContext) {
+                    permits.withPermit {
+                        var status = ToolCallStatus.FAILED
+                        try {
+                            checkNotNull(detachedParent).open()
+                            val result = complete(delegation, plan, context)
+                            if (!result.outcome.isError) status = ToolCallStatus.COMPLETED
+                            ToolResult(result.content, isError = result.outcome.isError)
+                        } finally {
+                            withContext(NonCancellable) { detachedParent?.close(status) }
+                        }
+                    }
+                }
+            }
+            if (job == null) {
+                withContext(NonCancellable) { seal(delegation) }
+                return InTurnResult(
+                    "Background capacity is full; no sub-agent was started.",
+                    ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT),
+                )
+            }
+            return InTurnResult(
+                "[alexandrite:background] Run $run of profile $id started; its report will arrive later.",
+                ToolOutcome.Detached(run),
+            )
+        }
+        return complete(delegation, plan, context)
+    }
+
+    private suspend fun complete(delegation: Delegation, plan: TurnPlan, context: AgentToolContext): InTurnResult {
         val outcome = run(delegation, plan)
         val result = result(delegation, plan.id, outcome)
         delegation.taint?.takeIf { it.tainted }?.let { taint ->
             val why = taint.known?.reason ?: "its mark could not be read"
-            context.taint.mark("sub-agent run $run (${profile.id}) took in untrusted content: $why")
+            context.taint.mark(
+                "sub-agent run ${delegation.run} (${delegation.profile.id}) took in untrusted content: $why",
+            )
         }
         return result
     }
@@ -130,11 +219,13 @@ internal class Delegator(
                     outcome = runner.value.run(plan, NoFollowUps, RootPermit) {}
                 }
                 runs.started(LiveRun(delegation, plan.id, job, plan.queuedAt))
+                hooks.fire(TurnPoints.AGENT_SPAWN, lifecycle(delegation))
                 job.join()
             }
         } finally {
             withContext(NonCancellable) {
                 runs.ended(delegation.run)
+                hooks.fire(TurnPoints.AGENT_RUN_ENDED, lifecycle(delegation))
                 seal(delegation)
             }
         }
@@ -265,3 +356,6 @@ private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 private const val RUN_ID_LENGTH = 6
 
 private val logger = LoggerFactory.getLogger(Delegator::class.java)
+
+private fun lifecycle(run: Delegation): AgentRunLifecycle =
+    AgentRunLifecycle(run.parent.turn, run.run, run.profile.id, run.background)

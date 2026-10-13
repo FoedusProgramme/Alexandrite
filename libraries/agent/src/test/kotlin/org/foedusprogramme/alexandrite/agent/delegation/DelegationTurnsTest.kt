@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.delegation
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -25,6 +26,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
@@ -42,6 +45,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.NoticeKind
@@ -53,9 +57,12 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.AgentRunLifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.JobLifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPhase
+import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
@@ -73,6 +80,8 @@ class DelegationTurnsTest {
     private val store = MemoryStore()
     private val model = ScriptedModel()
     private val key = AgentChatKey.parse("coder@test:main:chat")
+    private val lifecycleEvents = CopyOnWriteArrayList<String>()
+    private var readGate: CompletableDeferred<Unit>? = null
     private val read = recordingTool(
         ToolDefinition(
             "test.read",
@@ -82,7 +91,10 @@ class DelegationTurnsTest {
             activity = ToolActivity.READ,
             titleArguments = listOf("path"),
         ),
-    ) { _, _ -> ToolResult("The notes.") }
+    ) { _, _ ->
+        readGate?.await()
+        ToolResult("The notes.")
+    }
     private val cleared = CopyOnWriteArrayList<Clearance?>()
     private val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE) { _, context ->
         cleared += context.clearance
@@ -97,6 +109,7 @@ class DelegationTurnsTest {
         """
         {
           "previewIntervalMillis": 0,
+          "maxJobsPerChat": 8,
           "shutdown": {"turnGraceSeconds": 0, "cancelJoinSeconds": 2},
           "agents": {
             "coder": {
@@ -132,7 +145,25 @@ class DelegationTurnsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(read).tool(write).tool(fetch) }
+    ) {
+        channel(admins = setOf("admin")).model(model).tool(read).tool(write).tool(fetch)
+        for (point in listOf(TurnPoints.AGENT_SPAWN, TurnPoints.AGENT_RUN_ENDED)) {
+            hook(object : ObserverHook<AgentRunLifecycle> {
+                override val point: ObserverPoint<AgentRunLifecycle> = point
+                override suspend fun observe(payload: AgentRunLifecycle) {
+                    lifecycleEvents += "${point.id}:${payload.run}"
+                }
+            })
+        }
+        for (point in listOf(TurnPoints.JOB_STARTED, TurnPoints.JOB_ENDED, TurnPoints.TOOL_BACKGROUNDED)) {
+            hook(object : ObserverHook<JobLifecycle> {
+                override val point: ObserverPoint<JobLifecycle> = point
+                override suspend fun observe(payload: JobLifecycle) {
+                    lifecycleEvents += "${point.id}:${payload.run}"
+                }
+            })
+        }
+    }
 
     private fun PluginHarness.Running.ask(text: String = "Go.", user: String = "admin", chat: String = "chat") =
         channel().receive(text, channel().chat(chat), channel().user(user)) as Admission.Accepted
@@ -273,10 +304,10 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `an unknown profile, a background run and a bad context are refused as invalid arguments`() {
+    fun `an unknown profile, a malformed background flag and a bad context are refused as invalid arguments`() {
         model.reply(ROOT) {
             toolCall(DELEGATE_TOOL, delegate("nobody", "Do it."))
-            toolCall(DELEGATE_TOOL, """{"profile": "reviewer", "task": "Do it.", "background": true}""")
+            toolCall(DELEGATE_TOOL, """{"profile": "reviewer", "task": "Do it.", "background": "true"}""")
             toolCall(DELEGATE_TOOL, """{"profile": "reviewer", "task": "Do it.", "context": "all"}""")
         }.reply(ROOT) { text("Nothing ran.") }
 
@@ -288,8 +319,7 @@ class DelegationTurnsTest {
                 setOf(
                     invalid to "No profile 'nobody'. Choose one of reviewer, writer, planner, doer, reader, nester, " +
                         "general.",
-                    invalid to "Background delegation is not available yet: leave out 'background', and wait for " +
-                        "the result.",
+                    invalid to "'background' must be a boolean.",
                     invalid to "'context' is \"fresh\" or \"fork\".",
                 ),
                 rootResults().map { it.shown() }.toSet(),
@@ -688,6 +718,132 @@ class DelegationTurnsTest {
                 },
             )
             assertEquals(2, channel().reply(turn.ticket.turn).activity.count { it is TurnEvent.UsageUpdated })
+        }
+    }
+
+    @Test
+    fun `four background reviews run concurrently, the fifth is refused, and each report arrives later`() {
+        readGate = CompletableDeferred()
+        model.reply(ROOT) {
+            repeat(5) { number ->
+                toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Review $number","background":true}""")
+            }
+        }.reply(ROOT) { text("Started.") }
+        val opening = RequestMatch("a fresh reviewer") {
+            it.ofProfile(REVIEWER) && it.history.none { entry -> entry is AssistantEntry }
+        }
+        repeat(4) { model.reply(opening) { toolCall("test.read", "{}") } }
+        repeat(4) { model.reply(profile(REVIEWER)) { text("Review done.") } }
+        repeat(4) { model.reply(ROOT) { text("Report received.") } }
+        harness().execute {
+            val ticket = ask().ticket
+            assertIs<TurnOutcome.Completed>(ticket.outcome())
+            while (read.calls.size < 4) delay(5)
+            val results = rootResults()
+            assertEquals(4, results.count { it.outcome is ToolOutcome.Detached })
+            assertEquals(1, results.count { it.outcome == ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT) })
+            val jobs = get<AgentControl>().jobs(channel().chat())
+            assertEquals(4, jobs.size)
+            assertEquals(4, jobs.map { it.id }.toSet().size)
+            readGate?.complete(Unit)
+            while (get<AgentControl>().jobs(channel().chat()).isNotEmpty()) delay(5)
+            while (jobResultCount() < 4) delay(5)
+            while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
+            for (job in jobs) {
+                val points = listOf("job.started", "job.ended", "tool.backgrounded", "agent.spawn", "agent.run.ended")
+                for (point in points) {
+                    assertEquals(1, lifecycleEvents.count { it == "$point:${job.id}" })
+                }
+            }
+            val childConversations = runs(REVIEWER).map { it.ids.conversation }.toSet()
+            assertEquals(4, childConversations.size)
+            for (child in childConversations) {
+                assertEquals(ConversationState.SEALED, store.conversations.conversation(child)?.state)
+            }
+        }
+    }
+
+    @Test
+    fun `cancel after the parent completes stops its four background reviews without delivering reports`() {
+        readGate = CompletableDeferred()
+        model.reply(ROOT) {
+            repeat(4) {
+                toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Review","background":true}""")
+            }
+        }.reply(ROOT) { text("Started.") }
+        repeat(4) { model.reply(profile(REVIEWER)) { toolCall("test.read", "{}") } }
+        harness().execute {
+            ask().ticket.outcome()
+            while (read.calls.size < 4) delay(5)
+            val control = get<AgentControl>()
+            assertTrue(control.cancel(channel().chat(), channel().user("admin")))
+            while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
+            while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
+            for (child in runs(REVIEWER).map { it.ids.conversation }.toSet()) {
+                assertEquals(ConversationState.SEALED, store.conversations.conversation(child)?.state)
+            }
+            val entries = store.transcripts.entries(store.conversations.current(key).id)
+            assertEquals(
+                0,
+                entries.filterIsInstance<UserEntry>().count {
+                    it.origin == UserOrigin.SystemWritten("alexandrite.job")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `a background writer asks the root chat and inherits its approval chain`() {
+        model.reply(ROOT) {
+            toolCall(DELEGATE_TOOL, """{"profile":"writer","task":"Write notes","background":true}""")
+        }.reply(ROOT) { text("Started.") }
+        model.reply(profile(WRITER)) { toolCall("fs.write", """{"path":"notes"}""") }
+            .reply(profile(WRITER)) { text("Written.") }
+            .reply(ROOT) { text("Report received.") }
+        harness().execute {
+            val admin = channel().user("admin")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(admin))
+            ask().ticket.outcome()
+            while (cleared.isEmpty()) delay(5)
+            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, admin)), cleared.toList())
+            assertEquals(listOf(AgentId("coder"), AgentId("writer")), channel().approvals.single().chain)
+        }
+    }
+
+    @Test
+    fun `a restart reports a background delegation once without rerunning its child`() {
+        readGate = CompletableDeferred()
+        model.reply(ROOT) {
+            toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Review","background":true}""")
+        }.reply(ROOT) { text("Started.") }
+        model.reply(profile(REVIEWER)) { toolCall("test.read", "{}") }
+        harness().execute {
+            ask().ticket.outcome()
+            while (read.calls.isEmpty()) delay(5)
+        }
+        val before = model.requests.size
+        model.reply(ROOT) { text("The review was interrupted.") }
+        harness().execute {
+            assertEquals(before, model.requests.size)
+            ask("Status?").ticket.outcome()
+            assertEquals(1, read.calls.size)
+            val request = model.requests.last()
+            val notices = request.history.filterIsInstance<UserEntry>().flatMap {
+                it.parts.filterIsInstance<ContextPart>()
+            }
+            assertTrue(
+                notices.any { part ->
+                    val interrupted = part.text.contains("interrupted by a restart")
+                    interrupted && part.text.contains("agent.delegate reviewer")
+                },
+            )
+        }
+    }
+
+    private suspend fun jobResultCount(): Int {
+        val conversation = store.conversations.current(key).id
+        return store.transcripts.entries(conversation).filterIsInstance<UserEntry>().count {
+            it.origin == UserOrigin.SystemWritten("alexandrite.job")
         }
     }
 

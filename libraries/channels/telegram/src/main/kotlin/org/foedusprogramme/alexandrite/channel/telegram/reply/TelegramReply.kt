@@ -52,6 +52,7 @@ internal class TelegramReply(
     private val lock = Any()
     private val segments = TreeMap<Int, Segment>()
     private val activities = TreeMap<Int, ActivitySegment>()
+    private val activityKeys = LinkedHashMap<ActivityKey, Int>()
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val activityWake = Channel<Unit>(Channel.CONFLATED)
     private var current = 0
@@ -95,15 +96,26 @@ internal class TelegramReply(
         synchronized(lock) {
             if (!accepts("A turn event", current)) return
             val block = when (event) {
-                is TurnEvent.ToolCallStarted -> activities.getOrPut(current, ::ActivitySegment).also {
-                    it.calls[event.run to event.id] = CallState(event.tool, event.activity, event.title, event.agent)
+                is TurnEvent.ToolCallStarted -> {
+                    val key = ActivityKey(
+                        if (event.run == null) current else -1,
+                        event.run,
+                        event.id.takeIf { event.run == null && event.tool == "agent.delegate" },
+                    )
+                    val index = activityKeys.getOrPut(key) { activityKeys.size }
+                    val block = activities.getOrPut(index) { ActivitySegment(current) }
+                    val call = CallState(event.tool, event.activity, event.title, event.agent)
+                    block.calls[event.run to event.id] = call
+                    block
                 }
 
-                is TurnEvent.ToolCallUpdated -> activities[current]?.also { block ->
+                is TurnEvent.ToolCallUpdated -> {
+                    val block = activities.values.firstOrNull { event.run to event.id in it.calls } ?: return
                     val call = block.calls[event.run to event.id] ?: return
                     call.status = event.status
                     call.content = event.content
-                } ?: return
+                    block
+                }
 
                 else -> return
             }
@@ -293,7 +305,7 @@ internal class TelegramReply(
     /** Whether the activity of [entry] may send, holding off its first message while its segment's text is pending. */
     private fun ready(entry: Map.Entry<Int, ActivitySegment>): Boolean {
         if (entry.value.message != null) return true
-        val text = segments[entry.key] ?: return true
+        val text = segments[entry.value.segment] ?: return true
         return text.message != null || (text.pending == null && !text.sending)
     }
 
@@ -467,7 +479,9 @@ internal class TelegramReply(
     }
 
     /** The activity message of one segment's stretch of tool calls, in the order they started. */
-    private class ActivitySegment {
+    private data class ActivityKey(val segment: Int, val run: RunId?, val delegation: ToolCallId?)
+
+    private class ActivitySegment(val segment: Int) {
         /** By the sub-agent run that made each call, null for the turn's own, and the call's id. */
         val calls = LinkedHashMap<Pair<RunId?, ToolCallId>, CallState>()
 

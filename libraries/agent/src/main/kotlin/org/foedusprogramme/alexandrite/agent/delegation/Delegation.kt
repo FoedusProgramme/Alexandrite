@@ -32,6 +32,7 @@ internal class Delegation(
     val task: String,
     val parent: DelegatingTurn,
     val chain: RunChain,
+    val background: Boolean = false,
 ) {
     /** The run's turn, null until it started. */
     @Volatile

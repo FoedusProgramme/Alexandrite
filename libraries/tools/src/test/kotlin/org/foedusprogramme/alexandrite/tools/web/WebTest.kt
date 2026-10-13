@@ -1,0 +1,253 @@
+package org.foedusprogramme.alexandrite.tools.web
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
+import org.foedusprogramme.alexandrite.sdk.web.WebPageAnswers
+import org.foedusprogramme.alexandrite.sdk.web.WebSearchBackend
+import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
+import org.foedusprogramme.alexandrite.testkit.FakeModelServer
+import org.foedusprogramme.alexandrite.testkit.fakeResponse
+import org.foedusprogramme.alexandrite.testkit.testToolContext
+import java.io.ByteArrayInputStream
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.URI
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+
+class WebTest {
+    @Test
+    fun `URL policy refuses credentials local names schemes and non-public IPv4 and IPv6`() {
+        listOf(
+            "file:///etc/hosts",
+            "ftp://example.com/file",
+            "http://user:pass@example.com",
+            "http://localhost",
+            "http://a.localhost",
+        ).forEach {
+            assertFailsWith<IllegalArgumentException> { checkedHost(URI(it)) }
+        }
+        listOf(
+            "0.0.0.0", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254",
+            "100.64.0.1", "198.18.0.1", "224.0.0.1", "::", "::1", "fc00::1", "fe80::1", "2002::1",
+            "::ffff:127.0.0.1", "2001:db8::1",
+        ).forEach {
+            assertTrue(privateAddress(InetAddress.getByName(it)), it)
+        }
+        assertEquals("example.com", checkedHost(URI("https://example.com/page")))
+    }
+
+    @Test
+    fun `redirects are validated before another request and DNS answer is pinned`() {
+        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
+        var calls = 0
+        val resolver: (String) -> List<InetAddress> = { host ->
+            if (host == "private.example") listOf(InetAddress.getLoopbackAddress()) else listOf(public)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            fetchPage(URI("https://example.com"), 100, 1000, resolver) { _, pinned, _, _ ->
+                assertEquals(public, pinned)
+                calls++
+                WebResponse(302, mapOf("location" to "http://private.example/secret"), byteArrayOf())
+            }
+        }
+        assertEquals(1, calls)
+        val page = fetchPage(URI("https://example.com/a"), 100, 1000, resolver) { uri, _, _, _ ->
+            if (uri.path == "/a") {
+                WebResponse(302, mapOf("location" to "/b"), byteArrayOf())
+            } else {
+                WebResponse(200, mapOf("content-type" to "text/html"), "<p>ok</p>".toByteArray())
+            }
+        }
+        assertEquals("/b", page.first.path)
+        assertEquals("ok", pageText(page.second))
+        assertFailsWith<IllegalArgumentException> {
+            fetchPage(
+                URI("http://example.com"),
+                100,
+                1000,
+                { listOf(public, InetAddress.getLoopbackAddress()) },
+            ) { _, _, _, _ ->
+                error("Mixed DNS must never connect")
+            }
+        }
+    }
+
+    @Test
+    fun `plain text is preserved rather than interpreted as HTML`() {
+        val source = "<script>literal text</script>\nA < B"
+        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
+        val page = fetchPage(URI("https://example.com"), 100, 1000, { listOf(public) }) { _, _, _, _ ->
+            WebResponse(200, mapOf("content-type" to "text/plain"), source.toByteArray())
+        }
+        assertEquals(source, page.second)
+    }
+
+    @Test
+    fun `HTTP parser bounds content length chunking and unframed bodies`() {
+        fun parse(text: String, max: Int = 20): WebResponse = response(ByteArrayInputStream(text.toByteArray()), max)
+        assertEquals("abc", parse("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc").body.toString(Charsets.UTF_8))
+        val chunked = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n"
+        assertEquals("abc", parse(chunked).body.toString(Charsets.UTF_8))
+        listOf(
+            "Content-Length: 21\r\n\r\n",
+            "Content-Length: 4\r\n\r\nabc",
+            "Transfer-Encoding: chunked\r\n\r\n15\r\n",
+            "Content-Length: 2\r\nTransfer-Encoding: chunked\r\n\r\n",
+            "Content-Encoding: gzip\r\n\r\n",
+            "\r\n${"a".repeat(21)}",
+        ).forEach { body -> assertFailsWith<IllegalArgumentException> { parse("HTTP/1.1 200 OK\r\n$body") } }
+        assertFailsWith<IllegalStateException> {
+            response(ByteArrayInputStream("HTTP/1.1 200 OK\r\n\r\na".toByteArray()), 20) { error("deadline exceeded") }
+        }
+    }
+
+    @Test
+    fun `cancelling web IO closes its pinned socket immediately`() = runBlocking {
+        ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
+            val reading = CompletableDeferred<Unit>()
+            val call = launch {
+                webIo { track ->
+                    Socket().use { socket ->
+                        track(socket)
+                        socket.connect(InetSocketAddress(InetAddress.getLoopbackAddress(), server.localPort))
+                        reading.complete(Unit)
+                        socket.getInputStream().read()
+                    }
+                }
+            }
+            withTimeout(1.seconds) { reading.await() }
+            server.accept().use { remote ->
+                withTimeout(1.seconds) { call.cancelAndJoin() }
+                remote.soTimeout = 1000
+                assertEquals(-1, remote.getInputStream().read())
+            }
+        }
+    }
+
+    @Test
+    fun `HTML text drops active content`() {
+        val html = "<h1>Title</h1><script>steal()</script><style>hidden</style><p>A &amp; B</p>"
+        assertEquals("Title A & B", pageText(html))
+    }
+
+    @Test
+    fun `fetch exposes only side model answer and taints before model failure`() = runBlocking {
+        val context = testToolContext()
+        val answers = Answers()
+        val tool = FetchTool(WebConfig(model = "test/model"), WebPages { WebPage(URI(it), "raw source") }, answers)
+        assertEquals(ToolRisk.NETWORK_READ, tool.definition.risk)
+        val result = tool.execute(args("url" to "https://example.com", "prompt" to "question"), context)
+        assertFalse(result.isError)
+        assertEquals("answer", result.content.filterIsInstance<TextPart>().single().text)
+        assertEquals("raw source", answers.text)
+        assertEquals(ModelRef.parse("test/model"), answers.model)
+        assertEquals(1, context.untrustedReasons.size)
+        answers.failure = IllegalStateException("source must not leak")
+        val failure = tool.execute(args("url" to "https://example.com", "prompt" to "question"), context)
+        assertTrue(failure.isError)
+        assertFalse(failure.content.filterIsInstance<TextPart>().single().text.contains("source must not leak"))
+        assertEquals(2, context.untrustedReasons.size)
+        answers.failure = CancellationException("cancel")
+        assertFailsWith<CancellationException> {
+            tool.execute(args("url" to "https://example.com", "prompt" to "q"), context)
+        }
+        Unit
+    }
+
+    @Test
+    fun `search prefers native service else configured SPI and validates input`() = runBlocking {
+        val answers = Answers()
+        var calls = 0
+        val backend = object : WebSearchBackend {
+            override val id = "custom"
+            override suspend fun search(query: String, limit: Int): List<WebSearchResult> {
+                calls++
+                return listOf(WebSearchResult("SPI", "https://example.com", "snippet"))
+            }
+        }
+        val tool = SearchTool(WebConfig(searchBackend = "custom"), answers, listOf(backend))
+        val context = testToolContext()
+        assertFalse(tool.execute(args("query" to "question"), context).isError)
+        assertEquals(1, calls)
+        answers.native = listOf(WebSearchResult("Native", "https://example.com", "native snippet"))
+        val native = tool.execute(args("query" to "question"), context)
+        assertTrue(native.content.filterIsInstance<TextPart>().single().text.startsWith("Native"))
+        assertEquals(1, calls)
+        assertEquals(2, context.untrustedReasons.size)
+        assertTrue(tool.execute(args("query" to "question", "limit" to "5"), context).isError)
+        val zeroLimit = JsonObject(mapOf("query" to JsonPrimitive("q"), "limit" to JsonPrimitive(0)))
+        assertTrue(tool.execute(zeroLimit, context).isError)
+        assertEquals(2, context.untrustedReasons.size)
+        assertTrue(SearchTool(WebConfig(), Answers(), emptyList()).execute(args("query" to "q"), context).isError)
+    }
+
+    @Test
+    fun `Brave and Tavily adapters send real requests with bounded result parsing`() = runBlocking {
+        FakeModelServer().use { server ->
+            server.enqueue(
+                fakeResponse {
+                    body(
+                        """{
+                        "web":{"results":[
+                        {"title":"One","url":"https://example.com","description":"desc"}]}
+                    }""",
+                    )
+                },
+            )
+            server.enqueue(
+                fakeResponse {
+                    body("""{"results":[{"title":"Two","url":"https://example.com/b","content":"body"}]}""")
+                },
+            )
+            val http = SearchHttp()
+            val brave = braveResults(http.send(braveCall("a & b", 3, "fixture-key", server.baseUrl)), 3)
+            val tavily = tavilyResults(http.send(tavilyCall("question", 2, "fixture-key", server.baseUrl)), 2)
+            assertEquals("desc", brave.single().snippet)
+            assertEquals("body", tavily.single().snippet)
+            val requests = server.awaitRequests(2)
+            assertEquals("GET", requests[0].method)
+            assertTrue(requests[0].path.contains("q=a+%26+b&count=3"))
+            assertEquals("fixture-key", requests[0].header("X-Subscription-Token"))
+            assertEquals("POST", requests[1].method)
+            assertEquals(JsonPrimitive("fixture-key"), requests[1].json()["api_key"])
+            assertEquals(JsonPrimitive(2), requests[1].json()["max_results"])
+            server.assertFinished()
+        }
+    }
+}
+
+private fun args(vararg pairs: Pair<String, String>): JsonObject =
+    JsonObject(pairs.associate { it.first to JsonPrimitive(it.second) })
+
+private class Answers : WebPageAnswers {
+    var text: String? = null
+    var model: ModelRef? = null
+    var failure: Exception? = null
+    var native: List<WebSearchResult>? = null
+
+    override suspend fun answer(turn: TurnInfo, url: String, text: String, prompt: String, model: ModelRef?): String {
+        failure?.let { throw it }
+        this.text = text
+        this.model = model
+        return "answer"
+    }
+
+    override suspend fun search(turn: TurnInfo, query: String, limit: Int): List<WebSearchResult>? = native
+}

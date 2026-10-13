@@ -1,0 +1,308 @@
+package org.foedusprogramme.alexandrite.tools.web
+
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
+import org.foedusprogramme.alexandrite.sdk.di.Binds
+import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.StringReader
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URI
+import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
+import javax.swing.text.MutableAttributeSet
+import javax.swing.text.html.HTML
+import javax.swing.text.html.HTMLEditorKit
+import javax.swing.text.html.parser.ParserDelegator
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration.Companion.seconds
+
+internal class WebPage(val url: URI, val text: String)
+
+internal fun interface WebPages {
+    suspend fun fetch(url: String): WebPage
+}
+
+@Singleton
+@Binds(WebPages::class)
+internal class WebFetch(private val config: WebConfig) : WebPages {
+    override suspend fun fetch(url: String): WebPage = withTimeout(config.timeoutSeconds.seconds) {
+        webIo { track ->
+            fetchPage(
+                URI(url),
+                config.maxBytes,
+                config.timeoutSeconds * 1000,
+                exchange = { uri, address, max, timeout -> exchangePinned(uri, address, max, timeout, track) },
+            ).let { WebPage(it.first, it.second.take(config.maxTextChars)) }
+        }
+    }
+}
+
+internal fun fetchPage(
+    start: URI,
+    maxBytes: Int,
+    timeoutMillis: Int,
+    resolve: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
+    exchange: (URI, InetAddress, Int, Int) -> WebResponse = ::exchange,
+): Pair<URI, String> {
+    var uri = start
+    val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
+    repeat(6) {
+        val host = checkedHost(uri)
+        val addresses = resolve(host)
+        require(addresses.isNotEmpty() && addresses.none(::privateAddress)) {
+            "Web URL resolves to a non-public network."
+        }
+        val remaining = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtMost(timeoutMillis.toLong()).toInt()
+        require(remaining > 0) { "Web fetch timed out." }
+        val response = exchange(uri, addresses.first(), maxBytes, remaining)
+        if (response.status in setOf(301, 302, 303, 307, 308)) {
+            val location = requireNotNull(response.headers["location"]) { "Redirect has no Location." }
+            uri = uri.resolve(location)
+        } else {
+            require(response.status in 200..299) { "Web server returned HTTP ${response.status}." }
+            val type = response.headers["content-type"]?.substringBefore(';')?.trim()?.lowercase()
+            require(
+                type == null || type.startsWith("text/") || type in setOf("application/xhtml+xml", "application/json"),
+            ) {
+                "Web fetch accepts only textual responses."
+            }
+            val text = response.body.toString(Charsets.UTF_8)
+            val html = type == "text/html" || type == "application/xhtml+xml" ||
+                (type == null && text.trimStart().startsWith('<'))
+            return uri to if (html) pageText(text) else text
+        }
+    }
+    error("Too many web redirects.")
+}
+
+internal fun checkedHost(uri: URI): String {
+    require(uri.scheme in setOf("http", "https")) { "Web URL must use HTTP or HTTPS." }
+    require(uri.userInfo == null) { "Web URL must not contain credentials." }
+    val host = requireNotNull(uri.host) { "Web URL requires a host." }.removeSurrounding("[", "]")
+    require(host.isNotBlank() && !host.endsWith(".localhost", true) && !host.equals("localhost", true)) {
+        "Localhost is not a public web host."
+    }
+    require(uri.port == -1 || uri.port in 1..65535) { "Invalid web port." }
+    return host
+}
+
+internal fun privateAddress(address: InetAddress): Boolean {
+    if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
+        address.isSiteLocalAddress || address.isMulticastAddress
+    ) {
+        return true
+    }
+    val b = address.address.map { it.toInt() and 255 }
+    if (b.size == 4) {
+        val (a, c, d) = b
+        return a == 0 || a == 10 || a == 127 || a >= 224 ||
+            (a == 100 && c in 64..127) || (a == 169 && c == 254) ||
+            (a == 172 && c in 16..31) || (a == 192 && (c == 0 || c == 168 || (c == 88 && d == 99))) ||
+            (a == 198 && (c in 18..19 || (c == 51 && d == 100))) || (a == 203 && c == 0 && d == 113)
+    }
+    return b.size != 16 || b[0] !in 0x20..0x3f ||
+        (b[0] == 0x20 && b[1] == 0x01 && (b[2] < 2 || (b[2] == 0x0d && b[3] == 0xb8))) ||
+        (b[0] == 0x20 && b[1] == 0x02)
+}
+
+internal class WebResponse(val status: Int, val headers: Map<String, String>, val body: ByteArray)
+
+internal suspend fun <T> webIo(block: ((Socket) -> Unit) -> T): T = suspendCancellableCoroutine { continuation ->
+    val active = AtomicReference<Socket?>()
+    val worker = Thread.ofVirtual().unstarted {
+        if (!continuation.isActive) return@unstarted
+        try {
+            val result = block { socket ->
+                active.set(socket)
+                if (!continuation.isActive) socket.close()
+            }
+            continuation.resume(result)
+        } catch (e: Exception) {
+            continuation.resumeWithException(e)
+        }
+    }
+    continuation.invokeOnCancellation {
+        runCatching { active.get()?.close() }
+        worker.interrupt()
+    }
+    worker.start()
+}
+
+private fun exchange(uri: URI, address: InetAddress, maxBytes: Int, timeout: Int): WebResponse =
+    exchangePinned(uri, address, maxBytes, timeout) {}
+
+private fun exchangePinned(
+    uri: URI,
+    address: InetAddress,
+    maxBytes: Int,
+    timeout: Int,
+    track: (Socket) -> Unit,
+): WebResponse {
+    val host = checkedHost(uri)
+    val secure = uri.scheme == "https"
+    val port = uri.port.takeIf { it != -1 } ?: if (secure) 443 else 80
+    val deadline = System.nanoTime() + timeout * 1_000_000L
+    Socket().use { raw ->
+        track(raw)
+        raw.connect(InetSocketAddress(address, port), timeout)
+        raw.soTimeout = timeout
+        val socket = if (secure) {
+            (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, host, port, true).let {
+                (it as SSLSocket).apply {
+                    sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+                    startHandshake()
+                }
+            }
+        } else {
+            raw
+        }
+        socket.use {
+            val path = (uri.rawPath?.takeIf(String::isNotEmpty) ?: "/") +
+                (uri.rawQuery?.let { "?$it" } ?: "")
+            val authority = uri.rawAuthority
+            socket.getOutputStream().write(
+                (
+                    "GET $path HTTP/1.1\r\nHost: $authority\r\nAccept: text/html,text/plain,application/json\r\n" +
+                        "Accept-Encoding: identity\r\nConnection: close\r\nUser-Agent: Alexandrite/1\r\n\r\n"
+                    )
+                    .toByteArray(Charsets.US_ASCII),
+            )
+            val input = BufferedInputStream(socket.getInputStream())
+            return response(input, maxBytes) {
+                val remaining = ((deadline - System.nanoTime()) / 1_000_000L).toInt()
+                require(remaining > 0) { "Web fetch timed out." }
+                socket.soTimeout = remaining
+            }
+        }
+    }
+}
+
+internal fun response(input: InputStream, maxBytes: Int, beforeRead: () -> Unit = {}): WebResponse {
+    var headerBytes = 0
+    fun line(): String = buildString {
+        while (true) {
+            beforeRead()
+            val c = input.read()
+            require(c >= 0) { "Truncated HTTP headers." }
+            require(++headerBytes <= 32_768) { "HTTP headers too large." }
+            if (c == 10) break
+            if (c != 13) append(c.toChar())
+        }
+    }
+    val statusLine = line().split(' ')
+    require(statusLine.firstOrNull()?.startsWith("HTTP/1.") == true) { "Invalid HTTP response." }
+    val status = statusLine.getOrNull(1)?.toIntOrNull() ?: error("Invalid HTTP status.")
+    val headers = linkedMapOf<String, String>()
+    while (true) {
+        val field = line().takeIf(String::isNotEmpty) ?: break
+        val name = field.substringBefore(':').trim().lowercase()
+        require(':' in field && name !in headers) { "Invalid or duplicate HTTP header." }
+        headers[name] = field.substringAfter(':').trim()
+    }
+    if (status !in 200..299) return WebResponse(status, headers, byteArrayOf())
+    require(
+        headers["content-encoding"].let {
+            it == null || it.equals("identity", true)
+        },
+    ) { "Unsupported content encoding." }
+    val length = headers["content-length"]?.let { value ->
+        requireNotNull(
+            value.toLongOrNull()?.takeIf {
+                it in 0..maxBytes.toLong()
+            },
+        ) { "Web response too large or invalid length." }
+    }
+    val out = ByteArrayOutputStream()
+    fun copy(count: Long?) {
+        var remaining = count
+        val buffer = ByteArray(8192)
+        while (remaining == null || remaining > 0) {
+            beforeRead()
+            val n = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining ?: buffer.size.toLong()).toInt())
+            if (n < 0) {
+                require(remaining == null) { "Truncated HTTP body." }
+                break
+            }
+            require(out.size().toLong() + n <= maxBytes) { "Web response too large." }
+            out.write(buffer, 0, n)
+            remaining = remaining?.minus(n)
+        }
+    }
+    val transfer = headers["transfer-encoding"]
+    if (transfer != null) {
+        require(transfer.equals("chunked", true) && length == null) { "Unsupported HTTP transfer encoding." }
+        while (true) {
+            val count = line().substringBefore(';').trim().toLongOrNull(16)
+            require(count != null && count >= 0 && count <= maxBytes - out.size()) {
+                "Invalid or oversized HTTP chunk."
+            }
+            if (count == 0L) break
+            copy(count)
+            require(line().isEmpty()) { "Invalid HTTP chunk ending." }
+        }
+    } else {
+        copy(length)
+    }
+    return WebResponse(status, headers, out.toByteArray())
+}
+
+internal fun pageText(html: String): String {
+    val text = StringBuilder()
+    var hidden = 0
+    val hiddenTags = setOf("script", "style", "noscript")
+    val callback = object : HTMLEditorKit.ParserCallback() {
+        override fun handleStartTag(tag: HTML.Tag, attributes: MutableAttributeSet, position: Int) {
+            if (tag.toString() in hiddenTags) hidden++
+            if (hidden == 0) text.append(' ')
+        }
+
+        override fun handleEndTag(tag: HTML.Tag, position: Int) {
+            if (tag.toString() in hiddenTags) hidden = (hidden - 1).coerceAtLeast(0)
+            if (hidden == 0) text.append(' ')
+        }
+
+        override fun handleText(data: CharArray, position: Int) {
+            if (hidden == 0) text.append(data).append(' ')
+        }
+    }
+    ParserDelegator().parse(StringReader(withoutHiddenHtml(html)), callback, true)
+    return text.toString().replace(Regex("\\s+"), " ").trim()
+}
+
+private fun withoutHiddenHtml(html: String): String = buildString {
+    var index = 0
+    while (index < html.length) {
+        val start = html.indexOf('<', index)
+        if (start < 0) {
+            append(html, index, html.length)
+            break
+        }
+        append(html, index, start)
+        val end = html.indexOf('>', start + 1)
+        if (end < 0) break
+        val tag = html.substring(start + 1, end).trimStart().takeWhile { it.isLetterOrDigit() }.lowercase()
+        if (tag in setOf("script", "style", "noscript")) {
+            var close = html.indexOf("</$tag", end + 1, ignoreCase = true)
+            while (close >= 0) {
+                val after = close + tag.length + 2
+                if (after == html.length || html[after].isWhitespace() || html[after] == '>') break
+                close = html.indexOf("</$tag", after, ignoreCase = true)
+            }
+            if (close < 0) break
+            val closingEnd = html.indexOf('>', close)
+            if (closingEnd < 0) break
+            append(' ')
+            index = closingEnd + 1
+        } else {
+            append(html, start, end + 1)
+            index = end + 1
+        }
+    }
+}

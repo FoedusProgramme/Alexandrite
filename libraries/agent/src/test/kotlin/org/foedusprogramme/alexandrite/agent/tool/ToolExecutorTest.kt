@@ -89,7 +89,10 @@ class ToolExecutorTest {
         directories: ConversationDirectories = ConversationDirectories(hostPaths(null), settings("{}")),
     ): ToolExecutor {
         val settings = settings("""{"shutdown": {"cancelJoinSeconds": 3}}""")
-        val jobs = Jobs(settings, JobRecords(testRecords()), { true }, Clock.systemUTC(), pluginScope(GlobalJobs))
+        val jobs =
+            Jobs(settings, JobRecords(testRecords()), {
+                true
+            }, Clock.systemUTC(), org.foedusprogramme.alexandrite.agent.QuietHooks, pluginScope(GlobalJobs))
         return ToolExecutor(gate, settings, workspaces, directories, jobs)
     }
 

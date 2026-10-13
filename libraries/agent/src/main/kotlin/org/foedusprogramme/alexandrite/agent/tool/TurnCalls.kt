@@ -48,6 +48,7 @@ internal interface TurnCalls {
 /** What a sub-agent run takes from the turn that delegated it. */
 internal interface DelegatingTurn : TurnCalls {
     val turn: TurnInfo
+    val activityVisible: Boolean get() = turn.replyTarget == org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget.CHAT
     val model: ModelRef
     val reasoning: ReasoningEffort?
 

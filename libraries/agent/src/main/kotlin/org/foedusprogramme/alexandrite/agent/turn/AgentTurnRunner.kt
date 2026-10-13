@@ -48,6 +48,7 @@ import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.job.described
 import org.foedusprogramme.alexandrite.agent.job.jobEntry
+import org.foedusprogramme.alexandrite.agent.messaging.MessageBudget
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.model.RetryPolicy
 import org.foedusprogramme.alexandrite.agent.model.SelectedModel
@@ -197,11 +198,17 @@ internal class AgentTurnRunner(
         resolved: (ConversationId) -> Unit,
     ): TurnOutcome {
         val run = Run(plan, followUps, permit, resolved)
+        val budget = (plan.input as? TurnSource.FromAgentMessage)?.message?.budget
+            ?: (plan.input as? TurnSource.FromJob)?.job?.job?.messageBudget
+            ?: currentCoroutineContext()[MessageBudget] ?: MessageBudget(plan.id)
         return try {
-            run.execute()
+            withContext(budget) { run.execute() }
         } catch (e: Throwable) {
             val cause = (e as? CancellationException)?.let(::turnCause)
-            if (cause != null) return withContext(NonCancellable) { run.cutOff(cause) }
+            if (cause != null) {
+                if (budget.rootTurn == plan.id) budget.cancel()
+                return withContext(NonCancellable) { run.cutOff(cause) }
+            }
             if (e is CancellationException) currentCoroutineContext().ensureActive()
             val failed = withContext(NonCancellable) { run.fail(e) }
             if (e is VirtualMachineError) throw e
@@ -295,7 +302,7 @@ internal class AgentTurnRunner(
                 return rounds(parts, unstored, turnTools, comparison, commands, interrupted)
             }
             store(unstored, comparison, commands, interrupted)
-            jobs.delivered(input.job.job)
+            if (input.job.final) jobs.delivered(input.job.job)
             return rounds(parts, emptyList(), turnTools, null, null, null)
         }
 
@@ -473,6 +480,19 @@ internal class AgentTurnRunner(
                 initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
             }
 
+            is TurnSource.FromAgentMessage -> {
+                taint.mark(input.message.taint ?: "an untrusted agent message from ${input.message.sender.agent}")
+                initiatedEntry(
+                    "alexandrite-agent",
+                    turn.kind,
+                    Trust.UNTRUSTED,
+                    plan.queuedAt,
+                    "Agent ${input.message.sender.agent}:\n$text",
+                    clock.zone,
+                    baked,
+                )
+            }
+
             is TurnSource.FromJob -> jobOpening(turn, input.job, text)
 
             is TurnSource.FromDelegation -> delegationEntry(input.delegation, text, baked)
@@ -516,7 +536,7 @@ internal class AgentTurnRunner(
             if (delivery !is Delivery.Delivered) {
                 logger.warn("Chat {} is not told that the result of job {} is dropped: {}", chat, started.id, delivery)
             }
-            jobs.delivered(started)
+            if (job.final) jobs.delivered(started)
             TurnOutcome.Completed(null)
         }
 
@@ -605,7 +625,8 @@ internal class AgentTurnRunner(
                     message.blank && finish == FinishKind.MAX_OUTPUT_TOKENS ->
                         return unanswered(first, NoticeKind.OUTPUT_LIMIT, TextKeys.OUTPUT_LIMIT_UNANSWERED)
 
-                    message.blank -> return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
+                    message.blank && turn.kind != TurnKind.JOB ->
+                        return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
                 }
                 val reply = withContext(NonCancellable) {
                     val entries = append(*(pending + message).toTypedArray())
@@ -789,13 +810,13 @@ internal class AgentTurnRunner(
         }
 
         /** Whether the turn, or a turn it works for, used up its token budget. */
-        private fun overBudget(): Boolean =
-            maxTurnTokens?.let { spent.get() >= it } == true || delegation?.parent?.overBudget == true
+        private fun overBudget(): Boolean = maxTurnTokens?.let { spent.get() >= it } == true ||
+            delegation?.takeUnless { it.background }?.parent?.overBudget == true
 
         /** Counts [tokens] toward the turn's budget and toward that of each turn it works for. */
         private fun spend(tokens: Long) {
             spent.addAndGet(tokens)
-            delegation?.parent?.spend(tokens)
+            delegation?.takeUnless { it.background }?.parent?.spend(tokens)
         }
 
         /** Takes in the results of the jobs that turns from the turn's chat started in its conversation. */
@@ -817,7 +838,7 @@ internal class AgentTurnRunner(
                 taken.removeFirst()
                 try {
                     append(entry)
-                    jobs.delivered(job.job)
+                    if (job.final) jobs.delivered(job.job)
                     followUp.complete(TurnOutcome.Absorbed(turn.id))
                     logger.debug("Turn {} of {} takes in the result of job {}", turn.id, turn.key, job.job.id)
                 } catch (e: Throwable) {
@@ -915,6 +936,9 @@ internal class AgentTurnRunner(
         private suspend fun answer(reply: AssistantEntry, after: Pair<NoticeKind, String>?): TurnOutcome {
             val turn = checkNotNull(turn)
             val text = visibleText(reply)
+            if (text.isBlank() && turn.kind == TurnKind.JOB && after == null) {
+                return end(TurnOutcome.Completed(reply), TurnEndKind.COMPLETED)
+            }
             if (text.isEmpty()) {
                 val (kind, key) = after ?: (NoticeKind.BLANK_REPLY to TextKeys.BLANK_REPLY)
                 return ended(kind, notices.text(turn, key), TurnOutcome.Completed(null), TurnEndKind.COMPLETED)
@@ -1079,6 +1103,9 @@ internal class AgentTurnRunner(
 
             override val reasoning: ReasoningEffort? get() = this@Run.reasoning
 
+            override val activityVisible: Boolean get() = delegation?.parent?.activityVisible
+                ?: (turn.replyTarget == ReplyTarget.CHAT)
+
             override val callable: Set<String> get() = this@Run.callable
 
             override val overBudget: Boolean get() = this@Run.overBudget()
@@ -1234,6 +1261,7 @@ private val TurnSource.message: IncomingMessage?
 /** What the model reads of the turn's input before `turn.input` changes it. */
 private val TurnSource.text: String
     get() = when (this) {
+        is TurnSource.FromAgentMessage -> message.text
         is TurnSource.FromMessage -> message.text
         is TurnSource.FromInitiated -> prompt
         is TurnSource.FromJob -> job.text

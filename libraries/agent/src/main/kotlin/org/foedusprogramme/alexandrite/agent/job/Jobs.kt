@@ -8,6 +8,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.joinAll
@@ -19,6 +20,7 @@ import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.config.AgentConfig
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.messaging.MessageBudget
 import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
 import org.foedusprogramme.alexandrite.agent.tool.CANCELLED_RESULT
 import org.foedusprogramme.alexandrite.agent.tool.failedResult
@@ -31,13 +33,16 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
+import org.foedusprogramme.alexandrite.sdk.turn.JobLifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
+import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.time.Clock
@@ -56,6 +61,7 @@ internal class BackgroundJob(
     val title: String,
     val startedAt: Instant,
     val limit: Duration,
+    val messageBudget: MessageBudget? = null,
 )
 
 /** A [job] that ended with [result], which is unstored and shaped like the result of a call in the foreground. */
@@ -66,6 +72,7 @@ internal class EndedJob(
     val touched: List<Path>,
     /** Why the turn that takes the result counts as tainted, null when it need not. */
     val untrusted: String?,
+    val final: Boolean = true,
 ) {
     /** The text parts of [result], one after the other. */
     val text: String get() = result.content.filterIsInstance<TextPart>().joinToString("\n") { it.text }
@@ -80,6 +87,8 @@ internal class Detaching(
     val context: AgentToolContext,
     val ran: Duration,
     val limit: Duration,
+    val id: RunId? = null,
+    val cleanup: suspend () -> Unit = {},
 )
 
 /** Hands the result of each job that ended to a turn of its conversation. */
@@ -95,6 +104,7 @@ internal class Jobs(
     private val records: JobRecords,
     private val delivery: JobDelivery,
     private val clock: Clock,
+    private val hooks: Hooks,
     scope: PluginScope,
 ) {
     private val scope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
@@ -117,18 +127,45 @@ internal class Jobs(
         val turn = detaching.turn
         val call = detaching.call
         val started = clock.instant().minus(detaching.ran.toJavaDuration())
+        val messageBudget = currentCoroutineContext()[MessageBudget]
         val job = synchronized(lock) {
             val running = active.values.count { it.job.turn.chat == turn.chat }
-            if (!open || running >= settings.maxJobsPerChat) return null.also { kept(turn, call, running) }
+            val delegated = call.name == "agent.delegate" && active.values.count {
+                it.job.turn.chat == turn.chat && it.job.call.name == "agent.delegate"
+            } >= 4
+            if (!open || delegated || running >= settings.maxJobsPerChat) {
+                return null.also { kept(turn, call, running) }
+            }
             val background =
-                BackgroundJob(newJobId(), turn, call, callTitle(detaching.arguments), started, detaching.limit)
-            val job = Active(background, detaching.running, detaching.context)
+                BackgroundJob(
+                    detaching.id ?: newJobId(),
+                    turn,
+                    call,
+                    callTitle(detaching.arguments),
+                    started,
+                    detaching.limit,
+                    messageBudget,
+                )
+            val job = Active(background, detaching.running, detaching.context, detaching.cleanup)
+            if (background.id in active) return null
             active[background.id] = job
             job.watcher = scope.launch(start = CoroutineStart.UNDISPATCHED) { watch(job, left) }
             job
         }
         try {
-            withContext(NonCancellable) { records.put(job.job) }
+            withContext(NonCancellable) {
+                records.put(job.job)
+                hooks.fire(TurnPoints.JOB_STARTED, payload(job.job))
+                hooks.fire(TurnPoints.TOOL_BACKGROUNDED, payload(job.job))
+                job.context.background { update ->
+                    job.recorded.await()
+                    currentCoroutineContext().ensureActive()
+                    val outcome = if (update.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
+                    val result = ToolResultEntry(null, call.id, call.name, shaped(update.content), outcome)
+                    val reason = job.context.taint.known?.reason
+                    delivery.deliver(EndedJob(job.job, result, job.context.touchedPaths, reason, final = false))
+                }
+            }
         } finally {
             job.recorded.complete(Unit)
         }
@@ -141,6 +178,26 @@ internal class Jobs(
             job.job.id,
         )
         return job.job.id
+    }
+
+    suspend fun start(
+        turn: TurnInfo,
+        call: ToolCallPart,
+        arguments: JsonObject,
+        context: AgentToolContext,
+        limit: Duration,
+        id: RunId? = null,
+        cleanup: suspend () -> Unit = {},
+        block: suspend () -> ToolResult,
+    ): RunId? {
+        val running = scope.async(start = CoroutineStart.LAZY) { block() }
+        return try {
+            detach(Detaching(turn, call, arguments, running, context, Duration.ZERO, limit, id, cleanup))
+                .also { if (it == null) running.cancel() }
+        } catch (e: Throwable) {
+            running.cancel()
+            throw e
+        }
     }
 
     /** The jobs of [chat] that run and are not being stopped, oldest first. */
@@ -194,6 +251,10 @@ internal class Jobs(
             job.recorded.await()
             ended(job, result)
         } finally {
+            withContext(NonCancellable) {
+                job.cleanup()
+                hooks.fire(TurnPoints.JOB_ENDED, payload(job.job))
+            }
             job.context.close()
             synchronized(lock) { active.remove(job.job.id) }
         }
@@ -287,7 +348,12 @@ internal class Jobs(
 }
 
 /** A job and what runs it: its tool as [tool] and the [watcher] that awaits it. */
-private class Active(val job: BackgroundJob, val tool: Deferred<ToolResult>, val context: AgentToolContext) {
+private class Active(
+    val job: BackgroundJob,
+    val tool: Deferred<ToolResult>,
+    val context: AgentToolContext,
+    val cleanup: suspend () -> Unit,
+) {
     lateinit var watcher: Job
 
     /** Completes once the job's record is written, or failed to be. */
@@ -318,3 +384,5 @@ private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 private const val JOB_ID_LENGTH = 6
 
 private val logger = LoggerFactory.getLogger(Jobs::class.java)
+
+private fun payload(job: BackgroundJob): JobLifecycle = JobLifecycle(job.turn, job.id, job.call)

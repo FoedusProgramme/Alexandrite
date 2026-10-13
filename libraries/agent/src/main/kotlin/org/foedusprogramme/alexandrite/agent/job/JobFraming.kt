@@ -44,7 +44,15 @@ internal fun jobFraming(job: EndedJob, text: String, zone: ZoneId): String = bui
     val ended = if (job.result.outcome.isError) "failed" else "succeeded"
     val started = TIME.format(job.job.startedAt.atZone(zone))
     appendLine("[alexandrite:job]")
-    appendLine("$JOB_HEADER: job ${job.job.id}, ${described(job.job)}, started $started. It $ended.")
+    if (job.final) {
+        appendLine("$JOB_HEADER: job ${job.job.id}, ${described(job.job)}, started $started. It $ended.")
+    } else {
+        appendLine(
+            "Background monitor update: job ${job.job.id}, ${described(
+                job.job,
+            )}, started $started. It is still running.",
+        )
+    }
     if (text.isNotEmpty()) appendLine(Escaper.HEADERS.text(text))
     append("[/alexandrite:job]")
 }
@@ -96,7 +104,7 @@ private fun JsonElement.title(): String? = when (this) {
 }
 
 /** The arguments that name what a call works on, in the order they are looked for. */
-private val TITLE_ARGUMENTS = listOf("command", "argv", "path", "url", "query", "pattern")
+private val TITLE_ARGUMENTS = listOf("command", "argv", "path", "url", "query", "pattern", "profile")
 
 private const val MAX_TITLE_CHARS = 80
 

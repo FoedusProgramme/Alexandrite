@@ -31,6 +31,7 @@ internal suspend fun runProgram(
     environment: Map<String, String>,
     timeout: Duration,
     maxChars: Int,
+    onLine: ((String) -> Unit)? = null,
 ): ProgramOutcome {
     val builder = ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true)
     builder.environment().apply {
@@ -44,7 +45,7 @@ internal suspend fun runProgram(
         process.outputStream.close()
         val output = OutputCollector(maxChars)
         val reader = thread(isDaemon = true, name = "command.exec output ${process.pid()}") {
-            output.drain(process.inputStream)
+            output.drain(process.inputStream, onLine)
         }
         val exited = withTimeoutOrNull(timeout) { process.onExit().await() } != null
         if (!exited) withContext(NonCancellable) { destroyTree(process, STOP_GRACE) }
@@ -72,7 +73,15 @@ internal class OutputCollector(limit: Int) {
     private var tailSize = 0
     private var cut = 0L
 
-    fun drain(stream: InputStream) {
+    fun drain(stream: InputStream, onLine: ((String) -> Unit)? = null) {
+        val line = StringBuilder()
+        var omitted = 0L
+        fun reportLine() {
+            val truncation = if (omitted > 0) " [$omitted characters omitted]" else ""
+            onLine?.invoke(line.toString().trimEnd('\r') + truncation)
+            line.setLength(0)
+            omitted = 0
+        }
         try {
             stream.reader(Charsets.UTF_8).use { reader ->
                 val chunk = CharArray(CHUNK)
@@ -80,8 +89,21 @@ internal class OutputCollector(limit: Int) {
                     val count = reader.read(chunk)
                     if (count < 0) break
                     append(chunk, count)
+                    if (onLine != null) {
+                        for (index in 0 until count) {
+                            val character = chunk[index]
+                            if (character == '\n') {
+                                reportLine()
+                            } else if (line.length < CHUNK) {
+                                line.append(character)
+                            } else {
+                                omitted++
+                            }
+                        }
+                    }
                 }
             }
+            if (line.isNotEmpty()) reportLine()
         } catch (e: IOException) {
             // The stream closed under the reader.
         }

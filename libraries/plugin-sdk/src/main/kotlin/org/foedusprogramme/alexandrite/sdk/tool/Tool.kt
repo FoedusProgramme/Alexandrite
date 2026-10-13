@@ -81,6 +81,14 @@ public interface ToolContext {
     /** Null when adding [bytes] to [conversationDirectory] through [path] keeps it at or under its quota. */
     public suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String?
 
+    /** Waits until this call is attached to a background job. */
+    public suspend fun awaitBackground(): Unit =
+        throw IllegalStateException("This call cannot run as a background job.")
+
+    /** Wakes the owning agent with a background call’s intermediate result. */
+    public suspend fun backgroundUpdate(result: ToolResult): Unit =
+        throw IllegalStateException("This call has no background result receiver.")
+
     /** Reports that the call read or listed [path]. */
     public fun touched(path: Path)
 

@@ -132,6 +132,7 @@ class TelegramRepositoryTest {
             listOf(
                 "agent.delegate",
                 "agent.jobs",
+                "agent.send",
                 "agent.stop",
                 "chat.send_file",
                 "command.exec",
@@ -145,6 +146,8 @@ class TelegramRepositoryTest {
                 "profile.edit",
                 "profile.list",
                 "profile.remove",
+                "web.fetch",
+                "web.search",
             ),
             requests.first().tools.map { it.name },
         )

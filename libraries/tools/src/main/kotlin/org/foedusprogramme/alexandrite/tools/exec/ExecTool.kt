@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -26,6 +27,8 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.tools.fs.property
 import org.foedusprogramme.alexandrite.tools.fs.schema
+import org.foedusprogramme.alexandrite.tools.monitor.MonitorOptions
+import org.foedusprogramme.alexandrite.tools.monitor.monitoring
 import java.io.IOException
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -43,8 +46,30 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             "with no pipes, redirects, chaining, variables, globs or substitutions, or 'argv'. For shell features " +
             "run sh -c '…' explicitly. The program gets no input and a reduced environment, runs in 'cwd' and is " +
             "stopped with every process it started after 'timeoutSeconds'. Refuses calls that reach protected " +
-            "places.",
+            "places. Set background to true to start immediately as a job. A monitor starts a background job " +
+            "and wakes you with filtered output batches until the program exits or its lifetime expires. " +
+            "Monitor buffers are bounded and excess output can be dropped with a count.",
         parameters = schema {
+            property("background", "boolean", "Start immediately as a background job (default false).")
+            putJsonObject("monitor") {
+                put("type", "object")
+                put("additionalProperties", false)
+                put("required", JsonArray(listOf(JsonPrimitive("filter"))))
+                putJsonObject("properties") {
+                    property(
+                        "filter",
+                        "string",
+                        "Literal substring selecting output lines, nonempty and at most 1024 characters.",
+                    )
+                    property("batchSeconds", "integer", "Batch window, 1..30 seconds (default 3).")
+                    property("intervalSeconds", "integer", "Minimum wake interval, 1..3600 seconds (default 10).")
+                    property(
+                        "maxLifetimeSeconds",
+                        "integer",
+                        "Maximum monitor lifetime, no longer than timeoutSeconds.",
+                    )
+                }
+            }
             property("command", "string", "The program and its arguments as one line, such as \"./gradlew test\".")
             putJsonObject("argv") {
                 put("type", "array")
@@ -86,6 +111,11 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+        val monitor = try {
+            monitorOptions(arguments, request(arguments).timeout)
+        } catch (e: CallProblem) {
+            return ToolResult(e.message, isError = true)
+        }
         val run = when (val inspection = inspect(arguments, context, running = true)) {
             is Inspection.Problem -> return ToolResult(inspection.text, isError = true)
             is Inspection.Refused -> return ToolResult(inspection.text, isError = true)
@@ -107,28 +137,49 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                 isError = true,
             )
         }
+        context.touched(run.cwd)
+        run.reached.forEach(context::touched)
+        if (!run.vetted) context.untrusted("command.exec ran ${run.program}")
+        var finalMonitorOutput = "[monitor ended]"
         val outcome = try {
-            runProgram(
+            suspend fun runWithLines(onLine: ((String) -> Unit)?): ProgramOutcome = runProgram(
                 listOf(run.resolved.toString()) + run.argv.drop(1),
                 run.cwd,
                 childEnvironment(System.getenv(), config.environment),
-                run.timeout,
+                monitor?.lifetime ?: run.timeout,
                 config.maxOutputChars,
+                onLine,
             )
+            if (monitor == null) {
+                runWithLines(null)
+            } else {
+                val monitored = monitoring(monitor, context, ::runWithLines)
+                finalMonitorOutput = buildString {
+                    append("[monitor ended]")
+                    if (monitored.remaining.isNotEmpty()) {
+                        append("\nMonitor remaining matched output:\n")
+                        append(monitored.remaining.joinToString("\n"))
+                    }
+                    val dropped = monitored.dropped
+                    if (dropped > 0) append("\n[$dropped matching lines dropped by buffer limits]")
+                }
+                monitored.value
+            }
         } catch (e: IOException) {
             return ToolResult(
                 "${run.name} could not be started: ${e.message ?: e.javaClass.simpleName}",
                 isError = true,
             )
         }
-        context.touched(run.cwd)
-        run.reached.forEach(context::touched)
-        if (!run.vetted) context.untrusted("command.exec ran ${run.program}")
-        val output = outcome.output.trimEnd().ifEmpty { "[no output]" }
+        val output = if (monitor == null) {
+            outcome.output.trimEnd().ifEmpty { "[no output]" }
+        } else {
+            finalMonitorOutput
+        }
         val exitCode = outcome.exitCode
             ?: return ToolResult(
-                "The program timed out after ${run.timeout.inWholeSeconds} s and was stopped with the processes " +
-                    "it started. Its output until then:\n$output",
+                "The program timed out after ${(monitor?.lifetime ?: run.timeout).inWholeSeconds} s and was stopped " +
+                    "with the processes it started. Its output until then:\n$output",
                 isError = true,
             )
         return ToolResult("Exit code: $exitCode\n$output", isError = exitCode != 0)
@@ -137,6 +188,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     /** What the call would run, or why it cannot run, with the workspace created only when it is [running]. */
     private suspend fun inspect(arguments: JsonObject, context: ToolContext, running: Boolean): Inspection = try {
         val parsed = request(arguments)
+        monitorOptions(arguments, parsed.timeout)
         val cwd = parsed.cwd?.let { resolveCwd(it, context, running) } ?: run {
             val workspace = context.workspace
                 ?: throw CallProblem("Give 'cwd': you have no workspace to run in by default.")
@@ -167,6 +219,11 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun request(arguments: JsonObject): ParsedRequest {
+        arguments.optional("background")?.let { value ->
+            if ((value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) {
+                throw CallProblem("'background' must be a boolean.")
+            }
+        }
         val command = arguments.optional("command")?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: throw CallProblem("'command' must be a string.")
@@ -206,6 +263,28 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         return ParsedRequest(words, cwd, seconds.seconds)
     }
 
+    private fun monitorOptions(arguments: JsonObject, timeout: Duration): MonitorOptions? {
+        val value = arguments.optional("monitor") ?: return null
+        val monitor = value as? JsonObject ?: throw CallProblem("'monitor' must be an object.")
+        if (monitor.keys.any { it !in MONITOR_FIELDS }) throw CallProblem("Unknown monitor option.")
+        val filter = (monitor["filter"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            ?.takeIf { it.isNotEmpty() && it.length <= 1024 }
+            ?: throw CallProblem("'monitor.filter' must be a nonempty string of at most 1024 characters.")
+        fun seconds(name: String, default: Int, maximum: Int): Duration {
+            val raw = monitor[name] ?: return default.seconds
+            val number = (raw as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                ?.takeIf { it in 1..maximum }
+                ?: throw CallProblem("'monitor.$name' must be a whole number from 1 to $maximum.")
+            return number.seconds
+        }
+        return MonitorOptions(
+            filter,
+            seconds("batchSeconds", 3, 30),
+            seconds("intervalSeconds", 10, 3600),
+            seconds("maxLifetimeSeconds", timeout.inWholeSeconds.toInt(), timeout.inWholeSeconds.toInt()),
+        )
+    }
+
     private fun isOperator(context: ToolContext): Boolean =
         context.turn.actorIsAdmin && context.turn.kind in OPERATOR_KINDS
 
@@ -227,3 +306,5 @@ private fun home(): String? = System.getProperty("user.home")?.takeIf { it.isNot
 
 /** The kinds of turn whose admin actor makes them an operator's. */
 private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)
+
+private val MONITOR_FIELDS = setOf("filter", "batchSeconds", "intervalSeconds", "maxLifetimeSeconds")

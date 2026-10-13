@@ -27,10 +27,19 @@ import kotlin.test.assertEquals
 class TurnPointsTest {
     private val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo().rebuild { contextWindow(100_000) }))
 
-    /** Every point that [TurnPoints] declares. */
     private val points: List<HookPoint<*>> = TurnPoints::class.java.methods
         .filter { it.parameterCount == 0 && HookPoint::class.java.isAssignableFrom(it.returnType) }
         .map { it.invoke(TurnPoints) as HookPoint<*> }
+
+    private val lifecyclePoints = setOf(
+        TurnPoints.AGENT_SPAWN,
+        TurnPoints.AGENT_RUN_ENDED,
+        TurnPoints.JOB_STARTED,
+        TurnPoints.JOB_ENDED,
+        TurnPoints.TOOL_BACKGROUNDED,
+    ).mapTo(HashSet()) { it.id }
+
+    private val ordinaryPoints = points.filterNot { it.id in lifecyclePoints }
 
     private val config = """
         {
@@ -47,7 +56,7 @@ class TurnPointsTest {
     """.trimIndent()
 
     @Test
-    fun `a turn that runs a tool, a compaction and a new conversation after them fire every turn point`() {
+    fun `an ordinary turn with a tool, compaction and new conversation fires its 16 hooks`() {
         val fired = CopyOnWriteArrayList<String>()
         val commands = TestCommands()
         val read = recordingTool("fs.read") { _, _ -> ToolResult("A long line of the file. ".repeat(20)) }
@@ -67,8 +76,8 @@ class TurnPointsTest {
             (channel().receiveCommand("new", issuer = admin) as Admission.Accepted).ticket.outcome()
         }
 
-        assertEquals(16, points.size)
-        assertEquals(points.map { it.id }.toSet(), fired.toSet())
+        assertEquals(16, ordinaryPoints.size)
+        assertEquals(ordinaryPoints.map { it.id }.toSet(), fired.toSet())
         assertEquals(TurnPoints.CONVERSATION_SEALED.id, fired.last())
     }
 

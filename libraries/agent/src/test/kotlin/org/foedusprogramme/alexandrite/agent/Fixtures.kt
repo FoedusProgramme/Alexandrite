@@ -243,3 +243,13 @@ fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths =
     override val configBackup = configFile?.let { it.resolveSibling("${it.fileName}.bak") }
     override val protected = emptyList<Path>()
 }
+
+object QuietHooks : org.foedusprogramme.alexandrite.sdk.hook.Hooks {
+    override suspend fun <P : Any> fire(
+        point: org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint<P>,
+        payload: P,
+    ): org.foedusprogramme.alexandrite.sdk.hook.Interception<P> =
+        org.foedusprogramme.alexandrite.sdk.hook.Interception.Proceed(payload)
+    override suspend fun <P : Any> fire(point: org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint<P>, payload: P) =
+        Unit
+}

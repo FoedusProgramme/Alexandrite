@@ -7,7 +7,6 @@ import org.foedusprogramme.alexandrite.agent.worker.AgentTicket
 import org.foedusprogramme.alexandrite.agent.worker.TurnWorkers
 import org.foedusprogramme.alexandrite.agent.worker.WorkerJob
 import org.foedusprogramme.alexandrite.agent.worker.newTurnId
-import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -30,7 +29,7 @@ internal class JobTurns(private val workers: Lazy<TurnWorkers>, private val cloc
             kind = TurnKind.JOB,
             input = TurnSource.FromJob(job),
             actor = turn.actor,
-            replyTarget = ReplyTarget.CHAT,
+            replyTarget = turn.replyTarget,
             trigger = null,
             queuedAt = now,
         )

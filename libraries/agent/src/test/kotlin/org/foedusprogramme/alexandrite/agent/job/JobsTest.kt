@@ -70,6 +70,7 @@ class JobsTest {
         JobRecords(records.of("alexandrite-agent")),
         { delivered.add(it) },
         clock,
+        org.foedusprogramme.alexandrite.agent.QuietHooks,
         pluginScope(backgroundScope),
     )
 

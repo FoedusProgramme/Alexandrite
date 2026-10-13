@@ -110,6 +110,7 @@ class OfferedToolsTest {
                     "${conversation()}" to setOf(
                         "agent.delegate",
                         "agent.jobs",
+                        "agent.send",
                         "agent.stop",
                         "chat.send_file",
                         "fs.read",
@@ -153,7 +154,7 @@ class OfferedToolsTest {
             assertEquals(2, request.turnStart)
             assertEquals(entries.take(5), model.requests[2].history.take(5))
             val tools = setOf(
-                "agent.delegate", "agent.jobs", "agent.stop", "chat.send_file", "fs.edit", "fs.read",
+                "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.send_file", "fs.edit", "fs.read",
                 "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
             )
             assertEquals(mapOf("${conversation()}" to tools), recorded())
@@ -215,7 +216,7 @@ class OfferedToolsTest {
             assertEquals(emptyList(), notices(stored(sealed)) + notices(stored()))
             assertEquals(listOf("UserEntry", "AssistantEntry"), kinds(stored()))
             val tools = setOf(
-                "agent.delegate", "agent.jobs", "agent.stop", "chat.send_file", "fs.edit", "fs.read",
+                "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.send_file", "fs.edit", "fs.read",
                 "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
             )
             assertEquals(mapOf("${conversation()}" to tools), recorded())

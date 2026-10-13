@@ -60,11 +60,15 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
         ToolResult("$NAME runs only in a turn of the agent.", isError = true)
 
     override suspend fun call(arguments: JsonObject, context: AgentToolContext): InTurnResult {
-        if (arguments["background"] != null) {
-            return problem(
-                "Background delegation is not available yet: leave out 'background', and wait for the result.",
-            )
-        }
+        val background = arguments["background"]?.let {
+            (it as? JsonPrimitive)?.takeIf { value -> !value.isString }?.content?.let { value ->
+                when (value) {
+                    "true" -> true
+                    "false" -> false
+                    else -> null
+                }
+            } ?: return problem("'background' must be a boolean.")
+        } ?: false
         val profile = string(arguments["profile"]) ?: return problem("Give 'profile', the id of a profile.")
         val task = string(arguments["task"]) ?: return problem("Give 'task', the whole brief of the sub-agent.")
         val fork = when (arguments["context"]?.let { string(it).orEmpty() } ?: FRESH) {
@@ -72,7 +76,7 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
             FORK -> true
             else -> return problem("'context' is \"$FRESH\" or \"$FORK\".")
         }
-        return delegator.delegate(profile, task, fork, context)
+        return delegator.delegate(profile, task, fork, context, background)
     }
 
     private fun definition(description: String): ToolDefinition = ToolDefinition(
@@ -81,6 +85,13 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
+                putJsonObject("background") {
+                    put("type", "boolean")
+                    put(
+                        "description",
+                        "Run independently and report later. Defaults to false; synchronous calls run serially.",
+                    )
+                }
                 putJsonObject("profile") {
                     put("type", "string")
                     put("description", "The id of the profile that runs the task, one of those listed.")
@@ -119,7 +130,8 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
             "of its own, which runs it in a new conversation and returns only its final reply. Each of its tool " +
             "calls needs the same permissions as yours, and it has no tool that you may not call. Use it for work " +
             "that a fresh context does better, such as a review or a self-contained change, and give it the whole " +
-            "brief. This call waits until the sub-agent ends."
+            "brief. By default this call waits, and multiple synchronous calls run serially. Set background to true " +
+            "to start independent runs that report later; at most four may run per root chat."
     }
 }
 

@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.turn
 
 import org.foedusprogramme.alexandrite.agent.delegation.Delegation
 import org.foedusprogramme.alexandrite.agent.job.EndedJob
+import org.foedusprogramme.alexandrite.agent.messaging.AgentMessage
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
@@ -33,6 +34,8 @@ internal class TurnPlan(
 
 /** What a turn answers. */
 internal sealed interface TurnSource {
+    class FromAgentMessage(val message: AgentMessage) : TurnSource
+
     class FromMessage(val message: IncomingMessage) : TurnSource
 
     /** The [prompt] that the plugin [plugin] started the turn with. */

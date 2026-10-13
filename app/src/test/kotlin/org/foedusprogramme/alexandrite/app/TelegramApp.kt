@@ -147,7 +147,10 @@ suspend fun PluginHarness.Running.idle() {
 
 /** Whether this message is an activity message, folding a stretch of tool calls rather than carrying body text. */
 fun FakeBotMessage.isActivity(): Boolean = !text.startsWith("Approval needed") &&
-    entities.any { (it as? JsonObject)?.get("type") == JsonPrimitive("expandable_blockquote") }
+    (
+        entities.any { (it as? JsonObject)?.get("type") == JsonPrimitive("expandable_blockquote") } ||
+            text.startsWith("Delegating to ") || text.startsWith("Delegated to ")
+        )
 
 /** [messages], its activity messages left out. */
 fun List<FakeBotMessage>.body(): List<FakeBotMessage> = filterNot { it.isActivity() }

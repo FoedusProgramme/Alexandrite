@@ -51,6 +51,7 @@ class ToolRegistryTest {
                 listOf(
                     "agent.delegate",
                     "agent.jobs",
+                    "agent.send",
                     "agent.stop",
                     "chat.send_file",
                     "exec.run",
@@ -111,7 +112,7 @@ class ToolRegistryTest {
 
             assertEquals(emptyList(), offered("coder"))
             assertEquals(
-                listOf("agent.delegate", "agent.jobs", "agent.stop", "fs.read", "permission.status"),
+                listOf("agent.delegate", "agent.jobs", "agent.send", "agent.stop", "fs.read", "permission.status"),
                 offered("helper"),
             )
         }
