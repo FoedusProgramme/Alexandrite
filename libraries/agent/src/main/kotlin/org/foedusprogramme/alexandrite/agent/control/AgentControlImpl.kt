@@ -124,8 +124,9 @@ internal class AgentControlImpl(
     }
 
     override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean {
-        if (background.stop(run, null, by)) return true
-        if (!runs.cancel(run, tree, TurnCancelled(by))) return false
+        val backgroundStopped = background.stop(run, null, by, tree)
+        val runStopped = runs.cancel(run, tree, TurnCancelled(by))
+        if (!backgroundStopped && !runStopped) return false
         logger.info("Run {}{} is cancelled by {}", run, if (tree) " and the runs below it" else "", who(by))
         return true
     }

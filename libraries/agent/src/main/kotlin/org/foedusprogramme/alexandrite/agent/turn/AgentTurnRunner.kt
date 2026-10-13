@@ -213,6 +213,8 @@ internal class AgentTurnRunner(
             val failed = withContext(NonCancellable) { run.fail(e) }
             if (e is VirtualMachineError) throw e
             failed
+        } finally {
+            (plan.input as? TurnSource.FromJob)?.job?.consumed?.invoke()
         }
     }
 
@@ -262,6 +264,7 @@ internal class AgentTurnRunner(
         suspend fun execute(): TurnOutcome {
             val input = plan.input
             val message = input.message
+            if (input is TurnSource.FromJob && input.job.cancelled()) return TurnOutcome.TakenBack
             if (input is TurnSource.FromJob && !stillActive(input.job)) return dropped(input.job)
             val turn = dequeue()
             if (!openReply(turn)) return TurnOutcome.Failed("Channel instance ${turn.chat.instance} is not open.")
@@ -373,7 +376,7 @@ internal class AgentTurnRunner(
                 delegation != null -> delegation.conversation.also { inherited = inherited(it) }
 
                 input is TurnSource.FromJob -> checkNotNull(
-                    conversations.conversation(input.job.job.turn.conversation),
+                    conversations.conversation(input.job.job.resultConversation),
                 ) {
                     "The conversation of job ${input.job.job.id} is gone."
                 }
@@ -511,16 +514,20 @@ internal class AgentTurnRunner(
 
         /** Whether the conversation of [job] still takes entries. */
         private suspend fun stillActive(job: EndedJob): Boolean =
-            conversations.conversation(job.job.turn.conversation)?.state == ConversationState.ACTIVE
+            conversations.conversation(job.job.resultConversation)?.state == ConversationState.ACTIVE
 
         /** Drops the result of [job], whose conversation was sealed since the job started, telling its chat. */
         private suspend fun dropped(job: EndedJob): TurnOutcome = withContext(NonCancellable) {
             val started = job.job
+            if (!job.final) {
+                jobs.stop(started.id, started.turn.chat, null)
+                return@withContext TurnOutcome.Completed(null)
+            }
             logger.info(
                 "The result of job {} ({}) is dropped: its conversation {} of {} was sealed",
                 started.id,
                 described(started),
-                started.turn.conversation,
+                started.resultConversation,
                 plan.key,
             )
             val text = notices.text(
@@ -833,10 +840,20 @@ internal class AgentTurnRunner(
         private suspend fun absorbJob(turn: TurnInfo, taken: ArrayDeque<FollowUp>) {
             val followUp = taken.first()
             val job = (followUp.plan.input as TurnSource.FromJob).job
+            if (job.cancelled()) {
+                taken.removeFirst()
+                job.consumed()
+                followUp.complete(TurnOutcome.TakenBack)
+                return
+            }
             val entry = jobOpening(turn, job, job.text)
             withContext(NonCancellable) {
                 taken.removeFirst()
                 try {
+                    if (job.cancelled()) {
+                        followUp.complete(TurnOutcome.TakenBack)
+                        return@withContext
+                    }
                     append(entry)
                     if (job.final) jobs.delivered(job.job)
                     followUp.complete(TurnOutcome.Absorbed(turn.id))
@@ -844,6 +861,8 @@ internal class AgentTurnRunner(
                 } catch (e: Throwable) {
                     followUp.complete(TurnOutcome.Failed(e.toString()))
                     throw e
+                } finally {
+                    job.consumed()
                 }
             }
         }
@@ -1102,6 +1121,9 @@ internal class AgentTurnRunner(
             override val model: ModelRef get() = this@Run.model
 
             override val reasoning: ReasoningEffort? get() = this@Run.reasoning
+
+            override val runAncestors: Set<org.foedusprogramme.alexandrite.sdk.chat.RunId>
+                get() = delegation?.let { it.parent.runAncestors + it.run }.orEmpty()
 
             override val activityVisible: Boolean get() = delegation?.parent?.activityVisible
                 ?: (turn.replyTarget == ReplyTarget.CHAT)

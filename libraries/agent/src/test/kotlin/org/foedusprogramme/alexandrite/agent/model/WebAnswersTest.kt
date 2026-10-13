@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.model
 import kotlinx.coroutines.runBlocking
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentDirectory
+import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.provider
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
@@ -13,6 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.web.NativeWebSearchEndpoint
 import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
+import org.foedusprogramme.alexandrite.testkit.TestChatStates
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,6 +34,7 @@ class WebAnswersTest {
         val answers = WebAnswers(
             Endpoints(providers, config, TestClock()),
             agentDirectory(config, providers = providers),
+            SettingsStates(TestChatStates().of("alexandrite-agent")),
         )
         assertEquals("page answer", answers.answer(testTurn(), "https://example.com", "page text", "question", null))
         val request = judge.requests.single()
@@ -67,9 +70,55 @@ class WebAnswersTest {
         val answers = WebAnswers(
             Endpoints(providers, config, TestClock()),
             agentDirectory(config, providers = providers),
+            SettingsStates(TestChatStates().of("alexandrite-agent")),
         )
         assertEquals("snippet", answers.search(testTurn(), "question", 3)?.single()?.snippet)
         assertEquals(model.ref, searched)
         assertTrue(model.requests.isEmpty())
+    }
+
+    @Test
+    fun `disabled native endpoint falls back without sending a search`() = runBlocking {
+        val model = ScriptedModel()
+        val endpoint = object : ModelEndpoint by model, NativeWebSearchEndpoint {
+            override fun supportsNativeSearch(model: ModelRef): Boolean = false
+            override suspend fun search(model: ModelRef, query: String, limit: Int): List<WebSearchResult> =
+                error("Disabled search must not be invoked")
+        }
+        val providers = listOf(provider(endpoint))
+        val config = settings(
+            """{"agents":{"main":{"description":"fixture","model":"${model.ref}"}}}""",
+        )
+        val answers = WebAnswers(
+            Endpoints(providers, config, TestClock()),
+            agentDirectory(config, providers = providers),
+            SettingsStates(TestChatStates().of("alexandrite-agent")),
+        )
+        assertNull(answers.search(testTurn(), "question", 3))
+        assertTrue(model.requests.isEmpty())
+    }
+
+    @Test
+    fun `native search uses the executing model rather than directory default`() = runBlocking {
+        val default = ScriptedModel(EndpointId("default"))
+        val selected = ScriptedModel(EndpointId("selected"))
+        var searched: ModelRef? = null
+        val endpoint = object : ModelEndpoint by selected, NativeWebSearchEndpoint {
+            override suspend fun search(model: ModelRef, query: String, limit: Int): List<WebSearchResult> {
+                searched = model
+                return emptyList()
+            }
+        }
+        val providers = listOf(provider(default), provider(endpoint))
+        val config = settings(
+            """{"agents":{"main":{"description":"fixture","model":"${default.ref}"}}}""",
+        )
+        val answers = WebAnswers(
+            Endpoints(providers, config, TestClock()),
+            agentDirectory(config, providers = providers),
+            SettingsStates(TestChatStates().of("alexandrite-agent")),
+        )
+        assertEquals(emptyList(), answers.search(testTurn(), "question", 3, selected.ref))
+        assertEquals(selected.ref, searched)
     }
 }

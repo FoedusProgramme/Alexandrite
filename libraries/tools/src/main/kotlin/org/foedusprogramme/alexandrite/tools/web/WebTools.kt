@@ -31,7 +31,8 @@ internal class FetchTool(
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.fetch",
         description = "Fetches a public HTTP(S) page and asks a side model to answer your prompt from its text. " +
-            "Only the answer is returned. The answer is untrusted web content. Private networks are refused.",
+            "Only the answer is returned. The answer is untrusted web content. " +
+            "Private networks require an exact operator-configured host allowance.",
         parameters = schema(listOf("url", "prompt"), "url" to "string", "prompt" to "string"),
         risk = ToolRisk.NETWORK_READ,
         timeout = (config.timeoutSeconds * 2).seconds,
@@ -44,7 +45,7 @@ internal class FetchTool(
         val answers = requireNotNull(answers) { "Web side model service is unavailable." }
         val url = arguments.string("url", 8192)
         val prompt = arguments.string("prompt", 16_000)
-        checkedHost(java.net.URI(url))
+        checkedHost(java.net.URI(url), config.normalizedPrivateHosts)
         context.untrusted("web.fetch reads untrusted web content")
         withTimeout(definition.timeout!!) {
             val page = fetch.fetch(url)
@@ -98,7 +99,7 @@ internal class SearchTool(
         require(limit in 1..20) { "limit must be between 1 and 20." }
         context.untrusted("web.search reads untrusted web content")
         withTimeout(definition.timeout!!) {
-            val native = answers?.search(context.turn, query, limit)
+            val native = answers?.search(context.turn, query, limit, context.model)
             val found = native ?: run {
                 val id = config.searchBackend ?: when {
                     config.braveApiKey != null -> "brave"

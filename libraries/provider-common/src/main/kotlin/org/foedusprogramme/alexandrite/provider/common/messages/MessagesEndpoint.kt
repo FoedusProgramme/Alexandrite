@@ -22,6 +22,9 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.web.NativeWebSearchEndpoint
+import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
 
 /** What an endpoint of the Messages API does beyond its [EndpointSettings]. */
 public class MessagesSettings(
@@ -31,6 +34,7 @@ public class MessagesSettings(
     public val betas: List<String> = emptyList(),
     /** Whether the endpoint's models take turn-scoped system messages, which then carry trusted turn context. */
     public val turnScopedSystem: Boolean = false,
+    public val nativeSearch: Boolean = false,
 ) {
     init {
         for (beta in betas) {
@@ -52,6 +56,7 @@ public class MessagesEndpoint(
     private val flavor: MessagesFlavor,
     private val messages: MessagesSettings = MessagesSettings(),
 ) : ModelEndpoint,
+    NativeWebSearchEndpoint,
     AutoCloseable {
     private val core = EndpointCore(
         id,
@@ -61,6 +66,14 @@ public class MessagesEndpoint(
         mapOf("anthropic-version" to flavor.version),
         AUTH_HEADER,
     )
+
+    override fun supportsNativeSearch(model: ModelRef): Boolean = messages.nativeSearch && model.endpoint == id
+
+    override suspend fun search(model: ModelRef, query: String, limit: Int): List<WebSearchResult> {
+        require(supportsNativeSearch(model)) { "Native web search is disabled for this endpoint." }
+        require(query.isNotBlank() && query.length <= 2000 && limit in 1..20)
+        return nativeSearch(core, model, query, limit, messages.betas, ::classify)
+    }
 
     override suspend fun models(): List<ModelInfo> = core.models()
 

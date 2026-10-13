@@ -29,7 +29,7 @@ internal class JobTurns(private val workers: Lazy<TurnWorkers>, private val cloc
             kind = TurnKind.JOB,
             input = TurnSource.FromJob(job),
             actor = turn.actor,
-            replyTarget = turn.replyTarget,
+            replyTarget = job.job.resultReplyTarget,
             trigger = null,
             queuedAt = now,
         )

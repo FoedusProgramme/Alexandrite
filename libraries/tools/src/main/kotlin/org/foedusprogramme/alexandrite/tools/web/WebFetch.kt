@@ -38,6 +38,7 @@ internal class WebFetch(private val config: WebConfig) : WebPages {
                 URI(url),
                 config.maxBytes,
                 config.timeoutSeconds * 1000,
+                allowedPrivateHosts = config.normalizedPrivateHosts,
                 exchange = { uri, address, max, timeout -> exchangePinned(uri, address, max, timeout, track) },
             ).let { WebPage(it.first, it.second.take(config.maxTextChars)) }
         }
@@ -49,14 +50,16 @@ internal fun fetchPage(
     maxBytes: Int,
     timeoutMillis: Int,
     resolve: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() },
+    allowedPrivateHosts: Set<String> = emptySet(),
     exchange: (URI, InetAddress, Int, Int) -> WebResponse = ::exchange,
 ): Pair<URI, String> {
+    val allowed = allowedPrivateHosts.map(::normalizeAllowedHost).toSet()
     var uri = start
     val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
     repeat(6) {
-        val host = checkedHost(uri)
+        val host = checkedHost(uri, allowed)
         val addresses = resolve(host)
-        require(addresses.isNotEmpty() && addresses.none(::privateAddress)) {
+        require(addresses.isNotEmpty() && (host in allowed || addresses.none(::privateAddress))) {
             "Web URL resolves to a non-public network."
         }
         val remaining = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtMost(timeoutMillis.toLong()).toInt()
@@ -82,13 +85,20 @@ internal fun fetchPage(
     error("Too many web redirects.")
 }
 
-internal fun checkedHost(uri: URI): String {
+internal fun checkedHost(uri: URI, allowedPrivateHosts: Set<String> = emptySet()): String {
+    val host = parsedHost(uri)
+    require(host in allowedPrivateHosts || (!host.endsWith(".localhost") && host != "localhost")) {
+        "Localhost requires an explicitly allowed private host."
+    }
+    return host
+}
+
+private fun parsedHost(uri: URI): String {
     require(uri.scheme in setOf("http", "https")) { "Web URL must use HTTP or HTTPS." }
     require(uri.userInfo == null) { "Web URL must not contain credentials." }
     val host = requireNotNull(uri.host) { "Web URL requires a host." }.removeSurrounding("[", "]")
-    require(host.isNotBlank() && !host.endsWith(".localhost", true) && !host.equals("localhost", true)) {
-        "Localhost is not a public web host."
-    }
+        .lowercase(java.util.Locale.ROOT).removeSuffix(".")
+    require(host.isNotBlank() && !host.endsWith('.') && '%' !in host) { "Invalid web host." }
     require(uri.port == -1 || uri.port in 1..65535) { "Invalid web port." }
     return host
 }
@@ -145,7 +155,7 @@ private fun exchangePinned(
     timeout: Int,
     track: (Socket) -> Unit,
 ): WebResponse {
-    val host = checkedHost(uri)
+    val host = parsedHost(uri)
     val secure = uri.scheme == "https"
     val port = uri.port.takeIf { it != -1 } ?: if (secure) 443 else 80
     val deadline = System.nanoTime() + timeout * 1_000_000L

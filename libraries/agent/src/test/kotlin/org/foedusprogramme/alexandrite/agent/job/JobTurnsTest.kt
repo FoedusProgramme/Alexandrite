@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.job
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.agent.agentHarness
@@ -364,6 +365,47 @@ class JobTurnsTest {
         }
 
         assertEquals(1, lines.count { it.startsWith("INFO The result of job ") && it.endsWith("was sealed") })
+    }
+
+    @Test
+    fun `stopping a monitor discards its queued wake without starting a model turn`() {
+        val blocked = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val emit = CompletableDeferred<Unit>()
+        val emitted = CompletableDeferred<Unit>()
+        val monitor = recordingTool("test.monitor") { _, context ->
+            context.awaitBackground()
+            emit.await()
+            repeat(100) { context.backgroundUpdate(ToolResult("MATCH $it")) }
+            emitted.complete(Unit)
+            awaitCancellation()
+        }
+        model.reply { toolCall("test.monitor") }.reply {
+            pause {
+                blocked.complete(Unit)
+                release.await()
+            }
+            text("Parent done.")
+        }
+        harness { tool(monitor) }.execute {
+            val ticket = ask().ticket
+            withTimeout(5.seconds) { blocked.await() }
+            val control = get<AgentControl>()
+            val id = control.jobs(channel().chat()).single().id
+            emit.complete(Unit)
+            withTimeout(5.seconds) { emitted.await() }
+            assertTrue(control.stopJob(channel().chat(), id, channel().user("admin")))
+            release.complete(Unit)
+            assertIs<TurnOutcome.Completed>(ticket.outcome())
+            until { control.turns(channel().chat()).isEmpty() && recorded().isEmpty() }
+            assertEquals(2, model.requests.size)
+            assertEquals(1, channel().replies.size)
+            assertFalse(
+                stored().filterIsInstance<UserEntry>().any {
+                    it.origin == UserOrigin.SystemWritten("alexandrite.job")
+                },
+            )
+        }
     }
 
     // Taint.

@@ -30,8 +30,10 @@ import org.foedusprogramme.alexandrite.agent.tool.timedOutResult
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
@@ -62,7 +64,12 @@ internal class BackgroundJob(
     val startedAt: Instant,
     val limit: Duration,
     val messageBudget: MessageBudget? = null,
-)
+    val ancestors: Set<RunId> = emptySet(),
+    val resultReplyTarget: ReplyTarget = turn.replyTarget,
+) {
+    val resultConversation get() = turn.rootConversation
+    val resultTurn get() = turn.lineage?.rootTurn ?: turn.id
+}
 
 /** A [job] that ended with [result], which is unstored and shaped like the result of a call in the foreground. */
 internal class EndedJob(
@@ -73,6 +80,8 @@ internal class EndedJob(
     /** Why the turn that takes the result counts as tainted, null when it need not. */
     val untrusted: String?,
     val final: Boolean = true,
+    val cancelled: () -> Boolean = { false },
+    val consumed: () -> Unit = {},
 ) {
     /** The text parts of [result], one after the other. */
     val text: String get() = result.content.filterIsInstance<TextPart>().joinToString("\n") { it.text }
@@ -127,8 +136,12 @@ internal class Jobs(
         val turn = detaching.turn
         val call = detaching.call
         val started = clock.instant().minus(detaching.ran.toJavaDuration())
+        currentCoroutineContext().ensureActive()
+        val parentJob = currentCoroutineContext()[Job]
         val messageBudget = currentCoroutineContext()[MessageBudget]
+        val ancestors = detaching.context.delegating?.runAncestors ?: turn.lineage?.run?.let(::setOf).orEmpty()
         val job = synchronized(lock) {
+            if (parentJob?.isActive == false || ancestors.any { active[it]?.cause != null }) return null
             val running = active.values.count { it.job.turn.chat == turn.chat }
             val delegated = call.name == "agent.delegate" && active.values.count {
                 it.job.turn.chat == turn.chat && it.job.call.name == "agent.delegate"
@@ -145,6 +158,8 @@ internal class Jobs(
                     started,
                     detaching.limit,
                     messageBudget,
+                    ancestors,
+                    if (detaching.context.delegating?.activityVisible == true) ReplyTarget.CHAT else turn.replyTarget,
                 )
             val job = Active(background, detaching.running, detaching.context, detaching.cleanup)
             if (background.id in active) return null
@@ -157,14 +172,7 @@ internal class Jobs(
                 records.put(job.job)
                 hooks.fire(TurnPoints.JOB_STARTED, payload(job.job))
                 hooks.fire(TurnPoints.TOOL_BACKGROUNDED, payload(job.job))
-                job.context.background { update ->
-                    job.recorded.await()
-                    currentCoroutineContext().ensureActive()
-                    val outcome = if (update.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
-                    val result = ToolResultEntry(null, call.id, call.name, shaped(update.content), outcome)
-                    val reason = job.context.taint.known?.reason
-                    delivery.deliver(EndedJob(job.job, result, job.context.touchedPaths, reason, final = false))
-                }
+                job.context.background { update -> update(job, update) }
             }
         } finally {
             job.recorded.complete(Unit)
@@ -206,12 +214,17 @@ internal class Jobs(
     }.sortedBy { it.startedAt }
 
     /** Stops the job [id] for [by], when [chat] runs it or [chat] is null, and returns whether it ran. */
-    fun stop(id: RunId, chat: ChatAddress?, by: ChatUser?): Boolean {
+    fun stop(id: RunId, chat: ChatAddress?, by: ChatUser?, tree: Boolean = true): Boolean {
         val stopped = synchronized(lock) {
-            active[id]?.takeIf { (chat == null || it.job.turn.chat == chat) && it.stop(TurnCancelled(by)) }
-        } ?: return false
-        logger.info("Job {} ({}) of {} is stopped by {}", id, described(stopped.job), stopped.job.turn.chat, who(by))
-        return true
+            active.values.filter {
+                (it.job.id == id || (tree && id in it.job.ancestors)) &&
+                    (chat == null || it.job.turn.chat == chat)
+            }.filter { it.stop(TurnCancelled(by)) }
+        }
+        stopped.forEach {
+            logger.info("Job {} ({}) of {} is stopped by {}", it.job.id, described(it.job), it.job.turn.chat, who(by))
+        }
+        return stopped.isNotEmpty()
     }
 
     /** Stops the jobs of [chat] for [by] and returns how many ran. */
@@ -290,6 +303,41 @@ internal class Jobs(
         if (!shutdown) records.remove(job.job.id)
     }
 
+    private suspend fun update(job: Active, update: ToolResult) {
+        job.recorded.await()
+        currentCoroutineContext().ensureActive()
+        val admit = synchronized(lock) {
+            when {
+                job.cause != null -> false
+
+                job.pendingUpdate -> {
+                    job.droppedUpdates++
+                    false
+                }
+
+                else -> {
+                    job.pendingUpdate = true
+                    true
+                }
+            }
+        }
+        if (!admit) return
+        val outcome = if (update.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
+        val result = ToolResultEntry(null, job.job.call.id, job.job.call.name, shaped(update.content), outcome)
+        val taint = job.context.taint
+        val reason = if (taint.tainted) taint.known?.reason ?: "untrusted monitor output" else null
+        val ended = EndedJob(
+            job.job,
+            result,
+            job.context.touchedPaths,
+            reason,
+            final = false,
+            cancelled = { synchronized(lock) { job.cause != null } },
+            consumed = { synchronized(lock) { job.pendingUpdate = false } },
+        )
+        if (!delivery.deliver(ended)) ended.consumed()
+    }
+
     private suspend fun ended(job: Active, result: ToolResultEntry) {
         val taint = job.context.taint
         taint.record()
@@ -298,7 +346,25 @@ internal class Jobs(
         } else {
             null
         }
-        val ended = EndedJob(job.job, result, job.context.touchedPaths, untrusted)
+        val dropped = synchronized(lock) { job.droppedUpdates }
+        val finalResult = if (dropped == 0L) {
+            result
+        } else {
+            ToolResultEntry(
+                null,
+                result.callId,
+                result.toolName,
+                result.content + TextPart("[$dropped monitor wake batches dropped while the consumer was busy]"),
+                result.outcome,
+            )
+        }
+        val ended = EndedJob(
+            job.job,
+            finalResult,
+            job.context.touchedPaths,
+            untrusted,
+            cancelled = { synchronized(lock) { job.cause != null } },
+        )
         logger.info("Job {} ({}) of {} ended: {}", job.job.id, described(job.job), job.job.turn.chat, result.outcome)
         if (!delivery.deliver(ended)) {
             logger.warn(
@@ -312,7 +378,7 @@ internal class Jobs(
     /** Cancels the tool of [job] and waits at most [wait] for it to end. */
     private suspend fun stop(job: Active, wait: Duration) {
         withContext(NonCancellable) {
-            job.tool.cancel()
+            job.tool.cancel(synchronized(lock) { job.cause } ?: TurnCancelled(null))
             if (withTimeoutOrNull(wait) { job.tool.join() } == null) {
                 logger.warn(
                     "Job {} ({}) still runs {} after it was stopped: it is abandoned and its result discarded",
@@ -361,6 +427,8 @@ private class Active(
 
     /** Why the job is being stopped, null while it runs on. */
     var cause: CancellationException? = null
+    var pendingUpdate: Boolean = false
+    var droppedUpdates: Long = 0
 
     val status: JobStatus
         get() = JobStatus(job.id, job.turn.chat, job.call.name, job.title, job.startedAt, job.turn.actor)

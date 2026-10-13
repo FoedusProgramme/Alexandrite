@@ -520,7 +520,7 @@ private fun ArrayDeque<WorkerJob>.followUps(principal: UserAddress, chat: ChatAd
 
 /** The conversation of the job whose result this turn answers, null for any other turn. */
 private val TurnPlan.jobConversation: ConversationId?
-    get() = (input as? TurnSource.FromJob)?.job?.job?.turn?.conversation
+    get() = (input as? TurnSource.FromJob)?.job?.job?.resultConversation
 
 /** Whether this turn answers a message that [principal] sent in [chat] and queued since [since]. */
 private fun TurnPlan.isFollowUp(principal: UserAddress, chat: ChatAddress, since: Instant): Boolean =

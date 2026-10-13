@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.model
 
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
+import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -18,7 +19,11 @@ import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
 
 @Singleton
 @Binds(WebPageAnswers::class)
-internal class WebAnswers(private val endpoints: Endpoints, private val directory: AgentDirectory) : WebPageAnswers {
+internal class WebAnswers(
+    private val endpoints: Endpoints,
+    private val directory: AgentDirectory,
+    private val settings: SettingsStates,
+) : WebPageAnswers {
     override suspend fun answer(turn: TurnInfo, url: String, text: String, prompt: String, model: ModelRef?): String {
         val ref = model ?: requireNotNull(directory.agent(turn.agent)?.judgeModel) { "No web side model configured." }
         val selected = requireNotNull(endpoints.select(ref)) { "Web side model is unavailable." }
@@ -37,9 +42,10 @@ internal class WebAnswers(private val endpoints: Endpoints, private val director
             .joinToString("") { it.text }.also { require(it.isNotBlank()) { "Web side model returned no answer." } }
     }
 
-    override suspend fun search(turn: TurnInfo, query: String, limit: Int): List<WebSearchResult>? {
-        val ref = directory.agent(turn.agent)?.model ?: return null
+    override suspend fun search(turn: TurnInfo, query: String, limit: Int, model: ModelRef?): List<WebSearchResult>? {
+        val ref = model ?: settings.model(turn.key) ?: directory.agent(turn.agent)?.model ?: return null
         val endpoint = endpoints.endpoint(ref.endpoint) as? NativeWebSearchEndpoint ?: return null
+        if (!endpoint.supportsNativeSearch(ref)) return null
         return endpoint.search(ref, query, limit)
     }
 }

@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -53,6 +54,9 @@ internal class AgentToolContext(
 
     override val call: ToolCallId = call
         get() = field.also { checkOpen() }
+
+    override val model: ModelRef?
+        get() = delegating?.model.also { checkOpen() }
 
     override val workspace: Path?
         get() = workspaces.paths[turn.agent]

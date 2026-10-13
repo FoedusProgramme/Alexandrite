@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.sdk.web
 
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.BoundSpi
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
@@ -18,14 +19,22 @@ public class WebSearchResult(public val title: String, public val url: String, p
 
 /** The model service used by web tools. */
 @BoundSpi
+@SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface WebPageAnswers {
     public suspend fun answer(turn: TurnInfo, url: String, text: String, prompt: String, model: ModelRef?): String
 
     /** Null when the selected endpoint has no native search capability. */
-    public suspend fun search(turn: TurnInfo, query: String, limit: Int): List<WebSearchResult>?
+    public suspend fun search(
+        turn: TurnInfo,
+        query: String,
+        limit: Int,
+        model: ModelRef? = null,
+    ): List<WebSearchResult>?
 }
 
 /** An optional capability implemented by endpoints with server-side web search. */
 public interface NativeWebSearchEndpoint {
+    public fun supportsNativeSearch(model: ModelRef): Boolean = true
+
     public suspend fun search(model: ModelRef, query: String, limit: Int): List<WebSearchResult>
 }

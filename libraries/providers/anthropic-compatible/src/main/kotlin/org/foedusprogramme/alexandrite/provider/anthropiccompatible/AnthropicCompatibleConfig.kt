@@ -40,6 +40,8 @@ internal class EndpointConfig(
     val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
     /** Whether the endpoint's models take turn-scoped system messages, which then carry trusted turn context. */
     val turnScopedSystem: Boolean = false,
+    /** Enables the backend’s server-side web search tool. */
+    val nativeSearch: Boolean = false,
     val timeouts: TimeoutConfig = TimeoutConfig(),
 ) {
     init {
@@ -59,5 +61,5 @@ internal class EndpointConfig(
         providerHeaders = MessagesEndpoint.PROVIDER_HEADERS,
     )
 
-    fun messages(): MessagesSettings = MessagesSettings(promptCaching, betas, turnScopedSystem)
+    fun messages(): MessagesSettings = MessagesSettings(promptCaching, betas, turnScopedSystem, nativeSearch)
 }

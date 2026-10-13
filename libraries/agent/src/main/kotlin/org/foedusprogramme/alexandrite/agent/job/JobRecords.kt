@@ -21,10 +21,10 @@ internal class JobRecords(records: Records) {
     suspend fun put(job: BackgroundJob) {
         val turn = job.turn
         val record = JobRecord(
-            turn.conversation,
+            job.resultConversation,
             turn.key,
             turn.chat,
-            turn.id,
+            job.resultTurn,
             job.call.name,
             job.title,
             job.startedAt.toString(),

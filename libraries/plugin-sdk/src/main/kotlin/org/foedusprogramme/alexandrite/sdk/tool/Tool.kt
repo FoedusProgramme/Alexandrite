@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import java.nio.file.Path
@@ -60,6 +61,9 @@ public class ToolDefinition(
 public interface ToolContext {
     public val turn: TurnInfo
     public val call: ToolCallId
+
+    /** The model executing this call, null outside a model turn. */
+    public val model: ModelRef? get() = null
 
     /** The directory where the turn's agent keeps its own files, which may not exist yet, null when it has none. */
     public val workspace: Path?

@@ -22,6 +22,23 @@ class SubclassOptInTest {
             override val cacheDir get() = TODO()
         }
 
+        class PageAnswers : org.foedusprogramme.alexandrite.sdk.web.WebPageAnswers {
+            override suspend fun answer(
+                turn: org.foedusprogramme.alexandrite.sdk.chat.TurnInfo,
+                url: String,
+                text: String,
+                prompt: String,
+                model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef?,
+            ): String = TODO()
+
+            override suspend fun search(
+                turn: org.foedusprogramme.alexandrite.sdk.chat.TurnInfo,
+                query: String,
+                limit: Int,
+                model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef?,
+            ): List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult>? = TODO()
+        }
+
         abstract class Index : org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 
         class Control : org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl {
@@ -933,6 +950,27 @@ class SubclassOptInTest {
     @Test
     fun `a plugin's tool checks its paths against the hard floor without the internal API`() {
         assertEquals(emptyList(), errors(fileTool))
+    }
+
+    @Test
+    fun `a plugin implements web search capabilities without the internal API`() {
+        val source = """
+            class Search : org.foedusprogramme.alexandrite.sdk.web.WebSearchBackend {
+                override val id = "search"
+                override suspend fun search(query: String, limit: Int):
+                    List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult> = emptyList()
+            }
+
+            class NativeSearch : org.foedusprogramme.alexandrite.sdk.web.NativeWebSearchEndpoint {
+                override suspend fun search(
+                    model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef,
+                    query: String,
+                    limit: Int,
+                ): List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult> = emptyList()
+            }
+        """.trimIndent()
+
+        assertEquals(emptyList(), errors(source))
     }
 
     @Test

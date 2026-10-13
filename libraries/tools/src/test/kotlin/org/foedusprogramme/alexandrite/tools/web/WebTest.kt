@@ -100,6 +100,73 @@ class WebTest {
     }
 
     @Test
+    fun `private host allowances require exact hosts and normalize case and trailing dot`() {
+        val config = WebConfig(allowedPrivateHosts = setOf("Private.Example.", "LOCALHOST.", "[::1]"))
+        assertEquals(setOf("private.example", "localhost", "::1"), config.normalizedPrivateHosts)
+        listOf(
+            "", " ", "*.example.com", "example.com/path", "http://example.com", "user@example.com",
+            "localhost:8080", "[::1]:8080", "example.com?x", "example.com#x", "example.com..",
+            "example.com\\path", "[fe80::1%25eth0]",
+        ).forEach { host ->
+            assertFailsWith<IllegalArgumentException>(host) { WebConfig(allowedPrivateHosts = setOf(host)) }
+        }
+        assertEquals("localhost", checkedHost(URI("http://LOCALHOST./"), config.normalizedPrivateHosts))
+        assertFailsWith<IllegalArgumentException> {
+            checkedHost(URI("http://child.localhost/"), config.normalizedPrivateHosts)
+        }
+        val loopback = InetAddress.getLoopbackAddress()
+        val page = fetchPage(
+            URI("http://PRIVATE.EXAMPLE./"),
+            100,
+            1000,
+            resolve = { host ->
+                assertEquals("private.example", host)
+                listOf(loopback)
+            },
+            allowedPrivateHosts = config.normalizedPrivateHosts,
+        ) { _, pinned, _, _ ->
+            assertEquals(loopback, pinned)
+            WebResponse(200, mapOf("content-type" to "text/plain"), "allowed".toByteArray())
+        }
+        assertEquals("allowed", page.second)
+    }
+
+    @Test
+    fun `WebFetch denies private hosts by default and explicitly allowed localhost preserves plain text`() =
+        runBlocking {
+            FakeModelServer().use { server ->
+                val url = server.baseUrl.replace("127.0.0.1", "localhost") + "/text"
+                assertFailsWith<IllegalArgumentException> { WebFetch(WebConfig()).fetch(url) }
+                assertFailsWith<IllegalArgumentException> { WebFetch(WebConfig()).fetch(server.baseUrl) }
+                assertTrue(server.requests.isEmpty())
+                val source = "<script>literal text</script>\nA < B and C > D"
+                server.enqueue(
+                    fakeResponse {
+                        header("content-type", "text/plain; charset=utf-8")
+                        body(source)
+                    },
+                )
+                val fetch = WebFetch(WebConfig(allowedPrivateHosts = setOf("LOCALHOST.")))
+                assertEquals(source, fetch.fetch(url).text)
+                assertEquals("/text", server.awaitRequests(1).single().path)
+                server.assertFinished()
+            }
+        }
+
+    @Test
+    fun `WebFetch rechecks redirect host allowance on every hop`() = runBlocking {
+        FakeModelServer().use { server ->
+            val url = server.baseUrl.replace("127.0.0.1", "localhost") + "/redirect"
+            server.enqueue(fakeResponse(302) { header("location", server.baseUrl + "/secret") })
+            val fetch = WebFetch(WebConfig(allowedPrivateHosts = setOf("localhost")))
+            assertFailsWith<IllegalArgumentException> { fetch.fetch(url) }
+            assertEquals("/redirect", server.awaitRequests(1).single().path)
+            assertEquals(1, server.requests.size)
+            server.assertFinished()
+        }
+    }
+
+    @Test
     fun `HTTP parser bounds content length chunking and unframed bodies`() {
         fun parse(text: String, max: Int = 20): WebResponse = response(ByteArrayInputStream(text.toByteArray()), max)
         assertEquals("abc", parse("HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc").body.toString(Charsets.UTF_8))
@@ -249,5 +316,6 @@ private class Answers : WebPageAnswers {
         return "answer"
     }
 
-    override suspend fun search(turn: TurnInfo, query: String, limit: Int): List<WebSearchResult>? = native
+    override suspend fun search(turn: TurnInfo, query: String, limit: Int, model: ModelRef?): List<WebSearchResult>? =
+        native
 }

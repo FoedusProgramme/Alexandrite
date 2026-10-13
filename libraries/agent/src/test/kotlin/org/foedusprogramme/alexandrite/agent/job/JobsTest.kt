@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.job
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -22,9 +23,13 @@ import org.foedusprogramme.alexandrite.agent.tool.ToolCallEnd
 import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolGate
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
+import org.foedusprogramme.alexandrite.sdk.chat.rebuild
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -234,6 +239,73 @@ class JobsTest {
             "call call-1 reported untrusted content: a web page",
             delivered.single().untrusted,
         )
+    }
+
+    @Test
+    fun `a stalled consumer retains at most one monitor wake per job`() = runTest {
+        val tool = recordingTool("fs.slow") { _, context ->
+            delay(11.seconds)
+            repeat(100) { context.backgroundUpdate(ToolResult("MATCH $it")) }
+            awaitCancellation()
+        }
+        val jobs = jobs()
+        val id = job(jobs.execute(tool))
+        advanceTimeBy(2.seconds)
+        runCurrent()
+        assertEquals(1, delivered.size)
+        assertTrue(jobs.stop(id, turn.chat, null))
+        runCurrent()
+        assertTrue(delivered.single().cancelled())
+    }
+
+    @Test
+    fun `consuming a monitor wake releases its slot and the final result reports dropped batches`() = runTest {
+        val next = CompletableDeferred<Unit>()
+        val tool = recordingTool("fs.slow") { _, context ->
+            delay(11.seconds)
+            repeat(100) { context.backgroundUpdate(ToolResult("MATCH $it")) }
+            next.await()
+            context.backgroundUpdate(ToolResult("MATCH after consumption"))
+            ToolResult("Done.")
+        }
+        val jobs = jobs()
+        jobs.execute(tool)
+        advanceTimeBy(2.seconds)
+        runCurrent()
+        assertEquals(1, delivered.size)
+        delivered.single().consumed()
+        next.complete(Unit)
+        runCurrent()
+        assertEquals(2, delivered.count { !it.final })
+        val final = delivered.single { it.final }
+        assertTrue(final.text.contains("99 monitor wake batches dropped"), final.text)
+        assertEquals(emptyList(), jobs.list(turn.chat))
+    }
+
+    @Test
+    fun `nested background recovery records point to the root conversation and root turn`() = runTest {
+        val child = turn.rebuild {
+            id(TurnId("child-turn"))
+            conversation(ConversationId("child-conversation"))
+            lineage(
+                TurnLineage(
+                    RunId("parent-run"),
+                    turn.id,
+                    turn.conversation,
+                    call.id,
+                    turn.id,
+                    turn.conversation,
+                    1,
+                ),
+            )
+        }
+        val job = BackgroundJob(RunId("nested-job"), child, call, "reviewer", clock.now, 120.seconds)
+        val records = JobRecords(records.of("alexandrite-agent"))
+        records.put(job)
+        val saved = records.all().getValue(job.id)
+        assertEquals(turn.conversation, saved.conversation)
+        assertEquals(turn.id, saved.turn)
+        assertEquals(child, job.turn)
     }
 
     /** The job of a call made once the agent stopped, null when the call stayed in the foreground. */

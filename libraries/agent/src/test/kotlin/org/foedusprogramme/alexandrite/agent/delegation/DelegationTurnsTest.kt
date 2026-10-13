@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.delegation
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.agentHarness
@@ -105,11 +106,12 @@ class DelegationTurnsTest {
         ToolResult("Page.")
     }
 
-    private fun harness(coder: String = ""): PluginHarness = agentHarness(
+    private fun harness(coder: String = "", maxBackgroundRuns: Int = 4): PluginHarness = agentHarness(
         """
         {
           "previewIntervalMillis": 0,
           "maxJobsPerChat": 8,
+          "maxBackgroundRuns": $maxBackgroundRuns,
           "shutdown": {"turnGraceSeconds": 0, "cancelJoinSeconds": 2},
           "agents": {
             "coder": {
@@ -789,6 +791,134 @@ class DelegationTurnsTest {
                     it.origin == UserOrigin.SystemWritten("alexandrite.job")
                 },
             )
+        }
+    }
+
+    @Test
+    fun `cancelling a background run tree stops its independently running background child`() {
+        cancelNestedBackgroundTree(maxBackgroundRuns = 2, expectedReads = 2)
+    }
+
+    @Test
+    fun `cancelling a background run tree removes a child waiting for a permit before it can execute`() {
+        cancelNestedBackgroundTree(maxBackgroundRuns = 1, expectedReads = 1)
+    }
+
+    @Test
+    fun `cancelling a background tree reaches a grandchild after its middle run has completed`() {
+        readGate = CompletableDeferred()
+        model.reply(ROOT) {
+            toolCall(DELEGATE_TOOL, """{"profile":"nester","task":"Parent","background":true}""")
+        }.reply(ROOT) { text("Started.") }
+            .reply(ROOT) { text("Middle report received.") }
+        model.reply(task("Parent")) {
+            toolCall(DELEGATE_TOOL, """{"profile":"nester","task":"Middle","background":true}""")
+        }.reply(task("Parent")) { toolCall("test.read", """{"path":"parent"}""") }
+        model.reply(task("Middle")) {
+            toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Grandchild","background":true}""")
+        }.reply(task("Middle")) { text("Middle finished.") }
+        model.reply(profile(REVIEWER)) { toolCall("test.read", """{"path":"grandchild"}""") }
+
+        harness().execute {
+            assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
+            val control = get<AgentControl>()
+            withTimeout(5_000) {
+                read.awaitCalls(2)
+                while (jobResultCount() < 1 || control.jobs(channel().chat()).size != 2) delay(5)
+                while (model.requests.none { request ->
+                        store.conversations.turn(request.ids.turn)?.kind == TurnKind.JOB
+                    }
+                ) {
+                    delay(5)
+                }
+            }
+            val parent = read.calls.single { it.arguments["path"] == JsonPrimitive("parent") }.turn
+            val grandchild = read.calls.single { it.arguments["path"] == JsonPrimitive("grandchild") }.turn
+            val middle = runs(NESTER).first { it.task() == "Middle" }
+            val rootConversation = store.conversations.current(key).id
+            val reports = model.requests.filter { store.conversations.turn(it.ids.turn)?.kind == TurnKind.JOB }
+            assertEquals(1, reports.size)
+            val report = reports.single()
+            withTimeout(5_000) {
+                while (store.conversations.turn(report.ids.turn)?.end == null) delay(5)
+            }
+            assertEquals(rootConversation, report.ids.conversation)
+            assertTrue(report.instructions.none { it.id == DELEGATION_SECTION })
+            assertTrue(
+                report.history.filterIsInstance<UserEntry>()
+                    .filter { it.origin == UserOrigin.SystemWritten("alexandrite.job") }
+                    .flatMap { it.parts.filterIsInstance<ContextPart>() }
+                    .any { it.text.contains("Middle finished.") },
+            )
+            assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(report.ids.turn)?.end)
+            assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(middle.ids.turn)?.end)
+            assertEquals(ConversationState.SEALED, store.conversations.conversation(middle.ids.conversation)?.state)
+            assertEquals(null, store.conversations.turn(parent.id)?.end)
+            assertEquals(null, store.conversations.turn(grandchild.id)?.end)
+            for (conversation in listOf(parent.conversation, middle.ids.conversation, grandchild.conversation)) {
+                assertEquals(
+                    0,
+                    store.transcripts.entries(conversation).filterIsInstance<UserEntry>().count {
+                        it.origin == UserOrigin.SystemWritten("alexandrite.job")
+                    },
+                )
+            }
+
+            assertTrue(control.cancelRun(checkNotNull(parent.lineage).run, tree = true, channel().user("admin")))
+
+            withTimeout(5_000) {
+                while (control.jobs(channel().chat()).isNotEmpty() || read.cancelled.size < 2) delay(5)
+                while (lifecycleEvents.count { it.startsWith("job.ended:") } < 3) delay(5)
+            }
+            assertEquals(2, read.calls.size)
+            assertEquals(2, read.cancelled.size)
+            for (turn in listOf(parent, grandchild)) {
+                assertEquals(TurnEndKind.CANCELLED, store.conversations.turn(turn.id)?.end)
+                assertEquals(ConversationState.SEALED, store.conversations.conversation(turn.conversation)?.state)
+            }
+            assertEquals(1, jobResultCount())
+            assertEquals(1, model.requests.count { store.conversations.turn(it.ids.turn)?.kind == TurnKind.JOB })
+        }
+    }
+
+    private fun cancelNestedBackgroundTree(maxBackgroundRuns: Int, expectedReads: Int) {
+        readGate = CompletableDeferred()
+        model.reply(ROOT) {
+            toolCall(DELEGATE_TOOL, """{"profile":"nester","task":"Parent","background":true}""")
+        }.reply(ROOT) { text("Started.") }
+        model.reply(profile(NESTER)) {
+            toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Child","background":true}""")
+        }.reply(profile(NESTER)) { toolCall("test.read", """{"path":"parent"}""") }
+        model.reply(profile(REVIEWER)) { toolCall("test.read", """{"path":"child"}""") }
+
+        harness(maxBackgroundRuns = maxBackgroundRuns).execute {
+            assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
+            val control = get<AgentControl>()
+            withTimeout(5_000) {
+                read.awaitCalls(expectedReads)
+                while (control.jobs(channel().chat()).size < 2) delay(5)
+            }
+            val parent = read.calls.single { it.arguments["path"] == JsonPrimitive("parent") }.turn
+            val parentRun = checkNotNull(parent.lineage).run
+            assertEquals(expectedReads - 1, runs(REVIEWER).size)
+            assertEquals(null, store.conversations.turn(parent.id)?.end)
+
+            assertTrue(control.cancelRun(parentRun, tree = true, channel().user("admin")))
+
+            withTimeout(5_000) {
+                while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
+                while (read.cancelled.size < expectedReads) delay(5)
+                while (lifecycleEvents.count { it.startsWith("job.ended:") } < 2) delay(5)
+            }
+            assertEquals(expectedReads, read.calls.size)
+            assertEquals(expectedReads, read.cancelled.size)
+            assertEquals(expectedReads - 1, runs(REVIEWER).size)
+            assertEquals(TurnEndKind.CANCELLED, store.conversations.turn(parent.id)?.end)
+            for (call in read.calls) {
+                assertEquals(TurnEndKind.CANCELLED, store.conversations.turn(call.turn.id)?.end)
+                assertEquals(ConversationState.SEALED, store.conversations.conversation(call.turn.conversation)?.state)
+            }
+            assertEquals(0, jobResultCount())
         }
     }
 

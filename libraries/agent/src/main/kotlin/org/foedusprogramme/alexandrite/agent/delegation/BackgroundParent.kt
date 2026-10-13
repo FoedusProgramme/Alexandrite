@@ -43,7 +43,16 @@ internal class BackgroundParent(
     suspend fun open() {
         if (!activityVisible) return
         val channel = channels.channel(turn.chat.instance) ?: return
-        sink = channel.openReply(ReplyRequest(turn.rebuild { id(activityTurn) }, null))
+        sink =
+            channel.openReply(
+                ReplyRequest(
+                    turn.rebuild {
+                        id(activityTurn)
+                        replyTarget(org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget.CHAT)
+                    },
+                    null,
+                ),
+            )
         show(TurnEvent.ToolCallStarted(call, DELEGATE_TOOL, ToolActivity.OTHER, "$profile ($run)", run, profile))
     }
 
