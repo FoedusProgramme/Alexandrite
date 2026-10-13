@@ -104,7 +104,8 @@ internal class ToolExecutor(
                 calls.starting(call.id)
                 calls.running(call.id)
                 val delegating = calls as? DelegatingTurn
-                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, trigger, delegating)
+                val context =
+                    AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, trigger, delegating)
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {

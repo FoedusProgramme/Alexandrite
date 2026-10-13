@@ -81,7 +81,12 @@ class AppTextsTest {
         val packs = AppTexts.packs(classLoader)
 
         assertEquals(
-            setOf("alexandrite-agent", "alexandrite-channel-telegram", "alexandrite-channel-onebot", "alexandrite-commands"),
+            setOf(
+                "alexandrite-agent",
+                "alexandrite-channel-telegram",
+                "alexandrite-channel-onebot",
+                "alexandrite-commands",
+            ),
             packs.plugins,
         )
         for (plugin in packs.plugins) assertEquals(listOf(chinese), assertTextsComplete(plugin, packs, classLoader))
