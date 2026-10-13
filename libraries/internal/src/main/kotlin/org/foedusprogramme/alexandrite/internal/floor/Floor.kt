@@ -189,7 +189,16 @@ private fun isMagic(path: CanonicalPath): Boolean {
 private fun standardRoots(home: Path?, environment: Map<String, String>): List<DenyRoot> =
     home?.let { CREDENTIAL_STORES.map { (name, kind) -> DenyRoot(home.resolve(name), kind) } }.orEmpty() +
         movedStores(environment) +
-        DenyRoot(Path.of("/dev"), "devices")
+        DEVICES
+
+/**
+ * The device tree, on the hosts that have one.
+ *
+ * `/dev` is the device tree of a POSIX system and means nothing on a host without one: there it names a path that has
+ * no root of its own, which no check can canonicalize.
+ */
+private val DEVICES: List<DenyRoot> =
+    if (java.io.File.separatorChar == '/') listOf(DenyRoot(Path.of("/dev"), "devices")) else emptyList()
 
 /** The credential stores at the absolute places that the variables of [environment] name. */
 private fun movedStores(environment: Map<String, String>): List<DenyRoot> {
