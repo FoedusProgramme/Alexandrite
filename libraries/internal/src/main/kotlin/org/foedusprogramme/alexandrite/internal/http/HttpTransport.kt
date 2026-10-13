@@ -52,6 +52,8 @@ public class HttpCall(
     public val secrets: Collection<String> = emptyList(),
     /** The first-byte timeout of this call, null for the transport's. */
     public val firstByte: Duration? = null,
+    /** A body sent in place of [body], with its own content type. */
+    public val multipart: MultipartBody? = null,
 ) {
     private val masked = secrets.filter { it.length >= MIN_SECRET }.distinct().sortedByDescending { it.length }
 
@@ -63,6 +65,7 @@ public class HttpCall(
         require(firstByte == null || (firstByte.isPositive() && firstByte.isFinite())) {
             "The first byte timeout is positive and finite, was $firstByte."
         }
+        require(body == null || multipart == null) { "A call has one body." }
     }
 
     /** [text] with [secrets] masked. */
@@ -179,10 +182,15 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
     }
 
     private fun request(call: HttpCall): HttpRequest {
-        val publisher = call.body?.let { HttpRequest.BodyPublishers.ofString(it) }
+        val multipart = call.multipart
+        val publisher = multipart?.publisher()
+            ?: call.body?.let { HttpRequest.BodyPublishers.ofString(it) }
             ?: HttpRequest.BodyPublishers.noBody()
         val builder = HttpRequest.newBuilder(call.uri).method(call.method, publisher)
         call.headers.forEach { (name, value) -> builder.header(name, value) }
+        if (multipart != null && call.headers.keys.none { it.equals(CONTENT_TYPE, ignoreCase = true) }) {
+            builder.header(CONTENT_TYPE, multipart.contentType)
+        }
         return builder.build()
     }
 
@@ -198,6 +206,8 @@ public class HttpTransport(private val timeouts: HttpTimeouts, private val clock
 
         /** The bytes of an error response's body that an [HttpException] keeps. */
         public const val ERROR_BODY_LIMIT: Int = 64 * 1024
+
+        private const val CONTENT_TYPE = "content-type"
     }
 }
 

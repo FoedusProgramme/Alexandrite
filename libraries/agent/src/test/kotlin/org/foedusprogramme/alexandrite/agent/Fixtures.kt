@@ -10,8 +10,12 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
+import org.foedusprogramme.alexandrite.agent.directory.Inbox
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.permission.AgentFloor
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
@@ -220,6 +224,14 @@ internal object DirectCalls : TurnCalls {
     override fun ownWords(): List<String> = emptyList()
 
     override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T = ask()
+}
+
+/** The inbox of the conversation directories under [dataRoot], with the agent settings of [config]. */
+internal fun inbox(dataRoot: Path, config: String = "{}"): Inbox {
+    val settings = settings(config)
+    val paths = hostPaths(null, dataRoot)
+    val directories = ConversationDirectories(paths, settings)
+    return Inbox(directories, AgentFloor(paths, Workspaces(paths, settings), settings, directories))
 }
 
 fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths = object : HostPaths {

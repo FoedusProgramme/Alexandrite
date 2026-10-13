@@ -52,6 +52,7 @@ class ToolRegistryTest {
                     "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
+                    "chat.send_file",
                     "exec.run",
                     "fs.glob",
                     "fs.read",

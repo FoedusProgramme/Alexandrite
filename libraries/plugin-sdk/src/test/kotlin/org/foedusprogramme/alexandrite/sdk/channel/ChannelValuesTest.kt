@@ -96,6 +96,8 @@ class ChannelValuesTest {
         assertFailsWith<IllegalArgumentException> { attachment.size(0).width(0).build() }
         assertFailsWith<IllegalArgumentException> { attachment.width(1).height(-2).build() }
         assertEquals(0L, attachment.height(1).build().size)
+        assertFailsWith<IllegalArgumentException> { attachment.unavailable(" ").build() }
+        assertEquals("too large", attachment.unavailable("too large").build().unavailable)
         assertFailsWith<IllegalArgumentException> { DisplayFact(" ", "x") }
         assertFailsWith<IllegalArgumentException> { DisplayFact("Operator: yes", "x") }
         assertFailsWith<IllegalArgumentException> { DisplayFact("Via\u2028bot", "x") }
@@ -128,6 +130,40 @@ class ChannelValuesTest {
     }
 
     @Test
+    fun `an outbound message may be blank only when it carries files`() {
+        val file = OutboundFile.builder("chart.png", "image/png", byteArrayOf(1, 2)).build()
+
+        val message = OutboundMessage.builder("", MessageKind.REPLY).files(listOf(file)).build()
+
+        assertEquals(listOf(file), message.files)
+        assertEquals(emptyList(), OutboundMessage.builder("Hi", MessageKind.REPLY).build().files)
+        assertEquals(message, message.toBuilder().build())
+    }
+
+    @Test
+    fun `an outbound file keeps a copy of its bytes and compares them by content`() {
+        val bytes = byteArrayOf(1, 2, 3)
+        val file = OutboundFile.builder("report.pdf", "application/pdf", bytes).build()
+        bytes[0] = 9
+        file.bytes()[1] = 9
+
+        assertEquals(listOf<Byte>(1, 2, 3), file.bytes().toList())
+        assertEquals(listOf<Byte>(1, 2, 3), file.inputStream().readAllBytes().toList())
+        assertEquals(3L, file.size)
+        assertFalse(file.asFile)
+        assertEquals(file, OutboundFile.builder("report.pdf", "application/pdf", byteArrayOf(1, 2, 3)).build())
+        assertEquals(file.hashCode(), file.toBuilder().build().hashCode())
+        assertFalse(file == file.rebuild { asFile(true) })
+        assertFalse(file == file.rebuild { content(byteArrayOf(1, 2)) })
+        assertEquals(
+            "OutboundFile(name=report.pdf, mediaType=application/pdf, size=3, sha256=039058c6f2c0cb49, asFile=false)",
+            "$file",
+        )
+        assertFailsWith<IllegalArgumentException> { file.rebuild { name(" ") } }
+        assertFailsWith<IllegalArgumentException> { file.rebuild { mediaType("") } }
+    }
+
+    @Test
     fun `capabilities claim no streaming, no proactive messages and plain text until set`() {
         val capabilities = ChannelCapabilities.builder().build()
 
@@ -136,6 +172,9 @@ class ChannelValuesTest {
         assertFalse(capabilities.finalReplacesPreview)
         assertFalse(capabilities.proactive)
         assertEquals(setOf(Markup.PLAIN), capabilities.markups)
+        assertFalse(capabilities.files)
+        assertNull(capabilities.maxFileBytes)
+        assertEquals(50L, capabilities.rebuild { maxFileBytes(50) }.maxFileBytes)
         assertEquals(
             ChannelCapabilities.builder().streaming(true).finalReplacesPreview(true).maxPartsPerReply(5).build(),
             capabilities.rebuild {
@@ -146,6 +185,7 @@ class ChannelValuesTest {
         )
         assertFailsWith<IllegalArgumentException> { ChannelCapabilities.builder().maxPartsPerReply(0).build() }
         assertFailsWith<IllegalArgumentException> { ChannelCapabilities.builder().markups(emptySet()).build() }
+        assertFailsWith<IllegalArgumentException> { ChannelCapabilities.builder().maxFileBytes(0).build() }
     }
 
     @Test

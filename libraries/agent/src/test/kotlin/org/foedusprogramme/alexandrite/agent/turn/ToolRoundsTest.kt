@@ -132,6 +132,7 @@ class ToolRoundsTest {
                     "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
+                    "chat.send_file",
                     "fs.read",
                     "permission.status",
                     "profile.create",
@@ -374,6 +375,7 @@ class ToolRoundsTest {
                     "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
+                    "chat.send_file",
                     "fs.read",
                     "permission.status",
                     "profile.create",
@@ -537,8 +539,9 @@ class ToolRoundsTest {
             assertEquals(
                 List(3) {
                     listOf(
-                        "agent.delegate", "agent.jobs", "agent.stop", "fs.glob", "fs.read", "fs.write",
-                        "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
+                        "agent.delegate", "agent.jobs", "agent.stop", "chat.send_file", "fs.glob", "fs.read",
+                        "fs.write", "permission.status", "profile.create", "profile.edit", "profile.list",
+                        "profile.remove",
                     ) to ToolChoice.Auto
                 },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
@@ -570,6 +573,7 @@ class ToolRoundsTest {
                         "agent.delegate",
                         "agent.jobs",
                         "agent.stop",
+                        "chat.send_file",
                         "fs.read",
                         "permission.status",
                         "profile.create",
@@ -602,6 +606,7 @@ class ToolRoundsTest {
                         "agent.delegate",
                         "agent.jobs",
                         "agent.stop",
+                        "chat.send_file",
                         "fs.read",
                         "permission.status",
                         "profile.create",

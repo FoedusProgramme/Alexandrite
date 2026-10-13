@@ -37,6 +37,7 @@ import org.foedusprogramme.alexandrite.agent.delivery.delivered
 import org.foedusprogramme.alexandrite.agent.delivery.notice
 import org.foedusprogramme.alexandrite.agent.delivery.replyMessage
 import org.foedusprogramme.alexandrite.agent.delivery.visibleText
+import org.foedusprogramme.alexandrite.agent.directory.Inbox
 import org.foedusprogramme.alexandrite.agent.hook.Hooked
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.hook.or
@@ -133,6 +134,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
@@ -166,6 +168,7 @@ internal class AgentTurnRunner(
     private val conversations: ConversationStore,
     private val transcripts: TranscriptStore,
     private val mediaStore: MediaStore,
+    private val inbox: Inbox,
     private val channels: ChannelDirectory,
     private val endpoints: Endpoints,
     private val retries: RetryPolicy,
@@ -221,7 +224,10 @@ internal class AgentTurnRunner(
         private var sink: ReplySink? = null
         private var capabilities: ChannelCapabilities? = null
         private var previews: ReplyStream? = null
-        private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes)
+        private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes, inbox)
+
+        /** Whether the turn's model views images. */
+        private var images = false
         private var recorded = false
         private lateinit var taint: TurnTaint
         private val tracked = Calls()
@@ -261,6 +267,7 @@ internal class AgentTurnRunner(
             } catch (e: ModelException) {
                 return modelFailed(e.error)
             } ?: return unknownModel()
+            images = MediaKind.IMAGE in selected.info.inputMedia
             val options = requestOptions(agent, selected.info, reasoning)
             val toolset = toolsOf(selected)
             val offered = toolset.offered
@@ -537,7 +544,7 @@ internal class AgentTurnRunner(
             baked: List<ContextPart>,
         ): UserEntry {
             val linked = topology.group(turn.agent, message.chat) != null
-            return messageEntry(message, text, clock.zone, linked, baked + media.put(message.media))
+            return messageEntry(message, text, clock.zone, linked, baked + media.put(turn, message, images))
         }
 
         /** Marks the turn tainted where [message] was forwarded or quotes what its channel does not vouch for. */

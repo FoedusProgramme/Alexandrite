@@ -107,9 +107,12 @@ public class MediaAttachment private constructor(
     public val name: String?,
     /** Whether the media belongs to the quoted message. */
     public val fromQuote: Boolean,
+    /** Why the platform does not hand [content] over, in lower case without a closing full stop, null when it does. */
+    public val unavailable: String?,
 ) {
     init {
         require(mediaType.isNotBlank()) { "A media type may not be blank." }
+        require(unavailable == null || unavailable.isNotBlank()) { "A reason the media is unavailable is not blank." }
         require(size == null || size >= 0) { "A media size is at least 0, was $size." }
         require(width == null || width > 0) { "A media width is positive, was $width." }
         require(height == null || height > 0) { "A media height is positive, was $height." }
@@ -121,6 +124,7 @@ public class MediaAttachment private constructor(
         .height(height)
         .name(name)
         .fromQuote(fromQuote)
+        .unavailable(unavailable)
 
     public class Builder internal constructor(
         private var kind: MediaKind,
@@ -132,6 +136,7 @@ public class MediaAttachment private constructor(
         private var height: Int? = null
         private var name: String? = null
         private var fromQuote: Boolean = false
+        private var unavailable: String? = null
 
         public fun kind(kind: MediaKind): Builder = apply { this.kind = kind }
 
@@ -149,8 +154,10 @@ public class MediaAttachment private constructor(
 
         public fun fromQuote(fromQuote: Boolean): Builder = apply { this.fromQuote = fromQuote }
 
+        public fun unavailable(unavailable: String?): Builder = apply { this.unavailable = unavailable }
+
         public fun build(): MediaAttachment =
-            MediaAttachment(kind, mediaType, content, size, width, height, name, fromQuote)
+            MediaAttachment(kind, mediaType, content, size, width, height, name, fromQuote, unavailable)
     }
 
     public companion object {

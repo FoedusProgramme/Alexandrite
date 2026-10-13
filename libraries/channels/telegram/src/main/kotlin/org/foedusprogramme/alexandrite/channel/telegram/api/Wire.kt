@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.api
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundFile
 
 /** The envelope of every Bot API answer. */
 @Serializable
@@ -39,7 +40,7 @@ internal class CallbackQuery(
     val data: String? = null,
 )
 
-/** A message, its media and other content kept only as present or absent. */
+/** A message, its stickers and other content kept only as present or absent. */
 @Serializable
 internal class Message(
     @SerialName("message_id") val messageId: Long,
@@ -60,15 +61,18 @@ internal class Message(
     val entities: List<MessageEntity>? = null,
     val caption: String? = null,
     @SerialName("caption_entities") val captionEntities: List<MessageEntity>? = null,
-    val animation: JsonElement? = null,
-    val audio: JsonElement? = null,
-    val document: JsonElement? = null,
-    val photo: JsonElement? = null,
+    /** The album the message belongs to, null when it belongs to none. */
+    @SerialName("media_group_id") val mediaGroupId: String? = null,
+    val animation: TelegramMedia? = null,
+    val audio: TelegramMedia? = null,
+    val document: TelegramMedia? = null,
+    /** The sizes of one photo. */
+    val photo: List<TelegramMedia>? = null,
     val sticker: JsonElement? = null,
     val story: JsonElement? = null,
-    val video: JsonElement? = null,
-    @SerialName("video_note") val videoNote: JsonElement? = null,
-    val voice: JsonElement? = null,
+    val video: TelegramMedia? = null,
+    @SerialName("video_note") val videoNote: TelegramMedia? = null,
+    val voice: TelegramMedia? = null,
     @SerialName("paid_media") val paidMedia: JsonElement? = null,
     val contact: JsonElement? = null,
     val dice: JsonElement? = null,
@@ -77,6 +81,40 @@ internal class Message(
     val venue: JsonElement? = null,
     val location: JsonElement? = null,
     val invoice: JsonElement? = null,
+)
+
+/** A file of a message, flat over the photo size, document, audio, voice, video, video note and animation types. */
+@Serializable
+internal class TelegramMedia(
+    @SerialName("file_id") val fileId: String,
+    @SerialName("file_size") val fileSize: Long? = null,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("mime_type") val mimeType: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    /** The width and height of a video note, which is square. */
+    val length: Int? = null,
+)
+
+/** A file as `getFile` makes it ready to download. */
+@Serializable
+internal class TelegramFile(
+    @SerialName("file_id") val fileId: String,
+    @SerialName("file_size") val fileSize: Long? = null,
+    /** Where the file downloads from below the bot's file URL, null when it cannot be downloaded. */
+    @SerialName("file_path") val filePath: String? = null,
+)
+
+@Serializable
+internal class GetFile(@SerialName("file_id") val fileId: String)
+
+/** A file that `sendPhoto` or `sendDocument` uploads in a multipart form. */
+internal class SendFile(
+    val chatId: Long,
+    val file: OutboundFile,
+    val thread: Long? = null,
+    val caption: String? = null,
+    val captionEntities: List<MessageEntity>? = null,
 )
 
 @Serializable

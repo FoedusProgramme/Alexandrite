@@ -14,6 +14,15 @@ internal interface BotApi {
 
     suspend fun sendMessage(request: SendMessage): Message
 
+    suspend fun sendPhoto(request: SendFile): Message
+
+    suspend fun sendDocument(request: SendFile): Message
+
+    suspend fun getFile(fileId: String): TelegramFile
+
+    /** The bytes of the file at [path] of a [TelegramFile], failing as [BotApiFailure.TOO_LONG] past [maxBytes]. */
+    suspend fun download(path: String, maxBytes: Long): ByteArray
+
     suspend fun editMessageText(request: EditMessageText): Message
 
     suspend fun editMessageReplyMarkup(request: EditMessageReplyMarkup)
@@ -51,7 +60,7 @@ internal enum class BotApiFailure {
     /** Entities that Telegram cannot apply to the text. */
     ENTITIES_REJECTED,
 
-    /** A text longer than one message. */
+    /** A text longer than one message, or a file larger than Telegram takes. */
     TOO_LONG,
 
     /** A chat or topic that is gone or migrated. */

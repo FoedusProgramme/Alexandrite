@@ -229,6 +229,44 @@ class ApprovalDeskTest {
     }
 
     @Test
+    fun `a file to send shows its path, size, hash and destination, and its caption as code`() = runTest {
+        val desk = Desk(this)
+        desk.titles.note(ChatAddress(WORK, "$GROUP"), "Back\u202Eend")
+        val sha256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        val file = ReviewPreview.OutgoingFile(
+            Path.of("/srv/out/report.pdf"),
+            1_572_864,
+            sha256,
+            ChatAddress(WORK, "$GROUP"),
+            "The weekly report",
+        )
+        val bare = ReviewPreview.OutgoingFile(Path.of("/srv/out/a.txt"), 12, sha256, ChatAddress(WORK, "$ADA"))
+
+        asking(desk, request(turnOf(ada, GROUP), file, id = "file"))
+        asking(desk, request(turnOf(ada, ADA), bare, id = "bare"))
+        advanceTimeBy(5.seconds)
+
+        val text = desk.api.messages.getValue(GROUP to 101L)
+        assertTrue(
+            text.endsWith(
+                "File: /srv/out/report.pdf\nSize: 1572864 bytes (1.5 MB)\nSHA-256: $sha256\n" +
+                    "Destination: Back\\u202Eend (telegram:work:$GROUP)\nCaption:\n\nThe weekly report",
+            ),
+            text,
+        )
+        val code = text.indexOf("The weekly report")
+        assertEquals("pre $code+17", desk.api.calls("sendMessage").first().entities.last())
+        val plain = desk.shown(ADA).single()
+        assertTrue(
+            plain.endsWith(
+                "File: /srv/out/a.txt\nSize: 12 bytes (12 B)\nSHA-256: $sha256\n" +
+                    "Destination: telegram:work:$ADA [Allow|Deny]",
+            ),
+            plain,
+        )
+    }
+
+    @Test
     fun `the names and titles that Telegram gives are escaped like the rest of the request`() = runTest {
         val desk = Desk(this)
         desk.titles.note(ChatAddress(WORK, "$GROUP"), "Back\u202Eend")

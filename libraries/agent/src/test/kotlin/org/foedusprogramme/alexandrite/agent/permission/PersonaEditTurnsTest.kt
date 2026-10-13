@@ -110,13 +110,14 @@ class PersonaEditTurnsTest {
             assertEquals(
                 listOf(
                     listOf(
-                        "agent.delegate", "agent.jobs", "agent.stop", "permission.status", "persona.edit",
-                        "profile.create", "profile.edit", "profile.list", "profile.remove", "web.fetch",
+                        "agent.delegate", "agent.jobs", "agent.stop", "chat.send_file", "permission.status",
+                        "persona.edit", "profile.create", "profile.edit", "profile.list", "profile.remove", "web.fetch",
                     ),
                     listOf(
                         "agent.delegate",
                         "agent.jobs",
                         "agent.stop",
+                        "chat.send_file",
                         "permission.status",
                         "profile.create",
                         "profile.edit",

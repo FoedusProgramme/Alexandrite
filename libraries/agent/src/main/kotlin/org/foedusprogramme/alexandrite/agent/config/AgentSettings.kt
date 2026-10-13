@@ -16,7 +16,7 @@ internal class AgentSettings(
     /** The shortest time between two previews of one reply. */
     val previewIntervalMillis: Long = 750,
     val persona: PersonaConfig = PersonaConfig(),
-    /** The largest attachment a turn stores. */
+    /** The largest attachment a turn takes from a message. */
     val maxMediaBytes: Long = 20_000_000,
     val conversationDirectory: ConversationDirectoryConfig = ConversationDirectoryConfig(),
     /** Folders whose project instructions load without asking. */

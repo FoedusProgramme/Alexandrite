@@ -249,6 +249,34 @@ class ActivityTextTest {
         assertEquals("读取了 1 个文件\nnotes.md", rendered.text)
     }
 
+    @Test
+    fun `files sent read as sent once done and as being sent while one still runs, in both languages`() {
+        val sent = call("chat.send_file", ToolActivity.SEND, "report.pdf", ToolCallStatus.COMPLETED)
+        val sending = listOf(sent, call("chat.send_file", ToolActivity.SEND, "chart.png"))
+        val catalog = TextCatalog.builder()
+            .text(PLUGIN, LanguageTag("zh-CN"), "activity.verb.send.present", "正在发送")
+            .text(PLUGIN, LanguageTag("zh-CN"), "activity.verb.send.past", "发送了")
+            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.send.one", "{count} 个文件")
+            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.send.many", "{count} 个文件")
+            .build()
+        val zh = testTexts(PLUGIN, LanguageTag("zh-CN"), catalog)
+
+        assertEquals("Sent 1 file\nreport.pdf", renderActivity(texts, null, listOf(sent)).text)
+        assertEquals("Sending 2 files\nreport.pdf\nchart.png", renderActivity(texts, null, sending).text)
+        assertEquals("发送了 1 个文件\nreport.pdf", renderActivity(zh, LanguageTag("zh-CN"), listOf(sent)).text)
+        assertEquals(
+            "正在发送 2 个文件\nreport.pdf\nchart.png",
+            renderActivity(zh, LanguageTag("zh-CN"), sending).text,
+        )
+    }
+
+    @Test
+    fun `a kind this version does not know reads as a tool used`() {
+        val call = call("notes.sync", ToolActivity.of("sync"), "notes", ToolCallStatus.COMPLETED)
+
+        assertEquals("Used 1 tool\nnotes", renderActivity(texts, null, listOf(call)).text)
+    }
+
     private companion object {
         const val PLUGIN = "alexandrite-channel-telegram"
     }

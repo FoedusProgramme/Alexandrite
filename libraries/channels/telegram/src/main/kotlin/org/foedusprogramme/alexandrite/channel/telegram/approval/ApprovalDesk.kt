@@ -39,6 +39,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.slf4j.LoggerFactory
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.cancellation.CancellationException
@@ -131,7 +132,7 @@ internal class ApprovalDesk(
         val turn = request.turn
         val title = text(TextKeys.APPROVAL_TITLE, language, "id" to request.id)
         val requester = turn.actor?.let(::named) ?: text(TextKeys.APPROVAL_NOBODY, language)
-        val chat = titles.title(turn.chat)?.let { "${ReviewText.escape(it)} (${turn.chat})" } ?: "${turn.chat}"
+        val chat = named(turn.chat)
         val agents = request.chain.ifEmpty { listOf(turn.agent) }.joinToString(" → ")
         val lines = mutableListOf(
             text(TextKeys.APPROVAL_AGENT, language, "agent" to agents),
@@ -142,7 +143,8 @@ internal class ApprovalDesk(
         )
         val (introduction, body) = preview(request, language)
         lines += introduction
-        return split("$title\n${lines.joinToString("\n")}\n\n", title.length, body)
+        val head = "$title\n${lines.joinToString("\n")}" + if (body.isBlank()) "" else "\n\n"
+        return split(head, title.length, body)
     }
 
     /** The lines that introduce what [request] shows as code, and that code: its preview, else its arguments. */
@@ -162,11 +164,23 @@ internal class ApprovalDesk(
 
             is ReviewPreview.Text -> emptyList<String>() to preview.text
 
+            is ReviewPreview.OutgoingFile -> return listOfNotNull(
+                text(TextKeys.APPROVAL_FILE, language, "path" to preview.path),
+                text(TextKeys.APPROVAL_SIZE, language, "bytes" to preview.size, "readable" to readable(preview.size)),
+                text(TextKeys.APPROVAL_SHA256, language, "sha256" to preview.sha256),
+                text(TextKeys.APPROVAL_DESTINATION, language, "chat" to named(preview.destination)),
+                text(TextKeys.APPROVAL_CAPTION, language).takeIf { preview.caption != null },
+            ) to preview.caption.orEmpty()
+
             else -> null
         }
         if (shown != null && shown.second.isNotBlank()) return shown
         return listOf(text(TextKeys.APPROVAL_ARGUMENTS, language)) to request.arguments
     }
+
+    /** [chat] as an approver sees it: its title where the channel knows one, and its address. */
+    private fun named(chat: ChatAddress): String =
+        titles.title(chat)?.let { "${ReviewText.escape(it)} ($chat)" } ?: "$chat"
 
     /** Sends [shown] to its chat, recording and noting each part as it is sent, undone if a later part fails. */
     private suspend fun post(waiting: Pending, shown: Shown) {
@@ -411,6 +425,19 @@ private fun shortened(text: String): String {
     return text.substring(0, end) + "…"
 }
 
+/** [bytes] in the largest unit that keeps a whole number in front. */
+private fun readable(bytes: Long): String {
+    val units = listOf("KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var unit = "B"
+    for (next in units) {
+        if (value < UNIT) break
+        value /= UNIT
+        unit = next
+    }
+    return if (unit == "B") "$bytes B" else String.format(Locale.ROOT, "%.1f %s", value, unit)
+}
+
 /** [argv] as one command line, each word that a shell would split or expand in single quotes. */
 private fun commandLine(argv: List<String>): String = argv.joinToString(" ") { word ->
     val plain = word.isNotEmpty() && word.all { it.isLetterOrDigit() || it in PLAIN }
@@ -456,6 +483,8 @@ private fun cut(text: String, room: Int): Int {
 
 /** How many messages one request may take. */
 private const val MAX_PARTS = 4
+
+private const val UNIT = 1024.0
 
 /** The most lines a preview shows unfolded. */
 private const val MAX_CODE_LINES = 12

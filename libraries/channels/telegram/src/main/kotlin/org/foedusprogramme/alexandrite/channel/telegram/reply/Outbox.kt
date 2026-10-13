@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
 import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.LinkPreviewOptions
 import org.foedusprogramme.alexandrite.channel.telegram.api.ReplyParameters
+import org.foedusprogramme.alexandrite.channel.telegram.api.SendFile
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
 import org.foedusprogramme.alexandrite.channel.telegram.format.FormattedText
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
@@ -22,6 +23,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundFile
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -31,6 +33,7 @@ import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.slf4j.LoggerFactory
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -75,6 +78,25 @@ internal class Outbox(
     /** Sends [message] to [chat] outside any reply. */
     suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
         deliver(chat, formatted(message.text, message.markup), message.replyTo)
+
+    /**
+     * Sends [message]'s files to [chat] at the chat's pace, each in a message of its own, the first with the message's
+     * text as its caption.
+     */
+    suspend fun sendFiles(chat: ChatAddress, message: OutboundMessage): Delivery {
+        val target = targetOf(chat) ?: return Delivery.NotDelivered(DeliveryFailure.CHAT_GONE)
+        val caption = message.text.takeIf { it.isNotBlank() }?.let { formatted(it, message.markup) }
+        refusal(message.files, caption)?.let { return it }
+        val ids = mutableListOf<Long>()
+        for ((index, file) in message.files.withIndex()) {
+            try {
+                ids += paced(target) { upload(target, file, caption.takeIf { index == 0 }) }
+            } catch (e: BotApiException) {
+                return failed(chat, e).after(ids, message.files.size)
+            }
+        }
+        return Delivery.Delivered(ids.map { ChannelMessageRef(chat, "$it") })
+    }
 
     /** Runs [call] once [target]'s chat may take its next message. */
     suspend fun <T> paced(target: Target, call: suspend () -> T): T = limiter.message(target.chat, call)
@@ -166,6 +188,32 @@ internal class Outbox(
         return sendParts(chat, target, parts, target.quoteOf(replyTo))
     }
 
+    /** Uploads [file] to [target] as a photo where Telegram takes it as one, else as a document, and returns its id. */
+    private suspend fun upload(target: Target, file: OutboundFile, caption: FormattedText?): Long {
+        val photo = !file.asFile && file.mediaType.lowercase(Locale.ROOT) in PHOTO_TYPES && file.size <= MAX_PHOTO_BYTES
+        if (photo) {
+            try {
+                return uploaded(target, file, caption, photo = true)
+            } catch (e: BotApiException) {
+                if (e.failure != BotApiFailure.BAD_REQUEST) throw e
+                logger.info(
+                    "{}: Telegram refused a file as a photo, so it goes as a document: {}",
+                    instance.id,
+                    e.message,
+                )
+            }
+        }
+        return uploaded(target, file, caption, photo = false)
+    }
+
+    private suspend fun uploaded(target: Target, file: OutboundFile, caption: FormattedText?, photo: Boolean): Long {
+        suspend fun send(text: FormattedText?): Long {
+            val request = SendFile(target.chat, file, target.thread, text?.text, text?.wireEntities())
+            return (if (photo) api.sendPhoto(request) else api.sendDocument(request)).messageId
+        }
+        return if (caption == null) whole { send(null) } else withFallback(target, caption) { send(it) }
+    }
+
     private suspend fun <T> withFallback(target: Target, text: FormattedText, call: suspend (FormattedText) -> T): T =
         try {
             whole { call(text) }
@@ -197,6 +245,28 @@ internal class Outbox(
     }
 }
 
+/** Why [files] with [caption] cannot be sent, null when they can. */
+private fun refusal(files: List<OutboundFile>, caption: FormattedText?): Delivery.NotDelivered? {
+    files.firstOrNull { it.size > MAX_UPLOAD_BYTES }?.let {
+        return Delivery.NotDelivered(
+            DeliveryFailure.TOO_LONG,
+            "the file holds ${it.size} bytes, more than the $MAX_UPLOAD_BYTES bytes a bot may send",
+        )
+    }
+    if (files.any { it.size == 0L }) {
+        return Delivery.NotDelivered(DeliveryFailure.UNSUPPORTED, "the file is empty, and Telegram takes no empty file")
+    }
+    val length = caption?.text?.length ?: 0
+    if (length > MAX_CAPTION_LENGTH) {
+        return Delivery.NotDelivered(
+            DeliveryFailure.TOO_LONG,
+            "the caption takes $length characters, more than the $MAX_CAPTION_LENGTH a file's caption may have: " +
+                "send a shorter one, and the rest as a reply",
+        )
+    }
+    return null
+}
+
 /** The messages [text] takes, null when it takes more than [MAX_PARTS_PER_REPLY]. */
 internal fun partsOf(text: FormattedText): List<FormattedText>? = text.parts().takeIf { it.size <= MAX_PARTS_PER_REPLY }
 
@@ -208,5 +278,16 @@ private fun Delivery.NotDelivered.after(arrived: List<Long>, total: Int): Delive
 }
 
 internal const val MAX_PARTS_PER_REPLY = 10
+
+/** The most bytes of a file that a bot may send. */
+internal const val MAX_UPLOAD_BYTES: Long = 50L * 1024 * 1024
+
+/** The most bytes of an image that Telegram takes as a photo. */
+private const val MAX_PHOTO_BYTES: Long = 10L * 1024 * 1024
+
+private const val MAX_CAPTION_LENGTH = 1024
+
+/** The image types that Telegram takes as photos. */
+private val PHOTO_TYPES = setOf("image/jpeg", "image/png", "image/webp")
 
 private val logger = LoggerFactory.getLogger(Outbox::class.java)

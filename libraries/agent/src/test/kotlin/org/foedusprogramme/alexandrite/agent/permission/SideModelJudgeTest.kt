@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.provider
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
@@ -44,6 +45,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -326,6 +328,33 @@ class SideModelJudgeTest {
                 Arguments (canonical JSON):
                 | {"content":"hello","path":"notes.md"}
                 """.trimIndent(),
+            ),
+            shown,
+        )
+    }
+
+    @Test
+    fun `the judge reads a file's path, size, hash and destination, and its caption or else the arguments`() = runTest {
+        repeat(2) { answers("""{"verdict":"ask"}""") }
+        val judge = judge()
+        val chat = ChatAddress.parse("test:main:chat")
+        val sha256 = "ab".repeat(32)
+        val captioned = ReviewPreview.OutgoingFile(Path.of("/srv/out/report.pdf"), 1200, sha256, chat, "This week")
+        val bare = ReviewPreview.OutgoingFile(Path.of("/srv/out/report.pdf"), 1200, sha256, chat)
+
+        val shown = listOf(captioned, bare).map {
+            judge.judge(call(preview = it, arguments = """{"path": "/srv/out/report.pdf"}"""))
+            sent().substringAfter("The call:\n").substringAfter("SHA-256: $sha256\n")
+        }
+
+        assertTrue(
+            "File: /srv/out/report.pdf\nSize: 1200 bytes\nSHA-256: $sha256\n" in sent(),
+            sent(),
+        )
+        assertEquals(
+            listOf(
+                "Sent to the chat: test:main:chat\nCaption:\n| This week",
+                "Sent to the chat: test:main:chat\nArguments (canonical JSON):\n| {\"path\":\"/srv/out/report.pdf\"}",
             ),
             shown,
         )

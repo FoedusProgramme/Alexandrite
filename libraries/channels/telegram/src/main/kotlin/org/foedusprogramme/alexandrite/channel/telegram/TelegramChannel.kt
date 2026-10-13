@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
 import org.foedusprogramme.alexandrite.channel.telegram.format.parts
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.reply.MAX_PARTS_PER_REPLY
+import org.foedusprogramme.alexandrite.channel.telegram.reply.MAX_UPLOAD_BYTES
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.channel.telegram.reply.TelegramReply
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Typing
@@ -54,6 +55,8 @@ internal class TelegramChannel(
         .proactive(gate.isPaired(chat))
         .markups(setOf(Markup.PLAIN, Markup.MARKDOWN))
         .events(setOf(TurnEventKind.TOOL_CALL_STARTED, TurnEventKind.TOOL_CALL_UPDATED))
+        .files(true)
+        .maxFileBytes(MAX_UPLOAD_BYTES)
         .build()
 
     override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int =
@@ -71,10 +74,18 @@ internal class TelegramChannel(
         return reply
     }
 
+    /** Sends [message] to [chat], its files after what the chat's open replies have shown so far. */
     override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = when {
         stopped -> STOPPED
+
         !gate.isPaired(chat) -> NOT_PAIRED
-        else -> outbox.send(chat, message)
+
+        message.files.isEmpty() -> outbox.send(chat, message)
+
+        else -> {
+            replies.filter { it.chat == chat }.forEach { it.flush() }
+            outbox.sendFiles(chat, message)
+        }
     }
 
     override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer = when {

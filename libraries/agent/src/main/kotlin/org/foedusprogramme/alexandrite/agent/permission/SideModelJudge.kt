@@ -176,6 +176,21 @@ private fun shown(call: CheckedCall): ShownCall {
             field(preview.text, keepNewlines = true)
         }
 
+        is ReviewPreview.OutgoingFile -> {
+            lines += "File: ${field(preview.path.toString())}"
+            lines += "Size: ${preview.size} bytes"
+            lines += "SHA-256: ${field(preview.sha256)}"
+            lines += "Sent to the chat: ${field(preview.destination.toString())}"
+            val caption = preview.caption
+            if (caption != null) {
+                lines += "Caption:"
+                field(caption, keepNewlines = true)
+            } else {
+                lines += "Arguments (canonical JSON):"
+                field(ArgsCanonicalizer.canonical(call.call.arguments))
+            }
+        }
+
         else -> {
             lines += "Arguments (canonical JSON):"
             field(ArgsCanonicalizer.canonical(call.call.arguments))

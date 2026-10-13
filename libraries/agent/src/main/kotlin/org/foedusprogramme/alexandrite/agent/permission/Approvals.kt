@@ -193,6 +193,14 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
 
     is ReviewPreview.Text -> ReviewPreview.Text(ReviewText.escape(preview.text, keepNewlines = true))
 
+    is ReviewPreview.OutgoingFile -> ReviewPreview.OutgoingFile(
+        escaped(preview.path),
+        preview.size,
+        ReviewText.escape(preview.sha256),
+        preview.destination,
+        preview.caption?.let { ReviewText.escape(it, keepNewlines = true) },
+    )
+
     else -> null
 }
 

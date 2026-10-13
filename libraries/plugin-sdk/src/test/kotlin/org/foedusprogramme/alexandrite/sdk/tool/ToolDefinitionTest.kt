@@ -1,6 +1,9 @@
 package org.foedusprogramme.alexandrite.sdk.tool
 
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -125,6 +128,14 @@ class ToolDefinitionTest {
     }
 
     @Test
+    fun `an outgoing file holds no fewer than 0 bytes and has no caption until given`() {
+        val chat = ChatAddress(ChannelInstanceId(ChannelType("telegram"), "work"), "1001")
+
+        assertNull(ReviewPreview.OutgoingFile(Path.of("/srv/a.txt"), 0, "e3b0", chat).caption)
+        assertFailsWith<IllegalArgumentException> { ReviewPreview.OutgoingFile(Path.of("/srv/a"), -1, "e3b0", chat) }
+    }
+
+    @Test
     fun `the risks rise in severity, the ones always gated sharing the highest`() {
         val severities = ToolRisk.entries.associateWith { it.severity }
 
@@ -134,7 +145,7 @@ class ToolDefinitionTest {
 
     @Test
     fun `an activity keeps the id a version does not know`() {
-        assertEquals(10, ToolActivity.entries.size)
+        assertEquals(11, ToolActivity.entries.size)
         assertEquals("fork", ToolActivity.of("fork").id)
         assertEquals(ToolActivity.READ, ToolActivity.of("read"))
     }

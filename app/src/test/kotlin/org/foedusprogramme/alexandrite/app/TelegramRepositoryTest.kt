@@ -133,6 +133,7 @@ class TelegramRepositoryTest {
                 "agent.delegate",
                 "agent.jobs",
                 "agent.stop",
+                "chat.send_file",
                 "command.exec",
                 "fs.edit",
                 "fs.glob",

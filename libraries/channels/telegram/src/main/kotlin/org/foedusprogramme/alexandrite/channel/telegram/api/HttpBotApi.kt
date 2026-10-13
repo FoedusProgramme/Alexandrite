@@ -26,10 +26,12 @@ import org.foedusprogramme.alexandrite.internal.http.HttpException
 import org.foedusprogramme.alexandrite.internal.http.HttpFailureKind
 import org.foedusprogramme.alexandrite.internal.http.HttpTimeouts
 import org.foedusprogramme.alexandrite.internal.http.HttpTransport
+import org.foedusprogramme.alexandrite.internal.http.MultipartBody
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Inject
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -58,6 +60,36 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
 
     override suspend fun sendMessage(request: SendMessage): Message =
         call("sendMessage", JSON.encodeToString(SendMessage.serializer(), request), Message.serializer())
+
+    override suspend fun sendPhoto(request: SendFile): Message = upload("sendPhoto", "photo", request)
+
+    override suspend fun sendDocument(request: SendFile): Message = upload("sendDocument", "document", request)
+
+    override suspend fun getFile(fileId: String): TelegramFile =
+        call("getFile", JSON.encodeToString(GetFile.serializer(), GetFile(fileId)), TelegramFile.serializer())
+
+    override suspend fun download(path: String, maxBytes: Long): ByteArray {
+        if (!FILE_PATH.matches(path) || path.split('/').any { it == ".." }) {
+            throw BotApiException(PROTOCOL, DOWNLOAD, reason = "the file's path is malformed")
+        }
+        val secret = token.reveal()
+        val call = HttpCall("GET", URI("$base/file/bot$secret/$path"), secrets = listOf(secret))
+        return try {
+            transport.open(call) { response ->
+                val bytes = ByteArrayOutputStream()
+                while (true) {
+                    val piece = response.read() ?: break
+                    if (bytes.size() + piece.size > maxBytes) {
+                        throw BotApiException(TOO_LONG, DOWNLOAD, reason = "the file holds more than $maxBytes bytes")
+                    }
+                    bytes.write(piece)
+                }
+                bytes.toByteArray()
+            }
+        } catch (e: HttpException) {
+            throw failure(DOWNLOAD, call, e)
+        }
+    }
 
     override suspend fun editMessageText(request: EditMessageText): Message =
         call("editMessageText", JSON.encodeToString(EditMessageText.serializer(), request), Message.serializer())
@@ -89,9 +121,34 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         transport.close()
     }
 
+    /** Sends [request]'s file as the field [field] of [method]'s form. */
+    private suspend fun upload(method: String, field: String, request: SendFile): Message {
+        val file = request.file
+        val form = MultipartBody.builder().field("chat_id", "${request.chatId}")
+        request.thread?.let { form.field("message_thread_id", "$it") }
+        request.caption?.let { form.field("caption", it) }
+        request.captionEntities?.let { form.field("caption_entities", JSON.encodeToString(ENTITY_LIST, it)) }
+        form.file(field, file.name, file.mediaType, file.size, file::inputStream)
+        val secret = token.reveal()
+        val wait = UPLOAD_FIRST_BYTE + (file.size / UPLOAD_BYTES_PER_SECOND).seconds
+        val call = HttpCall(
+            "POST",
+            URI("$base/bot$secret/$method"),
+            UPLOAD_HEADERS,
+            secrets = listOf(secret),
+            firstByte = wait,
+            multipart = form.build(),
+        )
+        return exchange(method, call, Message.serializer())
+    }
+
     private suspend fun <T> call(method: String, body: String, result: KSerializer<T>, firstByte: Duration? = null): T {
         val secret = token.reveal()
         val call = HttpCall("POST", URI("$base/bot$secret/$method"), HEADERS, body, listOf(secret), firstByte)
+        return exchange(method, call, result)
+    }
+
+    private suspend fun <T> exchange(method: String, call: HttpCall, result: KSerializer<T>): T {
         val text = try {
             transport.send(call)
         } catch (e: HttpException) {
@@ -152,6 +209,19 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         val POLL_MARGIN = 15.seconds
 
         val HEADERS = mapOf("content-type" to "application/json", "accept" to "application/json")
+        val UPLOAD_HEADERS = mapOf("accept" to "application/json")
+
+        /** How long an upload waits for its answer beside the time its bytes take. */
+        val UPLOAD_FIRST_BYTE = 30.seconds
+
+        /** The slowest upload that is waited for. */
+        const val UPLOAD_BYTES_PER_SECOND = 256L * 1024
+
+        const val DOWNLOAD = "download"
+
+        /** A file path as Telegram gives it. */
+        val FILE_PATH = Regex("[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
+        val ENTITY_LIST: KSerializer<List<MessageEntity>> = ListSerializer(MessageEntity.serializer())
         const val NO_PARAMETERS = "{}"
         val UPDATES = listOf("message", "callback_query")
         val UPDATE_LIST = ListSerializer(JsonElement.serializer())
@@ -174,6 +244,7 @@ internal fun classify(method: String, status: Int, description: String?, migrate
         status == 401 || (status == 404 && method == "getMe") -> UNAUTHORIZED
         status == 403 -> FORBIDDEN
         status == 409 -> CONFLICT
+        status == 413 -> TOO_LONG
         status == 429 -> RATE_LIMITED
         status in 400..499 -> BAD_REQUEST
         status in 500..599 -> TRANSIENT
@@ -190,7 +261,7 @@ private val REFUSALS = listOf(
         "message to delete not found",
         "message can't be deleted",
     ),
-    TOO_LONG to listOf("message is too long", "text is too long"),
+    TOO_LONG to listOf("message is too long", "text is too long", "caption is too long", "file is too big"),
     CHAT_GONE to listOf("chat not found", "message thread not found"),
     ENTITIES_REJECTED to listOf("can't parse entities", "entity", "entities"),
 )

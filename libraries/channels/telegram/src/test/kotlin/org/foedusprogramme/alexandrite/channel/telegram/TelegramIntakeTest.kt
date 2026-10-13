@@ -205,12 +205,12 @@ class TelegramIntakeTest {
     @Test
     fun `content the bot does not read is told once an hour`() {
         telegram.run {
-            repeat(2) { fake.queue(photo()) }
+            repeat(2) { fake.queue(sticker()) }
             telegram.consumed(2)
         }
 
         assertEquals(
-            listOf("This bot reads only text and captions, so it did not take this message."),
+            listOf("This bot reads text, captions and files, but not this kind of message, so it did not take it."),
             fake.botMessages(BOB).map { it.text },
         )
         assertEquals(emptyList(), telegram.submitter.submissions)
@@ -346,20 +346,17 @@ class TelegramIntakeTest {
         return problem.message
     }
 
-    private fun photo() = buildJsonObject {
+    private fun sticker() = buildJsonObject {
         put("from", telegram.bob.json())
         put("chat", telegram.bobChat.json())
         put(
-            "photo",
-            buildJsonArray {
-                add(
-                    buildJsonObject {
-                        put("file_id", "AgAC")
-                        put("file_unique_id", "AQAD")
-                        put("width", 90)
-                        put("height", 60)
-                    },
-                )
+            "sticker",
+            buildJsonObject {
+                put("file_id", "CAAC")
+                put("file_unique_id", "AgAD")
+                put("type", "regular")
+                put("width", 512)
+                put("height", 512)
             },
         )
     }

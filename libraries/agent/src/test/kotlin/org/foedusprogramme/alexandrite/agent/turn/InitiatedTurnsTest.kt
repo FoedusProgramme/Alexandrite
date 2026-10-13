@@ -178,6 +178,7 @@ class InitiatedTurnsTest {
                     "agent.delegate",
                     "agent.jobs",
                     "agent.stop",
+                    "chat.send_file",
                     "fs.read",
                     "permission.status",
                     "profile.create",

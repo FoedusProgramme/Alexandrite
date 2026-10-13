@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.sdk.tool
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import java.nio.file.Path
 
 /** A tool that reviews each call before the permission layer decides it. */
@@ -67,6 +68,24 @@ public interface ReviewPreview {
     @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Text(public val text: String) : ReviewPreview
+
+    /** The file [path] sent to [destination]. */
+    @OptIn(InternalAlexandriteApi::class)
+    @Poko
+    public class OutgoingFile(
+        public val path: Path,
+        /** In bytes. */
+        public val size: Long,
+        /** The SHA-256 of the file's bytes in lowercase hex. */
+        public val sha256: String,
+        public val destination: ChatAddress,
+        /** The text sent with the file, null for none. */
+        public val caption: String? = null,
+    ) : ReviewPreview {
+        init {
+            require(size >= 0) { "A file holds at least 0 bytes, was $size." }
+        }
+    }
 }
 
 /** The calls that an allow rule covers: those of [tool] whose subject starts with [tokens]. */

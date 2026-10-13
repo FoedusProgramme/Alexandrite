@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.transcript.UserPart
+import java.nio.file.Path
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -20,7 +21,7 @@ internal const val MESSAGE_SOURCE: String = "alexandrite.message"
 /** The source of the framing part of initiated framing v1. */
 internal const val INITIATED_SOURCE: String = "alexandrite.initiated"
 
-/** The source of the note on the attachments that a message's entry leaves out. */
+/** The source of the note that names where a message's attachments were saved. */
 internal const val MEDIA_SOURCE: String = "alexandrite.media"
 
 /** The unstored user entry of [message] with [text] as its words and [carried] between its framing and its words. */
@@ -95,19 +96,68 @@ internal fun initiatedFraming(plugin: String, kind: TurnKind, trust: Trust, star
         append("[/alexandrite:initiated]")
     }
 
-/** The note on the attachments that a message's entry leaves out, each with why. */
-internal fun mediaNote(leftOut: List<Pair<MediaAttachment, String>>): ContextPart = ContextPart(
+/** One attachment of a message as the media note names it. */
+internal class NotedMedia(
+    val attachment: MediaAttachment,
+    /** In bytes, null when unknown. */
+    val size: Long?,
+    /** Where it was saved, null when it was not. */
+    val saved: Path?,
+    /** Why it was not saved, null when it was. */
+    val why: String?,
+    /** Whether the model was shown an image, null for another kind. */
+    val view: View?,
+) {
+    enum class View {
+        SHOWN,
+
+        /** The model views no images. */
+        NOT_VIEWED,
+
+        /** Models view no images of its type. */
+        UNVIEWABLE,
+
+        /** The media store refused it. */
+        NOT_STORED,
+    }
+}
+
+/** The note that names where each of [noted] was saved or why it was not, and whether the model was shown an image. */
+internal fun mediaNote(noted: List<NotedMedia>): ContextPart = ContextPart(
     MEDIA_SOURCE,
     buildString {
         appendLine("[alexandrite:media]")
-        for ((attachment, why) in leftOut) {
-            append("Left out: ").append(attachment.kind)
-            attachment.name?.let { append(" \"").append(oneLine(it)).append('"') }
-            appendLine(" (${oneLine(attachment.mediaType)}), $why")
-        }
+        for (media in noted) appendLine(mediaLine(media))
         append("[/alexandrite:media]")
     },
 )
+
+private fun mediaLine(media: NotedMedia): String = buildString {
+    val attachment = media.attachment
+    val saved = media.saved
+    if (saved != null) append("Saved to ").append(saved).append(": ") else append("Not saved: ")
+    append(attachment.kind)
+    attachment.name?.let { append(" \"").append(shortened(oneLine(it))).append('"') }
+    append(" (").append(oneLine(attachment.mediaType))
+    media.size?.let { append(", ").append(it).append(" bytes") }
+    append(')')
+    if (attachment.fromQuote) append(", from the quoted message")
+    media.why?.let { append(": ").append(oneLine(it)) }
+    when (media.view) {
+        NotedMedia.View.SHOWN -> append("; shown to you")
+        NotedMedia.View.NOT_VIEWED -> append("; you cannot view images, so it is not shown to you")
+        NotedMedia.View.UNVIEWABLE -> append("; not shown to you, as models view no ${oneLine(attachment.mediaType)}")
+        NotedMedia.View.NOT_STORED -> append("; not shown to you, as it could not be stored")
+        null -> Unit
+    }
+}
+
+/** [name], cut to [MAX_NAME_CHARS] characters with an ellipsis. */
+private fun shortened(name: String): String {
+    if (name.length <= MAX_NAME_CHARS) return name
+    val end = if (name[MAX_NAME_CHARS - 1].isHighSurrogate()) MAX_NAME_CHARS - 1 else MAX_NAME_CHARS
+    return name.substring(0, end) + "…"
+}
 
 /** [label] on one line, with a backslash in front when it would pass for a framing field, a quote or a header. */
 private fun factLabel(label: String): String {
@@ -118,6 +168,9 @@ private fun factLabel(label: String): String {
 }
 
 private const val UNKNOWN = "unknown"
+
+/** The characters of an attachment's name that the media note shows. */
+private const val MAX_NAME_CHARS = 200
 
 /** The fields of message framing v1, as a label shows them without its invisible characters. */
 private val FRAMING_FIELDS = setOf("from", "operator", "received", "chat", "forwardedfrom", "quoting")

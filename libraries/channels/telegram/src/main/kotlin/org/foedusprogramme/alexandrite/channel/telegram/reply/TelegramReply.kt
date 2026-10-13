@@ -6,6 +6,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.format.FormattedText
@@ -44,7 +46,7 @@ internal class TelegramReply(
     private val scope: CoroutineScope,
     private val onEnd: (TelegramReply) -> Unit,
 ) : ReplySink {
-    private val chat = request.turn.chat
+    val chat = request.turn.chat
     private val turn = request.turn.id
     private val language = request.turn.language
     private val lock = Any()
@@ -63,6 +65,12 @@ internal class TelegramReply(
     private var editor: Job? = null
     private var activityEditor: Job? = null
 
+    /** Held while the reply shows its pending texts outside the editors, or ends. */
+    private val showing = Mutex()
+
+    /** Whether [flush] stands in for the editors. */
+    private var flushing = false
+
     fun open() {
         typing.start(chat, target)
     }
@@ -72,7 +80,7 @@ internal class TelegramReply(
             if (!accepts("A preview", segment) || !streaming) return
             current = segment
             segments.getOrPut(segment, ::Segment).pending = text
-            if (editor == null) editor = scope.launch(CoroutineName("$chat reply editor")) { runEditor() }
+            if (editor == null && !flushing) editor = launchEditor()
         }
         wake.trySend(Unit)
     }
@@ -100,9 +108,7 @@ internal class TelegramReply(
                 else -> return
             }
             block.pending = renderActivity(texts, language, block.calls.values)
-            if (activityEditor == null) {
-                activityEditor = scope.launch(CoroutineName("$chat activity editor")) { runActivityEditor() }
-            }
+            if (activityEditor == null && !flushing) activityEditor = launchActivityEditor()
         }
         activityWake.trySend(Unit)
     }
@@ -114,10 +120,12 @@ internal class TelegramReply(
             State.STOPPED -> return Delivery.NotDelivered(DeliveryFailure.TRANSIENT)
         }
         try {
-            close()
-            showFrozen()
-            showFrozenActivities()
-            return deliver(message)
+            return showing.withLock {
+                close()
+                showFrozen(all = false)
+                showFrozenActivities()
+                deliver(message)
+            }
         } finally {
             onEnd(this)
         }
@@ -126,10 +134,41 @@ internal class TelegramReply(
     override suspend fun abandon(end: ReplyEnd) {
         if (finish("An abandon ($end)") != State.OPEN) return
         try {
-            close()
-            showFrozenActivities()
+            showing.withLock {
+                close()
+                showFrozenActivities()
+            }
         } finally {
             onEnd(this)
+        }
+    }
+
+    /** Shows every pending text and activity of the reply at once, so that a message sent beside it follows them. */
+    suspend fun flush() {
+        showing.withLock {
+            val editors = synchronized(lock) {
+                if (state != State.OPEN) return
+                flushing = true
+                listOfNotNull(editor, activityEditor).also {
+                    editor = null
+                    activityEditor = null
+                }
+            }
+            try {
+                editors.forEach { it.cancelAndJoin() }
+                showFrozen(all = true)
+                showFrozenActivities()
+            } finally {
+                synchronized(lock) {
+                    flushing = false
+                    if (state == State.OPEN) {
+                        if (segments.values.any { it.pending != null }) editor = launchEditor()
+                        if (activities.values.any { it.pending != null }) activityEditor = launchActivityEditor()
+                    }
+                }
+                wake.trySend(Unit)
+                activityWake.trySend(Unit)
+            }
         }
     }
 
@@ -173,6 +212,11 @@ internal class TelegramReply(
         typing.stop(chat)
     }
 
+    private fun launchEditor(): Job = scope.launch(CoroutineName("$chat reply editor")) { runEditor() }
+
+    private fun launchActivityEditor(): Job =
+        scope.launch(CoroutineName("$chat activity editor")) { runActivityEditor() }
+
     /** Shows the pending previews, and after a 429 the limiter gave up on waits for the next preview to try again. */
     private suspend fun runEditor() {
         while (true) {
@@ -201,10 +245,10 @@ internal class TelegramReply(
         show(index, text)
     }
 
-    /** Shows the pending text of the frozen segments once. */
-    private suspend fun showFrozen() {
+    /** Shows the pending text of the frozen segments once, and of the current one too when [all]. */
+    private suspend fun showFrozen(all: Boolean) {
         val frozen = synchronized(lock) {
-            segments.headMap(current).mapNotNull { (index, segment) ->
+            segments.headMap(current, all).mapNotNull { (index, segment) ->
                 segment.pending?.let { text -> index to text }.also { segment.pending = null }
             }
         }
