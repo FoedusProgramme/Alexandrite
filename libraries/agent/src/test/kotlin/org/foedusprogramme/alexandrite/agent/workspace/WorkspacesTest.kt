@@ -24,7 +24,15 @@ class WorkspacesTest {
 
     private val agents: String get() {
         val notes = JsonPrimitive("${directory.resolve("notes")}/./a/..")
-        return """{"agents": {"coder": {}, "helper": {"workspace": "helper-files"}, "notes": {"workspace": $notes}}}"""
+        return """
+            {
+              "agents": {
+                "coder": {"description": "Codes."},
+                "helper": {"description": "Helps.", "workspace": "helper-files"},
+                "notes": {"description": "Notes.", "workspace": $notes}
+              }
+            }
+        """.trimIndent()
     }
 
     @Test

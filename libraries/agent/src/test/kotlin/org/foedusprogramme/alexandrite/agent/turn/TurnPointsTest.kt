@@ -13,6 +13,8 @@ import org.foedusprogramme.alexandrite.sdk.model.PromptSection
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextFallback
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
+import org.foedusprogramme.alexandrite.sdk.model.rebuild
+import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
@@ -23,7 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TurnPointsTest {
-    private val model = ScriptedModel()
+    private val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo().rebuild { contextWindow(100_000) }))
 
     /** Every point that [TurnPoints] declares. */
     private val points: List<HookPoint<*>> = TurnPoints::class.java.methods
@@ -33,30 +35,39 @@ class TurnPointsTest {
     private val config = """
         {
           "previewIntervalMillis": 0,
-          "agents": {"coder": {"name": "Coder", "model": "scripted/test-model", "channels": {"test:main": {}}}}
+          "agents": {
+            "coder": {
+              "name": "Coder",
+              "model": "scripted/test-model",
+              "channels": {"test:main": {}},
+              "compaction": {"clearAt": 2, "clearAtLeast": 2, "keepToolRounds": 0, "keepTurns": 0}
+            }
+          }
         }
     """.trimIndent()
 
     @Test
-    fun `a turn that runs a tool and a new conversation after it fire every turn point`() {
+    fun `a turn that runs a tool, a compaction and a new conversation after them fire every turn point`() {
         val fired = CopyOnWriteArrayList<String>()
         val commands = TestCommands()
+        val read = recordingTool("fs.read") { _, _ -> ToolResult("A long line of the file. ".repeat(20)) }
         model.reply {
             text("Looking.")
             toolCall("fs.read")
-        }.reply { text("Found.") }
+        }.reply { text("Found.") }.reply { text("Ada asked; the file was read.") }
 
         agentHarness(config, MemoryStore()) {
-            channel(admins = setOf("admin")).model(model).tool(recordingTool("fs.read")).commandHandler(commands)
+            channel(admins = setOf("admin")).model(model).tool(read).commandHandler(commands)
             points.forEach { hook(recorder(it, fired)) }
         }.execute {
             commands.control = get()
             val admin = channel().user("admin")
             (channel().receive("Hi", sender = admin) as Admission.Accepted).ticket.outcome()
+            (channel().receiveCommand("compact", issuer = admin) as Admission.Accepted).ticket.outcome()
             (channel().receiveCommand("new", issuer = admin) as Admission.Accepted).ticket.outcome()
         }
 
-        assertEquals(13, points.size)
+        assertEquals(16, points.size)
         assertEquals(points.map { it.id }.toSet(), fired.toSet())
         assertEquals(TurnPoints.CONVERSATION_SEALED.id, fired.last())
     }

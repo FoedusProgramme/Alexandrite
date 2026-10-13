@@ -174,7 +174,18 @@ class InitiatedTurnsTest {
             )
             val request = model.requests.single()
             assertEquals(
-                listOf("fs.read", "permission.status") to ToolChoice.Auto,
+                listOf(
+                    "agent.delegate",
+                    "agent.jobs",
+                    "agent.stop",
+                    "fs.read",
+                    "permission.status",
+                    "profile.create",
+                    "profile.edit",
+                    "profile.list",
+                    "profile.remove",
+                ) to
+                    ToolChoice.Auto,
                 request.tools.map { it.name } to request.toolChoice,
             )
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.turn)?.end)
@@ -432,14 +443,14 @@ class InitiatedTurnsTest {
     }
 
     @Test
-    fun `no plugin starts an approval or an agent message, which the agent starts itself`() {
+    fun `no plugin starts an approval, an agent message or a job turn, which the agent starts itself`() {
         harness().execute {
-            for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE)) {
+            for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE, TurnKind.JOB)) {
                 val refused = assertFailsWith<IllegalArgumentException> { initiate(turn(kind = kind)) }
 
                 assertEquals(
-                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval and agent message " +
-                        "turns itself.",
+                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval, agent message " +
+                        "and job turns itself.",
                     refused.message,
                 )
             }

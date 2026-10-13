@@ -4,6 +4,7 @@ import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 
 /** How a tool call ended. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
@@ -40,6 +41,13 @@ public interface ToolOutcome {
         override val isError: Boolean get() = true
     }
 
+    /** The call went on running in the background as [job], whose result comes in a later entry. */
+    @OptIn(InternalAlexandriteApi::class)
+    @Poko
+    public class Detached(public val job: RunId) : ToolOutcome {
+        override val isError: Boolean get() = false
+    }
+
     /** An outcome of a type this version does not know, as stored. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
@@ -71,6 +79,9 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The turn ran out of rounds before the call could run. */
         public val ROUND_LIMIT: NotRunReason = NotRunReason("round_limit")
 
+        /** The turn used up its token budget before the call could run. */
+        public val BUDGET: NotRunReason = NotRunReason("budget")
+
         /** The turn offers the tool but may not call it. */
         public val NOT_PERMITTED: NotRunReason = NotRunReason("not_permitted")
 
@@ -95,8 +106,11 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The turn was cancelled before the call ran. */
         public val CANCELLED: NotRunReason = NotRunReason("cancelled")
 
-        /** The agent stopped while the call waited for an approver. */
+        /** The agent stopped while the call waited for an approver or for the sub-agent run it started. */
         public val INTERRUPTED: NotRunReason = NotRunReason("interrupted")
+
+        /** The turn's tree of sub-agent runs is as deep as it may grow. */
+        public val DELEGATION_LIMIT: NotRunReason = NotRunReason("delegation_limit")
 
         /** The values this version knows. */
         public val entries: List<NotRunReason> = listOf(
@@ -104,6 +118,7 @@ public value class NotRunReason internal constructor(public val id: String) {
             UNKNOWN_TOOL,
             HOOK_DENIED,
             ROUND_LIMIT,
+            BUDGET,
             NOT_PERMITTED,
             FLOOR,
             PLAN_MODE,
@@ -113,6 +128,7 @@ public value class NotRunReason internal constructor(public val id: String) {
             DECLINED,
             CANCELLED,
             INTERRUPTED,
+            DELEGATION_LIMIT,
         )
 
         /** The value of [id], which keeps an id this version does not know. */

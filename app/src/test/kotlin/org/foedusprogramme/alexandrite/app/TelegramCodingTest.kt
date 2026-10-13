@@ -88,7 +88,7 @@ class TelegramCodingTest {
             List(2) { "Allowed by Ada Lovelace (@ada_test)." },
             listOf(edit, exec).map { app.fake.botMessage(ADA, it.id)!!.text.substringAfterLast("\n") },
         )
-        assertEquals(listOf(edit.id, exec.id), app.fake.botMessages(ADA).dropLast(1).map { it.id })
+        assertEquals(listOf(edit.id, exec.id), app.fake.botMessages(ADA).body().dropLast(1).map { it.id })
         assertEquals(
             listOf(
                 "fs.read" to ToolOutcome.Succeeded,
@@ -158,7 +158,7 @@ class TelegramCodingTest {
         )
         assertEquals(
             listOf("The permission mode of this chat is now plan.", PLANNED),
-            app.fake.botMessages().map { it.text },
+            app.fake.botMessages().body().map { it.text },
         )
         assertEquals(GREETER, greeter.readText())
     }
@@ -182,8 +182,8 @@ class TelegramCodingTest {
             ),
             results().map { it.outcome to it.text },
         )
-        assertEquals(listOf(REFUSED), app.fake.botMessages().map { it.text })
-        assertEquals(listOf(BOB), app.fake.botMessages().map { it.chat })
+        assertEquals(listOf(REFUSED), app.fake.botMessages().body().map { it.text })
+        assertEquals(listOf(BOB), app.fake.botMessages().body().map { it.chat })
         assertEquals(GREETER, greeter.readText())
     }
 

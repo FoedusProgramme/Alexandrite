@@ -115,6 +115,16 @@ internal class MemoryBotApi : BotApi {
         request.replyMarkup?.let { keyboards[key] = it } ?: keyboards.remove(key)
     }
 
+    override suspend fun deleteMessage(chat: Long, message: Long) {
+        sent += SentCall("deleteMessage", chat, message)
+        answer("deleteMessage")
+        if (chat to message !in messages) {
+            throw BotApiException(BotApiFailure.EDIT_TARGET_GONE, "deleteMessage", "message to delete not found")
+        }
+        messages -= chat to message
+        keyboards -= chat to message
+    }
+
     override suspend fun answerCallbackQuery(request: AnswerCallbackQuery) {
         answers += request
         failures["answerCallbackQuery"]?.removeFirstOrNull()?.let { throw it }

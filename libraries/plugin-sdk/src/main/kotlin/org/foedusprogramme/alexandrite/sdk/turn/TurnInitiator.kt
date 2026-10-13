@@ -26,8 +26,8 @@ public interface TurnInitiator {
 @InternalAlexandriteApi
 public fun requireInitiable(plugin: String, turn: InitiatedTurn) {
     require(turn.kind !in TurnKind.agentStarted) {
-        "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval and agent message " +
-            "turns itself."
+        "Plugin '$plugin' cannot initiate a turn of kind ${turn.kind}: the agent starts approval, agent message " +
+            "and job turns itself."
     }
 }
 

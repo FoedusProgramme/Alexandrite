@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.sdk.channel
 
 import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
@@ -24,6 +25,8 @@ public class ApprovalRequest(
     public val reason: String,
     /** What allowing such calls for good would grant, null when it may not be offered. */
     public val always: RuleSubject?,
+    /** The agents from the root turn's down to the sub-agent that made the call, empty for a top-level turn's call. */
+    public val chain: List<AgentId> = emptyList(),
 ) {
     init {
         require(ID.matches(id)) { "Malformed approval request id '$id'." }

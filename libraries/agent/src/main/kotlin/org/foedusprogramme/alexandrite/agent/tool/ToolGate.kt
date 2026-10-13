@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
@@ -31,7 +32,7 @@ internal class GateCall(
 
 /** What a [ToolGate] decided. */
 internal sealed interface GateResult {
-    class Admitted(val clearance: Clearance) : GateResult
+    class Admitted(val clearance: Clearance, val preview: ReviewPreview? = null) : GateResult
 
     /** The model reads [text] as the result of the call, which does not run, and the chat is told [notice]. */
     class Refused(val outcome: ToolOutcome, val text: String, val notice: String? = null) : GateResult

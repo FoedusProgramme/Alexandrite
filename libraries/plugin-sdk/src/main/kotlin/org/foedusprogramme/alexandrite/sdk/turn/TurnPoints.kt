@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
  * - An untrusted turn-context item taints the turn.
  * - [RESPONSE_PREVIEW] fires for turns that reply to their chat and [RESPONSE_BEFORE] for every reply sent to a chat;
  *   every other point fires for every turn, delegated and agent-message turns included.
+ * - [CONTEXT_COMPACT] and [CONTEXT_COMPACTED] also fire for a compaction that a command asks for, with its COMMAND turn.
  */
 public object TurnPoints {
     public val PROMPT_SECTIONS: InterceptorPoint<PromptSections> =
@@ -58,4 +59,12 @@ public object TurnPoints {
     public val TURN_COMMITTED: ObserverPoint<TurnCommitted> = ObserverPoint("turn.committed")
 
     public val CONVERSATION_SEALED: ObserverPoint<ConversationSealed> = ObserverPoint("conversation.sealed")
+
+    /** Where a replacement gives the summary, which no model then writes, and an abort skips the compaction. */
+    public val CONTEXT_COMPACT: InterceptorPoint<ContextCompaction> =
+        InterceptorPoint("context.compact", setOf(HookEffect.REPLACE, HookEffect.ABORT), FailurePolicy.FAIL_OPEN)
+
+    public val CONTEXT_COMPACTED: ObserverPoint<ContextCompacted> = ObserverPoint("context.compacted")
+
+    public val CONTEXT_CLEARED: ObserverPoint<ContextCleared> = ObserverPoint("context.cleared")
 }

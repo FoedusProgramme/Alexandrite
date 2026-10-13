@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.agent
 
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.control.CommandLanes
+import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.turn.Recovery
 import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
@@ -25,6 +27,7 @@ public class AgentPlugin internal constructor(
     private val initiation: AgentTurnInitiation,
     private val lanes: CommandLanes,
     private val workers: TurnWorkers,
+    private val jobs: Jobs,
     private val recovery: Recovery,
     private val scope: PluginScope,
 ) : Lifecycle {
@@ -47,7 +50,10 @@ public class AgentPlugin internal constructor(
         intakes.shutDown()
         lanes.shutDown()
         val shutdown = settings.shutdown
-        workers.drain(shutdown.turnGraceSeconds.seconds, shutdown.cancelJoinSeconds.seconds)
+        coroutineScope {
+            launch { jobs.drain(shutdown.cancelJoinSeconds.seconds) }
+            workers.drain(shutdown.turnGraceSeconds.seconds, shutdown.cancelJoinSeconds.seconds)
+        }
     }
 
     /** Warns of each agent whose model its endpoint does not list. */

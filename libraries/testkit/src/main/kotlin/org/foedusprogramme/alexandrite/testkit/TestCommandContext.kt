@@ -17,17 +17,22 @@ public class TestCommandContext(
 ) : CommandContext {
     private val lock = Any()
     private val sent = mutableListOf<OutboundMessage>()
+    private val visibility = mutableListOf<Boolean>()
     private val deliveries = ArrayDeque<Delivery>()
 
     public val replies: List<OutboundMessage> get() = synchronized(lock) { sent.toList() }
+
+    /** Whether each of [replies] was sent for the model to see, in the same order. */
+    public val repliesForModel: List<Boolean> get() = synchronized(lock) { visibility.toList() }
 
     /** Queues the deliveries of the next replies. An unscripted reply reaches the chat as one message. */
     public fun scriptDeliveries(vararg deliveries: Delivery) {
         synchronized(lock) { this.deliveries.addAll(deliveries) }
     }
 
-    override suspend fun reply(text: String, markup: Markup): Delivery = synchronized(lock) {
+    override suspend fun reply(text: String, markup: Markup, forModel: Boolean): Delivery = synchronized(lock) {
         sent += OutboundMessage.builder(text, MessageKind.NOTICE).markup(markup).replyTo(trigger).build()
+        visibility += forModel
         deliveries.removeFirstOrNull() ?: Delivery.Delivered(listOf(ChannelMessageRef(turn.chat, "reply-${sent.size}")))
     }
 }

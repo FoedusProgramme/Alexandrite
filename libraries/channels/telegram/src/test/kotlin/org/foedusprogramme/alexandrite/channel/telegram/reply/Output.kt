@@ -60,7 +60,8 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
         .also { runBlocking { it.onStart() } }
     private val approvals =
         ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())
-    val channel = TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session), approvals)
+    val channel =
+        TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session), texts, approvals)
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */
     suspend fun open(chat: Long = DIRECT, trigger: String? = "41", thread: Long? = null): ReplySink {

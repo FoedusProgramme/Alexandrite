@@ -7,17 +7,24 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
+import org.foedusprogramme.alexandrite.agent.context.ContextControl
+import org.foedusprogramme.alexandrite.agent.context.ContextRecords
+import org.foedusprogramme.alexandrite.agent.delegation.DelegatedRuns
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
+import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
+import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.permission.AgentCallRules
+import org.foedusprogramme.alexandrite.agent.profile.Profiles
 import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.routing.LinkGroup
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
+import org.foedusprogramme.alexandrite.agent.tool.OfferedTools
 import org.foedusprogramme.alexandrite.agent.worker.AgentTurnInitiation
 import org.foedusprogramme.alexandrite.agent.worker.ChatIntakes
 import org.foedusprogramme.alexandrite.agent.worker.RunningControl
@@ -53,7 +60,11 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.CompactionReport
+import org.foedusprogramme.alexandrite.sdk.turn.ContextStatus
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
+import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
+import org.foedusprogramme.alexandrite.sdk.turn.ProfileSummary
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
@@ -74,6 +85,7 @@ internal class AgentControlImpl(
     private val topology: ChatTopology,
     private val states: SettingsStates,
     private val workers: TurnWorkers,
+    private val background: Jobs,
     private val intakes: ChatIntakes,
     private val initiation: AgentTurnInitiation,
     private val lanes: CommandLanes,
@@ -81,28 +93,45 @@ internal class AgentControlImpl(
     private val endpoints: Endpoints,
     private val trust: FolderTrust,
     private val rules: AgentCallRules,
+    private val offeredTools: OfferedTools,
+    private val pendingCommands: PendingCommands,
+    private val interruptedJobs: InterruptedJobs,
+    private val contexts: ContextControl,
+    private val contextRecords: ContextRecords,
     private val hooks: TurnHooks,
     private val notices: Notices,
+    private val profileCatalog: Profiles,
+    private val runs: DelegatedRuns,
     private val clock: Clock,
 ) : AgentControl,
     ChatSettings {
     override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
-        (workers.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
+        (workers.statuses(chat) + runs.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
 
     override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
         val cancelled = workers.cancelRunning(chat, TurnCancelled(by))
         if (cancelled) logger.info("The running turns from {} are cancelled by {}", chat, who(by))
-        return cancelled
+        val stopped = background.stopAll(chat, by)
+        return cancelled || stopped > 0
     }
 
     override fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean {
         val cause = TurnCancelled(by)
-        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause)
+        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause) ||
+            runs.cancelTurn(turn, cause)
         if (found) logger.info("Turn {} is cancelled by {}", turn, who(by))
         return found
     }
 
-    override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean = false
+    override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean {
+        if (!runs.cancel(run, tree, TurnCancelled(by))) return background.stop(run, null, by)
+        logger.info("Run {}{} is cancelled by {}", run, if (tree) " and the runs below it" else "", who(by))
+        return true
+    }
+
+    override fun jobs(chat: ChatAddress): List<JobStatus> = background.list(chat)
+
+    override fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean = background.stop(job, chat, by)
 
     override suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId {
         val key = refusing(null) { served(chat).key }
@@ -114,6 +143,23 @@ internal class AgentControlImpl(
         logger.info("The conversation of {} is sealed by {}: {} follows", key, who(by), successor)
         return successor
     }
+
+    override suspend fun compact(chat: ChatAddress, focus: String?, by: ChatUser?): CompactionReport {
+        val key = refusing(null) { served(chat).key }
+        val report = refusing(key) { onWorker(key) { contexts.compact(key, chat, by, focus) } }
+        logger.info(
+            "The conversation of {} is compacted by {}: {} entries folded, about {} -> {} tokens",
+            key,
+            who(by),
+            report.folded,
+            report.tokensBefore,
+            report.tokensAfter,
+        )
+        return report
+    }
+
+    override suspend fun context(chat: ChatAddress): ContextStatus =
+        contexts.status(refusing(null) { served(chat).key })
 
     override fun agents(instance: ChannelInstanceId): List<AgentSummary> {
         val default = directory.default(instance)?.id
@@ -133,6 +179,8 @@ internal class AgentControlImpl(
     }
 
     override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot = snapshot(refusing(null) { served(chat) })
+
+    override suspend fun profiles(): List<ProfileSummary> = profileCatalog.all()
 
     override suspend fun updateSettings(
         chat: ChatAddress,
@@ -354,6 +402,10 @@ internal class AgentControlImpl(
     ) {
         val sealed = rotation.sealed?.id ?: return
         rules.sealed(sealed)
+        offeredTools.sealed(sealed)
+        pendingCommands.sealed(sealed)
+        interruptedJobs.sealed(sealed)
+        contextRecords.sealed(sealed)
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)

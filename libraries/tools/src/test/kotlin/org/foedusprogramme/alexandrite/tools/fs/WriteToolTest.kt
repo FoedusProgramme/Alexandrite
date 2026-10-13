@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
@@ -34,6 +35,11 @@ class WriteToolTest {
         fs = FsFixture(directory)
         ledger = ReadLedger()
         tool = WriteTool(fs.floor, ledger)
+    }
+
+    @Test
+    fun `the call is titled by its path, of activity edit`() {
+        assertEquals(ToolActivity.EDIT to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
     }
 
     private fun read(file: Path) {

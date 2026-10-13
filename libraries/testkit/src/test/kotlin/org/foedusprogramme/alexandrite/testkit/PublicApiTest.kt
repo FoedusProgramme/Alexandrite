@@ -28,6 +28,7 @@ class PublicApiTest {
         import kotlinx.serialization.json.JsonObject
         import kotlinx.serialization.json.JsonPrimitive
         import org.foedusprogramme.alexandrite.runtime.TextCatalog
+        import org.foedusprogramme.alexandrite.sdk.agent.*
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
         import org.foedusprogramme.alexandrite.sdk.config.ConfigEditor
@@ -119,13 +120,14 @@ class PublicApiTest {
                 is RecordingChannel.Event.ApprovalAsked -> event.request
                 is RecordingChannel.Event.ApprovalAnswered -> listOf(event.id, event.answer)
                 is RecordingChannel.Event.ApprovalWithdrawn -> event.id
+                is RecordingChannel.Event.Activity -> listOf(event.turn, event.event)
                 else -> null
             }
             return listOf(
                 command, admissions, described, answer, approvals, preview.segment, preview.text, recorded.request,
                 recorded.turn,
                 recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,
-                recorded.ended,
+                recorded.ended, recorded.activity,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,
                 channel.violations, channel.capabilities(channel.chat()),
                 channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), RecordingChannel.STOPPED,
@@ -150,13 +152,19 @@ class PublicApiTest {
             val invoked = testCommandContext(testCommand("new"))
             val control = RecordingAgentControl(AgentId.MAIN)
             control.statuses = emptyList()
+            control.jobStatuses = emptyList()
+            control.compaction = CompactionReport(1, 2, 1)
+            control.scriptContext(testChat(), ContextStatus(ConversationId("c"), null, null, null, null, null, null, null, 0))
             control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
+            control.scriptProfile(AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict."))
             control.refuseNext("No agent serves the chat.")
             control.cancel(testChat(), null)
             control.cancelTurn(TurnId("t"), null)
             control.cancelRun(RunId("r"), true, null)
+            control.stopJob(testChat(), RunId("j"), null)
             control.newConversation(testChat(), null)
+            control.compact(testChat(), "the tests", null)
             control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.unlink(AgentId.MAIN, testChat("other"), null)
@@ -169,8 +177,10 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.Cancel -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
                 is RecordingAgentControl.Call.CancelRun -> listOf(recorded.run, recorded.tree, recorded.by)
+                is RecordingAgentControl.Call.StopJob -> listOf(recorded.chat, recorded.job, recorded.by)
                 is RecordingAgentControl.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
+                is RecordingAgentControl.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
                 is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
                 is RecordingAgentControl.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
                 is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
@@ -183,10 +193,13 @@ class PublicApiTest {
             return listOf(
                 submitter.submissions, submitter.results, submitter.tickets, submitter.awaitSubmissions(1),
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
-                ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies, invoked, call,
-                control.turns(null), control.settings(testChat()), control.links(), control.trustedFolders(),
+                ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies,
+                context.repliesForModel, invoked, call,
+                control.turns(null), control.jobs(testChat()), control.settings(testChat()), control.links(),
+                control.context(testChat()), control.compaction,
+                control.trustedFolders(),
                 control.allowRules(testChat()),
-                control.agents(TEST_INSTANCE), control.language(testChat()), control.endpoints(),
+                control.agents(TEST_INSTANCE), control.profiles(), control.language(testChat()), control.endpoints(),
                 control.models(EndpointId("scripted")),
                 states.of("probe"),
                 testChatStates("probe"),
@@ -222,6 +235,9 @@ class PublicApiTest {
             testReplyDraft(testTurn(), "Hi", MessageKind.REPLY, destination = testChat("other")),
             testTurnCommitted(testTurn(), usage = null),
             testConversationSealed(testTurn(), ConversationId("next")),
+            testContextCompaction(testTurn(), focus = "the tests"),
+            testContextCompacted(testTurn(), "Said hello.", EntryId(2), 900, 100),
+            testContextCleared(testTurn(), tokensFreed = 300),
         )
 
         suspend fun tools(): List<Any?> {

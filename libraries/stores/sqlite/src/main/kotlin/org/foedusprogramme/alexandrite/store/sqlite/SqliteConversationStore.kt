@@ -75,6 +75,20 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
             info(insert(ConversationKind.DELEGATED, key.agent, chatId(key.chat), lineage, fork))
         }
 
+    override suspend fun sealDelegated(id: ConversationId): Boolean = database.transaction {
+        val conversation = requireNotNull(infoOrNull(id)) { "Cannot seal the unknown conversation $id." }
+        require(conversation.kind == ConversationKind.DELEGATED) {
+            "Conversation $id is ${conversation.kind}, not the conversation of a sub-agent run."
+        }
+        execute(
+            "UPDATE conversations SET state = ?, sealed_at = ? WHERE id = ? AND state = ?",
+            ConversationState.SEALED.id,
+            now,
+            id.value,
+            ConversationState.ACTIVE.id,
+        ) == 1
+    }
+
     override suspend fun conversation(id: ConversationId): ConversationInfo? = database.transaction { infoOrNull(id) }
 
     override suspend fun chats(agent: AgentId): List<ChatAddress> = database.transaction {

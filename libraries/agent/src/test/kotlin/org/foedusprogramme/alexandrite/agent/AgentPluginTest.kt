@@ -50,7 +50,14 @@ class AgentPluginTest {
 
     @Test
     fun `an agent whose model its endpoint does not list is warned of after the agent opens`() {
-        val config = """{"agents": {"coder": {"model": "scripted/missing"}, "helper": {"model": "side/any"}}}"""
+        val config = """
+            {
+              "agents": {
+                "coder": {"description": "Codes.", "model": "scripted/missing"},
+                "helper": {"description": "Helps.", "model": "side/any"}
+              }
+            }
+        """.trimIndent()
         val side = ScriptedModel(EndpointId("side"))
         val failing = object : ModelEndpoint by side {
             override suspend fun models(): List<ModelInfo> =

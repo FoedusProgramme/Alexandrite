@@ -13,13 +13,20 @@ import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.job.Detaching
+import org.foedusprogramme.alexandrite.agent.job.Jobs
+import org.foedusprogramme.alexandrite.agent.job.backgroundResult
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
@@ -49,7 +56,12 @@ internal class ToolCallEnd(
 
 /** Runs the tool calls of a turn's responses. */
 @Singleton
-internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings, private val workspaces: Workspaces) {
+internal class ToolExecutor(
+    private val gate: ToolGate,
+    settings: AgentSettings,
+    private val workspaces: Workspaces,
+    private val jobs: Jobs,
+) {
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
 
@@ -66,16 +78,15 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         callable: Set<String>,
         taint: TurnTaint,
         calls: TurnCalls,
-        /** The message the turn was started by, which a tool that acts on it reads from its context. */
         trigger: ChannelMessageRef?,
     ): ToolCallEnd {
         val tool = tools[call.name]
-            ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL)
+            ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL, calls)
         if (call.name !in callable) {
-            return ended(call, "This turn may not call '${call.name}'.", NotRunReason.NOT_PERMITTED)
+            return ended(call, "This turn may not call '${call.name}'.", NotRunReason.NOT_PERMITTED, calls)
         }
         val arguments = call.parseArguments()
-            ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS)
+            ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS, calls)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
         val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint, trigger)
         val admission = try {
@@ -84,12 +95,24 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
             reviewing.close()
         }
         return when (admission) {
-            is GateResult.Refused -> ToolCallEnd(textResult(call, admission.text, admission.outcome), admission.notice)
+            is GateResult.Refused -> {
+                calls.ended(call.id, ToolCallStatus.NOT_RUN, null)
+                ToolCallEnd(textResult(call, admission.text, admission.outcome), admission.notice)
+            }
 
             is GateResult.Admitted -> {
                 calls.starting(call.id)
-                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, trigger)
-                ToolCallEnd(runTool(turn, call, tool, arguments, limit, context), null, context.touchedPaths)
+                calls.running(call.id)
+                val delegating = calls as? DelegatingTurn
+                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, trigger, delegating)
+                val result = if (tool is InTurnTool) {
+                    inTurn(turn, call, tool, arguments, context)
+                } else {
+                    runTool(turn, call, tool, arguments, limit, context)
+                }
+                val content = contentOf(tool.definition.activity, admission.preview, result)
+                calls.ended(call.id, statusOf(result.outcome), content)
+                ToolCallEnd(result, null, context.touchedPaths)
             }
         }
     }
@@ -102,12 +125,21 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         timeout: Duration,
         context: AgentToolContext,
     ): ToolResultEntry {
+        var detached = false
         try {
             val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async {
                 tool.execute(arguments, context)
             }
             val returned = try {
-                withTimeoutOrNull(timeout) { running.await() }
+                val foreground = if (turn.lineage == null) minOf(jobs.foreground(turn.agent), timeout) else timeout
+                withTimeoutOrNull(foreground) { running.await() } ?: run {
+                    val job = jobs.detach(Detaching(turn, call, arguments, running, context, foreground, timeout))
+                    if (job != null) {
+                        detached = true
+                        return backgroundResult(call, job)
+                    }
+                    withTimeoutOrNull(timeout - foreground) { running.await() }
+                }
             } catch (e: CancellationException) {
                 if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
                 stop(running, turn, call, if (turnCause(e) is TurnShutdown) shutdownWait else ABANDON_AFTER)
@@ -115,16 +147,38 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
             } catch (e: Throwable) {
                 if (e is VirtualMachineError) throw e
                 logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
-                val why = e.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
-                return textResult(call, "The tool failed: $why", ToolOutcome.Failed)
+                return failedResult(call, e)
             }
             if (returned == null) {
                 logger.warn("Tool {} timed out in turn {} after {}", call.name, turn.id, timeout)
                 stop(running, turn, call, ABANDON_AFTER)
-                return textResult(call, "The call timed out after ${timeout.inWholeSeconds} s.", ToolOutcome.Failed)
+                return timedOutResult(call, timeout)
             }
             val outcome = if (returned.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
             return ToolResultEntry(null, call.id, call.name, shaped(returned.content), outcome)
+        } finally {
+            if (!detached) context.close()
+        }
+    }
+
+    /** How [call] of [tool] ends, run in the turn's coroutine. */
+    private suspend fun inTurn(
+        turn: TurnInfo,
+        call: ToolCallPart,
+        tool: InTurnTool,
+        arguments: JsonObject,
+        context: AgentToolContext,
+    ): ToolResultEntry {
+        try {
+            val result = tool.call(arguments, context)
+            return ToolResultEntry(null, call.id, call.name, result.content, result.outcome)
+        } catch (e: CancellationException) {
+            if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
+            throw e
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
+            return failedResult(call, e)
         } finally {
             context.close()
         }
@@ -147,12 +201,58 @@ internal class ToolExecutor(private val gate: ToolGate, settings: AgentSettings,
         }
     }
 
-    private fun ended(call: ToolCallPart, text: String, reason: NotRunReason): ToolCallEnd =
-        ToolCallEnd(textResult(call, text, ToolOutcome.NotRun(reason)), null)
+    private suspend fun ended(call: ToolCallPart, text: String, reason: NotRunReason, calls: TurnCalls): ToolCallEnd {
+        calls.ended(call.id, ToolCallStatus.NOT_RUN, null)
+        return ToolCallEnd(textResult(call, text, ToolOutcome.NotRun(reason)), null)
+    }
 }
 
 internal fun textResult(call: ToolCallPart, text: String, outcome: ToolOutcome): ToolResultEntry =
     ToolResultEntry(null, call.id, call.name, listOf(TextPart(text)), outcome)
+
+/** The result of [call], whose tool threw [error]. */
+internal fun failedResult(call: ToolCallPart, error: Throwable): ToolResultEntry {
+    val why = error.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+    return textResult(call, "The tool failed: $why", ToolOutcome.Failed)
+}
+
+/** The result of [call], whose tool ran past [timeout] and was stopped. */
+internal fun timedOutResult(call: ToolCallPart, timeout: Duration): ToolResultEntry =
+    textResult(call, "The call timed out after ${timeout.inWholeSeconds} s.", ToolOutcome.Failed)
+
+/** The [ToolCallStatus] a finished call's [outcome] is shown as. */
+private fun statusOf(outcome: ToolOutcome): ToolCallStatus = when (outcome) {
+    ToolOutcome.Succeeded -> ToolCallStatus.COMPLETED
+    is ToolOutcome.Detached -> ToolCallStatus.BACKGROUNDED
+    is ToolOutcome.NotRun -> ToolCallStatus.NOT_RUN
+    else -> ToolCallStatus.FAILED
+}
+
+/** What a finished call of [activity] is shown with: the review's [preview] for an edit, [result]'s tail for a run. */
+private fun contentOf(activity: ToolActivity, preview: ReviewPreview?, result: ToolResultEntry): TurnEvent.Content? =
+    when (activity) {
+        ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
+            ?.takeIf { result.outcome == ToolOutcome.Succeeded }
+            ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
+
+        ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
+            ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }
+
+        else -> null
+    }
+
+/** The text of [parts], its other kinds left out. */
+private fun textOf(parts: List<ToolOutputPart>): String =
+    parts.filterIsInstance<TextPart>().joinToString("") { it.text }
+
+/** The last [max] lines of [text]. */
+private fun tailLines(text: String, max: Int): String {
+    val lines = text.lines()
+    return if (lines.size <= max) text else lines.takeLast(max).joinToString("\n")
+}
+
+/** How many lines of a run's output a [TurnEvent.Content.Output] keeps. */
+private const val OUTPUT_TAIL_LINES = 20
 
 /** [content] with its text escaped and cut after [MAX_RESULT_CHARS] characters, where a note says so. */
 internal fun shaped(content: List<ToolOutputPart>): List<ToolOutputPart> {

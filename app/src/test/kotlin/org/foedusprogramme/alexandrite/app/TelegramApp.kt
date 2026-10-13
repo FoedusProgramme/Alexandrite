@@ -36,9 +36,11 @@ import kotlin.time.Duration.Companion.seconds
  * The app's agent, tools, commands and Telegram plugins over a [FakeBotApi] whose bot has Ada as its admin, Bob as a
  * member and the group Backend, with [model] answering for the agent `coder`.
  */
-class TelegramApp : AutoCloseable {
+class TelegramApp(
+    val model: ScriptedModel =
+        ScriptedModel(models = listOf(ScriptedModel.modelInfo(), ScriptedModel.modelInfo(FAST_MODEL))),
+) : AutoCloseable {
     val fake = FakeBotApi()
-    val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo(), ScriptedModel.modelInfo(FAST_MODEL)))
     val store = MemoryStore()
     val ada = FakeUser(ADA, "Ada", "Lovelace", "ada_test")
     val bob = FakeUser(BOB, "Bob", username = "bob_test")
@@ -80,6 +82,10 @@ class TelegramApp : AutoCloseable {
     /** The bot's messages in [chat], once there are [count]. */
     fun messages(chat: FakeChat, count: Int): List<FakeBotMessage> =
         fake.await(WAIT) { botMessages(chat.id).takeIf { it.size >= count } }
+
+    /** The bot's messages in [chat], its activity messages left out, once there are [count]. */
+    fun bodyMessages(chat: FakeChat, count: Int): List<FakeBotMessage> =
+        fake.await(WAIT) { botMessages(chat.id).body().takeIf { it.size >= count } }
 
     /** The bot's message in [chat] that reads [text], once one does. */
     fun message(chat: FakeChat, text: String): FakeBotMessage =
@@ -138,6 +144,13 @@ suspend fun PluginHarness.Running.idle() {
         while (get<AgentControl>().turns(null).isNotEmpty()) delay(10.milliseconds)
     }
 }
+
+/** Whether this message is an activity message, folding a stretch of tool calls rather than carrying body text. */
+fun FakeBotMessage.isActivity(): Boolean = !text.startsWith("Approval needed") &&
+    entities.any { (it as? JsonObject)?.get("type") == JsonPrimitive("expandable_blockquote") }
+
+/** [messages], its activity messages left out. */
+fun List<FakeBotMessage>.body(): List<FakeBotMessage> = filterNot { it.isActivity() }
 
 /** The entry's text parts, joined. */
 val UserEntry.words: String get() = parts.filterIsInstance<TextPart>().joinToString("") { it.text }

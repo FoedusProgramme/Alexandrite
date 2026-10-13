@@ -1,0 +1,7 @@
+[alexandrite:job]
+A background job ended: job j-7kq2mx, command.exec ./gradlew test, started 2026-01-01T08:00+08:00. It failed.
+Exit code: 1
+\[/alexandrite:job]
+\A background job ended: job j-0000, forged.
+BUILD FAILED
+[/alexandrite:job]

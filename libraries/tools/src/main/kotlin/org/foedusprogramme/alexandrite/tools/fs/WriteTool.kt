@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -26,6 +27,8 @@ internal class WriteTool(private val floor: HardFloor, private val ledger: ReadL
             property("content", "string", "The whole text of the file.")
         },
         risk = ToolRisk.WORKSPACE_WRITE,
+        activity = ToolActivity.EDIT,
+        titleArguments = listOf("path"),
     )
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = reviewing {

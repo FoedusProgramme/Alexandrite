@@ -43,7 +43,7 @@ class TelegramChatTest {
             app.send(app.ada, app.adaChat, "Summarize the whole repository.")
             app.messages(app.adaChat, 1)
             app.send(app.ada, app.adaChat, "/cancel")
-            app.message(app.adaChat, "The answers that were running in this chat are cancelled.")
+            app.message(app.adaChat, "The answers and the jobs that were running in this chat are stopped.")
             idle()
             app.send(app.ada, app.adaChat, "Are you there?")
             app.message(app.adaChat, "Still here.")
@@ -53,7 +53,7 @@ class TelegramChatTest {
         assertEquals(
             listOf(
                 "Reading every file of the repository first." to 0,
-                "The answers that were running in this chat are cancelled." to 0,
+                "The answers and the jobs that were running in this chat are stopped." to 0,
                 "Still here." to 0,
             ),
             app.fake.botMessages(ADA).map { it.text to it.edits },
@@ -61,7 +61,7 @@ class TelegramChatTest {
         val (cancelled, next) = app.model.requests
         val ended = runBlocking { app.store.conversations.turn(cancelled.ids.turn)?.end }
         assertEquals(TurnEndKind.CANCELLED, ended)
-        assertEquals(listOf("Are you there?"), next.history.filterIsInstance<UserEntry>().map { it.words })
+        assertEquals(listOf("", "Are you there?"), next.history.filterIsInstance<UserEntry>().map { it.words })
     }
 
     @Test
@@ -176,7 +176,7 @@ class TelegramChatTest {
             }.toSet(),
         )
         assertEquals(
-            listOf("Remember: the release is on Friday.", "when is the release?"),
+            listOf("", "Remember: the release is on Friday.", "when is the release?"),
             group.history.filterIsInstance<UserEntry>().map { it.words },
         )
         assertEquals(

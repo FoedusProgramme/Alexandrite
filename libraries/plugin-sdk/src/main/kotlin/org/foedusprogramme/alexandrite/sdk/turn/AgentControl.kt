@@ -3,6 +3,8 @@ package org.foedusprogramme.alexandrite.sdk.turn
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
+import org.foedusprogramme.alexandrite.sdk.agent.ProfileSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -38,14 +40,22 @@ public interface AgentControl {
      */
     public suspend fun turns(chat: ChatAddress? = null): List<TurnStatus>
 
-    /** Cancels the running turns at [chat] and every run they delegated, leaving queued turns alone. */
+    /**
+     * Cancels the running turns at [chat] and every run they delegated and stops its jobs, leaving queued turns alone.
+     */
     public fun cancel(chat: ChatAddress, by: ChatUser?): Boolean
 
     /** Drops [turn] while it is queued, held or waiting, or cancels it while it runs. */
     public fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean
 
-    /** Cancels [run], and the runs it delegated when [tree] is true. */
+    /** Cancels [run], and the runs it delegated when [tree] is true, or stops it when it is a job. */
     public fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean
+
+    /** The jobs that turns at [chat] moved to the background and that still run, oldest first. */
+    public fun jobs(chat: ChatAddress): List<JobStatus>
+
+    /** Stops the job [job] of [chat], false when [chat] runs no such job. */
+    public fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean
 
     /**
      * Seals the conversation of the chat's agent once the turns queued at its key before the call have ended, and
@@ -55,6 +65,18 @@ public interface AgentControl {
      * the agent stops.
      */
     public suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId
+
+    /**
+     * Folds the older part of the conversation of the chat's agent into its rolling summary once the turns queued at its
+     * key before the call have ended, with [focus] added to the summarizer's instructions.
+     *
+     * Throws [ControlRefusedException] when there is nothing to fold or no summary was written, and
+     * [IllegalStateException] where [newConversation] does.
+     */
+    public suspend fun compact(chat: ChatAddress, focus: String?, by: ChatUser?): CompactionReport
+
+    /** How much of its model's context window the current conversation of the chat's agent takes. */
+    public suspend fun context(chat: ChatAddress): ContextStatus
 
     /** The agents that serve [instance], in config order. */
     public fun agents(instance: ChannelInstanceId): List<AgentSummary>
@@ -117,6 +139,9 @@ public interface AgentControl {
      * whether the config file still allows what it covered.
      */
     public suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation
+
+    /** The profiles a delegating agent may run as a sub-agent, config ones first, then plugin ones, then created ones. */
+    public suspend fun profiles(): List<ProfileSummary> = emptyList()
 
     /** The model endpoints the agents can use. */
     public fun endpoints(): List<EndpointId>
@@ -210,6 +235,58 @@ public class AgentSummary(
     public val homeSetAt: Instant? = null,
     /** Who set [home] at runtime, null for the host or when nobody did. */
     public val homeSetBy: ChatUser? = null,
+)
+
+/** A profile as [AgentControl.profiles] shows it. */
+@Poko
+public class ProfileSummary(public val profile: AgentProfile, public val source: ProfileSource)
+
+/** A tool call that runs on in the background after its turn went on. */
+@Poko
+public class JobStatus(
+    public val id: RunId,
+    /** The chat of the turn that made the call. */
+    public val chat: ChatAddress,
+    public val tool: String,
+    /** The call's main argument, such as its command line or path, empty when it has none. */
+    public val title: String,
+    /** When the call started to run. */
+    public val startedAt: Instant,
+    /** The principal of the turn that made the call, null when it had none. */
+    public val by: ChatUser?,
+)
+
+/** What a compaction folded into the rolling summary. */
+@Poko
+public class CompactionReport(
+    /** The stored entries that the compaction folded into the summary. */
+    public val folded: Int,
+    /** The prompt tokens before the compaction, as the agent estimates them. */
+    public val tokensBefore: Long,
+    /** The prompt tokens after the compaction, as the agent estimates them. */
+    public val tokensAfter: Long,
+)
+
+/** How much of its model's context window a conversation takes. */
+@Poko
+public class ContextStatus(
+    public val conversation: ConversationId,
+    /** The model the conversation's turns call now, null when its agent has none. */
+    public val model: ModelRef?,
+    /** The prompt tokens of the conversation's last request, as its backend counted them, null before one. */
+    public val promptTokens: Long?,
+    /** When [promptTokens] was counted. */
+    public val measuredAt: Instant?,
+    /** Null when the model's window is unknown. */
+    public val window: Int?,
+    /** The prompt tokens from which the conversation is compacted, null without a [window]. */
+    public val trigger: Long?,
+    /** The prompt tokens a compaction sheds down to, null without a [window]. */
+    public val target: Long?,
+    /** When the conversation was last compacted, null when it never was. */
+    public val compactedAt: Instant?,
+    /** The stored entries that the conversation's summary stands in for. */
+    public val summarized: Int,
 )
 
 /** A running or queued turn. */

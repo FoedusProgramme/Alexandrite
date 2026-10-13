@@ -2,7 +2,10 @@ package org.foedusprogramme.alexandrite.agent.config
 
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
+import org.foedusprogramme.alexandrite.agent.context.Limits
+import org.foedusprogramme.alexandrite.agent.context.limits
 import org.foedusprogramme.alexandrite.agent.execute
+import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
@@ -43,9 +46,11 @@ class AgentSettingsTest {
                   "maxOutputTokens": 16000,
                   "temperature": 0.5,
                   "maxRounds": 10,
+                  "maxTurnTokens": 500000,
                   "toolTimeoutSeconds": 30,
+                  "foregroundSeconds": 20,
                   "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forMembers": ["fs.read"]},
-                  "permission": {"allow": ["command.exec(./gradlew test)"], "deny": ["persona.edit"]},
+                  "permission": {"allow": ["command.exec(git status)"], "deny": ["command.exec(./gradlew test)"]},
                   "workspace": "coder-files",
                   "channels": {"test:main": {"default": true, "home": "42#7"}}
                 }
@@ -59,10 +64,17 @@ class AgentSettingsTest {
 
         val coder = agent.config
         assertEquals(
-            listOf("coder", "Coder", "Reads code.", listOf("Be careful."), 16000, 0.5, 10, 30, "coder-files"),
+            listOf(
+                "coder", "Coder", "Reads code.",
+                listOf(
+                    "Be careful.",
+                ),
+                16000, 0.5, 10, 500000L, 30, 20, "coder-files",
+            ),
             listOf(
                 agent.id.value, agent.name, coder.description, coder.instructions, coder.maxOutputTokens,
-                coder.temperature, coder.maxRounds, coder.toolTimeoutSeconds, coder.workspace,
+                coder.temperature, coder.maxRounds, coder.maxTurnTokens, coder.toolTimeoutSeconds,
+                coder.foregroundSeconds, coder.workspace,
             ),
         )
         assertEquals(
@@ -78,7 +90,7 @@ class AgentSettingsTest {
             listOf(tools.allow, tools.deny, tools.forMembers),
         )
         assertEquals(
-            listOf(listOf("command.exec(./gradlew test)"), listOf("persona.edit")),
+            listOf(listOf("command.exec(git status)"), listOf("command.exec(./gradlew test)")),
             listOf(coder.permission.allow, coder.permission.deny),
         )
         val attachment = agent.attachments.single()
@@ -86,6 +98,70 @@ class AgentSettingsTest {
             listOf("test:main", "true", "test:main:42#7"),
             listOf("${attachment.instance}", "${attachment.default}", "${attachment.home}"),
         )
+    }
+
+    @Test
+    fun `an agent sets no round limit or token budget unless configured, and backgrounds a call after five minutes`() {
+        val settings = settings(agents(""""coder": {"description": "Codes."}"""))
+        val coder = settings.agents.getValue("coder")
+
+        assertEquals(
+            listOf(null, null, 1800, 300, 4),
+            listOf(
+                coder.maxRounds,
+                coder.maxTurnTokens,
+                coder.toolTimeoutSeconds,
+                coder.foregroundSeconds,
+                settings.maxJobsPerChat,
+            ),
+        )
+    }
+
+    @Test
+    fun `an agent compacts from 95 percent of the window down to 20, and clears tool results from 60`() {
+        val defaults = settings(agents(""""coder": {"description": "Codes."}""")).agents.getValue("coder").compaction
+        val compaction = """{"trigger": 150000, "target": 0.1, "clearAt": "off", "clearAtLeast": 2000, """ +
+            """"keepToolRounds": 3, "keepTurns": 1, "maxSummaryTokens": 2000, "model": "scripted/fast"}"""
+        val set = settings(agents(""""coder": {"description": "Codes.", "compaction": $compaction}"""))
+            .agents.getValue("coder").compaction
+
+        assertEquals(listOf(190_000L, 40_000L, 120_000L, 10_000L), defaults.limits(200_000).values())
+        assertEquals(
+            listOf(5, 2, 4000, null),
+            listOf(defaults.keepToolRounds, defaults.keepTurns, defaults.maxSummaryTokens, defaults.model),
+        )
+        assertEquals(listOf(150_000L, 20_000L, null, 2000L), set.limits(200_000).values())
+        assertEquals(listOf(100_000L, 10_000L, null, 2000L), set.limits(100_000).values())
+        assertEquals(
+            listOf(3, 1, 2000, "scripted/fast"),
+            listOf(set.keepToolRounds, set.keepTurns, set.maxSummaryTokens, set.model),
+        )
+    }
+
+    private fun Limits.values(): List<Long?> = listOf(trigger, target, clearAt, clearAtLeast)
+
+    @Test
+    fun `a compaction threshold that is neither a fraction nor tokens, or a target at its trigger, fails the start`() {
+        val threshold = "must be a fraction of the context window above 0 and at most 1, such as 0.6, or a whole " +
+            "number of tokens"
+        val cases = mapOf(
+            """{"trigger": 0}""" to "trigger $threshold",
+            """{"trigger": "off"}""" to "trigger $threshold",
+            """{"target": 1.5}""" to "target $threshold",
+            """{"clearAtLeast": "half"}""" to "clearAtLeast $threshold",
+            """{"clearAt": -1}""" to "clearAt $threshold, or \"off\"",
+            """{"target": 0.95}""" to "target must be below agents.coder.compaction.trigger",
+            """{"trigger": 50000, "target": 50000}""" to "target must be below agents.coder.compaction.trigger",
+            """{"keepToolRounds": -1}""" to "keepToolRounds may not be negative",
+            """{"keepTurns": -1}""" to "keepTurns may not be negative",
+            """{"maxSummaryTokens": 0}""" to "maxSummaryTokens must be positive",
+            """{"model": "fast"}""" to
+                "model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\"",
+        )
+
+        for ((compaction, message) in cases) {
+            assertConfigFails(agents(""""coder": {"compaction": $compaction}"""), "agents.coder.compaction.$message")
+        }
     }
 
     @Test
@@ -162,6 +238,26 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `a declared allow rule that names a program by its path fails the start, a deny rule may`() {
+        val named = "names a program by its path: declare a program by its bare name, such as \"git status\"; " +
+            "allow a script per session through the approval's \"Always allow\", which binds its real path"
+        for (program in listOf("./gradlew test", "bin/x", "/usr/bin/git status", "~/x")) {
+            assertConfigFails(
+                agents(""""coder": {"permission": {"allow": ["command.exec($program)"]}}"""),
+                "agents.coder.permission.allow[0] $named",
+            )
+        }
+        assertConfigFails(
+            agents(""""coder": {"permission": {"allow": ["fs.read", "command.exec(./gradlew test)"]}}"""),
+            "agents.coder.permission.allow[1] $named",
+        )
+
+        val denied =
+            """"coder": {"description": "Codes.", "permission": {"deny": ["command.exec(./gradlew test)"]}}"""
+        agentHarness(agents(denied)).execute {}
+    }
+
+    @Test
     fun `a judge that is no model reference or a judge timeout or length that is not positive fails the start`() {
         assertConfigFails(
             agents(""""coder": {"permission": {"judge": "haiku"}}"""),
@@ -197,7 +293,10 @@ class AgentSettingsTest {
             agents(""""coder": {"maxOutputTokens": 0}""") to "agents.coder.maxOutputTokens must be positive",
             agents(""""coder": {"temperature": -0.5}""") to "agents.coder.temperature must be a number of at least 0",
             agents(""""coder": {"maxRounds": 0}""") to "agents.coder.maxRounds must be positive",
+            agents(""""coder": {"maxTurnTokens": 0}""") to "agents.coder.maxTurnTokens must be positive",
             agents(""""coder": {"toolTimeoutSeconds": 0}""") to "agents.coder.toolTimeoutSeconds must be positive",
+            agents(""""coder": {"foregroundSeconds": 0}""") to "agents.coder.foregroundSeconds must be positive",
+            """{"maxJobsPerChat": 0}""" to "maxJobsPerChat must be positive",
         )
 
         for ((config, message) in cases) assertConfigFails(config, message)
@@ -288,6 +387,15 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `an agent without channels is a profile, and needs a description`() {
+        assertConfigFails(
+            agents(""""coder": {}"""),
+            "agents.coder.description is missing: an agent that serves no channels is a profile, which needs one",
+        )
+        settings(agents(""""coder": {"description": "Codes."}"""))
+    }
+
+    @Test
     fun `workspaces, trusted folders, protected paths and instruction files are paths that are not blank`() {
         assertConfigFails(
             agents(""""coder": {"workspace": " "}"""),
@@ -307,7 +415,7 @@ class AgentSettingsTest {
             agents(""""coder": {"instructionFiles": [{"file": "me.md", "when": ["private", "direct"]}]}"""),
             "agents.coder.instructionFiles names \"private\" in \"when\", which is no chat kind or turn kind: use " +
                 "direct, group, broadcast, unknown, message, command, heartbeat, reminder, approval, delegated, " +
-                "agent_message",
+                "agent_message, job",
         )
     }
 

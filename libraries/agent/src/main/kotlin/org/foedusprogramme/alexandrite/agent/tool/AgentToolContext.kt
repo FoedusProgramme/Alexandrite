@@ -19,7 +19,9 @@ internal class AgentToolContext(
     private val workspaces: Workspaces,
     clearance: Clearance?,
     val taint: TurnTaint,
+    /** What a sub-agent run that the call starts takes from its turn, null outside a turn. */
     trigger: ChannelMessageRef?,
+    val delegating: DelegatingTurn? = null,
 ) : ToolContext {
     @Volatile
     private var open = true
@@ -35,10 +37,9 @@ internal class AgentToolContext(
     override val workspace: Path?
         get() = workspaces.paths[turn.agent]
 
-    override val clearance: Clearance? = clearance
-        get() = field.also { checkOpen() }
-
     override val trigger: ChannelMessageRef? = trigger
+
+    override val clearance: Clearance? = clearance
         get() = field.also { checkOpen() }
 
     override suspend fun openWorkspace(): Path {

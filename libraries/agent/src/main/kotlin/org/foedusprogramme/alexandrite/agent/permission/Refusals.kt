@@ -13,6 +13,13 @@ internal object Refusals {
     const val DECLINED: String = "[alexandrite:declined] Not run: instead of answering the approval, the user sent " +
         "the message that follows. Do what it says."
 
+    const val DECLINED_IN_RUN: String = "[alexandrite:declined] Not run: instead of answering the approval, the user " +
+        "wrote to the agent that delegated this task. End your run with a reply that says what you have done; that " +
+        "agent reads their message."
+
+    const val DENIED_IN_TREE: String = "[alexandrite:denied by=admin] Not run: an administrator denied this same " +
+        "call earlier in this task. Do not retry it or an equivalent call; say so and go on without it."
+
     const val CANCELLED: String = "[alexandrite:cancelled] Not run: the turn was cancelled before this call ran."
 
     const val INTERRUPTED: String =

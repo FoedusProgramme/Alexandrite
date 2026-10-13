@@ -43,7 +43,18 @@ internal class ChannelApprovals(
         val turn = gate.turn
         if (gate.calls.followedUp()) {
             logger.info("Call {} in turn {} of {} is declined unasked: the user wrote", gate.call.id, turn.id, turn.key)
-            return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DECLINED), Refusals.DECLINED)
+            return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DECLINED), declined(call))
+        }
+        val canonical = ArgsCanonicalizer.canonical(gate.arguments)
+        val asked = "${gate.tool.definition.name} $canonical"
+        if (gate.calls.deniedInTree(asked)) {
+            logger.info(
+                "Call {} in turn {} of {} is refused unasked: an admin denied the same call in a run of its tree",
+                gate.call.id,
+                turn.id,
+                turn.key,
+            )
+            return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), Refusals.DENIED_IN_TREE)
         }
         val grantable = rules.grantable(call)
         val request = ApprovalRequest(
@@ -51,10 +62,11 @@ internal class ChannelApprovals(
             turn,
             gate.tool.definition.name,
             call.risk,
-            ReviewText.escape(ArgsCanonicalizer.canonical(gate.arguments)),
+            ReviewText.escape(canonical),
             call.review.preview?.let { escaped(it) },
             ReviewText.escape(reason),
             grantable?.let { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) },
+            gate.calls.chain?.agents.orEmpty(),
         )
         val channel = channels.channel(turn.chat.instance)
             ?: return unavailable(request, "the channel of the chat is not open")
@@ -67,6 +79,7 @@ internal class ChannelApprovals(
             turn.key,
             reason,
         )
+        gate.calls.waitingApproval(gate.call.id)
         record { awaiting.put(turn.id, gate.call.id, request.id) }
         val answer = try {
             gate.calls.awaitApproval(gate.call.id, request.id) { channel.askApproval(request) }
@@ -79,7 +92,9 @@ internal class ChannelApprovals(
         } finally {
             withContext(NonCancellable) { record { awaiting.remove(turn.id, gate.call.id) } }
         }
-        return answered(call, request, answer, grantable)
+        val result = answered(call, request, answer, grantable)
+        if (answer is ApprovalAnswer.Denied && answer.by.isAdmin && turn.lineage != null) gate.calls.denied(asked)
+        return result
     }
 
     /** What [answer] to [request] about [call] decides, where an approver may allow [grantable] for good. */
@@ -102,7 +117,7 @@ internal class ChannelApprovals(
         return when (answer) {
             null -> {
                 logged(request, "is declined: the user wrote instead of an answer")
-                refused(NotRunReason.DECLINED, request, Refusals.DECLINED)
+                refused(NotRunReason.DECLINED, request, declined(call))
             }
 
             is ApprovalAnswer.Allowed -> {
@@ -110,7 +125,8 @@ internal class ChannelApprovals(
                 logged(request, "is allowed by ${answer.by.address}" + if (always != null) " for good" else "")
                 always?.let { rules.grant(call, it, answer.by) }
                 judge.allowedByAdmin(request.turn.key, request.tool)
-                GateResult.Admitted(Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot))
+                val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
+                GateResult.Admitted(clearance, call.review.preview)
             }
 
             is ApprovalAnswer.Denied -> {
@@ -128,6 +144,10 @@ internal class ChannelApprovals(
             else -> unavailable(request, "the channel gave an answer that this version does not know")
         }
     }
+
+    /** What the model reads of [call], declined as the user wrote instead of answering. */
+    private fun declined(call: CheckedCall): String =
+        if (call.call.turn.lineage == null) Refusals.DECLINED else Refusals.DECLINED_IN_RUN
 
     private fun unavailable(request: ApprovalRequest, reason: String): GateResult {
         logged(request, "could not be asked: $reason")

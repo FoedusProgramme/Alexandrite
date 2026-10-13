@@ -39,9 +39,11 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `anyone may read the settings anywhere`() {
+    fun `anyone may read the settings, the jobs and the context anywhere`() {
         assertRow("settings", "", direct = null, others = null)
-        for (command in listOf("agent", "model", "mode", "reasoning", "language")) {
+        assertRow("context", "", direct = null, others = null)
+        assertRow("profiles", "", direct = null, others = null)
+        for (command in listOf("agent", "model", "mode", "reasoning", "language", "jobs")) {
             assertRow(command, "", direct = null, others = null)
             assertRow(command, "  ", direct = null, others = null)
         }
@@ -51,6 +53,8 @@ class CommandRulesTest {
     fun `anyone may change their direct chat, only admins a group`() {
         for ((command, arguments) in listOf(
             "new" to "",
+            "compact" to "",
+            "compact" to "the open bugs",
             "cancel" to "",
             "agent" to "coder",
             "agent" to "reset",
@@ -63,7 +67,7 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `only admins may change the model, the permission mode, homes, links, trust and allow rules`() {
+    fun `only admins may change the model, the permission mode, homes, links, trust and allow rules, or stop a job`() {
         for ((command, arguments) in listOf(
             "model" to "deepseek/deepseek-chat",
             "model" to "reset",
@@ -80,6 +84,7 @@ class CommandRulesTest {
             "untrust" to "/srv/repo",
             "allow" to "",
             "allow" to "revoke 1",
+            "jobs" to "stop j-7kq2mx",
         )) {
             assertRow(command, arguments, direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
         }
@@ -107,7 +112,12 @@ class CommandRulesTest {
             control.link(AgentId.MAIN, group, linked, testUser("ada", isAdmin = true))
 
             for (chat in listOf(linked, testChat("42", "7"))) {
-                for ((command, arguments) in listOf("new" to "", "reasoning" to "high", "language" to "en")) {
+                for ((command, arguments) in listOf(
+                    "new" to "",
+                    "compact" to "",
+                    "reasoning" to "high",
+                    "language" to "en",
+                )) {
                     val refused = refusals(command, arguments, ChatKind.DIRECT, chat)
                     assertEquals(TextKeys.REFUSED_ADMIN_HERE to null, refused, "/$command $arguments")
                 }
@@ -116,6 +126,7 @@ class CommandRulesTest {
                     assertEquals(null to null, refused, "/$command $arguments")
                 }
                 assertEquals(null to null, refusals("settings", "", ChatKind.DIRECT, chat))
+                assertEquals(null to null, refusals("context", "", ChatKind.DIRECT, chat))
                 assertEquals(null to null, refusals("language", "", ChatKind.DIRECT, chat))
             }
             assertEquals(null to null, refusals("new", "", ChatKind.DIRECT, testChat("43")))

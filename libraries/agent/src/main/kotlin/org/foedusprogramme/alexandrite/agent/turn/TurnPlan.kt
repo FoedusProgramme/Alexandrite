@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
+import org.foedusprogramme.alexandrite.agent.delegation.Delegation
+import org.foedusprogramme.alexandrite.agent.job.EndedJob
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
@@ -35,4 +37,10 @@ internal sealed interface TurnSource {
 
     /** The [prompt] that the plugin [plugin] started the turn with. */
     class FromInitiated(val plugin: String, val prompt: String, val trust: Trust) : TurnSource
+
+    /** The result of [job], which ended in the background. */
+    class FromJob(val job: EndedJob) : TurnSource
+
+    /** The task of the sub-agent run [delegation]. */
+    class FromDelegation(val delegation: Delegation) : TurnSource
 }

@@ -76,7 +76,7 @@ class CallRulesTest {
     /** The rules and gate of agent `main` with the permission section [permission]. */
     private inner class Setup(permission: String = "{}") {
         val directory: AgentDirectory =
-            agentDirectory(settings("""{"agents": {"main": {"permission": $permission}}}"""))
+            agentDirectory(settings("""{"agents": {"main": {"description": "Main.", "permission": $permission}}}"""))
         val registry = ToolRegistry(listOf(exec, deploy, notes, read), directory, NO_BUILT_INS)
         val rules = AgentCallRules(directory, registry, records, store.conversations, states, clock)
         val approvals = OfferingApprovals(rules)
@@ -195,9 +195,9 @@ class CallRulesTest {
     @Test
     fun `a declared prefix allows an operator's matching calls in ask, allowedit and auto, never in manual`() =
         runTest {
-            val setup = Setup("""{"allow": ["command.exec(./gradlew test)"]}""")
-            val test = run("./gradlew", "test", "--info", executable = "/srv/a/gradlew")
-            val build = run("./gradlew", "build", executable = "/srv/a/gradlew")
+            val setup = Setup("""{"allow": ["command.exec(npm test)"]}""")
+            val test = run("npm", "test", "--info")
+            val build = run("npm", "build")
 
             val decided = listOf("manual", "ask", "allowedit", "auto").map { mode ->
                 setMode(PermissionMode.of(mode))

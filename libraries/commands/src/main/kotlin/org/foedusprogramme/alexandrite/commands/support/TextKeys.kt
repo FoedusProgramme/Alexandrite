@@ -8,6 +8,25 @@ internal object TextKeys {
     const val CANCEL_DONE: String = "cancel.done"
     const val CANCEL_NONE: String = "cancel.none"
 
+    const val COMPACT_DONE: String = "compact.done"
+
+    const val CONTEXT_TITLE: String = "context.title"
+    const val CONTEXT_TITLE_NO_MODEL: String = "context.title_no_model"
+    const val CONTEXT_USED: String = "context.used"
+    const val CONTEXT_USED_NO_WINDOW: String = "context.used_no_window"
+    const val CONTEXT_UNMEASURED: String = "context.unmeasured"
+    const val CONTEXT_LIMITS: String = "context.limits"
+    const val CONTEXT_NO_WINDOW: String = "context.no_window"
+    const val CONTEXT_COMPACTED: String = "context.compacted"
+    const val CONTEXT_NOT_COMPACTED: String = "context.not_compacted"
+
+    const val JOBS_LIST: String = "jobs.list"
+    const val JOBS_NONE: String = "jobs.none"
+    const val JOBS_ITEM: String = "jobs.item"
+    const val JOBS_ITEM_BY: String = "jobs.item_by"
+    const val JOBS_STOPPED: String = "jobs.stopped"
+    const val JOBS_UNKNOWN: String = "jobs.unknown"
+
     const val AGENT_CURRENT: String = "agent.current"
     const val AGENT_CHOICES: String = "agent.choices"
     const val AGENT_CHOICE: String = "agent.choice"
@@ -126,6 +145,16 @@ internal object TextKeys {
     const val VALUE_NONE: String = "value.none"
     const val VALUE_HOST: String = "value.host"
     const val LIST_ITEM: String = "list.item"
+
+    const val PROFILES_LIST: String = "profiles.list"
+    const val PROFILES_NONE: String = "profiles.none"
+    const val PROFILES_ITEM: String = "profiles.item"
+    const val PROFILES_MODEL_DEFAULT: String = "profiles.model_default"
+    const val PROFILES_MODE_DEFAULT: String = "profiles.mode_default"
+    const val PROFILES_SOURCE_CONFIG: String = "profiles.source_config"
+    const val PROFILES_SOURCE_PLUGIN: String = "profiles.source_plugin"
+    const val PROFILES_SOURCE_CREATED: String = "profiles.source_created"
+    const val PROFILES_SOURCE_CREATED_HOST: String = "profiles.source_created_host"
 
     const val DURATION_MINUTES: String = "duration.minutes"
     const val DURATION_HOURS: String = "duration.hours"

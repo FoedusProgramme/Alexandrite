@@ -82,8 +82,22 @@ public class SummaryEntry(
     public val text: String,
     /** The last entry the summary covers. */
     public val through: EntryId,
+    /** The entries before [through] that the summary does not cover, which requests read right after it. */
+    public val kept: List<EntryId> = emptyList(),
 ) : TranscriptEntry {
-    override fun withRecord(record: EntryRecord): SummaryEntry = SummaryEntry(record, text, through)
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(record: EntryRecord?, text: String, through: EntryId) : this(record, text, through, emptyList())
+
+    init {
+        require(kept.all { it.value < through.value } && kept.toSet().size == kept.size) {
+            "A summary keeps distinct entries before the last one it covers, was $kept through $through."
+        }
+    }
+
+    /** Whether the summary stands in for the entry [id]. */
+    public fun covers(id: EntryId): Boolean = id.value <= through.value && id !in kept
+
+    override fun withRecord(record: EntryRecord): SummaryEntry = SummaryEntry(record, text, through, kept)
 }
 
 /** A notice the agent sent the chat, which no model is sent. */
@@ -138,6 +152,9 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** The turn used up its tool rounds. */
         public val ROUND_LIMIT: NoticeKind = NoticeKind("round_limit")
 
+        /** The turn used up its token budget. */
+        public val BUDGET: NoticeKind = NoticeKind("budget")
+
         /** A folder's project instructions were not loaded, as the folder is not trusted. */
         public val UNTRUSTED_FOLDER: NoticeKind = NoticeKind("untrusted_folder")
 
@@ -151,6 +168,7 @@ public value class NoticeKind internal constructor(public val id: String) {
             OUTPUT_LIMIT,
             TOO_LONG,
             ROUND_LIMIT,
+            BUDGET,
             UNTRUSTED_FOLDER,
         )
 

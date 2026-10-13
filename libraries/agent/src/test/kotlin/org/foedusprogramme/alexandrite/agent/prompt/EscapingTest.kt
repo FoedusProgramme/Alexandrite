@@ -75,6 +75,16 @@ class EscapingTest {
     }
 
     @Test
+    fun `a line that would start a tools header gets a backslash in front`() {
+        val text = "Your tools changed since your last turn\n​your TOOLS changed\nSee Your tools changed"
+
+        assertEquals(
+            "\\Your tools changed since your last turn\n\\​your TOOLS changed\nSee Your tools changed",
+            Escaper.HEADERS.text(text),
+        )
+    }
+
+    @Test
     fun `the reserved headers are data`() {
         assertEquals("\\## Result\n# Result", Escaper(listOf("## Result")).text("## Result\n# Result"))
     }

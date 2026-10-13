@@ -158,6 +158,33 @@ internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
             expectEqual(childLineage, conversations.turn(childTurn.id)?.lineage, "the lineage of the child's turn")
         }
     },
+    StoreCheck("a delegated conversation is sealed once, takes no turn after and keeps its lineage") {
+        open {
+            val parent = conversations.current(main)
+            val lineage = lineage(startTurn(parent), "run-1")
+            val child = conversations.createDelegated(reviewer, lineage)
+            val before = Instant.now()
+
+            expect(conversations.sealDelegated(child.id)) { "The delegated conversation was not sealed." }
+            val after = Instant.now()
+
+            expect(!conversations.sealDelegated(child.id)) { "A sealed delegated conversation was sealed again." }
+            val sealed = conversations.conversation(child.id)
+            expectEqual(ConversationState.SEALED, sealed?.state, "its state")
+            expectWithin(sealed?.sealedAt, before, after, "its seal")
+            expectEqual(listOf(null, lineage), listOf(sealed?.successor, sealed?.lineage), "its successor and lineage")
+            expectThrows<IllegalStateException>("A turn in a sealed delegated conversation") {
+                conversations.startTurn(newTurn(child, TurnKind.DELEGATED, lineage))
+            }
+            expectThrows<IllegalArgumentException>("Sealing a conversation of a chat as delegated") {
+                conversations.sealDelegated(parent.id)
+            }
+            expectThrows<IllegalArgumentException>("Sealing an unknown conversation") {
+                conversations.sealDelegated(ConversationId("unknown"))
+            }
+            expectEqual(ConversationState.ACTIVE, conversations.conversation(parent.id)?.state, "the parent's state")
+        }
+    },
     StoreCheck("a delegated conversation must descend from a recorded parent turn of its chat") {
         open {
             val parentConversation = conversations.current(main)

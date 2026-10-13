@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.control.Granter
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
+import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.internal.text.ReviewText
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -115,11 +116,12 @@ internal class AgentCallRules(
         if (declared[gate.turn.agent]?.allow.orEmpty().any { it.allows(name, call.review) }) {
             return true
         }
-        return granted.any { it.conversation == gate.turn.conversation && it.covers(subject) }
+        val session = session(gate.turn)
+        return granted.any { it.conversation == session && it.covers(subject) }
     }
 
     override suspend fun grantable(call: CheckedCall): RuleSubject? =
-        allowable(call)?.takeIf { mode(call.call.turn) != PermissionMode.MANUAL }
+        allowable(call)?.takeIf { mode(call.call) != PermissionMode.MANUAL }
 
     override suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser) {
         val turn = call.call.turn
@@ -133,7 +135,7 @@ internal class AgentCallRules(
             )
             return
         }
-        val conversation = turn.conversation
+        val conversation = session(turn)
         val key = key(conversation, subject)
         try {
             writing.withLock {
@@ -226,8 +228,19 @@ internal class AgentCallRules(
         }
     }
 
-    private suspend fun mode(turn: TurnInfo): PermissionMode =
-        settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
+    /** The mode of [call] as the gate takes it, `manual` when the mode at its key cannot be read. */
+    private suspend fun mode(call: GateCall): PermissionMode {
+        val turn = call.turn
+        val chat = try {
+            settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
+        } catch (e: Throwable) {
+            if (e is VirtualMachineError) throw e
+            currentCoroutineContext().ensureActive()
+            logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
+            PermissionMode.MANUAL
+        }
+        return strictest(listOf(chat) + call.calls.chain?.modes.orEmpty())
+    }
 
     /** The rule of [record], null when it cannot be read. */
     private fun granted(record: StoredRecord<GrantedRule>): Granted? {
@@ -280,3 +293,6 @@ private fun key(conversation: ConversationId, subject: RuleSubject): String {
 }
 
 private val logger = LoggerFactory.getLogger(AgentCallRules::class.java)
+
+/** The conversation of [turn]'s root turn, whose session rules apply to it. */
+internal fun session(turn: TurnInfo): ConversationId = turn.lineage?.rootConversation ?: turn.conversation

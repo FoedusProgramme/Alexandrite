@@ -17,7 +17,8 @@ import java.nio.file.Path
 /** The ids that an instruction file's `when` may name. */
 internal val CONDITION_IDS: List<String> = ChatKind.entries.map { it.id } + TurnKind.entries.map { it.id }
 
-private val CONFIGURABLE_MODES = PermissionMode.entries - PermissionMode.BYPASS
+/** The permission modes a config entry or a created profile may set: every mode but [PermissionMode.BYPASS]. */
+internal val CONFIGURABLE_MODES = PermissionMode.entries - PermissionMode.BYPASS
 
 /** Throws when [agents] break a rule that the config alone decides. */
 internal fun checkAgents(agents: Map<String, AgentConfig>) {
@@ -68,8 +69,8 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
         "$path.permission.mode must be one of ${CONFIGURABLE_MODES.joinToString()}: a bypass is set per chat, " +
             "for a limited time"
     }
-    checkRules("$path.permission.allow", agent.permission.allow)
-    checkRules("$path.permission.deny", agent.permission.deny)
+    checkRules("$path.permission.allow", agent.permission.allow, allow = true)
+    checkRules("$path.permission.deny", agent.permission.deny, allow = false)
     require(agent.permission.judge == null || ModelRef.parseOrNull(agent.permission.judge) != null) {
         "$path.permission.judge is no model reference: write <endpoint>/<model>, such as " +
             "\"anthropic/claude-haiku-5-5\""
@@ -80,8 +81,11 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {
         "$path.temperature must be a number of at least 0"
     }
-    require(agent.maxRounds > 0) { "$path.maxRounds must be positive" }
+    require(agent.maxRounds == null || agent.maxRounds > 0) { "$path.maxRounds must be positive" }
+    require(agent.maxTurnTokens == null || agent.maxTurnTokens > 0) { "$path.maxTurnTokens must be positive" }
     require(agent.toolTimeoutSeconds > 0) { "$path.toolTimeoutSeconds must be positive" }
+    require(agent.foregroundSeconds > 0) { "$path.foregroundSeconds must be positive" }
+    checkCompaction("$path.compaction", agent.compaction)
     checkGlobs("$path.tools.allow", agent.tools.allow)
     checkGlobs("$path.tools.deny", agent.tools.deny)
     checkGlobs("$path.tools.forMembers", agent.tools.forMembers)
@@ -96,6 +100,9 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     require(agent.channels.isEmpty() || agent.model != null) {
         "$path.model is missing: an agent that serves channels needs a model"
+    }
+    require(agent.channels.isNotEmpty() || !agent.description.isNullOrBlank()) {
+        "$path.description is missing: an agent that serves no channels is a profile, which needs one"
     }
     checkLinks(path, agent)
 }
@@ -119,15 +126,45 @@ private fun checkLinks(path: String, agent: AgentConfig) {
     }
 }
 
+private fun checkCompaction(path: String, compaction: CompactionConfig) {
+    val thresholds = listOf(
+        "trigger" to compaction.trigger,
+        "target" to compaction.target,
+        "clearAt" to compaction.clearAt,
+        "clearAtLeast" to compaction.clearAtLeast,
+    )
+    for ((key, threshold) in thresholds) {
+        val off = key == "clearAt"
+        require(threshold !is Threshold.Malformed && (off || threshold != Threshold.Off)) {
+            "$path.$key must be a fraction of the context window above 0 and at most 1, such as 0.6, or a whole " +
+                "number of tokens" + if (off) ", or \"off\"" else ""
+        }
+    }
+    val trigger = compaction.trigger
+    val target = compaction.target
+    val below = when {
+        trigger is Threshold.Fraction && target is Threshold.Fraction -> target.value < trigger.value
+        trigger is Threshold.Tokens && target is Threshold.Tokens -> target.count < trigger.count
+        else -> true
+    }
+    require(below) { "$path.target must be below $path.trigger" }
+    require(compaction.keepToolRounds >= 0) { "$path.keepToolRounds may not be negative" }
+    require(compaction.keepTurns >= 0) { "$path.keepTurns may not be negative" }
+    require(compaction.maxSummaryTokens > 0) { "$path.maxSummaryTokens must be positive" }
+    require(compaction.model == null || ModelRef.parseOrNull(compaction.model) != null) {
+        "$path.model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\""
+    }
+}
+
 private fun checkGlobs(path: String, globs: List<String>) {
     require(globs.all(ToolGlob::isValid)) {
         "$path holds a malformed tool glob: write dotted tool names, with * for any characters, such as \"fs.*\""
     }
 }
 
-private fun checkRules(path: String, entries: List<String>) {
+private fun checkRules(path: String, entries: List<String>, allow: Boolean) {
     for ((index, entry) in entries.withIndex()) {
-        val problem = RuleEntry.problem(entry)
+        val problem = RuleEntry.problem(entry, allow)
         require(problem == null) { "$path[$index] $problem" }
     }
 }

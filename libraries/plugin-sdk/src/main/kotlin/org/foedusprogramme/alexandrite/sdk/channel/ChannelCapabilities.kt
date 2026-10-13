@@ -14,6 +14,8 @@ public class ChannelCapabilities private constructor(
     /** Whether the bot may write to the chat without being addressed. */
     public val proactive: Boolean,
     public val markups: Set<Markup>,
+    /** The kinds of [TurnEvent] the channel wants sent to [ReplySink.event]. */
+    public val events: Set<TurnEventKind>,
 ) {
     init {
         require(maxPartsPerReply == null || maxPartsPerReply > 0) {
@@ -28,6 +30,7 @@ public class ChannelCapabilities private constructor(
         .finalReplacesPreview(finalReplacesPreview)
         .proactive(proactive)
         .markups(markups)
+        .events(events)
 
     public class Builder internal constructor() {
         private var maxPartsPerReply: Int? = null
@@ -35,6 +38,7 @@ public class ChannelCapabilities private constructor(
         private var finalReplacesPreview: Boolean = false
         private var proactive: Boolean = false
         private var markups: Set<Markup> = setOf(Markup.PLAIN)
+        private var events: Set<TurnEventKind> = emptySet()
 
         public fun maxPartsPerReply(maxPartsPerReply: Int?): Builder = apply {
             this.maxPartsPerReply = maxPartsPerReply
@@ -49,8 +53,10 @@ public class ChannelCapabilities private constructor(
 
         public fun markups(markups: Set<Markup>): Builder = apply { this.markups = markups.toSet() }
 
+        public fun events(events: Set<TurnEventKind>): Builder = apply { this.events = events.toSet() }
+
         public fun build(): ChannelCapabilities =
-            ChannelCapabilities(maxPartsPerReply, streaming, finalReplacesPreview, proactive, markups)
+            ChannelCapabilities(maxPartsPerReply, streaming, finalReplacesPreview, proactive, markups, events)
     }
 
     public companion object {

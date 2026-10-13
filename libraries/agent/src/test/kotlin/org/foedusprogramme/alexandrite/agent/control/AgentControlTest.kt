@@ -265,7 +265,7 @@ class AgentControlTest {
                   "channels": {"test:main": {"home": "home"}, "test:side": {"home": "7#2"}}
                 },
                 "coder": {"model": "scripted/test-model", "channels": {"test:main": {"default": true}}},
-                "planner": {"model": "scripted/test-model"}
+                "planner": {"description": "Plans.", "model": "scripted/test-model"}
               }
             }
         """.trimIndent()

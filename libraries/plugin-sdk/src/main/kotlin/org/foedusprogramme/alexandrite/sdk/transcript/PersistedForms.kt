@@ -27,6 +27,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
 import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -121,6 +122,10 @@ internal val transcriptJson: Json = Json {
                 singleton(CancelledForm.serializer(), CancelledForm, ToolOutcome.Cancelled),
             )
             subclass(ToolOutcome.NotRun::class, form(NotRunForm.serializer(), ::NotRunForm, NotRunForm::toOutcome))
+            subclass(
+                ToolOutcome.Detached::class,
+                form(DetachedForm.serializer(), ::DetachedForm, DetachedForm::toOutcome),
+            )
         }
     }
 }
@@ -271,10 +276,16 @@ private class ToolResultEntryForm(
 
 @Serializable
 @SerialName("summary")
-private class SummaryEntryForm(val record: RecordForm? = null, val text: String, val through: EntryId) {
-    constructor(entry: SummaryEntry) : this(entry.record?.let(::RecordForm), entry.text, entry.through)
+private class SummaryEntryForm(
+    val record: RecordForm? = null,
+    val text: String,
+    val through: EntryId,
+    val kept: List<EntryId>? = null,
+) {
+    constructor(entry: SummaryEntry) :
+        this(entry.record?.let(::RecordForm), entry.text, entry.through, entry.kept.takeIf { it.isNotEmpty() })
 
-    fun toEntry(): SummaryEntry = SummaryEntry(record?.toRecord(), text, through)
+    fun toEntry(): SummaryEntry = SummaryEntry(record?.toRecord(), text, through, kept.orEmpty())
 }
 
 @Serializable
@@ -479,4 +490,12 @@ private class NotRunForm(val reason: NotRunReason, val approval: String? = null)
     constructor(outcome: ToolOutcome.NotRun) : this(outcome.reason, outcome.approval)
 
     fun toOutcome(): ToolOutcome.NotRun = ToolOutcome.NotRun(reason, approval)
+}
+
+@Serializable
+@SerialName("detached")
+private class DetachedForm(val job: RunId) {
+    constructor(outcome: ToolOutcome.Detached) : this(outcome.job)
+
+    fun toOutcome(): ToolOutcome.Detached = ToolOutcome.Detached(job)
 }

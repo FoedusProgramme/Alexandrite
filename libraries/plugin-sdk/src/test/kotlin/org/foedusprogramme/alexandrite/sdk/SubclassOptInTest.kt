@@ -62,6 +62,10 @@ class SubclassOptInTest {
 
         class Preview : org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 
+        class Activity : org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+
+        class ActivityContent : org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Content
+
         class Answer : org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
@@ -218,6 +222,7 @@ class SubclassOptInTest {
             override suspend fun reply(
                 text: String,
                 markup: org.foedusprogramme.alexandrite.sdk.channel.Markup,
+                forModel: Boolean,
             ) = TODO()
         }
 
@@ -236,10 +241,22 @@ class SubclassOptInTest {
                 tree: Boolean,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override fun jobs(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override fun stopJob(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                job: org.foedusprogramme.alexandrite.sdk.chat.RunId,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
             override suspend fun newConversation(
                 chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun compact(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                focus: String?,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun context(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override fun agents(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
             override suspend fun settings(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun updateSettings(
@@ -468,6 +485,56 @@ class SubclassOptInTest {
             is org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer.Unavailable -> 3
             ELSE
         }
+
+        fun turnEvent(event: org.foedusprogramme.alexandrite.sdk.channel.TurnEvent): Int = when (event) {
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.ToolCallStarted -> 0
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.ToolCallUpdated -> 1
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.ThoughtChunk -> 2
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.UsageUpdated -> 3
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Compacted -> 4
+            ELSE
+        }
+
+        fun eventContent(content: org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Content): Int = when (content) {
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Content.Text -> 0
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Content.Diff -> 1
+            is org.foedusprogramme.alexandrite.sdk.channel.TurnEvent.Content.Output -> 2
+            ELSE
+        }
+
+        fun activity(activity: org.foedusprogramme.alexandrite.sdk.tool.ToolActivity): Int = when (activity) {
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.READ -> 0
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.LIST -> 1
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.SEARCH -> 2
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.EDIT -> 3
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.DELETE -> 4
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.MOVE -> 5
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.EXECUTE -> 6
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.FETCH -> 7
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.THINK -> 8
+            org.foedusprogramme.alexandrite.sdk.tool.ToolActivity.OTHER -> 9
+            ELSE
+        }
+
+        fun callStatus(status: org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus): Int = when (status) {
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.PENDING -> 0
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.WAITING_APPROVAL -> 1
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.RUNNING -> 2
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.BACKGROUNDED -> 3
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.COMPLETED -> 4
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.FAILED -> 5
+            org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus.NOT_RUN -> 6
+            ELSE
+        }
+
+        fun eventKind(kind: org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind): Int = when (kind) {
+            org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.TOOL_CALL_STARTED -> 0
+            org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.TOOL_CALL_UPDATED -> 1
+            org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.THOUGHT_CHUNK -> 2
+            org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.USAGE_UPDATED -> 3
+            org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind.COMPACTED -> 4
+            ELSE
+        }
     """.trimIndent()
 
     /** A channel as a third-party plugin writes it. */
@@ -570,6 +637,7 @@ class SubclassOptInTest {
             override suspend fun newConversation(key: AgentChatKey) = Rotation(null, info(key, ConversationKind.USER_LANE))
             override suspend fun createDelegated(key: AgentChatKey, lineage: TurnLineage, fork: ForkPoint?) =
                 info(key, ConversationKind.DELEGATED).toBuilder().lineage(lineage).fork(fork).build()
+            override suspend fun sealDelegated(id: ConversationId) = false
             override suspend fun conversation(id: ConversationId): ConversationInfo? = null
             override suspend fun chats(agent: AgentId) = listOf(ChatAddress.parse("t:a:b"))
             override suspend fun startTurn(turn: TurnInfo) {}

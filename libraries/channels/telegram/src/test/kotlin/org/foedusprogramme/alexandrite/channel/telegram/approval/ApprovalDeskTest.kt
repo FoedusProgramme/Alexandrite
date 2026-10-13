@@ -30,6 +30,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
 import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -39,6 +40,7 @@ import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.testkit.testDelegatedTurn
 import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testTexts
 import org.foedusprogramme.alexandrite.testkit.testTurn
@@ -153,6 +155,20 @@ class ApprovalDeskTest {
         assertTrue("Requested by: Bob" in member, member)
         assertTrue("Requested by: nobody: the agent started this turn itself" in desk.shown(ADA)[1])
     }
+
+    @Test
+    fun `a sub-agent's request is asked in the chat of the admin's root turn and names the chain of agents`() =
+        runTest {
+            val desk = Desk(this)
+            val run = testDelegatedTurn(turnOf(ada, ADA))
+            val chain = listOf(AgentId.MAIN, AgentId("reviewer"))
+
+            asking(desk, request(run).rebuildChain(chain))
+            advanceTimeBy(5.seconds)
+
+            val text = desk.api.messages.getValue(ADA to 101L)
+            assertTrue(text.startsWith("Approval needed (#k3x9)\nAgent: main → reviewer\nChat: "), text)
+        }
 
     @Test
     fun `a request that no admin can see is answered that no administrator can be reached`() = runTest {
@@ -274,28 +290,30 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `a long preview in parts is folded in each part, and the outcome goes below the fold`() = runTest {
-        val desk = Desk(this)
-        val diff = ReviewPreview.Diff(
-            Path.of("/srv/notes.md"),
-            (1..200).joinToString("\n") {
-                "+line $it of the new file"
-            },
-        )
+    fun `a long preview in parts is folded in each part, and the outcome goes below the fold on every part`() =
+        runTest {
+            val desk = Desk(this)
+            val diff = ReviewPreview.Diff(
+                Path.of("/srv/notes.md"),
+                (1..200).joinToString("\n") {
+                    "+line $it of the new file"
+                },
+            )
 
-        asking(desk, request(preview = diff))
-        advanceTimeBy(10.seconds)
-        desk.press(ada, "apv:k3x9:d", message = 102)
-        advanceTimeBy(5.seconds)
+            asking(desk, request(preview = diff))
+            advanceTimeBy(10.seconds)
+            desk.press(ada, "apv:k3x9:d", message = 102)
+            advanceTimeBy(5.seconds)
 
-        val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
-        val start = first.first.indexOf("+line 1 ")
-        assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
-        assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
-        val edit = desk.api.calls("editMessageText").single()
-        assertEquals("${second.first}\n\nDenied by Ada.", edit.text)
-        assertEquals(second.second, edit.entities)
-    }
+            val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
+            val start = first.first.indexOf("+line 1 ")
+            assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
+            assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
+            val (editFirst, editSecond) = desk.api.calls("editMessageText")
+            assertEquals("${first.first}\n\nDenied by Ada.", editFirst.text)
+            assertEquals("${second.first}\n\nDenied by Ada.", editSecond.text)
+            assertEquals(second.second, editSecond.entities)
+        }
 
     @Test
     fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {
@@ -454,6 +472,9 @@ class ApprovalDeskTest {
 
     private fun buttons(keyboard: InlineKeyboardMarkup): String =
         keyboard.inlineKeyboard.flatten().joinToString("|", "[", "]") { it.text }
+
+    private fun ApprovalRequest.rebuildChain(chain: List<AgentId>) =
+        ApprovalRequest(id, turn, tool, risk, arguments, preview, reason, always, chain)
 
     private fun turnOf(actor: ChatUser, chat: Long): TurnInfo = testTurn(chat = ChatAddress(WORK, "$chat")) {
         actor(actor)

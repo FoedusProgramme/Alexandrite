@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -33,6 +34,8 @@ internal class GlobTool(private val floor: HardFloor) : Tool {
             )
         },
         risk = ToolRisk.READ_ONLY,
+        activity = ToolActivity.LIST,
+        titleArguments = listOf("path", "pattern"),
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {

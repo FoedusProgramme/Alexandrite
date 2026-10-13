@@ -1,12 +1,18 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
+import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
+import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 
@@ -18,6 +24,21 @@ internal interface AgentScopedTool : Tool {
 
 /** A tool of the agent plugin that an agent is offered only beside other tools. */
 internal interface CompanionTool : Tool
+
+/** A tool of the agent plugin whose definition is rendered anew for each turn that offers it. */
+internal interface RenderedTool : Tool {
+    suspend fun definitionFor(turn: TurnInfo): ToolDefinition
+}
+
+/** A tool of the agent plugin whose calls run in their turn until they end and report their own outcome. */
+internal interface InTurnTool : Tool {
+    suspend fun call(arguments: JsonObject, context: AgentToolContext): InTurnResult
+}
+
+/** What a call of an [InTurnTool] gives the model, escaped by the tool. */
+internal class InTurnResult(val content: List<ToolOutputPart>, val outcome: ToolOutcome) {
+    constructor(text: String, outcome: ToolOutcome) : this(listOf(TextPart(text)), outcome)
+}
 
 /** The contributed tools by name, and the ones each agent selects. */
 @Singleton

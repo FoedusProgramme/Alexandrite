@@ -25,7 +25,7 @@ class AgentDirectoryTest {
               "channels": {"test:main": {"default": true, "home": "1"}, "test:work": {"home": "2#7"}}
             },
             "helper": {"model": "scripted/test-model", "channels": {"test:main": {}, "test:work": {"default": true}}},
-            "reviewer": {"model": "scripted/test-model"},
+            "reviewer": {"model": "scripted/test-model", "description": "Reviews."},
             "loner": {"model": "scripted/test-model", "channels": {"test:lone": {}}}
           }
         }
@@ -126,7 +126,7 @@ class AgentDirectoryTest {
 
     @Test
     fun `a model of an endpoint that no provider contributes fails the start`() {
-        val config = """{"agents": {"reviewer": {"model": "local/llama"}}}"""
+        val config = """{"agents": {"reviewer": {"description": "Reviews.", "model": "local/llama"}}}"""
 
         agentHarness(config) { model(ScriptedModel()).model(ScriptedModel(EndpointId("side"))) }.assertStartFails(
             StartStage.GRAPH,
@@ -142,7 +142,7 @@ class AgentDirectoryTest {
 
     @Test
     fun `a judge of an endpoint that no provider contributes fails the start`() {
-        val config = """{"agents": {"reviewer": {"permission": {"judge": "local/llama"}}}}"""
+        val config = """{"agents": {"reviewer": {"description": "Reviews.", "permission": {"judge": "local/llama"}}}}"""
 
         agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
             StartStage.GRAPH,
@@ -152,13 +152,28 @@ class AgentDirectoryTest {
     }
 
     @Test
+    fun `a summarizer of an endpoint that no provider contributes fails the start`() {
+        val config = """{"agents": {"reviewer": {"description": "Reviews.", "compaction": {"model": "local/llama"}}}}"""
+
+        agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
+            StartStage.GRAPH,
+            "Invalid config at 'agent.agents.reviewer.compaction.model': no model provider contributes the endpoint " +
+                "'local'. Endpoints: scripted.",
+        )
+    }
+
+    @Test
     fun `the judge's model is the agent's own unless its permission section names one`() {
         val config = """
             {
               "agents": {
-                "coder": {"model": "scripted/test-model"},
-                "reviewer": {"model": "scripted/test-model", "permission": {"judge": "side/small"}},
-                "loner": {}
+                "coder": {"description": "Codes.", "model": "scripted/test-model"},
+                "reviewer": {
+                  "description": "Reviews.",
+                  "model": "scripted/test-model",
+                  "permission": {"judge": "side/small"}
+                },
+                "loner": {"description": "Alone."}
               }
             }
         """.trimIndent()

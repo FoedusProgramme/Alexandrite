@@ -12,9 +12,11 @@ import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.testkit.TestToolContext
+import org.foedusprogramme.alexandrite.testkit.testDelegatedTurn
 import org.foedusprogramme.alexandrite.testkit.testHardFloor
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.junit.jupiter.api.BeforeEach
@@ -45,6 +47,12 @@ class ExecToolTest {
     fun setUp() {
         fs = ExecFixture(directory)
         tool = fs.tool()
+    }
+
+    @Test
+    fun `the call is titled by its command or argv, of activity execute`() {
+        val titleArguments = tool.definition.titleArguments
+        assertEquals(ToolActivity.EXECUTE to listOf("command", "argv"), tool.definition.activity to titleArguments)
     }
 
     private fun run(command: String, context: TestToolContext = fs.context()): ToolResult =
@@ -123,6 +131,15 @@ class ExecToolTest {
         val home = System.getProperty("user.home")
 
         assertEquals("Exit code: 0\n$home $home/docs a~b ~ ~root", run("echo ~ ~/docs a~b '~' ~root").text)
+    }
+
+    @Test
+    fun `argv's leading tilde expands too, exactly like a command line's`() {
+        val home = System.getProperty("user.home")
+
+        val result = tool.run(fs.context(), "argv" to listOf("echo", "~", "~/docs", "a~b", "~root"))
+
+        assertEquals("Exit code: 0\n$home $home/docs a~b ~root", result.text)
     }
 
     @Test
@@ -305,10 +322,13 @@ class ExecToolTest {
     }
 
     @Test
-    fun `a vetted program reads only on an operator's message turn`() {
+    fun `a vetted program reads only on an operator's message turn, a job one started or a run under either`() {
         val risks = listOf(
             operatorTurn() to "ls -la",
+            operatorTurn(TurnKind.JOB) to "ls -la",
+            testDelegatedTurn(operatorTurn()) to "ls -la",
             testTurn() to "ls -la",
+            testDelegatedTurn(testTurn()) to "ls -la",
             operatorTurn(TurnKind.COMMAND) to "ls -la",
             testTurn(TurnKind.HEARTBEAT) to "ls -la",
             operatorTurn() to "ls -R",
@@ -316,7 +336,26 @@ class ExecToolTest {
             operatorTurn() to "du -sh .",
         ).map { (turn, command) -> review(command, fs.context(turn = turn)).risk }
 
-        assertEquals(listOf(ToolRisk.READ_ONLY) + List(6) { ToolRisk.EXEC }, risks)
+        assertEquals(List(3) { ToolRisk.READ_ONLY } + List(7) { ToolRisk.EXEC }, risks)
+    }
+
+    @Test
+    fun `date -s or --set and hostname given an operand or a setting option are not read-only`() {
+        val turn = operatorTurn()
+        val commands = listOf(
+            "date -s 2030-01-01", "date --set=2030-01-01", "date --se 2030-01-01", "date -u", "date",
+            "hostname other", "hostname -b", "hostname --boot", "hostname",
+        )
+
+        val risks = commands.map { review(it, fs.context(turn = turn)).risk }
+
+        assertEquals(
+            listOf(
+                ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.READ_ONLY, ToolRisk.READ_ONLY,
+                ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.EXEC, ToolRisk.READ_ONLY,
+            ),
+            risks,
+        )
     }
 
     @Test
@@ -509,6 +548,28 @@ class ExecToolTest {
 
         assertTrue(reviewArgv("tar", "-cvfk/id_rsa", "src").refusal != null)
         assertNull(reviewArgv("tar", "-cvfout/x.tar", "src").refusal)
+    }
+
+    @Test
+    fun `a table-less program's equals and colon pieces are checked as paths too`() {
+        val key = "${fs.home}/.ssh/id_rsa"
+
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "if=$key", "y").refusal)
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "host:$key", "y").refusal)
+        assertEquals(
+            reached("../secret", "a place the test protects"),
+            reviewArgv("sort", "../secret:dst", "y").refusal,
+        )
+        assertNull(reviewArgv("sort", "a=b", "c:d").refusal)
+        assertNull(reviewArgv("sort", "https://example.com/${fs.home}").refusal)
+    }
+
+    @Test
+    fun `a dash-prefixed value with no flag letter before it is checked, same as one with a letter`() {
+        val key = "${fs.home}/.ssh/id_rsa"
+
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "-$key").refusal)
+        assertEquals(reached(key, "SSH keys"), reviewArgv("sort", "-o$key").refusal)
     }
 
     @Test

@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.turn.CommandContext
+import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -22,11 +23,15 @@ internal class AgentCommandContext(
     private val channels: ChannelDirectory,
 ) : CommandContext {
     private val sent = LinkedHashMap<ChatAddress, Delivery>()
+    private val replied = Collections.synchronizedList(mutableListOf<ReplyRecord>())
 
     /** How the replies reached their chat. */
     val deliveries: Map<ChatAddress, Delivery> get() = synchronized(sent) { sent.toMap() }
 
-    override suspend fun reply(text: String, markup: Markup): Delivery {
+    /** The replies the handler sent, in order. */
+    val replies: List<ReplyRecord> get() = replied.toList()
+
+    override suspend fun reply(text: String, markup: Markup, forModel: Boolean): Delivery {
         val chat = turn.chat
         val message = OutboundMessage.builder(text, MessageKind.NOTICE).markup(markup).replyTo(trigger).build()
         val channel = channels.channel(chat.instance)
@@ -36,6 +41,7 @@ internal class AgentCommandContext(
             delivered { channel.send(chat, message) }
         }
         synchronized(sent) { sent[chat] = sent[chat]?.let { merged(it, delivery) } ?: delivery }
+        replied += ReplyRecord(text, forModel)
         return delivery
     }
 }

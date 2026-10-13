@@ -52,12 +52,16 @@ internal class CommandRules(handlers: List<CommandHandler>, private val control:
         /** The rules of the default commands. */
         val MATRIX: Map<String, CommandRule> = mapOf(
             "settings" to CommandRule(Who.ANYONE),
+            "context" to CommandRule(Who.ANYONE),
+            "profiles" to CommandRule(Who.ANYONE),
             "agent" to CommandRule(Who.ANYONE, Who.DIRECT),
             "reasoning" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "language" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "model" to CommandRule(Who.ANYONE, Who.ADMIN),
             "mode" to CommandRule(Who.ANYONE, Who.ADMIN),
+            "jobs" to CommandRule(Who.ANYONE, Who.ADMIN),
             "new" to CommandRule(Who.UNLINKED_DIRECT),
+            "compact" to CommandRule(Who.UNLINKED_DIRECT),
             "cancel" to CommandRule(Who.DIRECT),
         )
 

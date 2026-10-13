@@ -46,6 +46,12 @@ public interface ConversationStore {
         fork: ForkPoint? = null,
     ): ConversationInfo
 
+    /**
+     * Seals the conversation [id] of a sub-agent run, false when it was sealed before; throws
+     * [IllegalArgumentException] when the store has no such conversation or it is not [ConversationKind.DELEGATED].
+     */
+    public suspend fun sealDelegated(id: ConversationId): Boolean
+
     /** The conversation [id], null when the store has none. */
     public suspend fun conversation(id: ConversationId): ConversationInfo?
 

@@ -132,8 +132,9 @@ internal class ApprovalDesk(
         val title = text(TextKeys.APPROVAL_TITLE, language, "id" to request.id)
         val requester = turn.actor?.let(::named) ?: text(TextKeys.APPROVAL_NOBODY, language)
         val chat = titles.title(turn.chat)?.let { "${ReviewText.escape(it)} (${turn.chat})" } ?: "${turn.chat}"
+        val agents = request.chain.ifEmpty { listOf(turn.agent) }.joinToString(" → ")
         val lines = mutableListOf(
-            text(TextKeys.APPROVAL_AGENT, language, "agent" to turn.agent),
+            text(TextKeys.APPROVAL_AGENT, language, "agent" to agents),
             text(TextKeys.APPROVAL_CHAT, language, "chat" to chat),
             text(TextKeys.APPROVAL_REQUESTER, language, "requester" to requester),
             text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason),
@@ -167,22 +168,38 @@ internal class ApprovalDesk(
         return listOf(text(TextKeys.APPROVAL_ARGUMENTS, language)) to request.arguments
     }
 
-    /** Sends [shown] to its chat, noting the message that carries the buttons and every message once all are sent. */
+    /** Sends [shown] to its chat, recording and noting each part as it is sent, undone if a later part fails. */
     private suspend fun post(waiting: Pending, shown: Shown) {
         val request = waiting.request
         val target = targetOf(shown.chat) ?: return
         val keyboard = keyboard(request, shown.language)
+        val sent = mutableListOf<Posted>()
         try {
-            val ids = mutableListOf<Long>()
             for ((index, part) in shown.parts.withIndex()) {
                 val last = index == shown.parts.lastIndex
-                ids += outbox.paced(target) { outbox.sendText(target, part, null, keyboard.takeIf { last }) }
-                if (last) waiting.posted += Posted(shown.chat, target, ids.last(), part, shown.language)
+                val id = outbox.paced(target) { outbox.sendText(target, part, null, keyboard.takeIf { last }) }
+                messages.note(target.chat, id, waiting.noted)
+                val posted = Posted(shown.chat, target, id, part, shown.language)
+                waiting.posted += posted
+                sent += posted
             }
-            ids.forEach { messages.note(target.chat, it, waiting.noted) }
         } catch (e: BotApiException) {
             outbox.checkToken(e)
             logger.warn("{} could not show approval {} in chat {}: {}", instance.id, request.id, shown.chat, e.message)
+            sent.forEach {
+                waiting.posted.remove(it)
+                delete(it)
+            }
+        }
+    }
+
+    /** Deletes the message [posted] showed, so no part without buttons is left in the chat. */
+    private suspend fun delete(posted: Posted) {
+        try {
+            outbox.paced(posted.target) { api.deleteMessage(posted.target.chat, posted.id) }
+        } catch (e: BotApiException) {
+            outbox.checkToken(e)
+            logger.warn("{} could not delete an approval message in chat {}: {}", instance.id, posted.chat, e.message)
         }
     }
 

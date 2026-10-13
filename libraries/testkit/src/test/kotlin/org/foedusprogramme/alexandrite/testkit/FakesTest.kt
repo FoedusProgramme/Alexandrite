@@ -33,8 +33,11 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatLink
 import org.foedusprogramme.alexandrite.sdk.turn.ChatLinkGroup
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.foedusprogramme.alexandrite.sdk.turn.CompactionReport
+import org.foedusprogramme.alexandrite.sdk.turn.ContextStatus
 import org.foedusprogramme.alexandrite.sdk.turn.ControlRefusedException
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
+import org.foedusprogramme.alexandrite.sdk.turn.JobStatus
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
@@ -244,6 +247,62 @@ class FakesTest {
         assertEquals(Markup.MARKDOWN, context.replies.first().markup)
         assertFailsWith<IllegalArgumentException> { blocking { context.reply(" ") } }
         assertNull(TestCommandContext().replies.firstOrNull())
+    }
+
+    @Test
+    fun `a recording agent control reports the compaction and the contexts it is scripted with`() = blocking {
+        val control = RecordingAgentControl()
+        val chat = testChat()
+        val admin = testUser("ada", isAdmin = true)
+        val status = ContextStatus(ConversationId("c"), TEST_MODEL, 900, TEST_TIME, 1000, 950, 200, null, 0)
+        control.compaction = CompactionReport(3, 900, 150)
+        control.scriptContext(chat, status)
+
+        val report = control.compact(chat, "the tests", admin)
+        control.refuseNext("Nothing to compact.")
+        val refused = assertFailsWith<ControlRefusedException> { control.compact(chat, null, admin) }
+
+        assertEquals(CompactionReport(3, 900, 150), report)
+        assertEquals("Nothing to compact.", refused.message)
+        assertEquals(status, control.context(chat))
+        assertEquals(
+            ContextStatus(ConversationId("conversation-0"), null, null, null, null, null, null, null, 0),
+            control.context(testChat("other")),
+        )
+        assertEquals(
+            listOf(
+                RecordingAgentControl.Call.Compact(chat, "the tests", admin),
+                RecordingAgentControl.Call.Compact(chat, null, admin),
+            ),
+            control.calls,
+        )
+    }
+
+    @Test
+    fun `a recording agent control lists the jobs of a chat and finds them when it stops or cancels`() {
+        val control = RecordingAgentControl()
+        val (chat, other) = listOf(testChat(), testChat("other"))
+        val admin = testUser("ada", isAdmin = true)
+        val job = JobStatus(RunId("j-1"), chat, "command.exec", "./gradlew test", TEST_TIME, admin)
+        control.jobStatuses = listOf(job)
+
+        val stopped = control.stopJob(chat, RunId("j-1"), admin)
+        val elsewhere = control.stopJob(other, RunId("j-1"), admin)
+        val cancelled = control.cancel(chat, admin)
+        val run = control.cancelRun(RunId("j-1"), tree = false, by = null)
+
+        assertEquals(listOf(job), control.jobs(chat))
+        assertEquals(emptyList(), control.jobs(other))
+        assertEquals(listOf(true, false, true, true), listOf(stopped, elsewhere, cancelled, run))
+        assertEquals(
+            listOf(
+                RecordingAgentControl.Call.StopJob(chat, RunId("j-1"), admin),
+                RecordingAgentControl.Call.StopJob(other, RunId("j-1"), admin),
+                RecordingAgentControl.Call.Cancel(chat, admin),
+                RecordingAgentControl.Call.CancelRun(RunId("j-1"), false, null),
+            ),
+            control.calls,
+        )
     }
 
     @Test

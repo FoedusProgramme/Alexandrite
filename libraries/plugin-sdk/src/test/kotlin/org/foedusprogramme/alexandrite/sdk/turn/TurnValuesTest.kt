@@ -189,15 +189,15 @@ class TurnValuesTest {
 
     @Test
     fun `one rule refuses initiators the kinds that the agent starts itself`() {
-        assertEquals(setOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE), TurnKind.agentStarted)
+        assertEquals(setOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE, TurnKind.JOB), TurnKind.agentStarted)
         for (kind in TurnKind.agentStarted) {
             val turn = InitiatedTurn.builder(chat, kind, "Approved.").build()
 
             val refused = assertFailsWith<IllegalArgumentException> { requireInitiable("beat", turn) }
 
             assertEquals(
-                "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval and agent message " +
-                    "turns itself.",
+                "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval, agent message " +
+                    "and job turns itself.",
                 refused.message,
             )
         }

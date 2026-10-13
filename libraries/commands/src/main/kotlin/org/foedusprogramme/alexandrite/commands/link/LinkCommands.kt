@@ -78,7 +78,7 @@ internal class LinkCommands(
             val others = (listOf(group.anchor) + group.members).filter { it != chat }
             replies.text(TextKeys.LINK_CURRENT, "chats" to others.joinToString(", ") { markdownLiteral("$it") })
         }
-        context.reply(listOfNotNull(offer, current).joinToString("\n\n"), Markup.MARKDOWN)
+        context.reply(listOfNotNull(offer, current).joinToString("\n\n"), Markup.MARKDOWN, forModel = false)
     }
 
     private suspend fun redeem(

@@ -215,14 +215,16 @@ public class FakeBotApi(
 
     public fun botMessage(chat: Long, id: Long): FakeBotMessage? = lock.withLock { sent[chat to id] }
 
-    /** Answers the next call of [method] with a failure of [status] carrying [description]. */
+    /** Answers the [nth] call of [method] with a failure of [status] carrying [description]. */
     public fun fail(
         method: String,
         status: Int,
         description: String,
         retryAfter: Int? = null,
         migrateTo: Long? = null,
+        nth: Int = 1,
     ) {
+        repeat(nth - 1) { script(method, Step.Pass) }
         val body = error(status, description) {
             if (retryAfter != null || migrateTo != null) {
                 putJsonObject("parameters") {
@@ -348,6 +350,7 @@ public class FakeBotApi(
             method == "sendMessage" -> sendMessage(params)
             method == "editMessageText" -> editMessageText(params)
             method == "editMessageReplyMarkup" -> editMessageReplyMarkup(params)
+            method == "deleteMessage" -> deleteMessage(params)
             method == "answerCallbackQuery" -> answerCallbackQuery(params)
             method == "sendChatAction" -> sendChatAction(params)
             else -> 404 to error(404, "Not Found")
@@ -480,6 +483,15 @@ public class FakeBotApi(
         200 to ok(edited)
     }
 
+    private fun deleteMessage(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val chat = params.long("chat_id")?.let(chats::get) ?: return 400 to error(400, CHAT_NOT_FOUND)
+        val key = chat.id to (params.long("message_id") ?: -1L)
+        if (messages.remove(key) == null) return 400 to error(400, "Bad Request: message to delete not found")
+        sent.remove(key)
+        changed.signalAll()
+        200 to ok(JsonPrimitive(true))
+    }
+
     private fun answerCallbackQuery(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
         val query = params.string("callback_query_id")
         if (query == null || !openQueries.remove(query)) {
@@ -543,6 +555,8 @@ public class FakeBotApi(
         data object Break : Step
 
         class Delay(val duration: Duration) : Step
+
+        data object Pass : Step
     }
 
     private companion object {

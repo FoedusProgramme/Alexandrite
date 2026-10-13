@@ -16,9 +16,13 @@ import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
 import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.SummaryEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
+import org.foedusprogramme.alexandrite.sdk.turn.ContextCleared
+import org.foedusprogramme.alexandrite.sdk.turn.ContextCompacted
+import org.foedusprogramme.alexandrite.sdk.turn.ContextCompaction
 import org.foedusprogramme.alexandrite.sdk.turn.ContextLoaded
 import org.foedusprogramme.alexandrite.sdk.turn.ConversationSealed
 import org.foedusprogramme.alexandrite.sdk.turn.ModelCall
@@ -157,6 +161,23 @@ internal class TurnHooks(private val hooks: Hooks) {
 
     suspend fun conversationSealed(turn: TurnInfo, sealed: ConversationId, successor: ConversationId) {
         hooks.fire(TurnPoints.CONVERSATION_SEALED, ConversationSealed(turn, sealed, successor))
+    }
+
+    /** The summary of [entries] and [previous] that hooks wrote in [turn], null when the model is to write it. */
+    suspend fun contextCompact(
+        turn: TurnInfo,
+        entries: List<TranscriptEntry>,
+        previous: SummaryEntry?,
+        focus: String?,
+    ): Hooked<String?> =
+        hooks.fire(TurnPoints.CONTEXT_COMPACT, ContextCompaction(turn, entries, previous, focus)).map { it.summary }
+
+    suspend fun contextCompacted(turn: TurnInfo, summary: SummaryEntry, tokensBefore: Long, tokensAfter: Long) {
+        hooks.fire(TurnPoints.CONTEXT_COMPACTED, ContextCompacted(turn, summary, tokensBefore, tokensAfter))
+    }
+
+    suspend fun contextCleared(turn: TurnInfo, calls: List<ToolCallPart>, tokensFreed: Long) {
+        hooks.fire(TurnPoints.CONTEXT_CLEARED, ContextCleared(turn, calls, tokensFreed))
     }
 }
 

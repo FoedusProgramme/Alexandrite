@@ -9,8 +9,10 @@ import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
+import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Finds the paths a tool call reached outside the trusted folders, the agent's workspace and its persona directory. */
 @Singleton
@@ -26,11 +28,18 @@ internal class ReadTaint(
      */
     suspend fun reason(agent: AgentId, tool: String, touched: List<Path>): String? {
         if (touched.isEmpty()) return null
-        return withContext(Dispatchers.IO) {
-            val own = listOfNotNull(workspaces.paths[agent], personaDirectory(paths, agent)).mapNotNull {
-                (floor.checkRead(it, agent) as? FloorCheck.Allowed)?.canonical
+        return try {
+            withContext(Dispatchers.IO) {
+                val own = listOfNotNull(workspaces.paths[agent], personaDirectory(paths, agent)).mapNotNull {
+                    (floor.checkRead(it, agent) as? FloorCheck.Allowed)?.canonical
+                }
+                touched.firstNotNullOfOrNull { place(it, agent, own) }?.let { "$tool reached $it" }
             }
-            touched.firstNotNullOfOrNull { place(it, agent, own) }?.let { "$tool reached $it" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn("Could not tell whether {} touched an untrusted place: {}", tool, e.toString())
+            "$tool reached a path that could not be checked"
         }
     }
 
@@ -47,3 +56,5 @@ internal class ReadTaint(
         return "$folder, a folder that is not trusted"
     }
 }
+
+private val logger = LoggerFactory.getLogger(ReadTaint::class.java)

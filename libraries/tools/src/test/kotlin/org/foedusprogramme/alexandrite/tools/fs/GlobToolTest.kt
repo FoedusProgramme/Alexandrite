@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -22,6 +23,12 @@ class GlobToolTest {
     }
 
     private fun listed(vararg relative: String): String = relative.joinToString("\n") { "${fs.repository}/$it" }
+
+    @Test
+    fun `the call is titled by its path or its pattern, of activity list`() {
+        val titleArguments = tool.definition.titleArguments
+        assertEquals(ToolActivity.LIST to listOf("path", "pattern"), tool.definition.activity to titleArguments)
+    }
 
     @Test
     fun `the paths under a directory that match are listed in name order, and the directory is touched`() {

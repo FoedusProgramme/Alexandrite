@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
 import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -168,8 +169,18 @@ internal val goldens: Map<String, List<TranscriptEntry>> = mapOf(
             listOf(TextPart("The page:"), MediaPart(MediaKind.IMAGE, "image/jpeg", StoredMedia(MediaId("m-2")))),
             ToolOutcome.Succeeded,
         ),
+        ToolResultEntry(
+            null,
+            ToolCallId("toolu_07"),
+            "shell.run",
+            listOf(TextPart("Still running as job j-7kq2mx.")),
+            ToolOutcome.Detached(RunId("j-7kq2mx")),
+        ),
     ),
-    "summary" to listOf(SummaryEntry(record(7), "Ada asked for notes; three were saved.", EntryId(6))),
+    "summary" to listOf(
+        SummaryEntry(record(7), "Ada asked for notes; three were saved.", EntryId(6)),
+        SummaryEntry(record(10), "Three notes were read.", EntryId(9), listOf(EntryId(8))),
+    ),
     "notice" to listOf(
         NoticeEntry(record(8), "The model answered with nothing.", NoticeKind.BLANK_REPLY),
         NoticeEntry(null, "A hook stopped the turn.", NoticeKind.HOOK_ABORTED),

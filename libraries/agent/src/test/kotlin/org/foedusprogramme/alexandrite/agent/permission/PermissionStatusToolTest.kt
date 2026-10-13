@@ -22,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -56,7 +57,7 @@ class PermissionStatusToolTest {
         val modeField = mode?.let { """"mode": "$it", """ }.orEmpty()
         val allowed = allow.joinToString(prefix = "[", postfix = "]") { "\"$it\"" }
         val directory = agentDirectory(
-            settings("""{"agents": {"main": {"permission": {$modeField"allow": $allowed}}}}"""),
+            settings("""{"agents": {"main": {"description": "Main.", "permission": {$modeField"allow": $allowed}}}}"""),
         )
         val registry = ToolRegistry(listOf(exec, deploy), directory, NO_BUILT_INS)
         val records = TestRecords(store.records).of("alexandrite-agent")
@@ -78,6 +79,12 @@ class PermissionStatusToolTest {
 
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext =
         AgentToolContext(turn, ToolCallId("call-1"), Workspaces(hostPaths(null), settings("{}")), null, taint, null)
+
+    @Test
+    fun `the call is of activity other, titled by nothing`() {
+        val definition = tool().definition
+        assertEquals(ToolActivity.OTHER to emptyList(), definition.activity to definition.titleArguments)
+    }
 
     private suspend fun status(
         tool: PermissionStatusTool = tool(),
@@ -109,8 +116,9 @@ class PermissionStatusToolTest {
 
             assertEquals(
                 listOf(
-                    "Allow rules (on an operator's turn, the calls they cover run without asking in every mode but " +
-                        "manual):",
+                    "Allow rules (on an operator's turn, in ask, allowedit and auto modes, the calls they cover " +
+                        "run without asking; not in plan or manual mode, nor for an opaque program or a " +
+                        "lasting-state call):",
                     "1. command.exec: git status (declared in the config file)",
                     "2. deploy.run: every call (declared in the config file)",
                     "3. command.exec: make test (allowed by Admin at 2026-01-01 00:00 Z until /new)",

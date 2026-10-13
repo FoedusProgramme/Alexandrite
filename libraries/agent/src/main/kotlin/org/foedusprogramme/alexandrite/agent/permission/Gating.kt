@@ -2,11 +2,12 @@ package org.foedusprogramme.alexandrite.agent.permission
 
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 
 /** Whose authority a turn carries. */
 internal enum class Principal {
-    /** An admin's message turn. */
+    /** An admin's message turn, the turn of a job that one started, or a sub-agent run under either. */
     OPERATOR,
 
     /** A turn of any other person. */
@@ -19,7 +20,7 @@ internal enum class Principal {
     companion object {
         fun of(turn: TurnInfo): Principal = when {
             turn.actor == null -> AUTOMATION
-            turn.actorIsAdmin && turn.kind == TurnKind.MESSAGE -> OPERATOR
+            turn.actorIsAdmin && turn.kind in OPERATOR_KINDS -> OPERATOR
             else -> MEMBER
         }
     }
@@ -41,3 +42,22 @@ internal fun effectiveRisk(declared: ToolRisk, reported: ToolRisk?, builtIn: Boo
     builtIn || reported.severity > declared.severity -> reported
     else -> declared
 }
+
+/** The strictest of [modes], ordered `plan` < `manual` < `ask` < `allowedit` < `auto` < `bypass`. */
+internal fun strictest(modes: List<PermissionMode>): PermissionMode =
+    STRICTNESS[modes.minOfOrNull { STRICTNESS.indexOf(it).coerceAtLeast(0) } ?: STRICTNESS.indexOf(PermissionMode.ASK)]
+
+/**
+ * The kinds of turn whose admin actor makes them an operator's. A sub-agent run carries an admin actor only under an
+ * operator's root turn.
+ */
+private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)
+
+private val STRICTNESS = listOf(
+    PermissionMode.PLAN,
+    PermissionMode.MANUAL,
+    PermissionMode.ASK,
+    PermissionMode.ALLOW_EDIT,
+    PermissionMode.AUTO,
+    PermissionMode.BYPASS,
+)

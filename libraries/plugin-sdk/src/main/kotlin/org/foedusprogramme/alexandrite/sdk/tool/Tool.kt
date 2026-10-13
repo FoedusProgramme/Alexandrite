@@ -34,7 +34,19 @@ public class ToolDefinition(
      * its default.
      */
     public val timeout: Duration? = null,
+    /** What kind of effect a call has, for a channel to show as it runs. */
+    public val activity: ToolActivity = ToolActivity.OTHER,
+    /** The arguments that title a call, the first one present wins, an array joined with spaces. */
+    public val titleArguments: List<String> = emptyList(),
 ) {
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(name: String, description: String, parameters: JsonObject, risk: ToolRisk) :
+        this(name, description, parameters, risk, null, ToolActivity.OTHER, emptyList())
+
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(name: String, description: String, parameters: JsonObject, risk: ToolRisk, timeout: Duration?) :
+        this(name, description, parameters, risk, timeout, ToolActivity.OTHER, emptyList())
+
     init {
         require(ToolNames.PATTERN.matches(name)) {
             "Malformed tool name '$name': it must be lowercase words of letters, digits and '_', each starting with " +

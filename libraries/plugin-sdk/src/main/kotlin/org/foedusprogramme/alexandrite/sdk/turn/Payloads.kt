@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
+import org.foedusprogramme.alexandrite.sdk.transcript.SummaryEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
@@ -215,6 +216,58 @@ public class ConversationSealed @InternalAlexandriteApi constructor(
 ) : TurnScoped {
     init {
         require(sealed != successor) { "Conversation $sealed cannot succeed itself." }
+    }
+}
+
+/** A compaction about to fold [entries] and the [previous] summary into a new one. */
+@Poko
+public class ContextCompaction @InternalAlexandriteApi constructor(
+    override val turn: TurnInfo,
+    /** The stored entries that the new summary stands in for, oldest first. */
+    public val entries: List<TranscriptEntry>,
+    /** The rolling summary that the new one folds in, null when there is none. */
+    public val previous: SummaryEntry?,
+    /** What the person who asked for the compaction wants the summary to keep in view, null when nobody asked. */
+    public val focus: String?,
+    /** The summary that a hook wrote, null while the model is to write it. */
+    public val summary: String? = null,
+) : TurnScoped {
+    init {
+        require(entries.isNotEmpty()) { "A compaction folds at least one entry." }
+        require(entries.all { it.record != null } && (previous == null || previous.record != null)) {
+            "A compaction folds stored entries."
+        }
+        require(summary == null || summary.isNotBlank()) { "A summary is not blank." }
+        requireNoInlineMedia(entries)
+    }
+
+    public fun withSummary(summary: String): ContextCompaction =
+        ContextCompaction(turn, entries, previous, focus, summary)
+}
+
+/** A compaction that stored [summary], which shrank the prompt from [tokensBefore] to about [tokensAfter] tokens. */
+@Poko
+public class ContextCompacted @InternalAlexandriteApi constructor(
+    override val turn: TurnInfo,
+    public val summary: SummaryEntry,
+    public val tokensBefore: Long,
+    public val tokensAfter: Long,
+) : TurnScoped {
+    init {
+        require(summary.record != null) { "A compaction stored its summary." }
+    }
+}
+
+/** Tool results whose content requests leave out from now on, which frees about [tokensFreed] tokens. */
+@Poko
+public class ContextCleared @InternalAlexandriteApi constructor(
+    override val turn: TurnInfo,
+    /** The calls whose results were cleared, oldest first. */
+    public val calls: List<ToolCallPart>,
+    public val tokensFreed: Long,
+) : TurnScoped {
+    init {
+        require(calls.isNotEmpty()) { "A clearing clears at least one result." }
     }
 }
 

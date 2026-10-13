@@ -66,6 +66,19 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
             insert(ConversationKind.DELEGATED, key, lineage, fork, now)
         }
 
+    override suspend fun sealDelegated(id: ConversationId): Boolean = data.locked { now ->
+        val conversation = requireNotNull(conversations[id]) { "Cannot seal the unknown conversation $id." }
+        require(conversation.kind == ConversationKind.DELEGATED) {
+            "Conversation $id is ${conversation.kind}, not the conversation of a sub-agent run."
+        }
+        if (conversation.state != ConversationState.ACTIVE) return@locked false
+        conversations[id] = conversation.rebuild {
+            state(ConversationState.SEALED)
+            sealedAt(now)
+        }
+        true
+    }
+
     override suspend fun conversation(id: ConversationId): ConversationInfo? = data.locked { conversations[id] }
 
     override suspend fun chats(agent: AgentId): List<ChatAddress> = data.locked {

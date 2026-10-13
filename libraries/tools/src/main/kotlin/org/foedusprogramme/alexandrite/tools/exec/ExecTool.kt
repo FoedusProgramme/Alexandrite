@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
@@ -32,8 +33,6 @@ import kotlin.time.Duration.Companion.seconds
 @Singleton
 @Contribute(Tool::class)
 internal class ExecTool(private val floor: HardFloor, private val config: ExecConfig) : ReviewedTool {
-    private val defaultTimeout = minOf(DEFAULT_TIMEOUT_SECONDS, config.maxTimeoutSeconds)
-
     override val definition: ToolDefinition = ToolDefinition(
         name = "command.exec",
         description = "Runs one program with its arguments, without a shell, and returns its exit code and its " +
@@ -54,12 +53,13 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             property(
                 "timeoutSeconds",
                 "integer",
-                "How long the program may run, in seconds. Default $defaultTimeout, at most " +
-                    "${config.maxTimeoutSeconds}.",
+                "How long the program may run, in seconds: at most ${config.maxTimeoutSeconds}, which is the default.",
             )
         },
         risk = ToolRisk.EXEC,
         timeout = config.maxTimeoutSeconds.seconds,
+        activity = ToolActivity.EXECUTE,
+        titleArguments = listOf("command", "argv"),
     )
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
@@ -158,8 +158,12 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
         val words = when {
             command != null && argv != null -> throw CallProblem("Give either 'command' or 'argv', not both.")
+
             command != null -> CommandLine.split(command, home())
-            argv != null -> argv
+
+            // argv has no quoting, so a word's leading '~' always expands.
+            argv != null -> argv.map { expandHome(it, home()) }
+
             else -> throw CallProblem("Give 'command' (a command line) or 'argv' (the program and its arguments).")
         }
         if (words.isEmpty() || words.first().isEmpty()) throw CallProblem("The call names no program.")
@@ -174,7 +178,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val seconds = arguments.optional("timeoutSeconds")?.let { value ->
             (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
                 ?: throw CallProblem("'timeoutSeconds' must be a whole number of at least 1.")
-        } ?: defaultTimeout
+        } ?: config.maxTimeoutSeconds
         if (seconds > config.maxTimeoutSeconds) {
             throw CallProblem("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
         }
@@ -192,7 +196,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun isOperator(context: ToolContext): Boolean =
-        context.turn.actorIsAdmin && context.turn.kind == TurnKind.MESSAGE
+        context.turn.actorIsAdmin && context.turn.kind in OPERATOR_KINDS
 
     private sealed interface Inspection {
         class Problem(val text: String) : Inspection
@@ -207,4 +211,5 @@ private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == J
 
 private fun home(): String? = System.getProperty("user.home")?.takeIf { it.isNotEmpty() }
 
-private const val DEFAULT_TIMEOUT_SECONDS = 120
+/** The kinds of turn whose admin actor makes them an operator's. */
+private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)

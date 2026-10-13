@@ -89,14 +89,14 @@ class TurnInitiatorTest {
         spec(explicit(agent(), beat("beat")), dataDir).execute {
             val agent = services.get(key<Probe>()).values.getValue("agent") as Agent
 
-            for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE)) {
+            for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE, TurnKind.JOB)) {
                 val turn = InitiatedTurn.builder(chat, kind, "Approved.").build()
 
                 val refused = assertFailsWith<IllegalArgumentException> { agent.beat.initiator.initiate(turn) }
 
                 assertEquals(
-                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval and agent message " +
-                        "turns itself.",
+                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval, agent message " +
+                        "and job turns itself.",
                     refused.message,
                 )
             }

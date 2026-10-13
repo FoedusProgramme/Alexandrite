@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.TestClock
@@ -19,6 +20,9 @@ import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.GateResult
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatState
+import org.foedusprogramme.alexandrite.sdk.chat.ChatStates
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -51,6 +55,7 @@ import org.foedusprogramme.alexandrite.testkit.testToolContext
 import org.foedusprogramme.alexandrite.testkit.testToolDefinition
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import org.foedusprogramme.alexandrite.testkit.testUser
+import java.io.IOException
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
@@ -58,6 +63,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -77,7 +83,9 @@ class PermissionGateTest {
 
     /** A gate where `main` sets [mode] for its chats and the plugins in [builtIn] contributed their tools. */
     private fun gate(tools: List<Tool>, mode: String? = null, builtIn: Set<Tool> = emptySet()): PermissionGate {
-        val config = mode?.let { """{"agents": {"main": {"permission": {"mode": "$it"}}}}""" } ?: """{"agents": {}}"""
+        val config =
+            mode?.let { """{"agents": {"main": {"description": "Main.", "permission": {"mode": "$it"}}}}""" }
+                ?: """{"agents": {}}"""
         val directory = agentDirectory(settings(config))
         val origins = object : PluginOrigins {
             override fun isBuiltIn(instance: Any): Boolean = builtIn.any { it === instance }
@@ -217,6 +225,17 @@ class PermissionGateTest {
     }
 
     @Test
+    fun `the turn of a job that an admin's turn started is an operator's, as the job's principal is the admin`() =
+        runTest {
+            val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
+            val job = testTurn(TurnKind.JOB) { actor(testUser("admin", isAdmin = true)) }
+            setMode(job, PermissionMode.BYPASS, clock.now + Duration.ofHours(1))
+
+            assertEquals("mode", outcome(gate(listOf(write)).admit(write, job)))
+            assertEquals("ask", outcome(gate(listOf(write)).admit(write, testTurn(TurnKind.JOB))))
+        }
+
+    @Test
     fun `a person is asked why the call needs one`() = runTest {
         val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
         val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)
@@ -310,6 +329,17 @@ class PermissionGateTest {
         setMode(operator, PermissionMode.ALLOW_EDIT)
 
         assertEquals(listOf("ask", "mode"), listOf(opaque, visible).map { outcome(gate.admit(it)) })
+    }
+
+    @Test
+    fun `allowedit clears a workspace write wherever the floor allows it, not only inside the workspace`() = runTest {
+        val write = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) {
+            CallReview(preview = ReviewPreview.Diff(Path.of("/home/user/project/report.md"), "+Done."))
+        }
+        val gate = gate(listOf(write))
+        setMode(operator, PermissionMode.ALLOW_EDIT)
+
+        assertEquals("mode", outcome(gate.admit(write)))
     }
 
     // The judge and the rules.
@@ -522,6 +552,38 @@ class PermissionGateTest {
         assertEquals("Writes need a second look.", judge.calls.single().requiredApproval)
     }
 
+    // Mode failures.
+
+    @Test
+    fun `a permission mode that cannot be read falls back to ask, with a warning`() = runTest {
+        val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
+        val directory = agentDirectory(settings("""{"agents": {}}"""))
+        val origins = object : PluginOrigins {
+            override fun isBuiltIn(instance: Any): Boolean = false
+        }
+        val registry = ToolRegistry(listOf(write), directory, origins)
+        val gate = PermissionGate(
+            TurnHooks(hooks),
+            registry,
+            rules,
+            judge,
+            approvals,
+            SettingsStates(FailingChatStates()),
+            directory,
+            clock,
+        )
+        lateinit var result: GateResult
+
+        val lines = logged {
+            launch { result = gate.admit(write) }
+            advanceUntilIdle()
+        }
+
+        assertEquals("ask", outcome(result))
+        assertEquals(listOf("the chat is in ask mode"), approvals.reasons)
+        assertTrue(lines.any { it.startsWith("WARN") && "permission mode" in it }, "$lines")
+    }
+
     // Effective risk.
 
     @Test
@@ -574,6 +636,39 @@ class PermissionGateTest {
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Ran.")
         }
+}
+
+/** Chat states whose per-agent reads always fail, as if the backing store were unavailable. */
+private class FailingChatStates : ChatStates {
+    override fun <T : Any> state(name: String, serializer: KSerializer<T>, default: T): ChatState<ChatAddress, T> =
+        object : ChatState<ChatAddress, T> {
+            override suspend fun get(key: ChatAddress): T = default
+
+            override suspend fun getOwn(key: ChatAddress): T? = null
+
+            override suspend fun update(key: ChatAddress, transform: (T) -> T): T = default
+
+            override suspend fun set(key: ChatAddress, value: T) = Unit
+
+            override suspend fun reset(key: ChatAddress) = Unit
+        }
+
+    override fun <T : Any> agentState(
+        name: String,
+        serializer: KSerializer<T>,
+        default: T,
+    ): ChatState<AgentChatKey, T> = object : ChatState<AgentChatKey, T> {
+        override suspend fun get(key: AgentChatKey): T = throw IOException("The store is unavailable.")
+
+        override suspend fun getOwn(key: AgentChatKey): T? = throw IOException("The store is unavailable.")
+
+        override suspend fun update(key: AgentChatKey, transform: (T) -> T): T =
+            throw IOException("The store is unavailable.")
+
+        override suspend fun set(key: AgentChatKey, value: T) = throw IOException("The store is unavailable.")
+
+        override suspend fun reset(key: AgentChatKey) = throw IOException("The store is unavailable.")
+    }
 }
 
 /** Hooks whose `tool.before` chain [decide]s each check, which it records with a `hook` line in [log]. */

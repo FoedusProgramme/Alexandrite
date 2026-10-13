@@ -25,11 +25,13 @@ import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.model.rebuild
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaId
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
 import org.foedusprogramme.alexandrite.sdk.transcript.StoredMedia
+import org.foedusprogramme.alexandrite.sdk.transcript.SummaryEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
@@ -191,5 +193,35 @@ class PayloadsTest {
         assertFailsWith<IllegalArgumentException> {
             ConversationSealed(turn, ConversationId("c1"), ConversationId("c1"))
         }
+    }
+
+    @Test
+    fun `a compaction folds stored entries, and a hook's summary replaces nothing else`() {
+        val entries = listOf(user("Hello", record(1)), user("Still there?", record(2)))
+        val previous = SummaryEntry(record(3), "Ada said hello.", EntryId(1))
+        val compaction = ContextCompaction(turn, entries, previous, "the open bugs")
+
+        val written = compaction.withSummary("Ada asked twice.")
+
+        assertNull(compaction.summary)
+        assertEquals(ContextCompaction(turn, entries, previous, "the open bugs", "Ada asked twice."), written)
+        assertFailsWith<IllegalArgumentException> { ContextCompaction(turn, emptyList(), null, null) }
+        assertFailsWith<IllegalArgumentException> { ContextCompaction(turn, listOf(user("Hello")), null, null) }
+        assertFailsWith<IllegalArgumentException> { compaction.withSummary(" ") }
+        assertFailsWith<IllegalArgumentException> {
+            ContextCompaction(turn, entries, SummaryEntry(null, "Unstored.", EntryId(1)), null)
+        }
+    }
+
+    @Test
+    fun `a compaction stored its summary, and a clearing clears at least one call`() {
+        val summary = SummaryEntry(record(3), "Ada said hello.", EntryId(2))
+
+        assertEquals(EntryId(2), ContextCompacted(turn, summary, 900, 100).summary.through)
+        assertFailsWith<IllegalArgumentException> {
+            ContextCompacted(turn, SummaryEntry(null, "Unstored.", EntryId(2)), 900, 100)
+        }
+        assertEquals(listOf(call("toolu_01")), ContextCleared(turn, listOf(call("toolu_01")), 300).calls)
+        assertFailsWith<IllegalArgumentException> { ContextCleared(turn, emptyList(), 0) }
     }
 }

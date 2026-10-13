@@ -39,6 +39,9 @@ public interface ReplySink {
     /** Starts [segment], which freezes the earlier ones, before its first preview if it gets any. */
     public suspend fun startSegment(segment: Int) {}
 
+    /** Shows [event], of a kind the channel's capabilities declare in [ChannelCapabilities.events]. */
+    public suspend fun event(event: TurnEvent) {}
+
     /** Delivers the final reply, in place of the previews where the channel can. */
     public suspend fun complete(message: OutboundMessage): Delivery
 

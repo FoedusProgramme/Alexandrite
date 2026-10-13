@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.model.RequestIds
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextItem
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
@@ -122,6 +123,20 @@ class PayloadsTest {
         assertEquals(reply, committed.entries.last())
         assertEquals(turn.conversation, sealed.sealed)
         assertEquals(ConversationId("test-next"), sealed.successor)
+    }
+
+    @Test
+    fun `compaction payloads hold stored entries of the turn's conversation`() {
+        val compaction = testContextCompaction(focus = "the tests")
+        val compacted = testContextCompacted()
+        val cleared = testContextCleared()
+
+        assertTrue(compaction.entries.all { it.record?.conversation == turn.conversation })
+        assertEquals(listOf(null, "the tests", null), listOf(compaction.previous, compaction.focus, compaction.summary))
+        assertEquals(EntryId(2), compacted.summary.through)
+        assertEquals(turn.conversation, compacted.summary.record?.conversation)
+        assertEquals(listOf(1000L, 200L), listOf(compacted.tokensBefore, compacted.tokensAfter))
+        assertEquals(listOf("test.tool"), cleared.calls.map { it.name })
     }
 
     // Hooks under test.

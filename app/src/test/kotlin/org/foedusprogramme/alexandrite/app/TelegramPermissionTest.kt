@@ -106,7 +106,7 @@ class TelegramPermissionTest {
         }
 
         val result = app.model.requests.last().history.last() as ToolResultEntry
-        val id = Regex("#([a-z0-9]+)").find(app.fake.botMessages(ADA).first().text)!!.groupValues[1]
+        val id = Regex("#([a-z0-9]+)").find(app.fake.botMessages(ADA).body().first().text)!!.groupValues[1]
         assertEquals(ToolOutcome.NotRun(NotRunReason.DENIED, id), result.outcome)
         assertEquals(
             "[alexandrite:denied by=admin] Not run: an administrator denied this call. Do not retry it or an " +
@@ -177,7 +177,7 @@ class TelegramPermissionTest {
         }
 
         assertEquals(1, write.calls.size)
-        assertEquals(listOf("Noted."), app.fake.botMessages(BOB).map { it.text })
+        assertEquals(listOf("Noted."), app.fake.botMessages(BOB).body().map { it.text })
     }
 
     @Test

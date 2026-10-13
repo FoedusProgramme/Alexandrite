@@ -27,8 +27,13 @@ class PromptAssemblerTest {
     private val config = """
         {
           "agents": {
-            "coder": {"name": "Coder", "instructions": ["Be brief."], "tools": {"deny": ["persona.edit"]}},
-            "helper": {"instructionFiles": [{"file": "private.md", "when": ["direct"]}]}
+            "coder": {
+              "name": "Coder",
+              "description": "Codes.",
+              "instructions": ["Be brief."],
+              "tools": {"deny": ["persona.edit"]}
+            },
+            "helper": {"description": "Helps.", "instructionFiles": [{"file": "private.md", "when": ["direct"]}]}
           }
         }
     """.trimIndent()
@@ -84,8 +89,8 @@ class PromptAssemblerTest {
         val config = """
             {
               "agents": {
-                "coder": {"workspace": "/srv/coder"},
-                "helper": {"tools": {"deny": ["fs.*"]}}
+                "coder": {"description": "Codes.", "workspace": "/srv/coder"},
+                "helper": {"description": "Helps.", "tools": {"deny": ["fs.*"]}}
               }
             }
         """.trimIndent()

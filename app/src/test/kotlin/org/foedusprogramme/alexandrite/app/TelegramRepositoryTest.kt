@@ -115,22 +115,36 @@ class TelegramRepositoryTest {
             end = conversations.turn(app.model.requests.first().ids.turn)?.end
         }
 
-        val (frozen, answer) = app.fake.botMessages(ADA)
-        assertEquals(2, app.fake.botMessages(ADA).size)
+        val (frozen, answer) = app.fake.botMessages(ADA).body()
+        assertEquals(2, app.fake.botMessages(ADA).body().size)
         assertEquals("Let me look around the repository." to 0, frozen.text to frozen.edits)
         assertEquals(ANSWER, answer.text)
         assertEquals(
             """[{"type":"code","offset":0,"length":11},{"type":"code","offset":15,"length":10}]""",
             answer.entities.toString(),
         )
-        assertTrue(answer.edits > 0, "The answer was sent as a new message: $answer")
         val typing = app.fake.calls("sendChatAction").first().params
         assertEquals(listOf(JsonPrimitive(ADA), JsonPrimitive("typing")), listOf(typing["chat_id"], typing["action"]))
         val requests = app.model.requests
         assertEquals(listOf(0, 1, 2, 3), requests.map { it.ids.round })
         assertEquals("What does greet do?", requests.first().asked)
         assertEquals(
-            listOf("command.exec", "fs.edit", "fs.glob", "fs.grep", "fs.read", "fs.write", "permission.status"),
+            listOf(
+                "agent.delegate",
+                "agent.jobs",
+                "agent.stop",
+                "command.exec",
+                "fs.edit",
+                "fs.glob",
+                "fs.grep",
+                "fs.read",
+                "fs.write",
+                "permission.status",
+                "profile.create",
+                "profile.edit",
+                "profile.list",
+                "profile.remove",
+            ),
             requests.first().tools.map { it.name },
         )
         assertEquals(requests.first().ids.conversation, conversation)
@@ -207,7 +221,7 @@ class TelegramRepositoryTest {
         }
         app.run(app.builder(directory, sqlite = true)) {
             app.send(app.ada, app.adaChat, "/trust")
-            listed = app.messages(app.adaChat, 5).last().text
+            listed = app.bodyMessages(app.adaChat, 5).last().text
         }
 
         assertEquals(
@@ -219,7 +233,7 @@ class TelegramRepositoryTest {
                 "$repository is trusted, and so are the folders below it.",
                 "Greeter greets.",
             ),
-            app.fake.botMessages(ADA).map { it.text }.take(4),
+            app.fake.botMessages(ADA).body().map { it.text }.take(4),
         )
         val today = LocalDate.now(ZoneOffset.UTC)
         assertContains(

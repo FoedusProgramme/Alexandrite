@@ -76,11 +76,11 @@ class ConversationCommandsTest {
         control.statuses = listOf(running(testTurn(TurnKind.MESSAGE, chat) { actor(testUser("other")) }))
 
         assertEquals(
-            "The answers that were running in this chat are cancelled.",
+            "The answers and the jobs that were running in this chat are stopped.",
             commands.answer(testCommand("cancel", issuer = MEMBER)),
         )
         assertEquals(
-            "The answers that were running in this chat are cancelled.",
+            "The answers and the jobs that were running in this chat are stopped.",
             commands.answer(testCommand("cancel", issuer = ADMIN)),
         )
         assertEquals(listOf(Call.Cancel(chat, MEMBER), Call.Cancel(chat, ADMIN)), control.calls)
