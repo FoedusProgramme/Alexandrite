@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.prompt.BASE_SECTION
+import org.foedusprogramme.alexandrite.agent.prompt.CONVERSATION_DIRECTORY_SECTION
 import org.foedusprogramme.alexandrite.agent.prompt.DELEGATION_SECTION
 import org.foedusprogramme.alexandrite.agent.prompt.WORKSPACE_SECTION
 import org.foedusprogramme.alexandrite.agent.tool.CANCELLED_RESULT
@@ -176,7 +177,13 @@ class DelegationTurnsTest {
             val runs = runs(REVIEWER)
             assertEquals(List(3) { listOf("test.read") }, runs.map { request -> request.tools.map { it.name } })
             assertEquals(
-                listOf(BASE_SECTION, DELEGATION_SECTION, "agent.instructions.1", WORKSPACE_SECTION),
+                listOf(
+                    BASE_SECTION,
+                    DELEGATION_SECTION,
+                    "agent.instructions.1",
+                    WORKSPACE_SECTION,
+                    CONVERSATION_DIRECTORY_SECTION,
+                ),
                 runs[0].instructions.map { it.id },
             )
             val opening = runs[0].history.single() as UserEntry

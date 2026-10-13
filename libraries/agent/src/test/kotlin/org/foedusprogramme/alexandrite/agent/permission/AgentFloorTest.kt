@@ -3,9 +3,11 @@ package org.foedusprogramme.alexandrite.agent.permission
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.assertStartFails
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -96,6 +98,27 @@ class AgentFloorTest {
             assertEquals(FloorCheck.Allowed(workspace), floor.checkTree(workspace, coder))
             assertEquals(reach, floor.checkTree(home))
             assertEquals(reach, floor.checkTree(Path.of("/")))
+        }
+    }
+
+    @Test
+    fun `a conversation's own directory is carved out of the data root, no other and not its parent tree`() {
+        harness("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""").execute {
+            val floor = get<HardFloor>()
+            val directories = get<ConversationDirectories>()
+            val coder = AgentId("coder")
+            val mine = ConversationId("mine")
+            val own = directories.path(coder, mine)
+            val data = "Alexandrite's data"
+            val notes = own.resolve("notes.md")
+
+            assertEquals(FloorCheck.Allowed(notes), floor.checkWrite(notes, coder, mine))
+            assertEquals(FloorCheck.Allowed(own), floor.checkTree(own, coder, mine))
+            val another = directories.path(coder, ConversationId("other")).resolve("notes.md")
+            assertEquals(FloorCheck.Denied(data), floor.checkWrite(another, coder, mine))
+            assertEquals(FloorCheck.Denied(data), floor.checkRead(notes, AgentId("helper"), mine))
+            assertEquals(FloorCheck.Denied(data), floor.checkTree(own.parent.parent, coder, mine))
+            assertEquals(FloorCheck.Denied(data), floor.checkWrite(notes, coder, null))
         }
     }
 

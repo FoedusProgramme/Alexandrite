@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.internal.path.hardLinks
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -56,7 +57,7 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
         val attributes = attributes(root)
         if (attributes.isDirectory) {
             context.touched(root)
-            val walk = TreeWalk(floor, context.turn.agent)
+            val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation)
             walk.walk(root) { entry ->
                 if (entry.attributes.isRegularFile && filter?.invoke(entry.relative) != false) search.entry(entry)
                 !search.full

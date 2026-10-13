@@ -474,7 +474,7 @@ internal class AgentTurnRunner(
         /** The unstored entry of the result of [job], which reads [text], after the turn took in the job's taint. */
         private suspend fun jobOpening(turn: TurnInfo, job: EndedJob, text: String): UserEntry {
             job.untrusted?.let { taint.mark(it) }
-            reads.reason(turn.agent, job.job.call.name, job.touched)?.let { taint.mark(it) }
+            reads.reason(turn, job.job.call.name, job.touched)?.let { taint.mark(it) }
             val stored = media.stored(job.result)
             val carried = job.result.content.zip(stored.content).mapNotNull { (part, kept) ->
                 (kept as? UserPart)?.takeIf { part is MediaPart }
@@ -728,7 +728,7 @@ internal class AgentTurnRunner(
                             slots.withPermit {
                                 val end =
                                     executor.execute(turn, call, tools.offered, timeout, tools.callable, taint, tracked)
-                                reads.reason(turn.agent, call.name, end.touched)?.let { taint.mark(it) }
+                                reads.reason(turn, call.name, end.touched)?.let { taint.mark(it) }
                                 taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded

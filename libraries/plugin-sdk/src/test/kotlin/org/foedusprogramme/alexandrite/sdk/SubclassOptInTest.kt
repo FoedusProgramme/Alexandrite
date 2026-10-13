@@ -54,8 +54,11 @@ class SubclassOptInTest {
             override val turn get() = TODO()
             override val call get() = TODO()
             override val workspace get() = TODO()
+            override val conversationDirectory get() = TODO()
             override val clearance get() = TODO()
             override suspend fun openWorkspace() = TODO()
+            override suspend fun openConversationDirectory() = TODO()
+            override suspend fun conversationQuotaRefusal(path: java.nio.file.Path, bytes: Long) = TODO()
             override fun touched(path: java.nio.file.Path) = TODO()
             override fun untrusted(reason: String) = TODO()
         }
@@ -69,14 +72,23 @@ class SubclassOptInTest {
         class Answer : org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
-            override fun checkRead(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
-                TODO()
+            override fun checkRead(
+                path: java.nio.file.Path,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                conversation: org.foedusprogramme.alexandrite.sdk.chat.ConversationId?,
+            ) = TODO()
 
-            override fun checkWrite(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
-                TODO()
+            override fun checkWrite(
+                path: java.nio.file.Path,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                conversation: org.foedusprogramme.alexandrite.sdk.chat.ConversationId?,
+            ) = TODO()
 
-            override fun checkTree(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
-                TODO()
+            override fun checkTree(
+                path: java.nio.file.Path,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                conversation: org.foedusprogramme.alexandrite.sdk.chat.ConversationId?,
+            ) = TODO()
         }
 
         class States : org.foedusprogramme.alexandrite.sdk.chat.ChatStates {

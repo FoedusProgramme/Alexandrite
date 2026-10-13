@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.TestClock
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.pluginScope
@@ -77,7 +78,14 @@ class JobsTest {
         timeout: Duration = 120.seconds,
         turn: TurnInfo = this@JobsTest.turn,
     ): ToolCallEnd {
-        val executor = ToolExecutor(AdmittingGate, settings("{}"), Workspaces(hostPaths(null), settings("{}")), this)
+        val paths = hostPaths(null)
+        val executor = ToolExecutor(
+            AdmittingGate,
+            settings("{}"),
+            Workspaces(paths, settings("{}")),
+            ConversationDirectories(paths, settings("{}")),
+            this,
+        )
         val name = tool.definition.name
         return executor.execute(turn, call, mapOf(name to tool), timeout, setOf(name), taint, DirectCalls)
     }

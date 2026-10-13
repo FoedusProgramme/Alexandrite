@@ -72,6 +72,15 @@ public interface ToolContext {
      */
     public suspend fun openWorkspace(): Path
 
+    /** The directory where the turn's own conversation keeps its own files, which may not exist yet. */
+    public val conversationDirectory: Path
+
+    /** [conversationDirectory], created when it does not exist yet. Throws an [java.io.IOException] when it cannot be. */
+    public suspend fun openConversationDirectory(): Path
+
+    /** Null when adding [bytes] to [conversationDirectory] through [path] keeps it at or under its quota. */
+    public suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String?
+
     /** Reports that the call read or listed [path]. */
     public fun touched(path: Path)
 

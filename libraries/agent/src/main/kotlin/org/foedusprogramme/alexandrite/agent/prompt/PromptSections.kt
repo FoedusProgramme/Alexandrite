@@ -11,6 +11,8 @@ internal const val LANGUAGE_SECTION: String = "chat.language"
 
 internal const val WORKSPACE_SECTION: String = "workspace"
 
+internal const val CONVERSATION_DIRECTORY_SECTION: String = "conversation_directory"
+
 internal const val DELEGATION_SECTION: String = "alexandrite.delegation"
 
 /** The id of the section of an agent's persona source [number], counted from 1. */
@@ -89,6 +91,19 @@ internal fun workspaceSection(workspace: Path): PromptSection = PromptSection(
             "path against it; give any other place as an absolute path.",
         "Some places are protected, such as credential stores and Alexandrite's own configuration and data. File " +
             "tools refuse them whatever the request; when one does, say so instead of looking for another way in.",
+    ).joinToString("\n\n"),
+    stable = true,
+)
+
+/** Where this conversation keeps its own files, at [directory]. */
+internal fun conversationDirectorySection(directory: Path): PromptSection = PromptSection(
+    CONVERSATION_DIRECTORY_SECTION,
+    listOf(
+        "# Conversation directory",
+        "This conversation has its own directory at $directory, private to it; writing there needs no approval, " +
+            "and it and its subdirectories are created when you first write a file in them. Keep things there that " +
+            "you must remember but not say yet, such as the answer of a game in progress; files the user sends land " +
+            "in its inbox subdirectory.",
     ).joinToString("\n\n"),
     stable = true,
 )

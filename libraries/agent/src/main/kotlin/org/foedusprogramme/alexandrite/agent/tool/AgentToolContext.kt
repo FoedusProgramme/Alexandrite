@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
@@ -16,6 +17,7 @@ internal class AgentToolContext(
     turn: TurnInfo,
     call: ToolCallId,
     private val workspaces: Workspaces,
+    private val directories: ConversationDirectories,
     clearance: Clearance?,
     val taint: TurnTaint,
     /** What a sub-agent run that the call starts takes from its turn, null outside a turn. */
@@ -35,6 +37,9 @@ internal class AgentToolContext(
     override val workspace: Path?
         get() = workspaces.paths[turn.agent]
 
+    override val conversationDirectory: Path
+        get() = directories.path(turn)
+
     override val clearance: Clearance? = clearance
         get() = field.also { checkOpen() }
 
@@ -43,6 +48,11 @@ internal class AgentToolContext(
         val path = withContext(Dispatchers.IO) { workspaces.open(agent) }
         return checkNotNull(path) { "Agent '$agent' has no workspace." }
     }
+
+    override suspend fun openConversationDirectory(): Path = withContext(Dispatchers.IO) { directories.open(turn) }
+
+    override suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String? =
+        directories.quotaRefusal(conversationDirectory, path, bytes)
 
     /** The paths that the call reported as touched, each once, in order. */
     val touchedPaths: List<Path> get() = reported.distinct()

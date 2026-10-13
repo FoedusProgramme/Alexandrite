@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.internal.path.openRegularFile
 import org.foedusprogramme.alexandrite.internal.path.writeAtomically
 import org.foedusprogramme.alexandrite.internal.text.UnifiedDiff
 import org.foedusprogramme.alexandrite.internal.text.Utf8Text
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -15,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import java.io.IOException
 import java.nio.file.AccessDeniedException
+import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 
@@ -29,6 +31,8 @@ internal class Target(
     val current: Utf8Text?,
     /** The hash of the file's bytes, or [ABSENT]. */
     val snapshot: String,
+    /** Whether [file] lies in the turn's own conversation directory, where a write is never gated outside `plan` mode. */
+    val exempt: Boolean,
 )
 
 /** The snapshot of a file that does not exist. */
@@ -63,17 +67,19 @@ internal suspend fun writing(block: suspend () -> ToolResult): ToolResult = try 
 internal suspend fun HardFloor.target(argument: String, context: ToolContext): Target {
     val shown = context.absolute(argument)
     val agent = context.turn.agent
+    val conversation = context.turn.rootConversation
     return blocking {
-        val file = when (val check = checkWrite(shown, agent)) {
+        val file = when (val check = checkWrite(shown, agent, conversation)) {
             is FloorCheck.Allowed -> check.canonical
             is FloorCheck.Denied -> throw Blocked("$shown is protected (${check.reason}): no file tool may write it.")
         }
-        load(file, shown)
+        val directory = context.conversationDirectory
+        load(file, shown, file == directory || file.startsWith(directory))
     }
 }
 
-/** [file] (canonical), shown as [shown], as it is now. */
-private fun load(file: Path, shown: Path): Target {
+/** [file] (canonical), shown as [shown], as it is now, [exempt] when it lies in the conversation directory. */
+private fun load(file: Path, shown: Path, exempt: Boolean): Target {
     val attributes = try {
         attributes(file)
     } catch (e: NoSuchFileException) {
@@ -82,10 +88,10 @@ private fun load(file: Path, shown: Path): Target {
         } catch (missing: NoSuchFileException) {
             false
         }
-        if (!directory) {
+        if (!directory && !exempt) {
             throw Refusal("${shown.parent} is no existing directory: files are written only in existing directories.")
         }
-        return Target(file, shown, null, ABSENT)
+        return Target(file, shown, null, ABSENT, exempt)
     }
     when {
         attributes.isDirectory -> throw Refusal("$shown is a directory.")
@@ -102,7 +108,7 @@ private fun load(file: Path, shown: Path): Target {
     }
     val text = Utf8Text.decode(bytes)
         ?: throw Refusal("$shown is no UTF-8 text (it looks binary): the write tools change text files only.")
-    return Target(file, shown, text, sha256(bytes))
+    return Target(file, shown, text, sha256(bytes), exempt)
 }
 
 /** Refuses a write of the existing [target] unless [context]'s conversation read it as it is now. */
@@ -121,7 +127,7 @@ internal fun ReadLedger.checkRead(target: Target, context: ToolContext) {
 
 /** What an approver sees of a call that makes [target] hold [text]. */
 internal fun Target.review(text: String): CallReview =
-    CallReview(preview = ReviewPreview.Diff(file, diff(text).text), snapshot = snapshot)
+    CallReview(preview = ReviewPreview.Diff(file, diff(text).text), snapshot = snapshot, exempt = exempt)
 
 /** The diff from the file's text to [text], ignoring carriage returns unless only they change. */
 internal fun Target.diff(text: String): UnifiedDiff {
@@ -142,9 +148,14 @@ internal fun Target.checkReviewed(context: ToolContext) {
 /** Makes [target] hold [text], records the new file in [ledger] for the call of [context] and returns the diff. */
 internal suspend fun Target.write(text: String, ledger: ReadLedger, context: ToolContext): UnifiedDiff {
     val bytes = current?.encode(text) ?: text.toByteArray(Charsets.UTF_8)
+    if (exempt) {
+        context.conversationQuotaRefusal(file, bytes.size.toLong())?.let { throw Refusal(it) }
+    }
     val conversation = context.turn.conversation
+    if (exempt) context.openConversationDirectory()
     blocking {
         try {
+            if (exempt) Files.createDirectories(file.parent)
             writeAtomically(file) { it.write(bytes) }
         } catch (e: IOException) {
             val why = if (e is AccessDeniedException) "access denied" else e.message ?: e.javaClass.simpleName

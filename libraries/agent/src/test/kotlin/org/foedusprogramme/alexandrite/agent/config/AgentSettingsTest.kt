@@ -290,6 +290,8 @@ class AgentSettingsTest {
             """{"models": {"listingTtlSeconds": -1}}""" to "models.listingTtlSeconds may not be negative",
             """{"persona": {"maxFileChars": 0}}""" to "persona.maxFileChars must be positive",
             """{"persona": {"maxTotalChars": 0}}""" to "persona.maxTotalChars must be positive",
+            """{"conversationDirectory": {"maxBytes": 0}}""" to "conversationDirectory.maxBytes must be positive",
+            """{"conversationDirectory": {"keepDays": 0}}""" to "conversationDirectory.keepDays must be positive",
             agents(""""coder": {"maxOutputTokens": 0}""") to "agents.coder.maxOutputTokens must be positive",
             agents(""""coder": {"temperature": -0.5}""") to "agents.coder.temperature must be a number of at least 0",
             agents(""""coder": {"maxRounds": 0}""") to "agents.coder.maxRounds must be positive",

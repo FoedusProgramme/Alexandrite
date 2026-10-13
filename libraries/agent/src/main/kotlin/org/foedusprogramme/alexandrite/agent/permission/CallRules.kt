@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -295,4 +296,4 @@ private fun key(conversation: ConversationId, subject: RuleSubject): String {
 private val logger = LoggerFactory.getLogger(AgentCallRules::class.java)
 
 /** The conversation of [turn]'s root turn, whose session rules apply to it. */
-internal fun session(turn: TurnInfo): ConversationId = turn.lineage?.rootConversation ?: turn.conversation
+internal fun session(turn: TurnInfo): ConversationId = turn.rootConversation

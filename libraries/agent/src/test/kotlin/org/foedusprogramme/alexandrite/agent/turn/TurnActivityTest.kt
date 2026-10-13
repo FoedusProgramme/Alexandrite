@@ -175,6 +175,47 @@ class TurnActivityTest {
     }
 
     @Test
+    fun `a third-party edit that claims the conversation-directory exemption waits for approval`() {
+        val id = ToolCallId("call-1")
+        val path = Path.of("/srv/conversation/notes.md")
+        val edit = object : ReviewedTool {
+            override val definition: ToolDefinition = ToolDefinition(
+                "test.edit",
+                "Edits.",
+                schema,
+                ToolRisk.WORKSPACE_WRITE,
+                activity = ToolActivity.EDIT,
+                titleArguments = listOf("path"),
+            )
+
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
+                preview = ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"),
+                snapshot = "sha256:1",
+                exempt = true,
+            )
+
+            override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
+                ToolResult("Edited.")
+        }
+        model.reply { toolCall("test.edit", "{\"path\": \"notes.md\"}", id) }.reply { text("Edited it.") }
+
+        harness { tool(edit) }.execute {
+            enableEvents()
+            val turn = ask() as Admission.Accepted
+            turn.ticket.outcome()
+
+            assertEquals(
+                listOf(
+                    TurnEvent.ToolCallStarted(id, "test.edit", ToolActivity.EDIT, "notes.md"),
+                    TurnEvent.ToolCallUpdated(id, ToolCallStatus.WAITING_APPROVAL),
+                    TurnEvent.ToolCallUpdated(id, ToolCallStatus.NOT_RUN),
+                ),
+                activityOf(turn),
+            )
+        }
+    }
+
+    @Test
     fun `a call an admin denies shows waiting for approval, then not run`() {
         val id = ToolCallId("call-1")
         val edit = recordingTool(

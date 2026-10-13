@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.internal.floor.DenyRoot
 import org.foedusprogramme.alexandrite.internal.floor.Floor
 import org.foedusprogramme.alexandrite.internal.floor.FloorDecision
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
@@ -669,10 +670,13 @@ private fun carvedFloor(home: Path, vararg places: DenyRoot): HardFloor {
         is FloorDecision.Denied -> FloorCheck.Denied(reason)
     }
     return object : HardFloor {
-        override fun checkRead(path: Path, agent: AgentId?): FloorCheck = floor.check(path).toCheck()
+        override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+            floor.check(path).toCheck()
 
-        override fun checkWrite(path: Path, agent: AgentId?): FloorCheck = floor.check(path).toCheck()
+        override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+            floor.check(path).toCheck()
 
-        override fun checkTree(path: Path, agent: AgentId?): FloorCheck = floor.checkTree(path).toCheck()
+        override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+            floor.checkTree(path).toCheck()
     }
 }

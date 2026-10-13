@@ -15,6 +15,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.internal.path.hardLinks
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
@@ -81,7 +82,7 @@ internal suspend fun ToolContext.searched(argument: String?): Path {
 
 /** [path] made canonical for the call of [context], refused when it lies in a protected place. */
 internal fun HardFloor.allowed(path: Path, context: ToolContext): Path =
-    when (val check = checkRead(path, context.turn.agent)) {
+    when (val check = checkRead(path, context.turn.agent, context.turn.rootConversation)) {
         is FloorCheck.Allowed -> check.canonical
         is FloorCheck.Denied -> throw Refusal("$path is protected (${check.reason}): no file tool may read it.")
     }

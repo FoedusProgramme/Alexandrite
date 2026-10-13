@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.agentDirectory
 import org.foedusprogramme.alexandrite.agent.blocking
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.prompt.Persona
@@ -52,7 +53,7 @@ class PersonaEditToolTest {
         val settings = settings("""{"agents": $agents}""")
         val paths = hostPaths(configFile, root.resolve("data"))
         return PersonaEditTool(
-            AgentFloor(paths, Workspaces(paths, settings), settings),
+            AgentFloor(paths, Workspaces(paths, settings), settings, ConversationDirectories(paths, settings)),
             Persona(agentDirectory(settings), settings, paths),
             paths,
         )

@@ -26,7 +26,19 @@ public class CallReview(
     public val rule: RuleSubject? = null,
     /** Why the call cannot run as asked, null when it can. */
     public val problem: String? = null,
-)
+    /** Whether the call needs no approval outside `plan` mode, as a write in the turn's own conversation directory does. */
+    public val exempt: Boolean = false,
+) {
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, false)
+}
 
 /** What an approver is shown of a call. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)

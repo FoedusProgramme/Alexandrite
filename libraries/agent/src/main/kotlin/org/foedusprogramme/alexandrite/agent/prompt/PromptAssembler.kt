@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.prompt
 
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
@@ -15,8 +16,9 @@ import org.foedusprogramme.alexandrite.sdk.model.PromptSection
 internal class PromptAssembler(
     private val directory: AgentDirectory,
     private val persona: Persona,
-    tools: ToolRegistry,
+    private val tools: ToolRegistry,
     workspaces: Workspaces,
+    private val directories: ConversationDirectories,
 ) {
     /** The workspace section of each agent that selects a tool. */
     private val workspaceSections = workspaces.paths.filterKeys { tools.offered(it).isNotEmpty() }
@@ -29,6 +31,7 @@ internal class PromptAssembler(
         val instructions = profile.instructions.takeIf { it.isNotBlank() }
         instructions?.let { add(PromptSection(instructionsSection(1), it, stable = true)) }
         workspaceSections[turn.agent]?.let(::add)
+        addConversationDirectory(turn)
         turn.language?.let { add(languageSection(it)) }
     }
 
@@ -39,7 +42,13 @@ internal class PromptAssembler(
             add(baseSection(agent.name))
             addAll(persona.sections(agent.id, PersonaConditions(chatKind, turn.kind)))
             workspaceSections[agent.id]?.let(::add)
+            addConversationDirectory(turn)
             turn.language?.let { add(languageSection(it)) }
         }
+    }
+
+    /** The conversation directory section of [turn], for an agent that selects at least one tool. */
+    private fun MutableList<PromptSection>.addConversationDirectory(turn: TurnInfo) {
+        if (tools.offered(turn.agent).isNotEmpty()) add(conversationDirectorySection(directories.path(turn)))
     }
 }

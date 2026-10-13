@@ -126,7 +126,7 @@ internal class ChannelApprovals(
                 always?.let { rules.grant(call, it, answer.by) }
                 judge.allowedByAdmin(request.turn.key, request.tool)
                 val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
-                GateResult.Admitted(clearance, call.review.preview)
+                GateResult.Admitted(clearance, call.review.preview, call.review.exempt)
             }
 
             is ApprovalAnswer.Denied -> {

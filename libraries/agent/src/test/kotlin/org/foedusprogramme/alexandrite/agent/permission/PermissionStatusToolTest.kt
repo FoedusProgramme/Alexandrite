@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
@@ -77,8 +78,14 @@ class PermissionStatusToolTest {
         rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), subject, admin)
     }
 
-    private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext =
-        AgentToolContext(turn, ToolCallId("call-1"), Workspaces(hostPaths(null), settings("{}")), null, taint)
+    private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext = AgentToolContext(
+        turn,
+        ToolCallId("call-1"),
+        Workspaces(hostPaths(null), settings("{}")),
+        ConversationDirectories(hostPaths(null), settings("{}")),
+        null,
+        taint,
+    )
 
     @Test
     fun `the call is of activity other, titled by nothing`() {

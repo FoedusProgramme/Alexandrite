@@ -32,7 +32,9 @@ internal class GateCall(
 
 /** What a [ToolGate] decided. */
 internal sealed interface GateResult {
-    class Admitted(val clearance: Clearance, val preview: ReviewPreview? = null) : GateResult
+    /** [scratch] is true for a call whose review reported [org.foedusprogramme.alexandrite.sdk.tool.CallReview.exempt]. */
+    class Admitted(val clearance: Clearance, val preview: ReviewPreview? = null, val scratch: Boolean = false) :
+        GateResult
 
     /** The model reads [text] as the result of the call, which does not run, and the chat is told [notice]. */
     class Refused(val outcome: ToolOutcome, val text: String, val notice: String? = null) : GateResult

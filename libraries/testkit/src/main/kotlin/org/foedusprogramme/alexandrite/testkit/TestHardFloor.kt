@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.internal.floor.DenyRoot
 import org.foedusprogramme.alexandrite.internal.floor.Floor
 import org.foedusprogramme.alexandrite.internal.floor.FloorDecision
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -45,11 +46,14 @@ public fun testHardFloor(
 
 /** Refuses every path when [floor] is null. */
 private class TestHardFloor(private val floor: Floor?) : HardFloor {
-    override fun checkRead(path: Path, agent: AgentId?): FloorCheck = decide { it.check(path) }
+    override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+        decide { it.check(path) }
 
-    override fun checkWrite(path: Path, agent: AgentId?): FloorCheck = decide { it.check(path) }
+    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+        decide { it.check(path) }
 
-    override fun checkTree(path: Path, agent: AgentId?): FloorCheck = decide { it.checkTree(path) }
+    override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+        decide { it.checkTree(path) }
 
     private fun decide(check: (Floor) -> FloorDecision): FloorCheck {
         val floor = floor ?: return FloorCheck.Denied(UNKNOWN_HOME)

@@ -6,11 +6,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.turn.Interceptor
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
@@ -239,6 +241,19 @@ class TaintTurnsTest {
         }
 
         assertEquals(cases.map { case -> case.second?.let { "fs.read reached $it" } }, marks)
+    }
+
+    @Test
+    fun `a read inside the turn's own conversation directory keeps the conversation clean`() {
+        lateinit var own: Path
+        harness().execute {
+            own = get<ConversationDirectories>().path(AgentId("coder"), store.conversations.current(key).id)
+        }
+
+        model.reply { toolCall("fs.read", reading(own.resolve("secret.txt"))) }.reply { text("Read.") }
+        harness().execute { ask() }
+
+        assertEquals(null, blocking { mark() })
     }
 
     // Effect.

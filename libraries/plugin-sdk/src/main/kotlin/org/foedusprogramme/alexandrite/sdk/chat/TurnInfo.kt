@@ -105,6 +105,9 @@ public class TurnInfo private constructor(
 
 public inline fun TurnInfo.rebuild(block: TurnInfo.Builder.() -> Unit): TurnInfo = toBuilder().apply(block).build()
 
+/** [TurnLineage.rootConversation] of [TurnInfo.lineage], or [TurnInfo.conversation] for a top-level turn. */
+public val TurnInfo.rootConversation: ConversationId get() = lineage?.rootConversation ?: conversation
+
 /** What started a turn. */
 @JvmInline
 @Serializable

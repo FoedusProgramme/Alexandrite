@@ -342,6 +342,46 @@ class PermissionGateTest {
         assertEquals("mode", outcome(gate.admit(write)))
     }
 
+    // The conversation directory exemption.
+
+    @Test
+    fun `a call exempt from gating runs in every mode but plan, for every principal`() = runTest {
+        val write = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) {
+            CallReview(preview = ReviewPreview.Diff(Path.of("/srv/conversation/notes.md"), "+Hi."), exempt = true)
+        }
+        val gate = gate(listOf(write), builtIn = setOf(write))
+
+        for (turn in listOf(operator, member, automation)) {
+            for (mode in PermissionMode.entries - PermissionMode.PLAN) {
+                setMode(turn, mode, (clock.now + Duration.ofHours(1)).takeIf { mode == PermissionMode.BYPASS })
+                assertEquals("scratch", outcome(gate.admit(write, turn)), "$mode for $turn")
+            }
+            setMode(turn, PermissionMode.PLAN)
+            assertEquals("plan", outcome(gate.admit(write, turn)), "plan for $turn")
+        }
+    }
+
+    @Test
+    fun `a hook's required approval overrides the conversation directory exemption`() = runTest {
+        val write = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) { CallReview(exempt = true) }
+        hooks.decide = { Interception.Proceed(it.withRequireApproval("Writes need a second look.")) }
+        setMode(operator, PermissionMode.BYPASS, clock.now + Duration.ofHours(1))
+
+        assertEquals("ask", outcome(gate(listOf(write), builtIn = setOf(write)).admit(write)))
+    }
+
+    @Test
+    fun `a third-party tool cannot claim the conversation directory exemption`() = runTest {
+        val write = reviewedTool("notes.write", ToolRisk.WORKSPACE_WRITE) {
+            CallReview(preview = ReviewPreview.Diff(Path.of("/srv/conversation/notes.md"), "+Hi."), exempt = true)
+        }
+        setMode(operator, PermissionMode.ASK)
+
+        val result = gate(listOf(write)).admit(write)
+
+        assertEquals("ask", outcome(result))
+    }
+
     // The judge and the rules.
 
     @Test

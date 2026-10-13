@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import java.io.IOException
@@ -20,6 +21,7 @@ internal class Entry(val path: Path, val relative: String, val attributes: Basic
 internal class TreeWalk(
     private val floor: HardFloor,
     private val agent: AgentId,
+    private val conversation: ConversationId?,
     private val maxEntries: Int = MAX_ENTRIES,
     private val list: (Path) -> DirectoryStream<Path> = { Files.newDirectoryStream(it) },
 ) {
@@ -59,7 +61,7 @@ internal class TreeWalk(
             }
             val child = children.next()
             val name = child.fileName.toString()
-            val denied = floor.checkRead(child, agent) as? FloorCheck.Denied
+            val denied = floor.checkRead(child, agent, conversation) as? FloorCheck.Denied
             if (denied != null) {
                 protected.add(child to denied.reason)
                 continue

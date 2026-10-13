@@ -18,6 +18,7 @@ internal class AgentSettings(
     val persona: PersonaConfig = PersonaConfig(),
     /** The largest attachment a turn stores. */
     val maxMediaBytes: Long = 20_000_000,
+    val conversationDirectory: ConversationDirectoryConfig = ConversationDirectoryConfig(),
     /** Folders whose project instructions load without asking. */
     val trustedFolders: List<String> = emptyList(),
     /** Places no tool may touch, beside those every floor protects. */
@@ -78,6 +79,19 @@ internal class ModelCallConfig(
         require(retries >= 0) { "models.retries may not be negative" }
         require(maxRetryAfterSeconds >= 0) { "models.maxRetryAfterSeconds may not be negative" }
         require(listingTtlSeconds >= 0) { "models.listingTtlSeconds may not be negative" }
+    }
+}
+
+@Serializable
+internal class ConversationDirectoryConfig(
+    /** The most a conversation directory may hold. */
+    val maxBytes: Long = 1_000_000_000,
+    /** How long a conversation directory survives once its conversation is sealed. */
+    val keepDays: Int = 7,
+) {
+    init {
+        require(maxBytes > 0) { "conversationDirectory.maxBytes must be positive" }
+        require(keepDays > 0) { "conversationDirectory.keepDays must be positive" }
     }
 }
 

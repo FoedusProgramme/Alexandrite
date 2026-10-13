@@ -10,6 +10,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
@@ -141,7 +142,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                 ?: throw CallProblem("Give 'cwd': you have no workspace to run in by default.")
             if (running) context.openWorkspace() else workspace
         }
-        val planner = Planner(floor, context.turn.agent, isOperator(context))
+        val planner = Planner(floor, context.turn.agent, context.turn.rootConversation, isOperator(context))
         val missing = parsed.cwd == null && !running
         val run = Request(parsed.argv, cwd, parsed.timeout)
         Inspection.Ready(runInterruptible(Dispatchers.IO) { planner.plan(run, cwd, missingAllowed = missing) })

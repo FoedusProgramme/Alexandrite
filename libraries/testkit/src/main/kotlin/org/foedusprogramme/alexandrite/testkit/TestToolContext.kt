@@ -19,14 +19,16 @@ public fun testToolContext(
     turn: TurnInfo = testTurn(),
     call: ToolCallId = ToolCallId("test-call"),
     workspace: Path? = null,
+    conversationDirectory: Path = Path.of("/test/conversation"),
     clearance: Clearance? = null,
-): TestToolContext = TestToolContext(turn, call, workspace, clearance)
+): TestToolContext = TestToolContext(turn, call, workspace, conversationDirectory, clearance)
 
 /** A tool context that records the paths and the untrusted content its call reports, valid until [end]. */
 public class TestToolContext internal constructor(
     turn: TurnInfo,
     call: ToolCallId,
     workspace: Path?,
+    conversationDirectory: Path,
     clearance: Clearance?,
 ) : ToolContext {
     private val reported = CopyOnWriteArrayList<Path>()
@@ -44,6 +46,9 @@ public class TestToolContext internal constructor(
     override val workspace: Path? = workspace
         get() = field.also { checkOpen() }
 
+    override val conversationDirectory: Path = conversationDirectory
+        get() = field.also { checkOpen() }
+
     override val clearance: Clearance? = clearance
         get() = field.also { checkOpen() }
 
@@ -56,15 +61,14 @@ public class TestToolContext internal constructor(
     /** [workspace], created owner-only with the directories on the way when it does not exist. */
     override suspend fun openWorkspace(): Path {
         val path = checkNotNull(workspace) { "The tool context of call $call has no workspace." }
-        return withContext(Dispatchers.IO) {
-            if (Files.isDirectory(path)) return@withContext path
-            if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
-                Files.createDirectories(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY))
-            } else {
-                Files.createDirectories(path)
-            }
-        }
+        return withContext(Dispatchers.IO) { createdOwnerOnly(path) }
     }
+
+    /** [conversationDirectory], created owner-only with the directories on the way when it does not exist. */
+    override suspend fun openConversationDirectory(): Path =
+        withContext(Dispatchers.IO) { createdOwnerOnly(conversationDirectory) }
+
+    override suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String? = null
 
     override fun touched(path: Path) {
         checkOpen()
@@ -84,6 +88,17 @@ public class TestToolContext internal constructor(
     private fun checkOpen() {
         check(open) { "A tool context is valid only while its call runs." }
     }
+}
+
+/** [path], created owner-only with the directories on the way when it does not exist. */
+private fun createdOwnerOnly(path: Path): Path {
+    if (Files.isDirectory(path)) return path
+    if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
+        Files.createDirectories(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY))
+    } else {
+        Files.createDirectories(path)
+    }
+    return path
 }
 
 private val OWNER_ONLY = PosixFilePermissions.fromString("rwx------")

@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.job.Detaching
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.job.backgroundResult
@@ -59,6 +60,7 @@ internal class ToolExecutor(
     private val gate: ToolGate,
     settings: AgentSettings,
     private val workspaces: Workspaces,
+    private val directories: ConversationDirectories,
     private val jobs: Jobs,
 ) {
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
@@ -86,7 +88,7 @@ internal class ToolExecutor(
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS, calls)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
-        val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint)
+        val reviewing = AgentToolContext(turn, call.id, workspaces, directories, null, taint)
         val admission = try {
             gate.admit(GateCall(turn, call, tool, arguments, limit, taint, reviewing, calls))
         } finally {
@@ -102,13 +104,14 @@ internal class ToolExecutor(
                 calls.starting(call.id)
                 calls.running(call.id)
                 val delegating = calls as? DelegatingTurn
-                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, delegating)
+                val context =
+                    AgentToolContext(turn, call.id, workspaces, directories, admission.clearance, taint, delegating)
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {
                     runTool(turn, call, tool, arguments, limit, context)
                 }
-                val content = contentOf(tool.definition.activity, admission.preview, result)
+                val content = contentOf(tool.definition.activity, admission.preview, result, admission.scratch)
                 calls.ended(call.id, statusOf(result.outcome), content)
                 ToolCallEnd(result, null, context.touchedPaths)
             }
@@ -226,18 +229,26 @@ private fun statusOf(outcome: ToolOutcome): ToolCallStatus = when (outcome) {
     else -> ToolCallStatus.FAILED
 }
 
-/** What a finished call of [activity] is shown with: the review's [preview] for an edit, [result]'s tail for a run. */
-private fun contentOf(activity: ToolActivity, preview: ReviewPreview?, result: ToolResultEntry): TurnEvent.Content? =
-    when (activity) {
-        ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
-            ?.takeIf { result.outcome == ToolOutcome.Succeeded }
-            ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
+/**
+ * What a finished call of [activity] is shown with: the review's [preview] for an edit, [result]'s tail for a run.
+ *
+ * A [scratch] edit shows no diff, as its target lies in the turn's own conversation directory.
+ */
+private fun contentOf(
+    activity: ToolActivity,
+    preview: ReviewPreview?,
+    result: ToolResultEntry,
+    scratch: Boolean,
+): TurnEvent.Content? = when (activity) {
+    ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
+        ?.takeIf { result.outcome == ToolOutcome.Succeeded && !scratch }
+        ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
 
-        ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
-            ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }
+    ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
+        ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }
 
-        else -> null
-    }
+    else -> null
+}
 
 /** The text of [parts], its other kinds left out. */
 private fun textOf(parts: List<ToolOutputPart>): String =

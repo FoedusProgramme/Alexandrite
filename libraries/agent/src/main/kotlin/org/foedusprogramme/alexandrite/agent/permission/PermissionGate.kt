@@ -51,7 +51,9 @@ internal class PermissionGate(
 ) : ToolGate {
     override suspend fun admit(call: GateCall): GateResult {
         val review = when (val reviewed = review(call)) {
-            is Reviewed.Done -> reviewed.review
+            is Reviewed.Done -> reviewed.review.takeUnless { it.exempt && !tools.isBuiltIn(call.tool) }
+                ?: unexempted(reviewed.review)
+
             is Reviewed.Failed -> return refused(call, NotRunReason.DENIED_BY_POLICY, reviewed.text)
         }
         review.refusal?.let { return refused(call, NotRunReason.FLOOR, Refusals.blockedFloor(it)) }
@@ -72,12 +74,13 @@ internal class PermissionGate(
         val principal = Principal.of(call.turn)
         if (required == null && !isGated(risk, principal, call.taint.tainted)) {
             val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
-            return running(checked, GateResult.Admitted(clearance, review.preview))
+            return running(checked, GateResult.Admitted(clearance, review.preview, review.exempt))
         }
         val (mode, tightened) = mode(call)
         if (mode == PermissionMode.PLAN) {
             return refused(call, NotRunReason.PLAN_MODE, Refusals.planMode(definition.name))
         }
+        if (required == null && review.exempt) return admitted(checked, ClearanceKind.SCRATCH)
         if (principal == Principal.OPERATOR) {
             if (required == null) cleared(checked, mode)?.let { return admitted(checked, it) }
             if (mode == PermissionMode.AUTO) {
@@ -92,6 +95,11 @@ internal class PermissionGate(
             }
         }
         return ask(checked, reason(checked, principal, mode, tightened))
+    }
+
+    /** [review] without its exemption, which only a built-in tool may claim. */
+    private fun unexempted(review: CallReview): CallReview = with(review) {
+        CallReview(risk, refusal, preview, snapshot, rule, problem, exempt = false)
     }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
@@ -149,7 +157,7 @@ internal class PermissionGate(
     private suspend fun admitted(call: CheckedCall, kind: ClearanceKind): GateResult {
         logged(call.call, "runs, cleared by $kind")
         val clearance = Clearance(kind, snapshot = call.review.snapshot)
-        return running(call, GateResult.Admitted(clearance, call.review.preview))
+        return running(call, GateResult.Admitted(clearance, call.review.preview, call.review.exempt))
     }
 
     /** [result], having marked the turn of [call] tainted when it lets a third-party tool read the network. */
