@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
@@ -19,6 +20,7 @@ internal class AgentToolContext(
     clearance: Clearance?,
     val taint: TurnTaint,
     /** What a sub-agent run that the call starts takes from its turn, null outside a turn. */
+    trigger: ChannelMessageRef?,
     val delegating: DelegatingTurn? = null,
 ) : ToolContext {
     @Volatile
@@ -34,6 +36,8 @@ internal class AgentToolContext(
 
     override val workspace: Path?
         get() = workspaces.paths[turn.agent]
+
+    override val trigger: ChannelMessageRef? = trigger
 
     override val clearance: Clearance? = clearance
         get() = field.also { checkOpen() }

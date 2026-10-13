@@ -49,6 +49,9 @@ internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Bool
     appendLine()
     appendLine("Operator: ${if (sender.isAdmin) "yes" else "no"}")
     appendLine("Received: ${TIME.format(message.receivedAt.atZone(zone))}")
+    // The id of this message, which is what a tool that acts on it needs and what a person can be given to trace it by:
+    // a prompt naming no id left a call about the message just written with nothing to name it with.
+    appendLine("Message id: ${oneLine(message.ref.id)}")
     append("Chat: ").append(message.chatInfo.kind)
     message.chatInfo.title?.let { append(" \"").append(oneLine(it)).append('"') }
     if (linked) append(" on ").append(message.chat.instance)
@@ -56,7 +59,10 @@ internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Bool
     message.forwarded?.let { appendLine("Forwarded from: ${oneLine(it.name ?: UNKNOWN)} (${it.kind})") }
     message.quote?.let { quote ->
         val trust = if (quote.trust.live) "verified" else "unverified"
-        appendLine("Quoting: ${oneLine(quote.senderName ?: UNKNOWN)} ($trust)")
+        // The id of the message that was quoted, so that a call can name it: what a message answers is reported as an id
+        // and nothing else, and a person quoting a message is asking about that one.
+        val quoted = quote.target?.let { " [id ${oneLine(it.id)}]" }.orEmpty()
+        appendLine("Quoting: ${oneLine(quote.senderName ?: UNKNOWN)} ($trust)$quoted")
         lines(quote.text).forEach { appendLine(if (it.isEmpty()) ">" else "> $it") }
     }
     message.facts.forEach { appendLine("${factLabel(it.label)}: ${oneLine(it.value)}") }
