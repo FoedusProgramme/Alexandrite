@@ -55,6 +55,22 @@ class PluginTextsTest {
     }
 
     @Test
+    fun `a bare language falls back to its regional catalog languages before the host's, a regional one does not`() {
+        val regional = listOf("zh-TW", "zh-CN", "en-GB")
+
+        assertEquals(
+            listOf("zh", "zh-CN", "zh-TW", "de-CH", "de", "en"),
+            fallbacks(LanguageTag("zh"), LanguageTag("de-CH"), regional),
+        )
+        assertEquals(listOf("zh-HK", "zh", "en"), fallbacks(LanguageTag("zh-HK"), LanguageTag("en"), regional))
+
+        catalog = TextCatalog.builder().text("notes", LanguageTag("zh-CN"), "a", "A zh-CN").build()
+        write("en", "a=A en\n")
+        assertEquals("A zh-CN", texts().text("a", LanguageTag("zh")))
+        assertEquals("A en", texts().text("a", LanguageTag("zh-HK")))
+    }
+
+    @Test
     fun `each text comes from the first language of the fallback that holds it`() {
         write("en", "a=A en\nb=B en\nc=C en\nd=D en\n")
         write("zh", "a=A zh\nb=B zh\n")

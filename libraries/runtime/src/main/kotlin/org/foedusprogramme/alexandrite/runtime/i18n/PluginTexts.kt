@@ -26,8 +26,8 @@ internal class PluginTexts(
     private val reported = ConcurrentHashMap.newKeySet<List<String>>()
 
     override fun text(key: String, language: LanguageTag?, vararg args: Pair<String, Any?>): String {
-        val tags = fallbacks(language, hostLanguage)
         val catalog = catalog()
+        val tags = fallbacks(language, hostLanguage, catalog.languages(plugin).map { it.value })
         val arguments = args.toMap()
         for (tag in tags) {
             val text = catalog.text(plugin, tag, key) ?: own(tag)[key] ?: continue
@@ -65,9 +65,20 @@ internal class PluginTexts(
     }
 }
 
-/** The tags of the files a text is looked up in, in order. */
-internal fun fallbacks(language: LanguageTag?, host: LanguageTag): List<String> =
-    (listOfNotNull(language, host).flatMap(::withShorterTags) + ENGLISH).distinct()
+/**
+ * The tags of the files a text is looked up in, in order: [language] and its shorter tags, then, for a bare language
+ * such as the `zh` a Telegram client sends, the tags of it among [regional] (the catalog's, such as `zh-CN`), then
+ * [host] and its shorter tags, then `en`.
+ */
+internal fun fallbacks(
+    language: LanguageTag?,
+    host: LanguageTag,
+    regional: Collection<String> = emptyList(),
+): List<String> {
+    val bare = language?.value?.takeUnless { '-' in it }
+    val regions = bare?.let { base -> regional.filter { it.startsWith("$base-") }.sorted() }.orEmpty()
+    return (language?.let(::withShorterTags).orEmpty() + regions + withShorterTags(host) + ENGLISH).distinct()
+}
 
 /** [tag], then the tags left by dropping its last subtag one at a time. */
 private fun withShorterTags(tag: LanguageTag): List<String> =
