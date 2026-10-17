@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
+import org.foedusprogramme.alexandrite.agent.job.Detached
 import org.foedusprogramme.alexandrite.agent.job.Detaching
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.job.backgroundResult
@@ -107,8 +108,16 @@ internal class ToolExecutor(
                 calls.starting(call.id)
                 calls.running(call.id)
                 val delegating = calls as? DelegatingTurn
-                val context =
-                    AgentToolContext(turn, call.id, workspaces, directories, admission.clearance, taint, delegating)
+                val context = AgentToolContext(
+                    turn,
+                    call.id,
+                    workspaces,
+                    directories,
+                    admission.clearance,
+                    taint,
+                    delegating,
+                    startsInBackground = admission.background && tool !is InTurnTool,
+                )
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {
@@ -130,16 +139,7 @@ internal class ToolExecutor(
         context: AgentToolContext,
     ): ToolResultEntry {
         var detached = false
-        val explicit = call.name == "command.exec" &&
-            ((arguments["background"] as? JsonPrimitive)?.booleanOrNull == true || arguments["monitor"] is JsonObject)
-        if (explicit && turn.lineage != null) {
-            context.close()
-            return textResult(
-                call,
-                "A delegated run cannot start background commands; run the command synchronously.",
-                ToolOutcome.NotRun(NotRunReason.NOT_PERMITTED),
-            )
-        }
+        val explicit = context.startsInBackground
         try {
             val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async(
                 start = if (explicit) CoroutineStart.LAZY else CoroutineStart.DEFAULT,
@@ -154,16 +154,17 @@ internal class ToolExecutor(
                 }
                 (if (explicit) null else withTimeoutOrNull(foreground) { running.await() }) ?: run {
                     val job = jobs.detach(Detaching(turn, call, arguments, running, context, foreground, timeout))
-                    if (job != null) {
+                    if (job is Detached.Started) {
                         detached = true
-                        return backgroundResult(call, job)
+                        return backgroundResult(call, job.id)
                     }
                     if (explicit) {
+                        job as Detached.Kept
                         stop(running, turn, call, ABANDON_AFTER)
                         return textResult(
                             call,
-                            "Background capacity is full; the command was stopped.",
-                            ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT),
+                            "The command was not started: ${job.why}.",
+                            ToolOutcome.NotRun(job.reason),
                         )
                     }
                     withTimeoutOrNull(timeout - foreground) { running.await() }

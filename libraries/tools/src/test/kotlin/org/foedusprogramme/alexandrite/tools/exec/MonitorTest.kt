@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.tools.monitor.MonitorOptions
@@ -48,9 +49,9 @@ class MonitorTest {
         val attached = CompletableDeferred<Unit>()
         val updates = CopyOnWriteArrayList<ToolResult>()
         val context = object : ToolContext by fs.allowed() {
-            override suspend fun awaitBackground() = attached.await()
-            override suspend fun backgroundUpdate(result: ToolResult) {
-                updates += result
+            override suspend fun background(): BackgroundCall {
+                attached.await()
+                return recording(updates)
             }
         }
         var started = false
@@ -126,14 +127,14 @@ class MonitorTest {
     }
 
     @Test
-    fun `monitor lifetime stops a program that never exits`() = runBlocking {
+    fun `a monitor that reaches its lifetime stops the program and ends without an error`() = runBlocking {
         val fs = ExecFixture(directory)
         val updates = CopyOnWriteArrayList<ToolResult>()
         val result = withTimeout(5000) {
             fs.tool().execute(monitored("printf 'MATCH started\\n'; sleep 30", 1), monitorContext(fs, updates))
         }
-        assertTrue(result.isError)
-        assertTrue(result.text.contains("timed out after 1 s"))
+        assertFalse(result.isError)
+        assertTrue(result.text.startsWith("The monitor ended at its lifetime of 1 s"), result.text)
         assertEquals(1, updates.size)
     }
 
@@ -183,22 +184,44 @@ class MonitorTest {
             )
         }
         assertNotNull(tool.review(arguments("command" to "echo hello", "background" to "true"), fs.context()).problem)
-        assertEquals(
-            null,
-            tool.review(
-                JsonObject(arguments("command" to "echo hello") + ("background" to JsonPrimitive(true))),
-                fs.context(),
-            ).problem,
+        val background = tool.review(
+            JsonObject(arguments("command" to "echo hello") + ("background" to JsonPrimitive(true))),
+            fs.context(),
         )
+        assertEquals(null to true, background.problem to background.background)
+        assertEquals(false, tool.review(arguments("command" to "echo hello"), fs.context()).background)
+        val monitor = tool.review(monitored("echo hello"), fs.context())
+        assertEquals(null to true, monitor.problem to monitor.background)
     }
 
-    private fun monitorContext(fs: ExecFixture, updates: MutableList<ToolResult>): ToolContext =
-        object : ToolContext by fs.allowed() {
-            override suspend fun awaitBackground() = Unit
-            override suspend fun backgroundUpdate(result: ToolResult) {
-                updates += result
-            }
+    @Test
+    fun `lines the agent has not taken go out with the next batch`() = runBlocking {
+        val fs = ExecFixture(directory)
+        val updates = CopyOnWriteArrayList<ToolResult>()
+        var busy = true
+        val context = monitorContext(fs, updates) { !busy }
+        monitoring(MonitorOptions("MATCH", 10.milliseconds, 10.milliseconds, 1.seconds), context) { onLine ->
+            onLine!!("MATCH one")
+            delay(50)
+            busy = false
+            onLine("MATCH two")
+            delay(50)
         }
+        assertEquals(listOf("Monitor matched output:\nMATCH one\nMATCH two"), updates.map { it.text })
+    }
+
+    private fun monitorContext(
+        fs: ExecFixture,
+        updates: MutableList<ToolResult>,
+        taken: () -> Boolean = { true },
+    ): ToolContext = object : ToolContext by fs.allowed() {
+        override suspend fun background(): BackgroundCall = recording(updates, taken)
+    }
+
+    /** A background job that records each update [taken] lets it take. */
+    private fun recording(updates: MutableList<ToolResult>, taken: () -> Boolean = { true }) = object : BackgroundCall {
+        override suspend fun update(result: ToolResult): Boolean = taken().also { if (it) updates += result }
+    }
 
     private fun monitored(script: String, lifetime: Int = 30): JsonObject = JsonObject(
         arguments("argv" to listOf("sh", "-c", script)) + (

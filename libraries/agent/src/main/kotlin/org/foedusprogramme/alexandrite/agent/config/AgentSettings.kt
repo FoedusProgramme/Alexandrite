@@ -10,7 +10,10 @@ internal class AgentSettings(
     val maxConcurrentTurns: Int = 4,
     /** Tool calls that run in the background at once per chat. */
     val maxJobsPerChat: Int = 4,
+    /** Background sub-agent runs that run at once across all chats; more wait for one to end. */
     val maxBackgroundRuns: Int = 4,
+    /** Background sub-agent runs that one chat may have, counted among its jobs. */
+    val maxBackgroundRunsPerChat: Int = 4,
     val queue: QueueConfig = QueueConfig(),
     val shutdown: ShutdownConfig = ShutdownConfig(),
     val models: ModelCallConfig = ModelCallConfig(),
@@ -31,6 +34,7 @@ internal class AgentSettings(
         require(maxConcurrentTurns > 0) { "maxConcurrentTurns must be positive" }
         require(maxBackgroundRuns > 0) { "maxBackgroundRuns must be positive" }
         require(maxJobsPerChat > 0) { "maxJobsPerChat must be positive" }
+        require(maxBackgroundRunsPerChat > 0) { "maxBackgroundRunsPerChat must be positive" }
         require(previewIntervalMillis >= 0) { "previewIntervalMillis may not be negative" }
         require(maxMediaBytes > 0) { "maxMediaBytes must be positive" }
         require(trustedFolders.all(::isPath)) { "trustedFolders holds a blank or malformed path" }

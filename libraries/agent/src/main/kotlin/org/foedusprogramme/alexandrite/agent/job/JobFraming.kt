@@ -64,14 +64,23 @@ internal fun interruptedEntry(jobs: List<InterruptedJob>): UserEntry = UserEntry
     UserOrigin.SystemWritten(JOB_SOURCE),
 )
 
+/** The tool whose recorded calls are agent messages awaiting a reply, which a restart reports as such. */
+internal const val AGENT_MESSAGE_TOOL: String = "agent.send"
+
 /** Interrupted jobs framing v1: the background jobs that a restart interrupted, none of which ran again. */
 internal fun interruptedFraming(jobs: List<InterruptedJob>): String = buildString {
     appendLine("[alexandrite:job]")
     for (job in jobs) {
-        appendLine(
-            "$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. It was interrupted by a restart and was " +
-                "not run again, so no result will come.",
-        )
+        if (job.tool == AGENT_MESSAGE_TOOL) {
+            appendLine(
+                "$JOB_HEADER: your message to agent ${job.title} was interrupted by a restart, so no reply will come.",
+            )
+        } else {
+            appendLine(
+                "$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. It was interrupted by a restart and " +
+                    "was not run again, so no result will come.",
+            )
+        }
     }
     append("[/alexandrite:job]")
 }

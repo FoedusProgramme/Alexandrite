@@ -13,16 +13,18 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.format.FormattedText
 import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyActivity
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
-import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.slf4j.LoggerFactory
 import java.util.TreeMap
@@ -51,8 +53,10 @@ internal class TelegramReply(
     private val language = request.turn.language
     private val lock = Any()
     private val segments = TreeMap<Int, Segment>()
-    private val activities = TreeMap<Int, ActivitySegment>()
-    private val activityKeys = LinkedHashMap<ActivityKey, Int>()
+    private val activities = ActivityBoard(texts, language)
+
+    /** Whether [onEnd] was called, which happens once the reply ended and no background run shows here any more. */
+    private var released = false
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val activityWake = Channel<Unit>(Channel.CONFLATED)
     private var current = 0
@@ -69,8 +73,11 @@ internal class TelegramReply(
     /** Held while the reply shows its pending texts outside the editors, or ends. */
     private val showing = Mutex()
 
-    /** Whether [flush] stands in for the editors. */
+    /** Whether the reply's own showing stands in for the editors. */
     private var flushing = false
+
+    /** Whether the activity messages may still change: the reply is open, or it ended but shows a background run. */
+    private val live: Boolean get() = state == State.OPEN || (state == State.ENDED && activities.hasDetached)
 
     fun open() {
         typing.start(chat, target)
@@ -94,35 +101,79 @@ internal class TelegramReply(
 
     override suspend fun event(event: TurnEvent) {
         synchronized(lock) {
-            if (!accepts("A turn event", current)) return
-            val block = when (event) {
-                is TurnEvent.ToolCallStarted -> {
-                    val key = ActivityKey(
-                        if (event.run == null) current else -1,
-                        event.run,
-                        event.id.takeIf { event.run == null && event.tool == "agent.delegate" },
-                    )
-                    val index = activityKeys.getOrPut(key) { activityKeys.size }
-                    val block = activities.getOrPut(index) { ActivitySegment(current) }
-                    val call = CallState(event.tool, event.activity, event.title, event.agent)
-                    block.calls[event.run to event.id] = call
-                    block
-                }
-
-                is TurnEvent.ToolCallUpdated -> {
-                    val block = activities.values.firstOrNull { event.run to event.id in it.calls } ?: return
-                    val call = block.calls[event.run to event.id] ?: return
-                    call.status = event.status
-                    call.content = event.content
-                    block
-                }
-
-                else -> return
-            }
-            block.pending = renderActivity(texts, language, block.calls.values)
-            if (activityEditor == null && !flushing) activityEditor = launchActivityEditor()
+            if (!accepts("A turn event", current) || !activities.record(event, current)) return
+            activityChanged()
         }
         activityWake.trySend(Unit)
+    }
+
+    override suspend fun detachActivity(run: DelegatedRun): ReplyActivity? {
+        val call = synchronized(lock) {
+            if (state == State.STOPPED || released) return null
+            activities.detach(run)?.also { activityChanged() }
+        } ?: return null
+        activityWake.trySend(Unit)
+        return DetachedActivity(run.run, call)
+    }
+
+    /** The activity of the background [run], shown on its delegating [call]'s message until it is closed. */
+    private inner class DetachedActivity(private val run: RunId, private val call: CallState) : ReplyActivity {
+        private var closed = false
+
+        override suspend fun event(event: TurnEvent) {
+            val of = when (event) {
+                is TurnEvent.ToolCallStarted -> event.run
+                is TurnEvent.ToolCallUpdated -> event.run
+                else -> return
+            }
+            if (of != run) return
+            synchronized(lock) {
+                if (closed || state == State.STOPPED || !activities.isDetached(run)) return
+                if (!activities.record(event, current)) return
+                activityChanged()
+            }
+            activityWake.trySend(Unit)
+        }
+
+        override suspend fun close(status: ToolCallStatus) {
+            synchronized(lock) {
+                if (closed) return
+                closed = true
+                if (!activities.close(run, call, status)) return
+            }
+            flushActivityEnd()
+        }
+    }
+
+    /** Has the activity editor show a changed activity message; called under [lock]. */
+    private fun activityChanged() {
+        if (activityEditor == null && !flushing) activityEditor = launchActivityEditor()
+    }
+
+    private suspend fun flushActivityEnd() = showing.withLock {
+        try {
+            val editor = synchronized(lock) {
+                flushing = true
+                activityEditor.also { activityEditor = null }
+            }
+            editor?.cancelAndJoin()
+            if (synchronized(lock) { state != State.STOPPED }) showFrozenActivities()
+        } finally {
+            releaseReply()
+        }
+    }
+
+    /** Hands the activity back to its editor while the reply is [live], and calls [onEnd] once when it is not. */
+    private fun releaseReply() {
+        val release = synchronized(lock) {
+            flushing = false
+            if (live) {
+                if (activityEditor == null) activityEditor = launchActivityEditor()
+                activityWake.trySend(Unit)
+            }
+            (state != State.OPEN && !activities.hasDetached && !released).also { if (it) released = true }
+        }
+        if (release) onEnd(this)
     }
 
     override suspend fun complete(message: OutboundMessage): Delivery {
@@ -131,27 +182,27 @@ internal class TelegramReply(
             State.ENDED -> return Delivery.NotDelivered(DeliveryFailure.UNKNOWN)
             State.STOPPED -> return Delivery.NotDelivered(DeliveryFailure.TRANSIENT)
         }
-        try {
-            return showing.withLock {
+        return showing.withLock {
+            try {
                 close()
                 showFrozen(all = false)
                 showFrozenActivities()
                 deliver(message)
+            } finally {
+                releaseReply()
             }
-        } finally {
-            onEnd(this)
         }
     }
 
     override suspend fun abandon(end: ReplyEnd) {
         if (finish("An abandon ($end)") != State.OPEN) return
-        try {
-            showing.withLock {
+        showing.withLock {
+            try {
                 close()
                 showFrozenActivities()
+            } finally {
+                releaseReply()
             }
-        } finally {
-            onEnd(this)
         }
     }
 
@@ -173,10 +224,8 @@ internal class TelegramReply(
             } finally {
                 synchronized(lock) {
                     flushing = false
-                    if (state == State.OPEN) {
-                        if (segments.values.any { it.pending != null }) editor = launchEditor()
-                        if (activities.values.any { it.pending != null }) activityEditor = launchActivityEditor()
-                    }
+                    if (state == State.OPEN && segments.values.any { it.pending != null }) editor = launchEditor()
+                    if (live && activities.hasPending { true }) activityEditor = launchActivityEditor()
                 }
                 wake.trySend(Unit)
                 activityWake.trySend(Unit)
@@ -187,7 +236,7 @@ internal class TelegramReply(
     /** Ends the reply at once because the channel stops. */
     fun stop() {
         synchronized(lock) {
-            if (state == State.OPEN) state = State.STOPPED
+            state = State.STOPPED
             editor
         }?.cancel()
         synchronized(lock) { activityEditor }?.cancel()
@@ -212,7 +261,14 @@ internal class TelegramReply(
 
     /** Ends the reply and returns the state it was in, warning when it had ended. */
     private fun finish(what: String): State {
-        val was = synchronized(lock) { state.also { if (it == State.OPEN) state = State.ENDED } }
+        val was = synchronized(lock) {
+            state.also {
+                if (it == State.OPEN) {
+                    state = State.ENDED
+                    flushing = true
+                }
+            }
+        }
         if (was == State.ENDED) logger.warn("{} of turn {} came after its reply ended and is ignored", what, turn)
         return was
     }
@@ -220,7 +276,7 @@ internal class TelegramReply(
     /** Stops the editors once their call in flight returned, and the typing. */
     private suspend fun close() {
         synchronized(lock) { editor }?.cancelAndJoin()
-        synchronized(lock) { activityEditor }?.cancelAndJoin()
+        synchronized(lock) { activityEditor.also { activityEditor = null } }?.cancelAndJoin()
         typing.stop(chat)
     }
 
@@ -279,7 +335,7 @@ internal class TelegramReply(
     private suspend fun runActivityEditor() {
         while (true) {
             activityWake.receive()
-            while (synchronized(lock) { activities.entries.any { it.value.pending != null && ready(it) } }) {
+            while (synchronized(lock) { activities.hasPending(::ready) }) {
                 try {
                     outbox.previewPaced(target) { showActivityNext() }
                 } catch (e: CancellationException) {
@@ -293,27 +349,20 @@ internal class TelegramReply(
     }
 
     private suspend fun showActivityNext() {
-        val (index, text) = synchronized(lock) {
-            val (index, block) = activities.entries.firstOrNull { it.value.pending != null && ready(it) } ?: return
-            val text = block.pending ?: return
-            block.pending = null
-            index to text
-        }
+        val (index, text) = synchronized(lock) { activities.takeNext(::ready) } ?: return
         showActivity(index, text)
     }
 
-    /** Whether the activity of [entry] may send, holding off its first message while its segment's text is pending. */
-    private fun ready(entry: Map.Entry<Int, ActivitySegment>): Boolean {
-        if (entry.value.message != null) return true
-        val text = segments[entry.value.segment] ?: return true
+    /** Whether [activity] may send, holding off its first message while its segment's text is pending. */
+    private fun ready(activity: ActivityMessage): Boolean {
+        if (activity.message != null) return true
+        val text = segments[activity.segment] ?: return true
         return text.message != null || (text.pending == null && !text.sending)
     }
 
     /** Shows the pending activity update of every segment once, in order. */
     private suspend fun showFrozenActivities() {
-        val pending = synchronized(lock) {
-            activities.mapNotNull { (index, block) -> block.pending?.let { index to it }.also { block.pending = null } }
-        }
+        val pending = synchronized(lock) { activities.takeAll() }
         for ((index, text) in pending) {
             try {
                 outbox.paced(target) { showActivity(index, text) }
@@ -329,7 +378,7 @@ internal class TelegramReply(
     private suspend fun showActivity(index: Int, text: FormattedText) {
         val shown = text.clipped(MAX_MESSAGE_LENGTH)
         val message = synchronized(lock) {
-            val block = activities.getValue(index)
+            val block = activities[index]
             if (shown == block.shown) return
             block.message
         }
@@ -337,7 +386,7 @@ internal class TelegramReply(
             if (message == null) sendActivity(index, shown) else editActivity(index, message, shown)
         } catch (e: BotApiException) {
             if (e.failure == BotApiFailure.RATE_LIMITED) {
-                synchronized(lock) { activities.getValue(index).apply { if (pending == null) pending = text } }
+                synchronized(lock) { activities[index].apply { if (pending == null) pending = text } }
             }
             outbox.checkToken(e)
             throw e
@@ -348,7 +397,7 @@ internal class TelegramReply(
     private suspend fun sendActivity(index: Int, text: FormattedText): Long {
         val id = outbox.sendText(target, text, null)
         synchronized(lock) {
-            val block = activities.getValue(index)
+            val block = activities[index]
             block.message = id
             block.shown = text
         }
@@ -371,7 +420,7 @@ internal class TelegramReply(
                 else -> throw e
             }
         }
-        synchronized(lock) { activities.getValue(index).shown = text }
+        synchronized(lock) { activities[index].shown = text }
     }
 
     /** Shows [text], cut to one message, as segment [index] unless the segment shows it already. */
@@ -476,23 +525,6 @@ internal class TelegramReply(
 
         /** Whether the segment's first message is being sent. */
         var sending = false
-    }
-
-    /** The activity message of one segment's stretch of tool calls, in the order they started. */
-    private data class ActivityKey(val segment: Int, val run: RunId?, val delegation: ToolCallId?)
-
-    private class ActivitySegment(val segment: Int) {
-        /** By the sub-agent run that made each call, null for the turn's own, and the call's id. */
-        val calls = LinkedHashMap<Pair<RunId?, ToolCallId>, CallState>()
-
-        /** The message that shows the calls, null before it is sent. */
-        var message: Long? = null
-
-        /** What [message] reads. */
-        var shown: FormattedText? = null
-
-        /** The latest rendering not shown yet. */
-        var pending: FormattedText? = null
     }
 
     private enum class State { OPEN, ENDED, STOPPED }

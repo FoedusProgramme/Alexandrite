@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
@@ -104,6 +105,31 @@ class ExplicitBackgroundTest {
     }
 
     @Test
+    fun `a restart reports a running monitor as interrupted, its process ended and never started again`() {
+        val pidFile = work().resolve("pid")
+        app.model.reply { toolCall("command.exec", command("echo $$ >> pid; sleep 30", monitor = true).toString()) }
+            .reply { text("Monitoring.") }
+        app.run(builder()) {
+            bypass()
+            app.send(app.ada, app.adaChat, "Monitor until the restart.")
+            app.message(app.adaChat, "Monitoring.")
+            withTimeout(10000) { while (!Files.exists(pidFile)) delay(10) }
+        }
+        val pid = Files.readAllLines(pidFile).single().trim().toLong()
+        assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+        app.model.reply { text("It was interrupted.") }
+        app.run(builder()) {
+            app.send(app.ada, app.adaChat, "Is the monitor still running?")
+            app.message(app.adaChat, "It was interrupted.")
+            val notices = app.model.requests.last().history.filterIsInstance<UserEntry>()
+                .flatMap { entry -> entry.parts.filterIsInstance<ContextPart>().map { it.text } }
+            assertTrue(notices.any { "interrupted by a restart" in it && "command.exec" in it }, notices.toString())
+            assertEquals(emptyList(), get<AgentControl>().jobs(app.address(app.adaChat)))
+        }
+        assertEquals(1, Files.readAllLines(pidFile).size)
+    }
+
+    @Test
     fun `full job capacity refuses an explicit command without executing it`() {
         val marker = work().resolve("should-not-exist")
         app.model.reply {
@@ -118,7 +144,7 @@ class ExplicitBackgroundTest {
             val results = app.model.requests.last().history.filterIsInstance<ToolResultEntry>()
             assertEquals(2, results.size)
             assertTrue(results[0].outcome is ToolOutcome.Detached)
-            assertTrue(results[1].outcome is ToolOutcome.NotRun)
+            assertEquals(ToolOutcome.NotRun(NotRunReason.BACKGROUND_FULL), results[1].outcome)
             assertFalse(Files.exists(marker))
             val control = get<AgentControl>()
             assertEquals(1, control.jobs(app.address(app.adaChat)).size)

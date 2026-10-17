@@ -6,8 +6,10 @@ import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
@@ -282,3 +284,20 @@ private fun requireNoInlineMedia(entries: List<TranscriptEntry>) {
     }
     require(index < 0) { "Entry $index holds inline media, which an observed payload refers to by its stored id." }
 }
+
+/** The sub-agent [run] of [profile] that [turn] delegated, as it starts or ends. */
+@Poko
+public class AgentRunLifecycle @InternalAlexandriteApi constructor(
+    override val turn: TurnInfo,
+    public val run: RunId,
+    public val profile: AgentId,
+    public val background: Boolean,
+) : TurnScoped
+
+/** The job [run] that runs [call] of [turn] in the background, as it starts, moves there or ends. */
+@Poko
+public class JobLifecycle @InternalAlexandriteApi constructor(
+    override val turn: TurnInfo,
+    public val run: RunId,
+    public val call: ToolCallPart,
+) : TurnScoped

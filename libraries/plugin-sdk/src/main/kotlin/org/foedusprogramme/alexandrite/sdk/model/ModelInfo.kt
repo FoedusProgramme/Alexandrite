@@ -28,6 +28,8 @@ public class ModelInfo private constructor(
     public val reasoningEfforts: Set<ReasoningEffort>,
     /** Whether the endpoint streams deltas of the model's responses. */
     public val streaming: Boolean,
+    /** Whether [ModelEndpoint.webSearch] searches the web with the backend's own search for the model. */
+    public val webSearch: Boolean,
 ) {
     init {
         requireOpaqueId(id, "model")
@@ -47,6 +49,7 @@ public class ModelInfo private constructor(
         .parallelToolCalls(parallelToolCalls)
         .reasoningEfforts(reasoningEfforts)
         .streaming(streaming)
+        .webSearch(webSearch)
 
     public class Builder internal constructor(private var id: String, private var dialect: Dialect) {
         private var displayName: String? = null
@@ -57,6 +60,7 @@ public class ModelInfo private constructor(
         private var parallelToolCalls: Boolean = false
         private var reasoningEfforts: Set<ReasoningEffort> = emptySet()
         private var streaming: Boolean = false
+        private var webSearch: Boolean = false
 
         public fun id(id: String): Builder = apply { this.id = id }
 
@@ -80,6 +84,8 @@ public class ModelInfo private constructor(
 
         public fun streaming(streaming: Boolean): Builder = apply { this.streaming = streaming }
 
+        public fun webSearch(webSearch: Boolean): Builder = apply { this.webSearch = webSearch }
+
         public fun build(): ModelInfo = ModelInfo(
             id,
             dialect,
@@ -91,6 +97,7 @@ public class ModelInfo private constructor(
             parallelToolCalls,
             reasoningEfforts,
             streaming,
+            webSearch,
         )
     }
 

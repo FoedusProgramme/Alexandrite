@@ -159,6 +159,9 @@ internal object TextKeys {
     /** Takes `{agent}`. */
     const val ACTIVITY_DELEGATED: String = "activity.delegate.past"
 
+    /** Takes `{agent}` and `{run}`, a sub-agent whose run goes on in the background. */
+    const val ACTIVITY_RUN: String = "activity.delegate.run"
+
     /** Takes `{agent}` and `{line}`, the line of a call that the sub-agent [agent] made. */
     const val ACTIVITY_BY_AGENT: String = "activity.call.by_agent"
 

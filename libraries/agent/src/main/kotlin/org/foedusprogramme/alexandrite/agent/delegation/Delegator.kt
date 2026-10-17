@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.delegation
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -7,13 +8,16 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.context.ContextRecords
 import org.foedusprogramme.alexandrite.agent.delivery.visibleText
+import org.foedusprogramme.alexandrite.agent.job.Detached
+import org.foedusprogramme.alexandrite.agent.job.JobInboxes
 import org.foedusprogramme.alexandrite.agent.job.Jobs
+import org.foedusprogramme.alexandrite.agent.messaging.MessageBudget
 import org.foedusprogramme.alexandrite.agent.permission.Principal
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.profile.Profiles
@@ -25,12 +29,14 @@ import org.foedusprogramme.alexandrite.agent.tool.InTurnResult
 import org.foedusprogramme.alexandrite.agent.tool.RunChain
 import org.foedusprogramme.alexandrite.agent.tool.shaped
 import org.foedusprogramme.alexandrite.agent.turn.HistoryCache
+import org.foedusprogramme.alexandrite.agent.turn.TurnPermit
 import org.foedusprogramme.alexandrite.agent.turn.TurnPlan
 import org.foedusprogramme.alexandrite.agent.turn.TurnRunner
 import org.foedusprogramme.alexandrite.agent.turn.TurnSource
 import org.foedusprogramme.alexandrite.agent.worker.newTurnId
 import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
@@ -44,6 +50,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.ForkPoint
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
@@ -60,6 +67,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.util.concurrent.ThreadLocalRandom
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
 
 /** Runs each sub-agent run that a call of `agent.delegate` starts, inside that call. */
@@ -76,17 +84,23 @@ internal class Delegator(
     private val jobs: Jobs,
     private val channels: ChannelDirectory,
     private val hooks: Hooks,
+    private val inboxes: JobInboxes,
+    private val runRecords: RunRecords,
     settings: AgentSettings,
 ) {
     private val permits = Semaphore(settings.maxBackgroundRuns)
 
-    /** What the model reads once a run of the profile [id] on [task] ended, forked from the history if [fork]. */
+    /**
+     * What the model reads once a run of the profile [id] on [task] ended, forked from the history if [fork], or
+     * going on from the earlier run [resume] of the same root conversation, whose profile [id] may then omit.
+     */
     suspend fun delegate(
-        id: String,
+        id: String?,
         task: String,
         fork: Boolean,
         context: AgentToolContext,
         background: Boolean = false,
+        resume: RunId? = null,
     ): InTurnResult {
         val parent = checkNotNull(context.delegating) { "Call ${context.call} delegates outside a turn." }
         val turn = parent.turn
@@ -95,8 +109,20 @@ internal class Delegator(
             logger.info("Turn {} of {} may not delegate: it is a run at depth {}", turn.id, turn.key, depth - 1)
             return InTurnResult(DELEGATION_LIMIT_RESULT, ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT))
         }
-        val profile =
-            profile(id) ?: return InTurnResult(unknown(id), ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS))
+        val root = turn.lineage?.rootConversation ?: turn.conversation
+        val earlier = if (resume == null) {
+            null
+        } else {
+            val record = runRecords.get(resume)?.takeIf { it.root == root }
+                ?: return invalid("No run $resume of this conversation to resume.")
+            if (conversations.conversation(record.conversation)?.state != ConversationState.SEALED) {
+                return invalid("Run $resume has not ended yet; wait for its report.")
+            }
+            if (id != null && id != record.profile) return invalid("Run $resume ran profile ${record.profile}.")
+            record
+        }
+        val profileId = earlier?.profile ?: checkNotNull(id) { "A delegation names a profile or a run to resume." }
+        val profile = profile(profileId) ?: return invalid(unknown(profileId))
         val call = context.call
         val now = clock.instant()
         val run = newRunId()
@@ -110,18 +136,15 @@ internal class Delegator(
             depth = depth,
         )
         val conversation = withContext(NonCancellable) {
-            val created = conversations.createDelegated(turn.key, lineage, forkPoint(turn.conversation, call, fork))
+            val from = earlier?.let { lastEntryOf(it.conversation) } ?: forkPoint(turn.conversation, call, fork)
+            val created = conversations.createDelegated(turn.key, lineage, from)
             if (context.taint.tainted) inherit(created.id, run, turn, context.taint)
+            if (earlier != null) carryTaint(checkNotNull(resume), earlier.conversation, created.id, run)
+            runRecords.put(run, RunRecord(created.id, root, profile.id.value, resume))
             created
         }
         val detachedParent = if (background) {
-            BackgroundParent(
-                parent,
-                channels,
-                newTurnId(now),
-                run,
-                profile.id,
-            )
+            BackgroundParent(parent, channels, DelegatedRun(call, run, profile.id, turn.lineage?.run))
         } else {
             null
         }
@@ -154,12 +177,17 @@ internal class Delegator(
             profile.id,
             delegation.chain,
             conversation.id,
-            if (fork) ", forked from its history" else "",
+            when {
+                resume != null -> ", resuming run $resume"
+                fork -> ", forked from its history"
+                else -> ""
+            },
         )
         if (background) {
+            val activityReady = CompletableDeferred<Unit>()
             val callPart = ToolCallPart(call, DELEGATE_TOOL, "{}")
-            val arguments = JsonObject(mapOf("profile" to kotlinx.serialization.json.JsonPrimitive(id)))
-            val messageBudget = currentCoroutineContext()[org.foedusprogramme.alexandrite.agent.messaging.MessageBudget]
+            val arguments = JsonObject(mapOf("profile" to JsonPrimitive(id)))
+            val messageBudget = currentCoroutineContext()[MessageBudget]
             val job = jobs.start(
                 turn,
                 callPart,
@@ -167,28 +195,36 @@ internal class Delegator(
                 context,
                 Duration.INFINITE,
                 run,
-                cleanup = { if (delegation.turn == null) seal(delegation) },
+                cleanup = {
+                    detachedParent?.close(ToolCallStatus.NOT_RUN)
+                    if (delegation.turn == null) seal(delegation)
+                },
+                delegated = conversation.id,
             ) {
-                withContext(messageBudget ?: kotlin.coroutines.EmptyCoroutineContext) {
-                    permits.withPermit {
-                        var status = ToolCallStatus.FAILED
-                        try {
-                            checkNotNull(detachedParent).open()
-                            val result = complete(delegation, plan, context)
-                            if (!result.outcome.isError) status = ToolCallStatus.COMPLETED
-                            ToolResult(result.content, isError = result.outcome.isError)
-                        } finally {
-                            withContext(NonCancellable) { detachedParent?.close(status) }
-                        }
+                activityReady.await()
+                withContext(messageBudget ?: EmptyCoroutineContext) {
+                    val permit = PoolPermit(permits)
+                    permit.acquire()
+                    var status = ToolCallStatus.FAILED
+                    try {
+                        checkNotNull(detachedParent).open()
+                        val result = complete(delegation, plan, context, permit)
+                        if (!result.outcome.isError) status = ToolCallStatus.COMPLETED
+                        ToolResult(result.content, isError = result.outcome.isError)
+                    } finally {
+                        permit.release()
+                        withContext(NonCancellable) { detachedParent?.close(status) }
                     }
                 }
             }
-            if (job == null) {
+            if (job is Detached.Kept) {
                 withContext(NonCancellable) { seal(delegation) }
-                return InTurnResult(
-                    "Background capacity is full; no sub-agent was started.",
-                    ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT),
-                )
+                return InTurnResult("No sub-agent was started: ${job.why}.", ToolOutcome.NotRun(job.reason))
+            }
+            try {
+                checkNotNull(detachedParent).prepare()
+            } finally {
+                activityReady.complete(Unit)
             }
             return InTurnResult(
                 "[alexandrite:background] Run $run of profile $id started; its report will arrive later.",
@@ -198,8 +234,13 @@ internal class Delegator(
         return complete(delegation, plan, context)
     }
 
-    private suspend fun complete(delegation: Delegation, plan: TurnPlan, context: AgentToolContext): InTurnResult {
-        val outcome = run(delegation, plan)
+    private suspend fun complete(
+        delegation: Delegation,
+        plan: TurnPlan,
+        context: AgentToolContext,
+        permit: TurnPermit = RootPermit,
+    ): InTurnResult {
+        val outcome = run(delegation, plan, permit)
         val result = result(delegation, plan.id, outcome)
         delegation.taint?.takeIf { it.tainted }?.let { taint ->
             val why = taint.known?.reason ?: "its mark could not be read"
@@ -210,13 +251,19 @@ internal class Delegator(
         return result
     }
 
-    /** How the turn of [plan] ended, null when it was cancelled before it started. */
-    private suspend fun run(delegation: Delegation, plan: TurnPlan): TurnOutcome? {
+    /**
+     * How the turn of [plan] ended, null when it was cancelled before it started; it takes the reports of the
+     * background runs it starts, and those still running when it ends are stopped.
+     */
+    private suspend fun run(delegation: Delegation, plan: TurnPlan, permit: TurnPermit): TurnOutcome? {
         var outcome: TurnOutcome? = null
+        val conversation = delegation.conversation.id
+        val inbox = RunInbox(conversation, jobs, clock)
+        inboxes.open(conversation, inbox)
         try {
             coroutineScope {
                 val job = launch(start = CoroutineStart.LAZY) {
-                    outcome = runner.value.run(plan, NoFollowUps, RootPermit) {}
+                    outcome = runner.value.run(plan, inbox, permit) {}
                 }
                 runs.started(LiveRun(delegation, plan.id, job, plan.queuedAt))
                 hooks.fire(TurnPoints.AGENT_SPAWN, lifecycle(delegation))
@@ -224,6 +271,12 @@ internal class Delegator(
             }
         } finally {
             withContext(NonCancellable) {
+                jobs.stopUnder(delegation.run)
+                inboxes.close(conversation)
+                for (report in inbox.close()) {
+                    logger.info("The report of job {} is dropped: run {} ended first", report.job.id, delegation.run)
+                    jobs.delivered(report.job)
+                }
                 runs.ended(delegation.run)
                 hooks.fire(TurnPoints.AGENT_RUN_ENDED, lifecycle(delegation))
                 seal(delegation)
@@ -232,8 +285,13 @@ internal class Delegator(
         return outcome
     }
 
-    /** What the model reads of [delegation], whose turn [turn] ended with [outcome]. */
+    /** What the model reads of [delegation], whose turn [turn] ended with [outcome], ending with the run's id. */
     private suspend fun result(delegation: Delegation, turn: TurnId, outcome: TurnOutcome?): InTurnResult {
+        val result = outcomeOf(delegation, turn, outcome)
+        return InTurnResult(result.content + TextPart(runFraming(delegation.run)), result.outcome)
+    }
+
+    private suspend fun outcomeOf(delegation: Delegation, turn: TurnId, outcome: TurnOutcome?): InTurnResult {
         val run = "Sub-agent run ${delegation.run} of ${delegation.profile.id}"
         val reply = (outcome as? TurnOutcome.Completed)?.reply?.let(::visibleText).orEmpty()
         val ended = outcome?.let { it::class.simpleName } ?: "Cancelled before it started"
@@ -255,6 +313,8 @@ internal class Delegator(
             )
         }
     }
+
+    private fun invalid(text: String) = InTurnResult(text, ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS))
 
     /** The profile [id], null when there is none. */
     private suspend fun profile(id: String): AgentProfile? {
@@ -291,6 +351,22 @@ internal class Delegator(
         }
         val through = (if (asking < 0) entries else entries.subList(0, asking)).lastOrNull()?.record?.id
         return through?.let { ForkPoint(conversation, it) }
+    }
+
+    /** The end of [conversation], from which a run that resumes its run goes on; null when it holds nothing. */
+    private suspend fun lastEntryOf(conversation: ConversationId): ForkPoint? =
+        transcripts.entries(conversation).lastOrNull()?.record?.id?.let { ForkPoint(conversation, it) }
+
+    /** Marks [conversation] of [run] tainted when [earlier], the conversation of the run [resumed] it goes on from, is. */
+    private suspend fun carryTaint(resumed: RunId, earlier: ConversationId, conversation: ConversationId, run: RunId) {
+        try {
+            val taint = conversations.taint(earlier) ?: return
+            val reason = "run $run resumes run $resumed, whose conversation took in untrusted content (${taint.reason})"
+            conversations.markTainted(conversation, reason, clock.instant())
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            logger.warn("The taint of run {} could not be carried to run {}: {}", resumed, run, e.toString())
+        }
     }
 
     /** Marks [conversation] of [run] tainted like [turn], which delegated it. */

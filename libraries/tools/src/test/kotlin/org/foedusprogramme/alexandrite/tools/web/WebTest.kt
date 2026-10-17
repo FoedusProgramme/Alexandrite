@@ -3,16 +3,18 @@ package org.foedusprogramme.alexandrite.tools.web
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
-import org.foedusprogramme.alexandrite.sdk.web.WebPageAnswers
+import org.foedusprogramme.alexandrite.sdk.web.PageQuestion
+import org.foedusprogramme.alexandrite.sdk.web.WebModels
+import org.foedusprogramme.alexandrite.sdk.web.WebQuery
 import org.foedusprogramme.alexandrite.sdk.web.WebSearchBackend
 import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
 import org.foedusprogramme.alexandrite.testkit.FakeModelServer
@@ -87,6 +89,24 @@ class WebTest {
                 error("Mixed DNS must never connect")
             }
         }
+    }
+
+    @Test
+    fun `only the special blocks of 192_0 are private, the rest of it is public`() {
+        listOf("192.0.0.1", "192.0.2.1").forEach { assertTrue(privateAddress(InetAddress.getByName(it)), it) }
+        listOf("192.0.32.10", "192.0.1.1").forEach { assertFalse(privateAddress(InetAddress.getByName(it)), it) }
+    }
+
+    @Test
+    fun `a page is decoded in the charset its content type names, else as UTF-8`() {
+        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
+        fun fetched(type: String, body: ByteArray) =
+            fetchPage(URI("https://example.com"), 100, 1000, { listOf(public) }) { _, _, _, _ ->
+                WebResponse(200, mapOf("content-type" to type), body)
+            }.second
+        assertEquals("café", fetched("text/plain; charset=ISO-8859-1", "café".toByteArray(Charsets.ISO_8859_1)))
+        assertEquals("café", fetched("text/plain; charset=\"utf-8\"", "café".toByteArray()))
+        assertEquals("café", fetched("text/plain; charset=no-such-charset", "café".toByteArray()))
     }
 
     @Test
@@ -229,7 +249,9 @@ class WebTest {
         answers.failure = IllegalStateException("source must not leak")
         val failure = tool.execute(args("url" to "https://example.com", "prompt" to "question"), context)
         assertTrue(failure.isError)
-        assertFalse(failure.content.filterIsInstance<TextPart>().single().text.contains("source must not leak"))
+        val failureText = failure.content.filterIsInstance<TextPart>().single().text
+        assertFalse(failureText.contains("source must not leak"))
+        assertEquals("Web request failed: the side model could not answer (IllegalStateException)", failureText)
         assertEquals(2, context.untrustedReasons.size)
         answers.failure = CancellationException("cancel")
         assertFailsWith<CancellationException> {
@@ -239,24 +261,45 @@ class WebTest {
     }
 
     @Test
+    fun `a refused or failed fetch tells the model why, and a slow one that it timed out`() = runBlocking {
+        val context = testToolContext()
+        fun tool(pages: WebPages) = FetchTool(WebConfig(timeoutSeconds = 1), pages, Answers())
+        suspend fun FetchTool.text() = execute(args("url" to "https://example.com", "prompt" to "q"), context).content
+            .filterIsInstance<TextPart>().single().text
+
+        val refused = tool { throw IllegalArgumentException("Web URL resolves to a non-public network.") }.text()
+        assertEquals("Web request refused: Web URL resolves to a non-public network.", refused)
+        val failed = tool { error("Web server returned HTTP 404.") }.text()
+        assertEquals("Web request failed: Web server returned HTTP 404.", failed)
+        val slow = tool {
+            delay(5.seconds)
+            WebPage(URI(it), "late")
+        }.text()
+        assertEquals("Web request timed out.", slow)
+    }
+
+    @Test
     fun `search prefers native service else configured SPI and validates input`() = runBlocking {
         val answers = Answers()
         var calls = 0
         val backend = object : WebSearchBackend {
             override val id = "custom"
-            override suspend fun search(query: String, limit: Int): List<WebSearchResult> {
+            override suspend fun search(query: WebQuery): List<WebSearchResult> {
                 calls++
                 return listOf(WebSearchResult("SPI", "https://example.com", "snippet"))
             }
         }
         val tool = SearchTool(WebConfig(searchBackend = "custom"), answers, listOf(backend))
-        val context = testToolContext()
+        val context = testToolContext(model = ModelRef.parse("test/model"))
         assertFalse(tool.execute(args("query" to "question"), context).isError)
         assertEquals(1, calls)
         answers.native = listOf(WebSearchResult("Native", "https://example.com", "native snippet"))
         val native = tool.execute(args("query" to "question"), context)
         assertTrue(native.content.filterIsInstance<TextPart>().single().text.startsWith("Native"))
         assertEquals(1, calls)
+        assertEquals(ModelRef.parse("test/model") to WebQuery("question", 5), answers.searched)
+        assertFalse(tool.execute(args("query" to "question"), testToolContext()).isError)
+        assertEquals(2, calls)
         assertEquals(2, context.untrustedReasons.size)
         assertTrue(tool.execute(args("query" to "question", "limit" to "5"), context).isError)
         val zeroLimit = JsonObject(mapOf("query" to JsonPrimitive("q"), "limit" to JsonPrimitive(0)))
@@ -283,7 +326,7 @@ class WebTest {
                     body("""{"results":[{"title":"Two","url":"https://example.com/b","content":"body"}]}""")
                 },
             )
-            val http = SearchHttp()
+            val http = SearchHttp(WebConfig())
             val brave = braveResults(http.send(braveCall("a & b", 3, "fixture-key", server.baseUrl)), 3)
             val tavily = tavilyResults(http.send(tavilyCall("question", 2, "fixture-key", server.baseUrl)), 2)
             assertEquals("desc", brave.single().snippet)
@@ -295,6 +338,12 @@ class WebTest {
             assertEquals("POST", requests[1].method)
             assertEquals(JsonPrimitive("fixture-key"), requests[1].json()["api_key"])
             assertEquals(JsonPrimitive(2), requests[1].json()["max_results"])
+            server.enqueue(fakeResponse { body("[]") })
+            val notObject = assertFailsWith<IllegalStateException> {
+                http.send(braveCall("q", 1, "fixture-key", server.baseUrl))
+            }
+            assertEquals("The search service answered with something other than a JSON object.", notObject.message)
+            http.onDestroy()
             server.assertFinished()
         }
     }
@@ -303,19 +352,20 @@ class WebTest {
 private fun args(vararg pairs: Pair<String, String>): JsonObject =
     JsonObject(pairs.associate { it.first to JsonPrimitive(it.second) })
 
-private class Answers : WebPageAnswers {
+private class Answers : WebModels {
     var text: String? = null
     var model: ModelRef? = null
     var failure: Exception? = null
     var native: List<WebSearchResult>? = null
+    var searched: Pair<ModelRef, WebQuery>? = null
 
-    override suspend fun answer(turn: TurnInfo, url: String, text: String, prompt: String, model: ModelRef?): String {
+    override suspend fun answer(question: PageQuestion): String {
         failure?.let { throw it }
-        this.text = text
-        this.model = model
+        text = question.page
+        model = question.model
         return "answer"
     }
 
-    override suspend fun search(turn: TurnInfo, query: String, limit: Int, model: ModelRef?): List<WebSearchResult>? =
-        native
+    override suspend fun search(model: ModelRef, query: WebQuery): List<WebSearchResult>? =
+        native?.also { searched = model to query }
 }

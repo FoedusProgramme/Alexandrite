@@ -85,13 +85,12 @@ public interface ToolContext {
     /** Null when adding [bytes] to [conversationDirectory] through [path] keeps it at or under its quota. */
     public suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String?
 
-    /** Waits until this call is attached to a background job. */
-    public suspend fun awaitBackground(): Unit =
-        throw IllegalStateException("This call cannot run as a background job.")
-
-    /** Wakes the owning agent with a background call’s intermediate result. */
-    public suspend fun backgroundUpdate(result: ToolResult): Unit =
-        throw IllegalStateException("This call has no background result receiver.")
+    /**
+     * The background job that this call runs as, null unless its review asked for one ([CallReview.background]).
+     *
+     * Waits until the job is set up, which follows the call's start closely.
+     */
+    public suspend fun background(): BackgroundCall? = null
 
     /** Reports that the call read or listed [path]. */
     public fun touched(path: Path)
@@ -101,6 +100,16 @@ public interface ToolContext {
 
     /** Reports that the call brought untrusted content into the conversation, for [reason]. */
     public fun untrusted(reason: String)
+}
+
+/** A tool call that runs as a background job from its start, whose results come in later turns. */
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface BackgroundCall {
+    /**
+     * Wakes the agent with an intermediate [result] of the call, and returns false when it is not taken because the
+     * agent has not yet taken the previous one or the job is being stopped; the call may send it again later.
+     */
+    public suspend fun update(result: ToolResult): Boolean
 }
 
 /** What a tool call returns to the model. */

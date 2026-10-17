@@ -13,28 +13,27 @@ import org.foedusprogramme.alexandrite.provider.common.EndpointCore
 import org.foedusprogramme.alexandrite.provider.common.ErrorDetail
 import org.foedusprogramme.alexandrite.provider.common.modelException
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
-import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.web.WebQuery
 import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
 
 internal suspend fun nativeSearch(
     core: EndpointCore,
-    model: ModelRef,
-    query: String,
-    limit: Int,
+    model: String,
+    query: WebQuery,
     betas: List<String>,
     classify: (ErrorDetail) -> ModelErrorKind?,
 ): List<WebSearchResult> {
     val history = mutableListOf<JsonObject>(
         buildJsonObject {
             put("role", "user")
-            put("content", query)
+            put("content", query.text)
         },
     )
     val found = linkedMapOf<String, WebSearchResult>()
     val snippets = mutableMapOf<String, String>()
     repeat(3) {
         val body = buildJsonObject {
-            put("model", model.model)
+            put("model", model)
             put("max_tokens", 4096)
             put("stream", false)
             put("system", "Search the web for the user's query. Use web_search and cite the relevant results.")
@@ -100,7 +99,7 @@ internal suspend fun nativeSearch(
             }
         } else {
             if (!searched && found.isEmpty()) protocol("Native web search did not execute a search.")
-            return found.values.take(limit).map { WebSearchResult(it.title, it.url, snippets[it.url].orEmpty()) }
+            return found.values.take(query.limit).map { WebSearchResult(it.title, it.url, snippets[it.url].orEmpty()) }
         }
     }
     protocol("Native web search exceeded its continuation limit.")

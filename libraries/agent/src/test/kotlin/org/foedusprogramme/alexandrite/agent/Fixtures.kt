@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
@@ -29,6 +30,10 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.hook.Interception
+import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
@@ -41,6 +46,10 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.tool.CallReview
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
@@ -244,12 +253,13 @@ fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths =
     override val protected = emptyList<Path>()
 }
 
-object QuietHooks : org.foedusprogramme.alexandrite.sdk.hook.Hooks {
-    override suspend fun <P : Any> fire(
-        point: org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint<P>,
-        payload: P,
-    ): org.foedusprogramme.alexandrite.sdk.hook.Interception<P> =
+object QuietHooks : Hooks {
+    override suspend fun <P : Any> fire(point: InterceptorPoint<P>, payload: P): Interception<P> =
         org.foedusprogramme.alexandrite.sdk.hook.Interception.Proceed(payload)
-    override suspend fun <P : Any> fire(point: org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint<P>, payload: P) =
-        Unit
+    override suspend fun <P : Any> fire(point: ObserverPoint<P>, payload: P) = Unit
+}
+
+/** [tool], whose review asks every call to start as a background job. */
+fun startingInBackground(tool: Tool): ReviewedTool = object : ReviewedTool, Tool by tool {
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(background = true)
 }

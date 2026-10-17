@@ -106,21 +106,19 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                     preview = ReviewPreview.Command(argv, cwd, executable, opaque),
                     snapshot = snapshot,
                     rule = rule,
+                    background = startsInBackground(arguments),
                 )
             }
         }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-        val monitor = try {
-            monitorOptions(arguments, request(arguments).timeout)
-        } catch (e: CallProblem) {
-            return ToolResult(e.message, isError = true)
-        }
-        val run = when (val inspection = inspect(arguments, context, running = true)) {
+        val ready = when (val inspection = inspect(arguments, context, running = true)) {
             is Inspection.Problem -> return ToolResult(inspection.text, isError = true)
             is Inspection.Refused -> return ToolResult(inspection.text, isError = true)
-            is Inspection.Ready -> inspection.run
+            is Inspection.Ready -> inspection
         }
+        val run = ready.run
+        val monitor = ready.monitor
         val clearance = context.clearance
         val reviewed = clearance?.snapshot
         if (reviewed != null && reviewed != run.snapshot) {
@@ -176,19 +174,25 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         } else {
             finalMonitorOutput
         }
-        val exitCode = outcome.exitCode
-            ?: return ToolResult(
-                "The program timed out after ${(monitor?.lifetime ?: run.timeout).inWholeSeconds} s and was stopped " +
-                    "with the processes it started. Its output until then:\n$output",
+        val exitCode = outcome.exitCode ?: return if (monitor != null) {
+            ToolResult(
+                "The monitor ended at its lifetime of ${monitor.lifetime.inWholeSeconds} s and stopped the program " +
+                    "with the processes it started.\n$output",
+            )
+        } else {
+            ToolResult(
+                "The program timed out after ${run.timeout.inWholeSeconds} s and was stopped with the processes it " +
+                    "started. Its output until then:\n$output",
                 isError = true,
             )
+        }
         return ToolResult("Exit code: $exitCode\n$output", isError = exitCode != 0)
     }
 
     /** What the call would run, or why it cannot run, with the workspace created only when it is [running]. */
     private suspend fun inspect(arguments: JsonObject, context: ToolContext, running: Boolean): Inspection = try {
         val parsed = request(arguments)
-        monitorOptions(arguments, parsed.timeout)
+        val monitor = monitorOptions(arguments, parsed.timeout)
         val cwd = parsed.cwd?.let { resolveCwd(it, context, running) } ?: run {
             val workspace = context.workspace
                 ?: throw CallProblem("Give 'cwd': you have no workspace to run in by default.")
@@ -197,7 +201,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val planner = Planner(floor, context.turn.agent, context.turn.rootConversation, isOperator(context))
         val missing = parsed.cwd == null && !running
         val run = Request(parsed.argv, cwd, parsed.timeout)
-        Inspection.Ready(runInterruptible(Dispatchers.IO) { planner.plan(run, cwd, missingAllowed = missing) })
+        Inspection.Ready(runInterruptible(Dispatchers.IO) { planner.plan(run, cwd, missingAllowed = missing) }, monitor)
     } catch (e: CallProblem) {
         Inspection.Problem(e.message)
     } catch (e: FloorRefusal) {
@@ -263,6 +267,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         return ParsedRequest(words, cwd, seconds.seconds)
     }
 
+    /** Whether the call asks to start as a background job, with `background` or a `monitor`; checked by [request]. */
+    private fun startsInBackground(arguments: JsonObject): Boolean =
+        (arguments["background"] as? JsonPrimitive)?.booleanOrNull == true || arguments["monitor"] is JsonObject
+
     private fun monitorOptions(arguments: JsonObject, timeout: Duration): MonitorOptions? {
         val value = arguments.optional("monitor") ?: return null
         val monitor = value as? JsonObject ?: throw CallProblem("'monitor' must be an object.")
@@ -293,7 +301,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
         class Refused(val text: String) : Inspection
 
-        class Ready(val run: PlannedRun) : Inspection
+        class Ready(val run: PlannedRun, val monitor: MonitorOptions?) : Inspection
     }
 
     /** The call's arguments before 'cwd' is resolved against the workspace. */

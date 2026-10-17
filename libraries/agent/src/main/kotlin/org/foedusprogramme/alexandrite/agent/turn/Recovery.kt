@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.agent.delegation.DELEGATE_TOOL
 import org.foedusprogramme.alexandrite.agent.delegation.RUN_INTERRUPTED_RESULT
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
+import org.foedusprogramme.alexandrite.agent.job.AGENT_MESSAGE_TOOL
 import org.foedusprogramme.alexandrite.agent.job.InterruptedJob
 import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
 import org.foedusprogramme.alexandrite.agent.job.JobRecord
@@ -15,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.permission.AwaitingCalls
 import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.tool.CANCELLED_RESULT
 import org.foedusprogramme.alexandrite.agent.tool.textResult
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
@@ -54,10 +56,15 @@ internal class Recovery(
 
     private suspend fun interrupted(id: RunId, job: JobRecord) {
         val call = described(job.tool, job.title)
+        job.delegated?.let { sealRun(id, it) }
         try {
             if (conversations.conversation(job.conversation)?.state == ConversationState.ACTIVE) {
                 interruptedJobs.add(job.conversation, InterruptedJob(id, job.tool, job.title))
-                val text = notices.text(job.key, TextKeys.JOB_INTERRUPTED, "job" to id, "call" to call)
+                val text = if (job.tool == AGENT_MESSAGE_TOOL) {
+                    notices.text(job.key, TextKeys.MESSAGE_INTERRUPTED, "agent" to job.title)
+                } else {
+                    notices.text(job.key, TextKeys.JOB_INTERRUPTED, "job" to id, "call" to call)
+                }
                 if (transcripts.turnEntries(job.turn).none { it is NoticeEntry && it.text == text }) {
                     transcripts.append(job.turn, listOf(NoticeEntry(null, text, NoticeKind.INTERRUPTED)))
                 }
@@ -82,6 +89,21 @@ internal class Recovery(
             return
         }
         jobs.remove(id)
+    }
+
+    /** Seals [conversation] of the background run [id], which may have waited for a permit and never started. */
+    private suspend fun sealRun(id: RunId, conversation: ConversationId) {
+        try {
+            conversations.sealDelegated(conversation)
+        } catch (e: Exception) {
+            currentCoroutineContext().ensureActive()
+            logger.warn(
+                "The conversation {} of interrupted run {} could not be sealed: {}",
+                conversation,
+                id,
+                e.toString(),
+            )
+        }
     }
 
     private suspend fun recover(turn: TurnRecord, waited: Map<Pair<TurnId, ToolCallId>, String>) {

@@ -407,6 +407,32 @@ class PermissionGateTest {
     }
 
     @Test
+    fun `in auto mode an opaque program of a tainted conversation asks a person without the judge`() = runTest {
+        val shell = reviewedTool("command.exec", ToolRisk.EXEC) {
+            CallReview(preview = ReviewPreview.Command(listOf("sh", "-c", "x"), cwd, null, opaque = true))
+        }
+        val make = reviewedTool("command.make", ToolRisk.EXEC) {
+            CallReview(preview = ReviewPreview.Command(listOf("make"), cwd, null, opaque = false))
+        }
+        val gate = gate(listOf(shell, make))
+        setMode(operator, PermissionMode.AUTO)
+        judge.verdict = Verdict.Allow
+
+        val outcomes = listOf(
+            outcome(gate.admit(shell, tainted = true)),
+            outcome(gate.admit(make, tainted = true)),
+            outcome(gate.admit(shell)),
+        )
+
+        assertEquals(listOf("ask", "judge", "judge"), outcomes)
+        assertEquals(listOf("command.make", "command.exec"), judge.calls.map { it.call.tool.definition.name })
+        assertEquals(
+            listOf("an opaque program, and the conversation took in untrusted content (a test)"),
+            approvals.reasons,
+        )
+    }
+
+    @Test
     fun `a deny rule refuses a call in every mode, ungated ones too, before an allow rule is read`() = runTest {
         val read = recordingTool("fs.read")
         val exec = recordingTool("command.exec", ToolRisk.EXEC)

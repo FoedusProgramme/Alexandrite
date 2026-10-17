@@ -153,7 +153,7 @@ class ActivityTextTest {
     @Test
     fun `a running or completed delegation is said only once, in the summary, not in its own detail line`() {
         val reviewer = AgentId("reviewer")
-        val delegation = call(tool = "agent.delegate", activity = ToolActivity.OTHER, title = "reviewer")
+        val delegation = call(tool = "agent.delegate", activity = ToolActivity.DELEGATE, title = "reviewer")
         val calls = listOf(
             delegation,
             call(title = "a.kt", status = ToolCallStatus.COMPLETED, agent = reviewer),
@@ -180,8 +180,8 @@ class ActivityTextTest {
 
     @Test
     fun `a failed delegation says so, and a refused one is shown like any call not run`() {
-        val failed = call("agent.delegate", ToolActivity.OTHER, "writer", ToolCallStatus.FAILED)
-        val refused = call("agent.delegate", ToolActivity.OTHER, "nobody", ToolCallStatus.NOT_RUN)
+        val failed = call("agent.delegate", ToolActivity.DELEGATE, "writer", ToolCallStatus.FAILED)
+        val refused = call("agent.delegate", ToolActivity.DELEGATE, "nobody", ToolCallStatus.NOT_RUN)
 
         assertEquals(
             "Delegated to writer · Not run: 1 tool\nDelegated to writer — failed\nNot run: agent.delegate nobody",
@@ -191,7 +191,7 @@ class ActivityTextTest {
 
     @Test
     fun `a running delegation with no detail line of its own renders as the summary alone, with no blockquote`() {
-        val delegation = call(tool = "agent.delegate", activity = ToolActivity.OTHER, title = "reviewer")
+        val delegation = call(tool = "agent.delegate", activity = ToolActivity.DELEGATE, title = "reviewer")
 
         val rendered = renderActivity(texts, null, listOf(delegation))
 

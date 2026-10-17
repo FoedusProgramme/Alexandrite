@@ -29,6 +29,8 @@ public class CallReview(
     public val problem: String? = null,
     /** Whether the call needs no approval outside `plan` mode, as a write in the turn's own conversation directory does. */
     public val exempt: Boolean = false,
+    /** Whether the call runs as a background job from its start, which [ToolContext.background] then hands it. */
+    public val background: Boolean = false,
 ) {
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -38,7 +40,18 @@ public class CallReview(
         snapshot: String? = null,
         rule: RuleSubject? = null,
         problem: String? = null,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, false)
+        exempt: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false)
+
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false)
 }
 
 /** What an approver is shown of a call. */

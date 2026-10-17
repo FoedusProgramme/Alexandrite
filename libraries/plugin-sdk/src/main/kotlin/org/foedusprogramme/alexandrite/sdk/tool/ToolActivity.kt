@@ -30,11 +30,14 @@ public value class ToolActivity internal constructor(public val id: String) {
 
         public val THINK: ToolActivity = ToolActivity("think")
 
+        /** Handing a task to a sub-agent, whose title is the sub-agent and whose run's calls carry its run id. */
+        public val DELEGATE: ToolActivity = ToolActivity("delegate")
+
         public val OTHER: ToolActivity = ToolActivity("other")
 
         /** The values this version knows. */
         public val entries: List<ToolActivity> = listOf(
-            READ, LIST, SEARCH, EDIT, DELETE, MOVE, EXECUTE, FETCH, SEND, THINK, OTHER,
+            READ, LIST, SEARCH, EDIT, DELETE, MOVE, EXECUTE, FETCH, SEND, THINK, DELEGATE, OTHER,
         )
 
         /** The value of [id], which keeps an id this version does not know. */

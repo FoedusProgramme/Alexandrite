@@ -28,6 +28,7 @@ class PublicApiTest {
         import kotlinx.serialization.json.JsonObject
         import kotlinx.serialization.json.JsonPrimitive
         import org.foedusprogramme.alexandrite.runtime.TextCatalog
+        import org.foedusprogramme.alexandrite.sdk.web.WebQuery
         import org.foedusprogramme.alexandrite.sdk.agent.*
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
@@ -79,6 +80,7 @@ class PublicApiTest {
             return listOf(
                 events, scripted.requests, scripted.remaining, scripted.problems, scripted.awaitRequests(1),
                 scripted.models(), scripted.turnContextMode("m", ModelOptions.DEFAULT, Trust.TRUSTED), scripted.id,
+                runCatching { scripted.webSearch("m", WebQuery("query", 1)) }.isFailure,
                 ScriptedModel.DIALECT, ScriptedModel.DEFAULT_ENDPOINT, ScriptedModel.DEFAULT_MODEL,
                 TEST_MODEL,
             )
@@ -258,8 +260,7 @@ class PublicApiTest {
             val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"), clearance = cleared)
             context.touched(Path.of("/srv/work/notes.md"))
             context.untrusted("a web page")
-            val backgroundAttachment = runCatching { context.awaitBackground() }.exceptionOrNull()
-            val backgroundDelivery = runCatching { context.backgroundUpdate(ToolResult("MATCH event")) }.exceptionOrNull()
+            val background = context.background()
             testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             val quotaRefusal = context.conversationQuotaRefusal(Path.of("/srv/conversation/notes.md"), 10L)
@@ -267,7 +268,7 @@ class PublicApiTest {
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
                 context.turn, context.call, context.model, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
                 context.clearance, context.untrustedReasons, context.conversationDirectory,
-                context.openConversationDirectory(), quotaRefusal, backgroundAttachment, backgroundDelivery,
+                context.openConversationDirectory(), quotaRefusal, background.toString(),
             )
         }
 

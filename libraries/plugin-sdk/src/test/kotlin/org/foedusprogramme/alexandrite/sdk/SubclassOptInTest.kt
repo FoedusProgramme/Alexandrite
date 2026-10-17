@@ -22,21 +22,17 @@ class SubclassOptInTest {
             override val cacheDir get() = TODO()
         }
 
-        class PageAnswers : org.foedusprogramme.alexandrite.sdk.web.WebPageAnswers {
-            override suspend fun answer(
-                turn: org.foedusprogramme.alexandrite.sdk.chat.TurnInfo,
-                url: String,
-                text: String,
-                prompt: String,
-                model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef?,
-            ): String = TODO()
+        class Models : org.foedusprogramme.alexandrite.sdk.web.WebModels {
+            override suspend fun answer(question: org.foedusprogramme.alexandrite.sdk.web.PageQuestion): String = TODO()
 
             override suspend fun search(
-                turn: org.foedusprogramme.alexandrite.sdk.chat.TurnInfo,
-                query: String,
-                limit: Int,
-                model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef?,
+                model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef,
+                query: org.foedusprogramme.alexandrite.sdk.web.WebQuery,
             ): List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult>? = TODO()
+        }
+
+        class Background : org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall {
+            override suspend fun update(result: org.foedusprogramme.alexandrite.sdk.tool.ToolResult): Boolean = TODO()
         }
 
         abstract class Index : org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
@@ -957,16 +953,8 @@ class SubclassOptInTest {
         val source = """
             class Search : org.foedusprogramme.alexandrite.sdk.web.WebSearchBackend {
                 override val id = "search"
-                override suspend fun search(query: String, limit: Int):
-                    List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult> = emptyList()
-            }
-
-            class NativeSearch : org.foedusprogramme.alexandrite.sdk.web.NativeWebSearchEndpoint {
-                override suspend fun search(
-                    model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef,
-                    query: String,
-                    limit: Int,
-                ): List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult> = emptyList()
+                override suspend fun search(query: org.foedusprogramme.alexandrite.sdk.web.WebQuery):
+                    List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult> = listOf(org.foedusprogramme.alexandrite.sdk.web.WebSearchResult("title", "url", query.text))
             }
         """.trimIndent()
 

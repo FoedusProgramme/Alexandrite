@@ -11,25 +11,33 @@ import java.util.Locale
 @ConfigSection("web")
 @Serializable
 internal class WebConfig(
+    /** The side model that answers `web.fetch` from a page, `endpoint/model`; the agent's judge model when null. */
     val model: String? = null,
+    /** Private hosts that `web.fetch` may reach all the same, by exact name or IP literal. */
     val allowedPrivateHosts: Set<String> = emptySet(),
+    /** How long one fetch or search may take, at most 300 s. */
     val timeoutSeconds: Int = 30,
+    /** The largest response body a fetch reads. */
     val maxBytes: Int = 1_000_000,
+    /** The characters of a page's text that the side model reads. */
     val maxTextChars: Int = 100_000,
+    /** The id of the search backend that `web.search` uses where the model's endpoint has no search of its own. */
     val searchBackend: String? = null,
+    /** The key of the built-in Brave Search backend, best given as an environment reference. */
     val braveApiKey: Secret? = null,
+    /** The key of the built-in Tavily backend, best given as an environment reference. */
     val tavilyApiKey: Secret? = null,
 ) {
     val normalizedPrivateHosts: Set<String> get() = allowedPrivateHosts.map(::normalizeAllowedHost).toSet()
 
     init {
         allowedPrivateHosts.forEach(::normalizeAllowedHost)
-        require(timeoutSeconds in 1..300)
-        require(maxBytes in 1..10_000_000)
-        require(maxTextChars in 1..1_000_000)
+        require(timeoutSeconds in 1..300) { "timeoutSeconds must be from 1 to 300" }
+        require(maxBytes in 1..10_000_000) { "maxBytes must be from 1 to 10000000" }
+        require(maxTextChars in 1..1_000_000) { "maxTextChars must be from 1 to 1000000" }
         model?.let(ModelRef::parse)
-        require(braveApiKey == null || braveApiKey.reveal().isNotBlank())
-        require(tavilyApiKey == null || tavilyApiKey.reveal().isNotBlank())
+        require(braveApiKey == null || braveApiKey.reveal().isNotBlank()) { "braveApiKey may not be blank" }
+        require(tavilyApiKey == null || tavilyApiKey.reveal().isNotBlank()) { "tavilyApiKey may not be blank" }
     }
 }
 

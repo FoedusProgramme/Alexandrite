@@ -3,8 +3,10 @@ package org.foedusprogramme.alexandrite.agent.model
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.delivery.visibleText
+import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
@@ -15,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
 import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
+import org.foedusprogramme.alexandrite.sdk.model.Warning
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.testModelRequest
@@ -27,6 +30,38 @@ import kotlin.test.assertTrue
 
 class StreamCollectorTest {
     private val request = testModelRequest(testTurn(), 0, listOf(testUserEntry()))
+
+    @Test
+    fun `what the endpoint warns about is logged, at WARN only the first time the same warning comes`() {
+        val model = ScriptedModel().reply { text("One.") }.reply { text("Two.") }
+        val warning = Warning("unsupported_option", "Model test-model takes no reasoning effort; high is left out.")
+        val warns = object : ModelEndpoint by model {
+            override fun stream(request: ModelRequest): Flow<ModelEvent> = model.stream(request).map { event ->
+                if (event is ModelEvent.ResponseStarted) {
+                    ModelEvent.ResponseStarted(
+                        event.responseId,
+                        event.model,
+                        listOf(warning),
+                    )
+                } else {
+                    event
+                }
+            }
+        }
+        val lines = logged {
+            blocking {
+                collectResponse(warns, request)
+                collectResponse(warns, request)
+            }
+        }
+
+        assertEquals(
+            listOf("WARN", "DEBUG").map {
+                "$it Endpoint ${model.id} warns about a request to ${request.model}: ${warning.message} (unsupported_option)"
+            },
+            lines.filter { "warns about a request" in it },
+        )
+    }
 
     @Test
     fun `every event but the last goes to the observer, and the last is the response`() {

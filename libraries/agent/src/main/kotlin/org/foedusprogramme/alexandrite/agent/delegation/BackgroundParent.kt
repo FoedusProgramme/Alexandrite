@@ -4,29 +4,32 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.foedusprogramme.alexandrite.agent.tool.DelegatingTurn
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyActivity
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
-import org.foedusprogramme.alexandrite.sdk.chat.AgentId
-import org.foedusprogramme.alexandrite.sdk.chat.RunId
-import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
-import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.rebuild
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 
+/**
+ * What a background run takes from the turn that delegated it, which may end first: the turn's words, tools and
+ * approvals, but its own activity, handed over from the turn's reply or else shown in a reply of the run's own.
+ */
 internal class BackgroundParent(
-    parent: DelegatingTurn,
+    private val parent: DelegatingTurn,
     private val channels: ChannelDirectory,
-    private val activityTurn: TurnId,
-    private val run: RunId,
-    private val profile: AgentId,
+    private val run: DelegatedRun,
 ) : DelegatingTurn by parent {
     private val words = parent.ownWords().toList()
     private val approvals = Mutex()
     private var sink: ReplySink? = null
-    private val call = ToolCallId("background-${run.value}")
+    private val lifecycle = Mutex()
+    private var closed = false
+    private var activity: ReplyActivity? = null
 
     override val overBudget: Boolean get() = false
     override val callable: Set<String> = parent.callable.toSet()
@@ -37,30 +40,40 @@ internal class BackgroundParent(
     override suspend fun <T : Any> asking(ask: suspend () -> T): T = approvals.withLock { ask() }
 
     override suspend fun show(event: TurnEvent) {
-        sink?.event(event)
+        activity?.event(event) ?: sink?.event(event)
     }
 
-    suspend fun open() {
-        if (!activityVisible) return
+    /** Takes the run's activity over from the delegating turn's reply, while the turn still shows its call. */
+    suspend fun prepare(): Unit = lifecycle.withLock {
+        if (!closed && activityVisible) activity = parent.detachActivity(run)
+    }
+
+    /** Opens a reply of the run's own when its activity could not be taken over. */
+    suspend fun open(): Unit = lifecycle.withLock {
+        if (closed || !activityVisible || activity != null) return
         val channel = channels.channel(turn.chat.instance) ?: return
-        sink =
-            channel.openReply(
-                ReplyRequest(
-                    turn.rebuild {
-                        id(activityTurn)
-                        replyTarget(org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget.CHAT)
-                    },
-                    null,
-                ),
-            )
-        show(TurnEvent.ToolCallStarted(call, DELEGATE_TOOL, ToolActivity.OTHER, "$profile ($run)", run, profile))
+        // A run below a run shows in the root chat, though its parent's turn replies to its own caller.
+        sink = channel.openReply(ReplyRequest(turn.rebuild { replyTarget(ReplyTarget.CHAT) }, null, run))
+        show(TurnEvent.ToolCallStarted(run.call, DELEGATE_TOOL, ToolActivity.DELEGATE, "${run.agent}", run.under))
     }
 
-    suspend fun close(status: ToolCallStatus) {
+    suspend fun close(status: ToolCallStatus): Unit = lifecycle.withLock {
+        if (closed) return
+        closed = true
+        activity?.let {
+            it.close(status)
+            return
+        }
         try {
-            show(TurnEvent.ToolCallUpdated(call, status, run = run))
+            show(TurnEvent.ToolCallUpdated(run.call, status, run = run.under))
         } finally {
-            sink?.abandon(ReplyEnd.of("completed"))
+            sink?.abandon(
+                when (status) {
+                    ToolCallStatus.COMPLETED -> ReplyEnd.COMPLETED
+                    ToolCallStatus.FAILED -> ReplyEnd.FAILED
+                    else -> ReplyEnd.CANCELLED
+                },
+            )
         }
     }
 }

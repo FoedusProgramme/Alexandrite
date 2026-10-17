@@ -12,6 +12,8 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
+import java.nio.charset.Charset
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -70,19 +72,32 @@ internal fun fetchPage(
             uri = uri.resolve(location)
         } else {
             require(response.status in 200..299) { "Web server returned HTTP ${response.status}." }
-            val type = response.headers["content-type"]?.substringBefore(';')?.trim()?.lowercase()
+            val contentType = response.headers["content-type"]
+            val type = contentType?.substringBefore(';')?.trim()?.lowercase()
             require(
                 type == null || type.startsWith("text/") || type in setOf("application/xhtml+xml", "application/json"),
             ) {
                 "Web fetch accepts only textual responses."
             }
-            val text = response.body.toString(Charsets.UTF_8)
+            val text = response.body.toString(charsetOf(contentType))
             val html = type == "text/html" || type == "application/xhtml+xml" ||
                 (type == null && text.trimStart().startsWith('<'))
             return uri to if (html) pageText(text) else text
         }
     }
     error("Too many web redirects.")
+}
+
+/** The charset that [contentType] names, else UTF-8. */
+private fun charsetOf(contentType: String?): Charset {
+    val name = contentType?.split(';')?.drop(1)?.map { it.trim() }
+        ?.firstOrNull { it.startsWith("charset=", ignoreCase = true) }
+        ?.substringAfter('=')?.trim()?.removeSurrounding("\"")
+    return try {
+        name?.let(Charset::forName) ?: Charsets.UTF_8
+    } catch (e: IllegalArgumentException) {
+        Charsets.UTF_8
+    }
 }
 
 internal fun checkedHost(uri: URI, allowedPrivateHosts: Set<String> = emptySet()): String {
@@ -97,7 +112,7 @@ private fun parsedHost(uri: URI): String {
     require(uri.scheme in setOf("http", "https")) { "Web URL must use HTTP or HTTPS." }
     require(uri.userInfo == null) { "Web URL must not contain credentials." }
     val host = requireNotNull(uri.host) { "Web URL requires a host." }.removeSurrounding("[", "]")
-        .lowercase(java.util.Locale.ROOT).removeSuffix(".")
+        .lowercase(Locale.ROOT).removeSuffix(".")
     require(host.isNotBlank() && !host.endsWith('.') && '%' !in host) { "Invalid web host." }
     require(uri.port == -1 || uri.port in 1..65535) { "Invalid web port." }
     return host
@@ -111,11 +126,22 @@ internal fun privateAddress(address: InetAddress): Boolean {
     }
     val b = address.address.map { it.toInt() and 255 }
     if (b.size == 4) {
-        val (a, c, d) = b
-        return a == 0 || a == 10 || a == 127 || a >= 224 ||
-            (a == 100 && c in 64..127) || (a == 169 && c == 254) ||
-            (a == 172 && c in 16..31) || (a == 192 && (c == 0 || c == 168 || (c == 88 && d == 99))) ||
-            (a == 198 && (c in 18..19 || (c == 51 && d == 100))) || (a == 203 && c == 0 && d == 113)
+        val (first, second, third) = b
+        return first == 0 || first == 10 || first == 127 || first >= 224 ||
+            (first == 100 && second in 64..127) || (first == 169 && second == 254) ||
+            (first == 172 && second in 16..31) ||
+            (
+                first == 192 && (
+                    (
+                        second == 0 && third in setOf(
+                            0,
+                            2,
+                        )
+                        ) || second == 168 || (second == 88 && third == 99)
+                    )
+                ) ||
+            (first == 198 && (second in 18..19 || (second == 51 && third == 100))) ||
+            (first == 203 && second == 0 && third == 113)
     }
     return b.size != 16 || b[0] !in 0x20..0x3f ||
         (b[0] == 0x20 && b[1] == 0x01 && (b[2] < 2 || (b[2] == 0x0d && b[3] == 0xb8))) ||

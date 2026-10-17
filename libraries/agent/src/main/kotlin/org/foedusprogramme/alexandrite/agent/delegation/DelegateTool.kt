@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.agent.tool.CompanionTool
 import org.foedusprogramme.alexandrite.agent.tool.InTurnResult
 import org.foedusprogramme.alexandrite.agent.tool.InTurnTool
 import org.foedusprogramme.alexandrite.agent.tool.RenderedTool
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -69,14 +70,19 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
                 }
             } ?: return problem("'background' must be a boolean.")
         } ?: false
-        val profile = string(arguments["profile"]) ?: return problem("Give 'profile', the id of a profile.")
+        val resume = arguments["resume"]?.let {
+            string(it)?.let(::runId) ?: return problem("'resume' must be the id of an earlier run, such as r-abc123.")
+        }
+        val profile = string(arguments["profile"])
+            ?: if (resume == null) return problem("Give 'profile', the id of a profile.") else null
         val task = string(arguments["task"]) ?: return problem("Give 'task', the whole brief of the sub-agent.")
+        if (resume != null && "context" in arguments) return problem("A resumed run goes on from its own history.")
         val fork = when (arguments["context"]?.let { string(it).orEmpty() } ?: FRESH) {
             FRESH -> false
             FORK -> true
             else -> return problem("'context' is \"$FRESH\" or \"$FORK\".")
         }
-        return delegator.delegate(profile, task, fork, context, background)
+        return delegator.delegate(profile, task, fork, context, background, resume)
     }
 
     private fun definition(description: String): ToolDefinition = ToolDefinition(
@@ -96,6 +102,14 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
                     put("type", "string")
                     put("description", "The id of the profile that runs the task, one of those listed.")
                 }
+                putJsonObject("resume") {
+                    put("type", "string")
+                    put(
+                        "description",
+                        "The id of an earlier run that ended, from its [alexandrite:run …] line, to go on with its " +
+                            "own history and the new task instead of starting fresh; its profile is then implied.",
+                    )
+                }
                 putJsonObject("task") {
                     put("type", "string")
                     put(
@@ -114,11 +128,11 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
                     )
                 }
             }
-            put("required", JsonArray(listOf(JsonPrimitive("profile"), JsonPrimitive("task"))))
+            put("required", JsonArray(listOf(JsonPrimitive("task"))))
             put("additionalProperties", false)
         },
         risk = ToolRisk.AGENT_STATE,
-        activity = ToolActivity.OTHER,
+        activity = ToolActivity.DELEGATE,
         titleArguments = listOf("profile"),
     )
 
@@ -131,7 +145,8 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
             "calls needs the same permissions as yours, and it has no tool that you may not call. Use it for work " +
             "that a fresh context does better, such as a review or a self-contained change, and give it the whole " +
             "brief. By default this call waits, and multiple synchronous calls run serially. Set background to true " +
-            "to start independent runs that report later; at most four may run per root chat."
+            "to start independent runs that report later; at most four may run per root chat. A run's result ends " +
+            "with its id, which resume takes to give the same sub-agent a follow-up task with what it already knows."
     }
 }
 
@@ -142,3 +157,8 @@ private fun string(element: JsonElement?): String? =
 private fun problem(text: String): InTurnResult = InTurnResult(text, ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS))
 
 private val logger = LoggerFactory.getLogger(DelegateTool::class.java)
+
+/** The run id that [text] names, null when it is none. */
+private fun runId(text: String): RunId? = text.takeIf { RUN_ID.matches(it) }?.let(::RunId)
+
+private val RUN_ID = Regex("r-[0-9a-z]{1,32}")

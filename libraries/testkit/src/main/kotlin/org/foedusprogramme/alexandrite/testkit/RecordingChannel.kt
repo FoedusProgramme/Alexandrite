@@ -26,6 +26,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
@@ -52,7 +53,9 @@ public class RecordingChannel(
     private val admins = admins.toSet()
     private val lock = Any()
     private val log = MutableStateFlow<List<Event>>(emptyList())
-    private val opened = LinkedHashMap<TurnId, RecordedReply>()
+
+    /** The replies by their turn and the background run whose activity alone they show, null for the turn's own. */
+    private val opened = LinkedHashMap<Pair<TurnId, RunId?>, RecordedReply>()
     private val capabilities = HashMap<ChatAddress?, ChannelCapabilities>()
     private val deliveries = HashMap<ChatAddress?, ArrayDeque<Delivery>>()
     private val violationList = mutableListOf<String>()
@@ -90,13 +93,13 @@ public class RecordingChannel(
     public val approvals: List<ApprovalRequest>
         get() = events.filterIsInstance<Event.ApprovalAsked>().map { it.request }
 
-    /** The reply opened for [turn]. */
-    public fun reply(turn: TurnId): RecordedReply =
-        synchronized(lock) { opened[turn] } ?: throw NoSuchElementException("No reply of turn $turn was opened.")
+    /** The reply opened for [turn], or for the activity of its background [run]. */
+    public fun reply(turn: TurnId, run: RunId? = null): RecordedReply = synchronized(lock) { opened[turn to run] }
+        ?: throw NoSuchElementException("No reply of turn $turn${run?.let { " for run $it" }.orEmpty()} was opened.")
 
     /** Suspends until a reply is opened for [turn], and returns it. */
     public suspend fun awaitReply(turn: TurnId): RecordedReply {
-        awaitEvent { it is Event.Opened && it.request.turn.id == turn }
+        awaitEvent { it is Event.Opened && it.request.turn.id == turn && it.request.run == null }
         return reply(turn)
     }
 
@@ -209,12 +212,12 @@ public class RecordingChannel(
                 when {
                     turn.chat.instance != instance -> "a reply of turn ${turn.id} opened for ${turn.chat}."
                     turn.replyTarget != ReplyTarget.CHAT -> "a reply of turn ${turn.id}, which replies to its caller."
-                    turn.id in opened -> "a second reply of turn ${turn.id}."
+                    (turn.id to request.run?.run) in opened -> "a second reply of turn ${turn.id}."
                     else -> null
                 },
             )
             record(Event.Opened(request))
-            RecordedReply(request, this).also { opened[turn.id] = it }
+            RecordedReply(request, this).also { opened[turn.id to request.run?.run] = it }
         }
         return Sink(reply)
     }

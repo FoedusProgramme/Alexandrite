@@ -81,9 +81,9 @@ class SideModelJudgeTest {
         turn: TurnInfo = operator,
         preview: ReviewPreview? = null,
         required: String? = null,
+        taint: TurnTaint = TurnTaint(turn.id, turn.key),
     ): CheckedCall {
         val part = ToolCallPart(ToolCallId("call-1"), tool.definition.name, arguments)
-        val taint = TurnTaint(turn.id, turn.key)
         val gate =
             GateCall(turn, part, tool, part.parseArguments()!!, 5.seconds, taint, testToolContext(turn), Words(words))
         return CheckedCall(gate, CallReview(preview = preview), tool.definition.risk, required)
@@ -268,6 +268,26 @@ class SideModelJudgeTest {
             listOf(request.options.temperature, request.options.maxOutputTokens, request.tools, request.cacheKey),
         )
         assertEquals(operator.id to operator.conversation, request.ids.turn to request.ids.conversation)
+    }
+
+    @Test
+    fun `the judge is told that the conversation is tainted and why, and that an unread mark counts`() = runTest {
+        repeat(2) { answers("""{"verdict":"ask"}""") }
+        val tainted = TurnTaint(operator.id, operator.key).apply {
+            note("a call of web.fetch, which reads the network")
+        }
+
+        judge().judge(call(taint = tainted))
+        assertContains(
+            sent(),
+            "\n\nThe conversation took in untrusted content: a call of web.fetch, which reads the network\n\nThe call:\n",
+        )
+        judge().judge(call(taint = TurnTaint(operator.id, operator.key, unread = true)))
+        assertContains(
+            sent(),
+            "The conversation took in untrusted content: its mark could not be read, so it counts as tainted\n",
+        )
+        assertContains(model.requests.last().instructions.single().text, "When the conversation took in untrusted")
     }
 
     @Test

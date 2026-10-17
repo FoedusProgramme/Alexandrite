@@ -9,16 +9,20 @@ import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 
 /** One tool call of an activity message, as [TurnEvent]s update it, made by the sub-agent [agent] unless null. */
-internal class CallState(val tool: String, val activity: ToolActivity, val title: String, val agent: AgentId? = null) {
+internal class CallState(val tool: String, val activity: ToolActivity, var title: String, val agent: AgentId? = null) {
     var status: ToolCallStatus = ToolCallStatus.RUNNING
     var content: TurnEvent.Content? = null
 
+    /** The background run that the call started, once its activity was handed over. */
+    var run: RunId? = null
+
     /** Whether the call delegates a task to the sub-agent its title names, and was not refused. */
-    val delegates: Boolean get() = tool == DELEGATE_TOOL && status != ToolCallStatus.NOT_RUN
+    val delegates: Boolean get() = activity == ToolActivity.DELEGATE && status != ToolCallStatus.NOT_RUN
 }
 
 /** The statuses that end a call, after which a delegation's own line speaks of it in the past tense. */
@@ -101,7 +105,9 @@ private fun detailLine(texts: Texts, language: LanguageTag?, call: CallState): S
 /** That [call] delegates, or delegated, its task to the sub-agent its title names. */
 private fun delegation(texts: Texts, language: LanguageTag?, call: CallState): String {
     val key = if (call.status in ENDED) TextKeys.ACTIVITY_DELEGATED else TextKeys.ACTIVITY_DELEGATING
-    return texts.text(key, language, "agent" to shortened(ReviewText.escape(call.title)))
+    val agent = shortened(ReviewText.escape(call.title))
+    val named = call.run?.let { texts.text(TextKeys.ACTIVITY_RUN, language, "agent" to agent, "run" to it) } ?: agent
+    return texts.text(key, language, "agent" to named)
 }
 
 /** One call, without the sub-agent that made it: the summary already names its verb. */
@@ -164,9 +170,6 @@ private fun shortened(text: String): String {
 }
 
 private const val BLOCKQUOTE = "expandable_blockquote"
-
-/** The agent's tool that runs a sub-agent. */
-private const val DELEGATE_TOOL = "agent.delegate"
 
 /** The characters of a call's title an activity message shows. */
 private const val MAX_TITLE_CHARS = 80

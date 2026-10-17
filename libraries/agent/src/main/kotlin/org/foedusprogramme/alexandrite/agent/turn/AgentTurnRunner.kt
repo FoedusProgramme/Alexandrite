@@ -88,21 +88,25 @@ import org.foedusprogramme.alexandrite.agent.tool.toolTitle
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyActivity
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -199,7 +203,7 @@ internal class AgentTurnRunner(
     ): TurnOutcome {
         val run = Run(plan, followUps, permit, resolved)
         val budget = (plan.input as? TurnSource.FromAgentMessage)?.message?.budget
-            ?: (plan.input as? TurnSource.FromJob)?.job?.job?.messageBudget
+            ?: (plan.input as? TurnSource.FromJob)?.job?.job?.carried?.get(MessageBudget)
             ?: currentCoroutineContext()[MessageBudget] ?: MessageBudget(plan.id)
         return try {
             withContext(budget) { run.execute() }
@@ -484,7 +488,7 @@ internal class AgentTurnRunner(
             }
 
             is TurnSource.FromAgentMessage -> {
-                taint.mark(input.message.taint ?: "an untrusted agent message from ${input.message.sender.agent}")
+                input.message.taint?.let { taint.mark(it) }
                 initiatedEntry(
                     "alexandrite-agent",
                     turn.kind,
@@ -648,6 +652,8 @@ internal class AgentTurnRunner(
                     paused -> pauses++
 
                     limit != null -> return withContext(NonCancellable) { limited(reply, calls, limit) }
+
+                    calls.isEmpty() && awaitedRuns(turn) -> absorbJobs(turn)
 
                     calls.isEmpty() -> return withContext(NonCancellable) {
                         val cutShort = finish == FinishKind.MAX_OUTPUT_TOKENS
@@ -825,6 +831,13 @@ internal class AgentTurnRunner(
             spent.addAndGet(tokens)
             delegation?.takeUnless { it.background }?.parent?.spend(tokens)
         }
+
+        /**
+         * Whether a report came in from a background run that this run started, waited for without the turn's permit,
+         * so that the run answers only once none is left; false at once for a top-level turn.
+         */
+        private suspend fun awaitedRuns(turn: TurnInfo): Boolean =
+            delegation != null && permit.released { followUps.awaitJobs(turn.conversation) }
 
         /** Takes in the results of the jobs that turns from the turn's chat started in its conversation. */
         private suspend fun absorbJobs(turn: TurnInfo) {
@@ -1122,7 +1135,7 @@ internal class AgentTurnRunner(
 
             override val reasoning: ReasoningEffort? get() = this@Run.reasoning
 
-            override val runAncestors: Set<org.foedusprogramme.alexandrite.sdk.chat.RunId>
+            override val runAncestors: Set<RunId>
                 get() = delegation?.let { it.parent.runAncestors + it.run }.orEmpty()
 
             override val activityVisible: Boolean get() = delegation?.parent?.activityVisible
@@ -1177,6 +1190,14 @@ internal class AgentTurnRunner(
                     else -> return
                 }
                 emit(kind) { event }
+            }
+
+            override suspend fun detachActivity(run: DelegatedRun): ReplyActivity? {
+                var activity: ReplyActivity? = null
+                attempt("retain a delegated activity") {
+                    activity = delegation?.parent?.detachActivity(run) ?: sink?.detachActivity(run)
+                }
+                return activity
             }
 
             override fun spend(tokens: Long) = this@Run.spend(tokens)

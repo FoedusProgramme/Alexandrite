@@ -76,7 +76,9 @@ class TelegramDelegationTest {
         assertEquals(List(3) { listOf("fs.edit", "fs.read") }, implementations.map { r -> r.tools.map { it.name } })
         assertEquals(
             listOf(ToolOutcome.Succeeded to REVIEW, ToolOutcome.Succeeded to CHANGED),
-            app.model.requests.last().history.filterIsInstance<ToolResultEntry>().map { it.outcome to it.text },
+            app.model.requests.last().history.filterIsInstance<ToolResultEntry>().map {
+                it.outcome to it.text.substringBefore("\n[alexandrite:run ")
+            },
         )
         val activity = app.fake.botMessages(ADA).filter { it.isActivity() }.joinToString("\n") { it.text }
         for (line in listOf("Delegated to reviewer", "reviewer · $greeter".take(60), "Delegated to implementer")) {

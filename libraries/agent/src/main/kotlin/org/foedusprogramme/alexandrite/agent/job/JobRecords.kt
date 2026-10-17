@@ -28,12 +28,18 @@ internal class JobRecords(records: Records) {
             job.call.name,
             job.title,
             job.startedAt.toString(),
+            job.delegated,
         )
+        put(job.id, record)
+    }
+
+    /** Records [id], which a restart reports to [record]'s conversation as interrupted. */
+    suspend fun put(id: RunId, record: JobRecord) {
         try {
-            jobs.put(job.id.value, record, null)
+            jobs.put(id.value, record, null)
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            logger.warn("Job {} is not recorded, so a restart would not report it: {}", job.id, e.toString())
+            logger.warn("Job {} is not recorded, so a restart would not report it: {}", id, e.toString())
         }
     }
 
@@ -64,6 +70,8 @@ internal class JobRecord(
     val title: String,
     /** An ISO-8601 instant. */
     val startedAt: String,
+    /** The conversation of the sub-agent run that the job is. */
+    val delegated: ConversationId? = null,
 )
 
 private val logger = LoggerFactory.getLogger(JobRecords::class.java)

@@ -120,6 +120,8 @@ class JudgeTurnsTest {
                 Use the root folder.
                 >>>
 
+                The conversation took in untrusted content: a quote that its channel does not vouch for
+
                 The call:
                 Tool: fs.write
                 Risk: WORKSPACE_WRITE

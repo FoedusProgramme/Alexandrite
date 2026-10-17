@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.DirectCalls
+import org.foedusprogramme.alexandrite.agent.QuietHooks
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
@@ -92,7 +93,7 @@ class ToolExecutorTest {
         val jobs =
             Jobs(settings, JobRecords(testRecords()), {
                 true
-            }, Clock.systemUTC(), org.foedusprogramme.alexandrite.agent.QuietHooks, pluginScope(GlobalJobs))
+            }, Clock.systemUTC(), QuietHooks, pluginScope(GlobalJobs))
         return ToolExecutor(gate, settings, workspaces, directories, jobs)
     }
 

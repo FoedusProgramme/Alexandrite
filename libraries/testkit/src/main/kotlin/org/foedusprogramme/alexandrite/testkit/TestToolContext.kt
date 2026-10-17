@@ -5,7 +5,9 @@ import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
@@ -21,7 +23,9 @@ public fun testToolContext(
     workspace: Path? = null,
     conversationDirectory: Path = Path.of("/test/conversation"),
     clearance: Clearance? = null,
-): TestToolContext = TestToolContext(turn, call, workspace, conversationDirectory, clearance)
+    background: BackgroundCall? = null,
+    model: ModelRef? = null,
+): TestToolContext = TestToolContext(turn, call, workspace, conversationDirectory, clearance, background, model)
 
 /** A tool context that records the paths and the untrusted content its call reports, valid until [end]. */
 public class TestToolContext internal constructor(
@@ -30,6 +34,8 @@ public class TestToolContext internal constructor(
     workspace: Path?,
     conversationDirectory: Path,
     clearance: Clearance?,
+    private val background: BackgroundCall?,
+    model: ModelRef?,
 ) : ToolContext {
     private val reported = CopyOnWriteArrayList<Path>()
     private val reasons = CopyOnWriteArrayList<String>()
@@ -52,6 +58,9 @@ public class TestToolContext internal constructor(
     override val clearance: Clearance? = clearance
         get() = field.also { checkOpen() }
 
+    override val model: ModelRef? = model
+        get() = field.also { checkOpen() }
+
     /** The paths that the call reported as touched, in order. */
     public val touchedPaths: List<Path> get() = reported.toList()
 
@@ -69,6 +78,11 @@ public class TestToolContext internal constructor(
         withContext(Dispatchers.IO) { createdOwnerOnly(conversationDirectory) }
 
     override suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String? = null
+
+    override suspend fun background(): BackgroundCall? {
+        checkOpen()
+        return background
+    }
 
     override fun touched(path: Path) {
         checkOpen()

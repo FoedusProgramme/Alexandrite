@@ -39,6 +39,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelRequest
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.TurnContextMode
 import org.foedusprogramme.alexandrite.sdk.model.Usage
+import org.foedusprogramme.alexandrite.sdk.model.Warning
 import org.foedusprogramme.alexandrite.sdk.tool.ToolNames
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantPart
@@ -80,6 +81,7 @@ internal enum class Flaw(val check: String) {
     DROPS_USAGE("usage is reported"),
     TOOLS_TO_PLAIN("a model without tools is sent none"),
     IMAGES_TO_PLAIN("images reach only a model that takes them"),
+    SILENT_EFFORT("an effort the model does not take is warned about, and the response still comes"),
 }
 
 /** The fixture of a [ReferenceEndpoint] with [flaw], which keeps every endpoint it builds. */
@@ -215,7 +217,13 @@ internal class ReferenceEndpoint(private val base: String, private val flaw: Fla
         if (request.tools.isNotEmpty() && !rich && flaw != Flaw.TOOLS_TO_PLAIN) {
             throw failure(ModelErrorKind.UNSUPPORTED, "Model ${request.model} takes no tools.", false)
         }
-        val reply = Reply(request, flaw)
+        val effort = request.options.reasoning
+        val warnings = listOfNotNull(
+            effort?.takeIf { flaw != Flaw.SILENT_EFFORT }?.let {
+                Warning("unsupported_option", "Model ${request.model} takes no reasoning effort; $it is left out.")
+            },
+        )
+        val reply = Reply(request, flaw, warnings)
         val call = HttpCall("POST", URI("$base/respond"), mapOf("content-type" to "application/json"), body(request))
         try {
             transport.open(call) { response ->
@@ -310,7 +318,7 @@ internal class ReferenceEndpoint(private val base: String, private val flaw: Fla
 }
 
 /** The events of one response to [request], which an endpoint with [flaw] gets wrong. */
-private class Reply(private val request: ModelRequest, private val flaw: Flaw?) {
+private class Reply(private val request: ModelRequest, private val flaw: Flaw?, private val warnings: List<Warning>) {
     var started = false
         private set
 
@@ -411,7 +419,7 @@ private class Reply(private val request: ModelRequest, private val flaw: Flaw?) 
     private fun started(events: List<ModelEvent>): List<ModelEvent> {
         if (started || events.isEmpty()) return events
         started = true
-        return listOf(ModelEvent.ResponseStarted(null, request.model.model, emptyList())) + events
+        return listOf(ModelEvent.ResponseStarted(null, request.model.model, warnings)) + events
     }
 
     private fun JsonObject.string(name: String): String = getValue(name).jsonPrimitive.content

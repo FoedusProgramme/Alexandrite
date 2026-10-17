@@ -4,6 +4,8 @@ import kotlinx.coroutines.flow.Flow
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import org.foedusprogramme.alexandrite.sdk.tool.ToolNames
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
+import org.foedusprogramme.alexandrite.sdk.web.WebQuery
+import org.foedusprogramme.alexandrite.sdk.web.WebSearchResult
 
 /** Contributes model endpoints. */
 @ContributedSpi
@@ -38,4 +40,14 @@ public interface ModelEndpoint {
 
     /** How the endpoint renders turn context of [trust] for [model] with [options]. */
     public fun turnContextMode(model: String, options: ModelOptions, trust: Trust): TurnContextMode
+
+    /**
+     * The results of [query] from the backend's own server-side search, used by [model]; throws a [ModelException]
+     * when the search fails.
+     *
+     * Called only for a model whose [ModelInfo.webSearch] is set: an endpoint that sets it overrides this member,
+     * whose default throws [UnsupportedOperationException].
+     */
+    public suspend fun webSearch(model: String, query: WebQuery): List<WebSearchResult> =
+        throw UnsupportedOperationException("Endpoint '$id' has no web search.")
 }

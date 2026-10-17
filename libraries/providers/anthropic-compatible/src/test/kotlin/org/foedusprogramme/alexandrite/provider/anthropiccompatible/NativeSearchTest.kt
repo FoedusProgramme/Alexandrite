@@ -4,11 +4,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.foedusprogramme.alexandrite.provider.common.ModelConfig
 import org.foedusprogramme.alexandrite.provider.common.messages.MessagesEndpoint
 import org.foedusprogramme.alexandrite.provider.common.messages.MessagesFlavor
 import org.foedusprogramme.alexandrite.sdk.model.ModelException
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.web.WebQuery
 import org.foedusprogramme.alexandrite.testkit.FakeModelServer
 import org.foedusprogramme.alexandrite.testkit.fakeResponse
 import kotlin.test.Test
@@ -21,7 +23,12 @@ class NativeSearchTest {
     private val ref = ModelRef(EndpointId("test"), "selected-model")
 
     private fun endpoint(server: FakeModelServer, enabled: Boolean = false): MessagesEndpoint {
-        val config = EndpointConfig(baseUrl = server.baseUrl, discover = false, nativeSearch = enabled)
+        val config = EndpointConfig(
+            baseUrl = server.baseUrl,
+            models = mapOf(ref.model to ModelConfig()),
+            discover = false,
+            nativeSearch = enabled,
+        )
         return MessagesEndpoint(ref.endpoint, config.settings(), MessagesFlavor.STANDARD, config.messages())
     }
 
@@ -29,8 +36,8 @@ class NativeSearchTest {
     fun `native search is disabled unless explicitly enabled and sends no request`() = runBlocking {
         FakeModelServer().use { server ->
             endpoint(server).use { endpoint ->
-                assertFalse(endpoint.supportsNativeSearch(ref))
-                assertFailsWith<IllegalArgumentException> { endpoint.search(ref, "query", 2) }
+                assertFalse(endpoint.models().single().webSearch)
+                assertFailsWith<UnsupportedOperationException> { endpoint.webSearch(ref.model, WebQuery("query", 2)) }
             }
             assertTrue(server.requests.isEmpty())
         }
@@ -52,8 +59,8 @@ class NativeSearchTest {
                 },
             )
             endpoint(server, true).use { endpoint ->
-                assertTrue(endpoint.supportsNativeSearch(ref))
-                val results = endpoint.search(ref, "a query", 1)
+                assertTrue(endpoint.models().single().webSearch)
+                val results = endpoint.webSearch(ref.model, WebQuery("a query", 1))
                 assertEquals(1, results.size)
                 assertEquals("First", results.single().title)
                 assertEquals("source excerpt", results.single().snippet)
@@ -86,7 +93,7 @@ class NativeSearchTest {
                 },
             )
             endpoint(server, true).use { endpoint ->
-                val error = assertFailsWith<ModelException> { endpoint.search(ref, "query", 2) }
+                val error = assertFailsWith<ModelException> { endpoint.webSearch(ref.model, WebQuery("query", 2)) }
                 assertFalse("secret" in error.toString())
             }
             server.assertFinished()
@@ -104,7 +111,7 @@ class NativeSearchTest {
                     body("""{"stop_reason":"end_turn","content":[{"type":"text","text":"Done"}]}""")
                 },
             )
-            endpoint(server, true).use { assertEquals(1, it.search(ref, "query", 2).size) }
+            endpoint(server, true).use { assertEquals(1, it.webSearch(ref.model, WebQuery("query", 2)).size) }
             val history = server.requests.last().json()["messages"] as JsonArray
             assertTrue("opaque" in history.last().toString())
             assertEquals(2, server.requests.size)
@@ -120,7 +127,7 @@ class NativeSearchTest {
                     body("""{"stop_reason":"end_turn","content":[{"type":"web_search_tool_result","content":[]}]}""")
                 },
             )
-            endpoint(server, true).use { assertTrue(it.search(ref, "query", 2).isEmpty()) }
+            endpoint(server, true).use { assertTrue(it.webSearch(ref.model, WebQuery("query", 2)).isEmpty()) }
             server.assertFinished()
         }
     }
@@ -132,7 +139,7 @@ class NativeSearchTest {
                 server.enqueue(fakeResponse { body("""{"stop_reason":"pause_turn","content":[]}""") })
             }
             endpoint(server, true).use {
-                assertFailsWith<ModelException> { it.search(ref, "query", 2) }
+                assertFailsWith<ModelException> { it.webSearch(ref.model, WebQuery("query", 2)) }
             }
             assertEquals(3, server.requests.size)
             server.assertFinished()
@@ -151,7 +158,7 @@ class NativeSearchTest {
             FakeModelServer().use { server ->
                 server.enqueue(response)
                 endpoint(server, true).use {
-                    val error = assertFailsWith<ModelException> { it.search(ref, "query", 2) }
+                    val error = assertFailsWith<ModelException> { it.webSearch(ref.model, WebQuery("query", 2)) }
                     assertFalse("secret-not-json" in error.toString())
                 }
                 server.assertFinished()

@@ -31,6 +31,9 @@ internal object TextKeys {
     /** Takes `{job}` and `{call}`. */
     const val JOB_INTERRUPTED: String = "notice.job_interrupted"
 
+    /** Takes `{agent}`, the agent the message went to. */
+    const val MESSAGE_INTERRUPTED: String = "notice.message_interrupted"
+
     /** Takes `{command}`. */
     const val UNKNOWN_COMMAND: String = "notice.unknown_command"
 

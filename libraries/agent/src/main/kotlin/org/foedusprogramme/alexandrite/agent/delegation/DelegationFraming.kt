@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.delegation
 
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
@@ -29,6 +30,9 @@ internal fun delegationFraming(delegation: Delegation): String = buildString {
     appendLine("Run: ${delegation.run}")
     append("[/alexandrite:delegated]")
 }
+
+/** Run framing v1, after a run's result: the id that `agent.delegate` takes to resume the run. */
+internal fun runFraming(run: RunId): String = "\n[alexandrite:run $run]"
 
 /** The agent that delegated the run. */
 internal val Delegation.delegator: AgentId get() = chain.agents[chain.agents.size - 2]

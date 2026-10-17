@@ -19,21 +19,22 @@ internal suspend fun <T> monitoring(
     context: ToolContext,
     run: suspend (((String) -> Unit)?) -> T,
 ): MonitorOutcome<T> = coroutineScope {
-    context.awaitBackground()
+    val job = checkNotNull(context.background()) { "A monitor runs only as a background job." }
     val lines = Channel<String>(MAX_PENDING_LINES)
     val pending = mutableListOf<String>()
     val dropped = AtomicLong()
     val consumer = launch {
         var lastWake: TimeSource.Monotonic.ValueTimeMark? = null
+
+        // Lines the agent has not taken yet stay pending and go out with the next batch.
         suspend fun flush() {
             if (pending.isEmpty()) return
-            context.backgroundUpdate(ToolResult("Monitor matched output:\n" + pending.joinToString("\n")))
-            pending.clear()
             lastWake = TimeSource.Monotonic.markNow()
+            if (job.update(ToolResult("Monitor matched output:\n" + pending.joinToString("\n")))) pending.clear()
         }
         while (true) {
             val first = lines.receiveCatching().getOrNull() ?: break
-            pending += first
+            if (pending.size < MAX_BATCH_LINES) pending += first else dropped.incrementAndGet()
             val wait = maxOf(options.batch, options.interval - (lastWake?.elapsedNow() ?: options.interval))
             val deadline = TimeSource.Monotonic.markNow() + wait
             var closed = false

@@ -1,40 +1,51 @@
 package org.foedusprogramme.alexandrite.sdk.web
 
+import dev.drewhamilton.poko.Poko
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.BoundSpi
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 
-/** A search service contributed by a plugin. */
+/** A search service contributed by a plugin, chosen by its [id] in the `web.searchBackend` setting. */
 @ContributedSpi
 public interface WebSearchBackend {
     public val id: String
 
-    public suspend fun search(query: String, limit: Int): List<WebSearchResult>
+    public suspend fun search(query: WebQuery): List<WebSearchResult>
+}
+
+/** A web search for [text], wanting at most [limit] results. */
+@Poko
+public class WebQuery(public val text: String, public val limit: Int) {
+    init {
+        require(text.isNotBlank()) { "A web query is not blank." }
+        require(limit > 0) { "A web query wants at least one result, was $limit." }
+    }
 }
 
 /** A result returned by a search service. */
+@Poko
 public class WebSearchResult(public val title: String, public val url: String, public val snippet: String)
 
-/** The model service used by web tools. */
+/** A [question] about the text of the page at [url], for a side model to answer from that text alone. */
+@Poko
+public class PageQuestion(
+    public val turn: TurnInfo,
+    public val url: String,
+    public val page: String,
+    public val question: String,
+    /** The model that answers, null for the turn's agent's judge model. */
+    public val model: ModelRef? = null,
+)
+
+/** What the web tools ask of the turn's models. */
 @BoundSpi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
-public interface WebPageAnswers {
-    public suspend fun answer(turn: TurnInfo, url: String, text: String, prompt: String, model: ModelRef?): String
+public interface WebModels {
+    /** The side model's answer to [question], which never sees anything but the question and the page. */
+    public suspend fun answer(question: PageQuestion): String
 
-    /** Null when the selected endpoint has no native search capability. */
-    public suspend fun search(
-        turn: TurnInfo,
-        query: String,
-        limit: Int,
-        model: ModelRef? = null,
-    ): List<WebSearchResult>?
-}
-
-/** An optional capability implemented by endpoints with server-side web search. */
-public interface NativeWebSearchEndpoint {
-    public fun supportsNativeSearch(model: ModelRef): Boolean = true
-
-    public suspend fun search(model: ModelRef, query: String, limit: Int): List<WebSearchResult>
+    /** The results of [query] from the server-side search that [model]'s endpoint has, null when it has none. */
+    public suspend fun search(model: ModelRef, query: WebQuery): List<WebSearchResult>?
 }

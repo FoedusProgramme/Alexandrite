@@ -1,8 +1,13 @@
 package org.foedusprogramme.alexandrite.agent.tool
 
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyActivity
+import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
@@ -48,9 +53,9 @@ internal interface TurnCalls {
 /** What a sub-agent run takes from the turn that delegated it. */
 internal interface DelegatingTurn : TurnCalls {
     val turn: TurnInfo
-    val runAncestors: Set<org.foedusprogramme.alexandrite.sdk.chat.RunId>
+    val runAncestors: Set<RunId>
         get() = turn.lineage?.run?.let(::setOf).orEmpty()
-    val activityVisible: Boolean get() = turn.replyTarget == org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget.CHAT
+    val activityVisible: Boolean get() = turn.replyTarget == ReplyTarget.CHAT
     val model: ModelRef
     val reasoning: ReasoningEffort?
 
@@ -65,6 +70,9 @@ internal interface DelegatingTurn : TurnCalls {
 
     /** Shows [event] of a sub-agent run below the turn. */
     suspend fun show(event: TurnEvent)
+
+    /** Hands the activity of the background [run] over from the turn's reply, as [ReplySink.detachActivity] does. */
+    suspend fun detachActivity(run: DelegatedRun): ReplyActivity? = null
 
     /** Counts [tokens] that a sub-agent run below the turn spent toward the turn's budget. */
     fun spend(tokens: Long)

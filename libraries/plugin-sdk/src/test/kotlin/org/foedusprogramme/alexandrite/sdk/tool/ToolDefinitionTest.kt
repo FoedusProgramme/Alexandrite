@@ -75,6 +75,23 @@ class ToolDefinitionTest {
     }
 
     @Test
+    fun `the review before background is kept, hidden, for a plugin built against it`() {
+        val ctor = CallReview::class.java.getDeclaredConstructor(
+            ToolRisk::class.java,
+            String::class.java,
+            ReviewPreview::class.java,
+            String::class.java,
+            RuleSubject::class.java,
+            String::class.java,
+            Boolean::class.javaPrimitiveType,
+        )
+
+        val review = ctor.newInstance(ToolRisk.READ_ONLY, null, null, null, null, null, true)
+
+        assertEquals(CallReview(ToolRisk.READ_ONLY, exempt = true, background = false), review)
+    }
+
+    @Test
     fun `a tool declares its activity and the arguments that title a call, otherwise OTHER and none`() {
         assertEquals(
             ToolActivity.OTHER to emptyList(),
@@ -145,7 +162,7 @@ class ToolDefinitionTest {
 
     @Test
     fun `an activity keeps the id a version does not know`() {
-        assertEquals(11, ToolActivity.entries.size)
+        assertEquals(12, ToolActivity.entries.size)
         assertEquals("fork", ToolActivity.of("fork").id)
         assertEquals(ToolActivity.READ, ToolActivity.of("read"))
     }
