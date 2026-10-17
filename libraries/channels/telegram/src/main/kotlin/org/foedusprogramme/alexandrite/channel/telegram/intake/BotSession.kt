@@ -76,9 +76,6 @@ internal class BotSession(
         me = BotIdentity(user.id, username)
         val reads = if (user.canReadAllGroupMessages == true) "yes" else "no"
         logger.info("{} is @{} (id {}), reads all group messages: {}", instance.id, username, user.id, reads)
-        if (config.allowedChats.isEmpty()) {
-            logger.warn("{}: no chat is paired yet: the first message of a chat gets a pairing code", instance.id)
-        }
         if (sendsTokenInClear(config.apiBase)) {
             logger.warn(
                 "{} reaches the Bot API at {} over plain http, so its bot token crosses the network unencrypted",

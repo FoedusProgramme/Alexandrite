@@ -36,6 +36,9 @@ internal class AccessGate(
     override suspend fun onStart() {
         val pairing = desk.open(instance.id, config.allowedChats.map { ChatAddress(instance.id, "$it") })
         this.pairing = pairing
+        if (desk.paired().none { it.chat.instance == instance.id }) {
+            logger.warn("{}: no chat is paired yet: the first message of a chat gets a pairing code", instance.id)
+        }
         warnUnpaired(pairing)
     }
 

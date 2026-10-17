@@ -175,6 +175,18 @@ class TelegramPairingTest {
     }
 
     @Test
+    fun `no paired chat is warned of at start, a chat paired only by an approval counts as paired`() {
+        val none = "WARN telegram:work: no chat is paired yet: the first message of a chat gets a pairing code"
+
+        val first =
+            runBlocking { logged { telegram.run(builder(allowed = "[]")) { pair(telegram.bob, telegram.bobChat) } } }
+        val second = runBlocking { logged { telegram.run(builder(allowed = "[]")) {} } }
+
+        assertContains(first, none)
+        assertFalse(none in second, second.joinToString("\n"))
+    }
+
+    @Test
     fun `a group that is not paired gets a code only when it addresses the bot, and a denied code pairs nothing`() {
         telegram.run(builder()) {
             fake.send(telegram.bob, telegram.group, "Lunch at noon?")
