@@ -26,6 +26,9 @@ class PollerTest {
     private val dispatched = mutableListOf<Long>()
     private var answer: (Update) -> Dispatch = { Dispatch.DONE }
 
+    private var savedOffset: Long? = null
+    private val saves = mutableListOf<Long>()
+
     private fun TestScope.poller(retryMaxSeconds: Int = 30): Poller {
         api.clock = { currentTime }
         val instance = TestInstance(backgroundScope)
@@ -35,7 +38,9 @@ class PollerTest {
             answer(update)
         }
         val config = testConfig(retryMaxSeconds = retryMaxSeconds)
-        return Poller(instance, config, api, intake, session, Random(7), testScheduler.timeSource)
+        val resume = suspend { savedOffset }
+        val save: suspend (Long) -> Unit = { saves += it }
+        return Poller(instance, config, api, intake, session, Random(7), testScheduler.timeSource, resume, save)
     }
 
     private fun batch(vararg ids: Long): () -> List<Update> = { ids.map { Update(it) } }
@@ -53,6 +58,23 @@ class PollerTest {
 
         assertEquals(listOf(5L, 6L, 7L), dispatched)
         assertEquals(listOf(null, 7L, 8L, 8L), api.offsets)
+    }
+
+    @Test
+    fun `polling starts from the saved offset, which each batch and the close save again`() = runTest {
+        savedOffset = 5
+        api.polls += batch(5, 6)
+        api.polls += batch(7)
+        val poller = poller()
+
+        poller.onOpen()
+        runCurrent()
+        api.polls += batch()
+        poller.onClose()
+
+        assertEquals(listOf(5L, 6L, 7L), dispatched)
+        assertEquals(listOf<Long?>(5, 7, 8, 8), api.offsets)
+        assertEquals(listOf(7L, 8L), saves)
     }
 
     @Test

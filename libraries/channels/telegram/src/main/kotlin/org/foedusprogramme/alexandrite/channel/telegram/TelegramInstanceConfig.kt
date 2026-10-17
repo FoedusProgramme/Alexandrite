@@ -26,6 +26,8 @@ internal class TelegramInstanceConfig(
     val streaming: StreamingConfig = StreamingConfig(),
     /** How long an approval request waits for an admin's answer. */
     val approvalMinutes: Int = 10,
+    /** How old a message that a stop cut off may be and still be answered after the restart, 0 for none. */
+    val replayWindowMinutes: Int = 1440,
     /** Whether the bot publishes its command menu. */
     val commandMenu: Boolean = true,
     /** Who may run each named command of another plugin, which only admins may run otherwise. */
@@ -48,6 +50,7 @@ internal class TelegramInstanceConfig(
             "apiBaseUrl must be an http or https URL without user info, query or fragment"
         }
         require(approvalMinutes in 1..MAX_APPROVAL_MINUTES) { "approvalMinutes must lie between 1 and 1440" }
+        require(replayWindowMinutes in 0..MAX_REPLAY_MINUTES) { "replayWindowMinutes must lie between 0 and 10080" }
         for (name in commands.keys) {
             require(COMMAND.matches(name)) {
                 "commands.$name must name a command: lowercase letters, digits and '_', 32 characters at most"
@@ -108,6 +111,8 @@ private val COMMAND = Regex("[a-z0-9_]{1,32}")
 private const val MAX_INTERVAL = 60_000L
 
 private const val MAX_APPROVAL_MINUTES = 1440
+
+private const val MAX_REPLAY_MINUTES = 10_080
 
 private fun isHttpUrl(text: String): Boolean = try {
     val uri = URI(text)

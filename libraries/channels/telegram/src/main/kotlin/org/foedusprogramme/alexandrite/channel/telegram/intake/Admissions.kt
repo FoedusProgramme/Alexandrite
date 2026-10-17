@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
 import org.foedusprogramme.alexandrite.channel.telegram.replay.Replay
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
@@ -43,16 +44,20 @@ internal class Admissions(
     private val refused = Throttle<Pair<ChatAddress, UserAddress>>(Duration.ofMinutes(1))
     private val warned = Throttle<ChatAddress>(null)
 
-    /** Submits [submission], carried by [trigger] in a chat of [kind], and hands its outcome to [ended]. */
+    /**
+     * Submits [submission], read from [parts] and carried by [trigger] in a chat of [kind], and hands its outcome to
+     * [ended].
+     */
     fun submit(
         submission: Submission,
+        parts: List<Message>,
         trigger: ChannelMessageRef,
         kind: ChatKind,
         ended: (TurnOutcome) -> Unit = {},
     ): Dispatch {
         val chat = submission.chat
         when (val admission = submitter.submit(submission)) {
-            is Admission.Accepted -> replay.watch(admission.ticket, trigger, kind == ChatKind.DIRECT, ended)
+            is Admission.Accepted -> replay.watch(admission.ticket, trigger, kind == ChatKind.DIRECT, parts, ended)
 
             is Admission.Refused -> when (admission.reason) {
                 RefusalReason.SHUTTING_DOWN -> return Dispatch.CLOSING

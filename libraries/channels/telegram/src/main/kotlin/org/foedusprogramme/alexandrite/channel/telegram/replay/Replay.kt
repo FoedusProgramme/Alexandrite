@@ -6,6 +6,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
@@ -22,14 +23,16 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Follows the accepted turns to their outcomes and tells each paired chat whose message a stop cut off to send it
- * again, once per direct chat.
+ * Follows the accepted turns to their outcomes and keeps in the [Backlog] the messages whose turns a stop cut off
+ * before they showed anything, which the next run answers. Each paired chat whose message a stop cut off later, or
+ * whose turn the last run left unended, is told to send it again, once per direct chat.
  */
 @ChannelInstanceScoped
 internal class Replay(
     private val instance: ChannelInstance,
     private val gate: AccessGate,
     private val outbox: Outbox,
+    private val backlog: Backlog,
 ) : Lifecycle {
     private val watchers = SupervisorJob(instance.scope.coroutineContext[Job])
     private val scope = CoroutineScope(instance.scope.coroutineContext + watchers)
@@ -38,22 +41,39 @@ internal class Replay(
     private val watching = AtomicInteger()
     private val askedAgain = ConcurrentHashMap.newKeySet<ChatAddress>()
 
-    /** Follows [ticket], the turn of the message [trigger], and hands its outcome to [ended]. */
-    fun watch(ticket: TurnTicket, trigger: ChannelMessageRef, direct: Boolean, ended: (TurnOutcome) -> Unit) {
+    /**
+     * Follows [ticket], the turn of the message [trigger] whose updates held [parts], and hands its outcome to
+     * [ended].
+     */
+    fun watch(
+        ticket: TurnTicket,
+        trigger: ChannelMessageRef,
+        direct: Boolean,
+        parts: List<Message>,
+        ended: (TurnOutcome) -> Unit,
+    ) {
         if (watching.incrementAndGet() > MAX_WATCHED) {
             watching.decrementAndGet()
             logger.debug("{} watches {} turns, so turn {} goes unwatched", instance.id, MAX_WATCHED, ticket.turn)
             return
         }
+        val message = backlog.accepted(trigger, direct, parts)
         scope.launch {
             try {
                 val outcome = ticket.outcome()
-                if (outcome is TurnOutcome.ShutDown) askAgain(trigger, direct)
+                val replayed = outcome is TurnOutcome.ShutDown && outcome.replayable
+                backlog.ended(message, replayed)
+                if (outcome is TurnOutcome.ShutDown && !replayed) askAgain(trigger, direct)
                 ended(outcome)
             } finally {
                 watching.decrementAndGet()
             }
         }
+    }
+
+    /** Tells the chat of [message], whose turn the last run left unended, to send it again. */
+    fun unfinished(message: PendingMessage) {
+        askAgain(message.trigger, message.direct)
     }
 
     override suspend fun onDrain() {

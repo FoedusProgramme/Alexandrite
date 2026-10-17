@@ -49,6 +49,9 @@ internal class Intake(
         }
     }
 
+    /** Dispatches [parts] again, one message or an album that the last run kept for the next. */
+    fun replay(parts: List<Message>): Dispatch = synchronized(lock) { dispatch(parts) }
+
     /** Dispatches the held albums at once, and the messages behind them. */
     override suspend fun onClose() {
         albums.releaseAll()
@@ -81,9 +84,9 @@ internal class Intake(
                 Dispatch.DONE
             }
 
-            is Inbound.Message -> admissions.submit(Submission.Message(inbound.message), trigger, kind)
+            is Inbound.Message -> admissions.submit(Submission.Message(inbound.message), parts, trigger, kind)
 
-            is Inbound.Command -> commands.route(inbound, kind, trigger)
+            is Inbound.Command -> commands.route(inbound, parts, kind, trigger)
         }
     }
 

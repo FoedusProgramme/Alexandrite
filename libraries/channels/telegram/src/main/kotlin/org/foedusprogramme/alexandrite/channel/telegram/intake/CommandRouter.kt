@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.menu.CommandMenu
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
@@ -14,8 +15,11 @@ internal class CommandRouter(
     private val admissions: Admissions,
     private val menu: CommandMenu,
 ) {
-    /** Routes [inbound], carried by [trigger] in a chat of [kind]; the menu is checked again once it ran. */
-    fun route(inbound: Inbound.Command, kind: ChatKind, trigger: ChannelMessageRef): Dispatch {
+    /**
+     * Routes [inbound], read from [parts] and carried by [trigger] in a chat of [kind]; the menu is checked again once
+     * it ran.
+     */
+    fun route(inbound: Inbound.Command, parts: List<Message>, kind: ChatKind, trigger: ChannelMessageRef): Dispatch {
         val invocation = inbound.invocation
         val refusal = rules.refusal(invocation, kind)
         if (refusal != null) {
@@ -24,6 +28,6 @@ internal class CommandRouter(
         }
         val capacity = if (invocation.issuer.isAdmin) Capacity.EXEMPT else Capacity.COUNTED
         val submission = Submission.Command(invocation, inbound.message, capacity)
-        return admissions.submit(submission, trigger, kind) { menu.refresh() }
+        return admissions.submit(submission, parts, trigger, kind) { menu.refresh() }
     }
 }

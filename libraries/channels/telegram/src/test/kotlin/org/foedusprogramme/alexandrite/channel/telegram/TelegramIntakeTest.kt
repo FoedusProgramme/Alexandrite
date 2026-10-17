@@ -25,7 +25,6 @@ import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
-import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -247,31 +246,6 @@ class TelegramIntakeTest {
         assertEquals(2, fake.confirmedOffset)
         assertEquals(listOf(null, 2L), fake.offsets)
         assertEquals(0, fake.pendingUpdates)
-    }
-
-    @Test
-    fun `a message a stop cut off is asked for again at once, per message in a group and once in a direct chat`() {
-        val again = "The bot stopped before it answered this message. Send it again once the bot is back."
-        TelegramHarness(outcome = null).use { open ->
-            open.run {
-                open.fake.send(open.bob, open.group, "@alexandrite_test_bot run the migration")
-                open.fake.send(open.bob, open.group, "@alexandrite_test_bot and the backfill")
-                open.fake.send(open.bob, open.bobChat, "one")
-                open.fake.send(open.bob, open.bobChat, "two")
-                open.fake.send(open.ada, open.adaChat, "and this one ends")
-                open.submitted(5)
-                open.submitter.tickets.take(4).forEach { it.complete(TurnOutcome.ShutDown(replayable = true)) }
-                open.submitter.tickets[4].complete(TurnOutcome.Completed(null))
-
-                val notices = open.fake.await { botMessages().takeIf { it.size == 3 } }
-                assertEquals(GROUP, notices.last().chat)
-            }
-
-            val group = open.fake.botMessages(GROUP).map { it.text to it.replyTo }
-            assertEquals(listOf(again to 1L, again to 2L), group.sortedBy { it.second })
-            assertEquals(listOf(again to null), open.fake.botMessages(BOB).map { it.text to it.replyTo })
-            assertEquals(emptyList(), open.fake.botMessages(ADA))
-        }
     }
 
     @Test
