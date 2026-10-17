@@ -16,6 +16,9 @@ internal val MESSAGES_CALL_IDS: WireForm = WireForm(Regex("[A-Za-z0-9_-]{1,64}")
 /** Ids of 40 printable ASCII characters at most, as Chat Completions takes them. */
 internal val CHAT_CALL_IDS: WireForm = WireForm(Regex("[!-~]{1,40}"))
 
+/** Ids of 64 printable ASCII characters at most, as the Responses API takes them. */
+internal val RESPONSES_CALL_IDS: WireForm = WireForm(Regex("[!-~]{1,64}"))
+
 private val TOOL_NAMES = WireForm(Regex("[A-Za-z0-9_-]{1,64}"))
 
 /** The wire form of the tool name [name]: [ToolNames.wire] of a name of its grammar, a form of [TOOL_NAMES] else. */
