@@ -24,6 +24,7 @@ internal class Deliveries(
     private val typing: Typing,
     private val texts: Texts,
     private val styles: ReplyStyles,
+    private val vouched: VouchedReplies,
 ) {
     private val replies: MutableSet<TelegramReply> = ConcurrentHashMap.newKeySet()
 
@@ -36,10 +37,19 @@ internal class Deliveries(
         if (!gate.isPaired(request.turn.chat)) return Undelivered(NOT_PAIRED)
         val target = targetOf(request.turn.chat) ?: return Undelivered(Delivery.NotDelivered(DeliveryFailure.CHAT_GONE))
         val style = styles.of(request.turn.chat)
-        val reply =
-            TelegramReply(request, target, config.streaming.enabled, style, outbox, typing, texts, instance.scope) {
-                replies.remove(it)
-            }
+        val shownIn: (Collection<Long>) -> Unit =
+            if (request.turn.actorIsAdmin) ({ vouched.note(target.chat, it) }) else ({})
+        val reply = TelegramReply(
+            request,
+            target,
+            config.streaming.enabled,
+            style,
+            outbox,
+            typing,
+            texts,
+            shownIn,
+            instance.scope,
+        ) { replies.remove(it) }
         replies += reply
         reply.open()
         return reply

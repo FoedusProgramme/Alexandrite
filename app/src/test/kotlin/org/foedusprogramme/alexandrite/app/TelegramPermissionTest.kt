@@ -117,7 +117,7 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `a reply to an approval request quotes the bot's own line about it and leaves the conversation untainted`() {
+    fun `a reply to an approval request or to the bot's answer to an admin leaves the conversation untainted`() {
         app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
             .reply { text("It ran.") }
             .reply { text("It did.") }
@@ -149,8 +149,8 @@ class TelegramPermissionTest {
                 "> Alexandrite's approval request $id for notes.write (allowed by Ada Lovelace (@ada_test))\n",
         )
         assertNull(afterRequest)
-        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (unverified)\n> Noted.\n")
-        assertEquals("a quote that its channel does not vouch for", afterAnswer?.reason)
+        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (verified)\n> Noted.\n")
+        assertNull(afterAnswer)
     }
 
     /** The framing of the message [text] as the model read it. */

@@ -66,6 +66,9 @@ internal class Output(
     private val session = BotSession(instance, config, api, TelegramBots(), control)
     private val texts = testTexts("alexandrite-channel-telegram")
     val outbox = Outbox(instance, api, limiter, texts, null, session)
+
+    /** The bot's messages that answered an admin. */
+    val vouched = VouchedReplies(instance, testRecords())
     private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
         .also { runBlocking { it.onStart() } }
     private val approvals =
@@ -79,6 +82,7 @@ internal class Output(
             Typing(instance, api, limiter, session),
             texts,
             ReplyStyles(config, choices),
+            vouched,
         )
     val channel = TelegramChannel(instance, config, gate, deliveries, approvals, CommandRules(emptyList(), null))
 

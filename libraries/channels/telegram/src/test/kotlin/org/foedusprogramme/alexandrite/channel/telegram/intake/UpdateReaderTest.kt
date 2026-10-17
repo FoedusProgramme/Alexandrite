@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -43,7 +44,16 @@ class UpdateReaderTest {
     private val work = ChannelInstanceId(ChannelType("telegram"), "work")
     private val approvals = ApprovalMessages()
     private val reads = mutableListOf<String>()
-    private val reader = UpdateReader(work, setOf(1001L), BotIdentity(1234567890, "alexandrite_test_bot"), approvals) {
+
+    /** The bot's messages that answered an admin, by chat and message id. */
+    private val answered = mutableSetOf<Pair<Long, Long>>()
+    private val reader = UpdateReader(
+        work,
+        setOf(1001L),
+        BotIdentity(1234567890, "alexandrite_test_bot"),
+        approvals,
+        { chat, message -> chat to message in answered },
+    ) {
         MediaContent { _ -> "bytes of $it".encodeToByteArray().also { _ -> reads += it } }
     }
     private val adaChat = ChatAddress(work, "1001")
@@ -123,12 +133,13 @@ class UpdateReaderTest {
     }
 
     @Test
-    fun `a reply quotes the part the user picked, else the whole message, and is never trusted`() {
+    fun `a reply quotes the part the user picked, else the whole message, its author known and its content not`() {
         val expected = Quote.builder("reads the config")
             .senderName("Alexandrite Test Bot")
             .sender(bot)
             .senderIsBot(true)
             .target(ChannelMessageRef(adaChat, "9"))
+            .trust(AUTHOR_KNOWN)
             .build()
 
         assertEquals(expected, message("private_quote").quote)
@@ -136,7 +147,62 @@ class UpdateReaderTest {
             expected.toBuilder().text("Main.kt starts the app and reads the config.").build(),
             message("private_reply").quote,
         )
-        assertEquals(QuoteTrust.UNTRUSTED, message("private_reply").quote?.trust)
+    }
+
+    @Test
+    fun `a quote of an admin's own message or of the bot's answer to an admin is vouched for, no other`() {
+        fun replied(from: JsonObject, vararg fields: Pair<String, JsonElement>) = buildJsonObject {
+            put("message_id", 9)
+            put("from", from)
+            put(
+                "chat",
+                buildJsonObject {
+                    put("id", -1001234500000)
+                    put("type", "supergroup")
+                },
+            )
+            put("date", 1760169480)
+            put("text", "Deploy at five.")
+            fields.forEach { (name, value) -> put(name, value) }
+        }
+        fun trustOf(replied: JsonObject): QuoteTrust? {
+            val reply = with("group_mention", "reply_to_message" to replied)
+            return assertIs<Inbound.Message>(reader.read(reply)).message.quote?.trust
+        }
+        val adaUser = buildJsonObject {
+            put("id", 1001)
+            put("is_bot", false)
+            put("first_name", "Ada")
+        }
+        val bobUser = buildJsonObject {
+            put("id", 1002)
+            put("is_bot", false)
+            put("first_name", "Bob")
+        }
+        val botUser = buildJsonObject {
+            put("id", 1234567890)
+            put("is_bot", true)
+            put("first_name", "Alexandrite Test Bot")
+        }
+        val forward = buildJsonObject {
+            put("type", "hidden_user")
+            put("date", 1760169000)
+            put("sender_user_name", "Someone")
+        }
+        val group = buildJsonObject {
+            put("id", -1001234500000)
+            put("title", "Backend")
+            put("type", "supergroup")
+        }
+        answered += -1001234500000L to 9L
+
+        assertEquals(VOUCHED, trustOf(replied(adaUser)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(adaUser, "forward_origin" to forward)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(adaUser, "via_bot" to botUser)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(bobUser)))
+        assertEquals(VOUCHED, trustOf(replied(botUser)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(botUser, "message_id" to JsonPrimitive(10))))
+        assertEquals(QuoteTrust.UNTRUSTED, trustOf(replied(adaUser, "sender_chat" to group)))
     }
 
     @Test
@@ -156,17 +222,44 @@ class UpdateReaderTest {
         assertEquals(expected, message("private_reply").quote)
         assertEquals(expected, message("private_quote").quote)
         val otherChat = message("group_reply_to_bot").quote
-        assertEquals("The build is green." to QuoteTrust.UNTRUSTED, otherChat?.text to otherChat?.trust)
-        val member = message("group_bare_mention_reply").quote
-        assertEquals("Deploy at five." to QuoteTrust.UNTRUSTED, member?.text to member?.trust)
+        assertEquals("The build is green." to AUTHOR_KNOWN, otherChat?.text to otherChat?.trust)
+        val admin = message("group_bare_mention_reply").quote
+        assertEquals("Deploy at five." to VOUCHED, admin?.text to admin?.trust)
     }
 
     @Test
-    fun `an external reply quotes its text and origin without a target`() {
+    fun `an external reply quotes its text and origin without a target, untrusted`() {
         val message = message("external_reply")
 
         assertEquals(Quote.builder("Rates rise again").senderName("News").external(true).build(), message.quote)
         assertEquals("Thoughts?", message.text)
+    }
+
+    @Test
+    fun `the files of an external reply are attachments of the quote`() {
+        val external = buildJsonObject {
+            put(
+                "origin",
+                buildJsonObject {
+                    put("type", "hidden_user")
+                    put("date", 1760168800)
+                    put("sender_user_name", "Someone")
+                },
+            )
+            put(
+                "photo",
+                buildJsonArray {
+                    add(file("small", 900))
+                    add(file("big", 52000))
+                },
+            )
+        }
+
+        val reply = with("private_text", "external_reply" to external, "text" to JsonPrimitive("What is this?"))
+        val message = assertIs<Inbound.Message>(reader.read(reply)).message
+
+        assertEquals(listOf("image image/jpeg 52000 - - quoted -"), message.media.map { it.described() })
+        assertEquals(true to QuoteTrust.UNTRUSTED, message.quote?.external to message.quote?.trust)
     }
 
     // Media and other content.
@@ -410,3 +503,7 @@ class UpdateReaderTest {
         }
     }
 }
+
+private val VOUCHED = QuoteTrust(live = true, content = true)
+
+private val AUTHOR_KNOWN = QuoteTrust(live = true, content = false)

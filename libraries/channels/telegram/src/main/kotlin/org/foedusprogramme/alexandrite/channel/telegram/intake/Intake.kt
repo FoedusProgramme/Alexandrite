@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
+import org.foedusprogramme.alexandrite.channel.telegram.reply.VouchedReplies
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
@@ -29,9 +30,17 @@ internal class Intake(
     private val titles: ChatTitles,
     private val approvalMessages: ApprovalMessages,
     private val files: TelegramFiles,
+    private val vouched: VouchedReplies,
 ) : Lifecycle {
     private val reader by lazy {
-        UpdateReader(instance.id, config.adminUserIds.toSet(), session.identity, approvalMessages, files::content)
+        UpdateReader(
+            instance.id,
+            config.adminUserIds.toSet(),
+            session.identity,
+            approvalMessages,
+            vouched::contains,
+            files::content,
+        )
     }
 
     private val lock = Any()

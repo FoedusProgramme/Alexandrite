@@ -50,6 +50,8 @@ internal class TelegramReply(
     private val outbox: Outbox,
     private val typing: Typing,
     private val texts: Texts,
+    /** Takes the messages that showed the reply's text once it ended. */
+    private val shownIn: (Collection<Long>) -> Unit,
     private val scope: CoroutineScope,
     private val onEnd: (TelegramReply) -> Unit,
 ) : ReplySink {
@@ -210,7 +212,7 @@ internal class TelegramReply(
                 close()
                 showFrozen(all = false)
                 showFrozenActivities()
-                deliver(message)
+                deliver(message).also { shownIn(bodyMessages(it)) }
             } finally {
                 releaseReply()
             }
@@ -223,6 +225,7 @@ internal class TelegramReply(
             try {
                 close()
                 showFrozenActivities()
+                shownIn(bodyMessages(null))
             } finally {
                 releaseReply()
             }
@@ -635,6 +638,17 @@ internal class TelegramReply(
             }
         }
         return Delivery.Delivered(ids.map { ChannelMessageRef(chat, "$it") })
+    }
+
+    /** The messages that showed the reply's text, those of [delivery] included, its activity messages left out. */
+    private fun bodyMessages(delivery: Delivery?): Set<Long> = buildSet {
+        synchronized(lock) {
+            for (segment in segments.values) {
+                segment.message?.let(::add)
+                addAll(segment.messages)
+            }
+        }
+        (delivery as? Delivery.Delivered)?.messages?.forEach { ref -> ref.id.toLongOrNull()?.let(::add) }
     }
 
     private class Segment {

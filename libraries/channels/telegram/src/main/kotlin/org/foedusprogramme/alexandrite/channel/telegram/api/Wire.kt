@@ -40,6 +40,19 @@ internal class CallbackQuery(
     val data: String? = null,
 )
 
+/** The files of a message, flat over the kinds the bot reads. */
+internal interface MessageFiles {
+    val animation: TelegramMedia?
+    val audio: TelegramMedia?
+    val document: TelegramMedia?
+
+    /** The sizes of one photo. */
+    val photo: List<TelegramMedia>?
+    val video: TelegramMedia?
+    val videoNote: TelegramMedia?
+    val voice: TelegramMedia?
+}
+
 /** A message, its stickers and other content kept only as present or absent. */
 @Serializable
 internal class Message(
@@ -63,16 +76,15 @@ internal class Message(
     @SerialName("caption_entities") val captionEntities: List<MessageEntity>? = null,
     /** The album the message belongs to, null when it belongs to none. */
     @SerialName("media_group_id") val mediaGroupId: String? = null,
-    val animation: TelegramMedia? = null,
-    val audio: TelegramMedia? = null,
-    val document: TelegramMedia? = null,
-    /** The sizes of one photo. */
-    val photo: List<TelegramMedia>? = null,
+    override val animation: TelegramMedia? = null,
+    override val audio: TelegramMedia? = null,
+    override val document: TelegramMedia? = null,
+    override val photo: List<TelegramMedia>? = null,
     val sticker: JsonElement? = null,
     val story: JsonElement? = null,
-    val video: TelegramMedia? = null,
-    @SerialName("video_note") val videoNote: TelegramMedia? = null,
-    val voice: TelegramMedia? = null,
+    override val video: TelegramMedia? = null,
+    @SerialName("video_note") override val videoNote: TelegramMedia? = null,
+    override val voice: TelegramMedia? = null,
     @SerialName("paid_media") val paidMedia: JsonElement? = null,
     val contact: JsonElement? = null,
     val dice: JsonElement? = null,
@@ -81,7 +93,7 @@ internal class Message(
     val venue: JsonElement? = null,
     val location: JsonElement? = null,
     val invoice: JsonElement? = null,
-)
+) : MessageFiles
 
 /** A file of a message, flat over the photo size, document, audio, voice, video, video note and animation types. */
 @Serializable
@@ -181,7 +193,14 @@ internal class ExternalReplyInfo(
     val origin: MessageOrigin,
     val chat: Chat? = null,
     @SerialName("message_id") val messageId: Long? = null,
-)
+    override val animation: TelegramMedia? = null,
+    override val audio: TelegramMedia? = null,
+    override val document: TelegramMedia? = null,
+    override val photo: List<TelegramMedia>? = null,
+    override val video: TelegramMedia? = null,
+    @SerialName("video_note") override val videoNote: TelegramMedia? = null,
+    override val voice: TelegramMedia? = null,
+) : MessageFiles
 
 @Serializable
 internal class WebhookInfo(

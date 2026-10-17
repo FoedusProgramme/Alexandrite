@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
+import org.foedusprogramme.alexandrite.channel.telegram.api.MessageFiles
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageOrigin
 import org.foedusprogramme.alexandrite.channel.telegram.api.TelegramMedia
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
@@ -44,13 +45,14 @@ internal sealed interface Inbound {
 
 /**
  * Reads the messages that the bot [bot] of [instance] receives, whose operators are [admins], with the content of each
- * file from [files].
+ * file from [files]; [answeredAdmin] tells which of the bot's messages answered an admin.
  */
 internal class UpdateReader(
     private val instance: ChannelInstanceId,
     private val admins: Set<Long>,
     private val bot: BotIdentity,
     private val approvals: ApprovalMessages,
+    private val answeredAdmin: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
     private val files: (fileId: String) -> MediaContent,
 ) {
     /** The chat of [message], its forum topic as the thread. */
@@ -100,7 +102,8 @@ internal class UpdateReader(
         }
         val facts = parts.flatMap(::facts).distinct()
         val quote = quote(message, chat)
-        val quoted = message.replyToMessage?.takeUnless { isTopicRoot(message) }?.let { media(it, quoted = true) }
+        val quoted = (message.replyToMessage?.takeUnless { isTopicRoot(message) } ?: message.externalReply)
+            ?.let { media(it, quoted = true) }
         val builder = IncomingMessage.builder(
             ref,
             user(from, message.senderChat),
@@ -132,7 +135,7 @@ internal class UpdateReader(
     }
 
     /** The files of [message], each as an attachment of the quoted message when [quoted]. */
-    private fun media(message: Message, quoted: Boolean): List<MediaAttachment> = buildList {
+    private fun media(message: MessageFiles, quoted: Boolean): List<MediaAttachment> = buildList {
         fun file(kind: MediaKind, mediaType: String, media: TelegramMedia, name: String? = media.fileName) {
             add(attachment(kind, mediaType, media, name, quoted))
         }
@@ -218,8 +221,8 @@ internal class UpdateReader(
     private fun quote(message: Message, chat: ChatAddress): Quote? {
         val replied = message.replyToMessage?.takeUnless { isTopicRoot(message) }
         if (replied != null) {
-            val approval = approvals.quoted(message.chat.id, replied.messageId)
-                ?.takeIf { replied.from?.id == bot.id && replied.senderChat == null }
+            val byBot = replied.from?.id == bot.id && replied.senderChat == null
+            val approval = approvals.quoted(message.chat.id, replied.messageId)?.takeIf { byBot }
             val text = approval ?: message.quote?.text ?: replied.text ?: replied.caption ?: ""
             val author = replied.senderChat?.let { Author(it.title, null, null) }
                 ?: replied.from?.let { Author(nameOf(it), UserAddress(instance, "${it.id}"), it.isBot) }
@@ -228,7 +231,7 @@ internal class UpdateReader(
                 .sender(author?.address)
                 .senderIsBot(author?.isBot)
                 .target(ChannelMessageRef(chat, "${replied.messageId}"))
-                .trust(if (approval == null) QuoteTrust.UNTRUSTED else VOUCHED)
+                .trust(if (approval != null) VOUCHED else trustOf(replied, byBot))
                 .build()
         }
         val external = message.externalReply ?: return null
@@ -239,6 +242,17 @@ internal class UpdateReader(
             .senderIsBot(author.isBot)
             .external(true)
             .build()
+    }
+
+    /**
+     * How far a quote of [replied], from this chat, is trusted: its content when an admin wrote it themselves or it is
+     * the bot's answer to an admin, which [byBot] sent; its author whenever Telegram names the user who sent it.
+     */
+    private fun trustOf(replied: Message, byBot: Boolean): QuoteTrust {
+        val author = replied.from?.takeIf { replied.senderChat == null } ?: return QuoteTrust.UNTRUSTED
+        val own = replied.forwardOrigin == null && replied.viaBot == null
+        val vouched = own && if (byBot) answeredAdmin(replied.chat.id, replied.messageId) else author.id in admins
+        return if (vouched) VOUCHED else AUTHOR_KNOWN
     }
 
     private fun forwarded(origin: MessageOrigin?): ForwardOrigin? {
@@ -268,6 +282,8 @@ internal class UpdateReader(
 private fun nameOf(user: User): String = listOfNotNull(user.firstName, user.lastName).joinToString(" ").trim()
 
 private val VOUCHED = QuoteTrust(live = true, content = true)
+
+private val AUTHOR_KNOWN = QuoteTrust(live = true, content = false)
 
 /** Model-facing facts of the media that [message] holds, which the channel does not pass on. */
 private fun facts(message: Message): List<DisplayFact> = listOfNotNull(
