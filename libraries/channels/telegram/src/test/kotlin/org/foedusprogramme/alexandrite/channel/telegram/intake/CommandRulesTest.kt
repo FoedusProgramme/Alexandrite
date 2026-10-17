@@ -105,6 +105,71 @@ class CommandRulesTest {
     }
 
     @Test
+    fun `the bot's config opens a plugin's command by name, in the form it names`() {
+        val opened = mapOf("purge" to Who.ANYONE, "notes" to Who.DIRECT)
+        val rules = CommandRules(listOf(ClaimedCommands("purge", "notes", "audit")), control, opened)
+        val member = testUser("bob")
+
+        for (arguments in listOf("", "all")) {
+            for (kind in kinds) {
+                assertEquals(null, rules.refusal(testCommand("purge", arguments, issuer = member), kind))
+                val notes = rules.refusal(testCommand("notes", arguments, issuer = member), kind)
+                assertEquals(if (kind == ChatKind.DIRECT) null else TextKeys.REFUSED_ADMIN_HERE, notes)
+                val audit = rules.refusal(testCommand("audit", arguments, issuer = member), kind)
+                assertEquals(TextKeys.REFUSED_ADMIN, audit)
+            }
+        }
+    }
+
+    @Test
+    fun `whether an issuer may run a command follows the refusals, the kind of chat told by its id`() {
+        val member = testUser("bob")
+        val admin = testUser("ada", isAdmin = true)
+        val direct = testChat("42")
+        val group = testChat("-100", "7")
+
+        for ((command, arguments) in listOf(
+            "settings" to "",
+            "model" to "",
+            "model" to "x/y",
+            "new" to "",
+            "agent" to "coder",
+            "home" to "",
+            "purge" to "",
+            "start" to "x",
+        )) {
+            for (chat in listOf(direct, group)) {
+                val kind = if (chat == direct) ChatKind.DIRECT else ChatKind.GROUP
+                val refused = rules.refusal(testCommand(command, arguments, chat, member), kind)
+                val withArguments = arguments.isNotEmpty()
+                assertEquals(refused == null, rules.mayRun(chat, false, command, withArguments), "/$command $arguments")
+                assertEquals(true, rules.mayRun(chat, true, command, withArguments))
+                assertEquals(null, rules.refusal(testCommand(command, arguments, chat, admin), kind))
+            }
+        }
+    }
+
+    @Test
+    fun `a menu lists what its users may run in some form, a direct chat taken as linked with no other`() {
+        val member = { direct: Boolean -> DEFAULT_COMMANDS.filter { rules.listed(it, false, direct) }.toSet() }
+
+        assertEquals(
+            setOf(
+                "settings", "context", "profiles", "agent", "reasoning", "language", "model", "mode", "jobs", "new",
+                "compact", "cancel",
+            ),
+            member(true),
+        )
+        assertEquals(
+            setOf("settings", "context", "profiles", "agent", "reasoning", "language", "model", "mode", "jobs"),
+            member(false),
+        )
+        val claimed = DEFAULT_COMMANDS.toList() + "purge"
+        for (direct in listOf(true, false)) assertEquals(claimed, claimed.filter { rules.listed(it, true, direct) })
+        assertEquals(false, rules.listed("purge", false, true))
+    }
+
+    @Test
     fun `a direct chat linked with a group is ruled as the group for what changes their shared conversation`() =
         runTest {
             val group = testChat("-100")

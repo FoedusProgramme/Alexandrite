@@ -117,6 +117,14 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         call("sendChatAction", body, Boolean.serializer())
     }
 
+    override suspend fun setMyCommands(request: SetMyCommands) {
+        call("setMyCommands", JSON.encodeToString(SetMyCommands.serializer(), request), Boolean.serializer())
+    }
+
+    override suspend fun deleteMyCommands(request: DeleteMyCommands) {
+        call("deleteMyCommands", JSON.encodeToString(DeleteMyCommands.serializer(), request), Boolean.serializer())
+    }
+
     override fun close() {
         transport.close()
     }

@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
+import org.foedusprogramme.alexandrite.channel.telegram.api.DeleteMyCommands
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageReplyMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
 import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
@@ -18,6 +19,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendFile
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
+import org.foedusprogramme.alexandrite.channel.telegram.api.SetMyCommands
 import org.foedusprogramme.alexandrite.channel.telegram.api.TelegramFile
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
@@ -159,6 +161,10 @@ internal class MemoryBotApi : BotApi {
         sent += SentCall("sendChatAction", chat, thread = thread)
         failures["sendChatAction"]?.removeFirstOrNull()?.let { throw it }
     }
+
+    override suspend fun setMyCommands(request: SetMyCommands) {}
+
+    override suspend fun deleteMyCommands(request: DeleteMyCommands) {}
 
     private suspend fun upload(method: String, request: SendFile): Message {
         val caption = request.caption

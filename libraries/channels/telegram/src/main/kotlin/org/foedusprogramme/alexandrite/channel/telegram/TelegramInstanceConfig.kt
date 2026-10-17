@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
 import kotlinx.serialization.Serializable
+import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
+import org.foedusprogramme.alexandrite.channel.telegram.intake.Who
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
@@ -23,6 +25,10 @@ internal class TelegramInstanceConfig(
     val streaming: StreamingConfig = StreamingConfig(),
     /** How long an approval request waits for an admin's answer. */
     val approvalMinutes: Int = 10,
+    /** Whether the bot publishes its command menu. */
+    val commandMenu: Boolean = true,
+    /** Who may run each named command of another plugin, which only admins may run otherwise. */
+    val commands: Map<String, Who> = emptyMap(),
 ) {
     init {
         val token = botToken.reveal()
@@ -41,6 +47,12 @@ internal class TelegramInstanceConfig(
             "apiBaseUrl must be an http or https URL without user info, query or fragment"
         }
         require(approvalMinutes in 1..MAX_APPROVAL_MINUTES) { "approvalMinutes must lie between 1 and 1440" }
+        for (name in commands.keys) {
+            require(COMMAND.matches(name)) {
+                "commands.$name must name a command: lowercase letters, digits and '_', 32 characters at most"
+            }
+            require(name !in CommandRules.MATRIX) { "commands.$name: /$name keeps the rule of the default commands" }
+        }
     }
 
     /** [apiBaseUrl] without a trailing `/`. */
@@ -85,6 +97,8 @@ internal fun configPath(instance: ChannelInstanceId, key: String? = null): Strin
     listOfNotNull("channels.telegram.instances.${instance.name}", key).joinToString(".")
 
 private val TOKEN = Regex("[0-9]+:[A-Za-z0-9_-]{30,}")
+
+private val COMMAND = Regex("[a-z0-9_]{1,32}")
 
 private const val MAX_INTERVAL = 60_000L
 

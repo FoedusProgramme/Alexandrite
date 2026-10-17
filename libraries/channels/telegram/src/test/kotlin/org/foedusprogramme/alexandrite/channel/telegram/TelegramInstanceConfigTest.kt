@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
+import org.foedusprogramme.alexandrite.channel.telegram.intake.Who
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -68,6 +69,32 @@ class TelegramInstanceConfigTest {
         val config = decode(withToken(""""adminUserIds": [7], "allowedChats": [7, -1001234567890]"""))
         assertEquals(listOf(7L), config.adminUserIds)
         assertEquals(listOf(7L, -1001234567890L), config.allowedChats)
+    }
+
+    @Test
+    fun `the menu is on and another plugin's command is opened by its name to whom it names`() {
+        assertTrue(decode(withToken()).commandMenu)
+        assertEquals(emptyMap(), decode(withToken()).commands)
+
+        val config = decode(withToken(""""commandMenu": false, "commands": {"notes": "anyone", "purge": "direct"}"""))
+
+        assertFalse(config.commandMenu)
+        assertEquals(mapOf("notes" to Who.ANYONE, "purge" to Who.DIRECT), config.commands)
+        assertEquals(Who.UNLINKED_DIRECT, decode(withToken(""""commands": {"x": "unlinked_direct"}""")).commands["x"])
+        assertEquals(Who.ADMIN, decode(withToken(""""commands": {"x": "admin"}""")).commands["x"])
+        assertFailsWith<SerializationException> { decode(withToken(""""commands": {"notes": "everyone"}""")) }
+    }
+
+    @Test
+    fun `a malformed command name and a default command are refused in the commands`() {
+        for (name in listOf("Notes", "my-notes", "", "a".repeat(33))) {
+            val message = refusal(withToken(""""commands": {"$name": "anyone"}"""))
+            assertTrue("commands.$name must name a command" in message, message)
+        }
+        for (name in listOf("new", "model", "home", "trust", "help")) {
+            val message = refusal(withToken(""""commands": {"$name": "anyone"}"""))
+            assertTrue("/$name keeps the rule of the default commands" in message, message)
+        }
     }
 
     @Test

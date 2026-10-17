@@ -146,6 +146,11 @@ internal object TextKeys {
     const val VALUE_HOST: String = "value.host"
     const val LIST_ITEM: String = "list.item"
 
+    const val HELP_LIST: String = "help.list"
+    const val HELP_NONE: String = "help.none"
+    const val HELP_ITEM: String = "help.item"
+    const val HELP_ITEM_BARE: String = "help.item_bare"
+
     const val PROFILES_LIST: String = "profiles.list"
     const val PROFILES_NONE: String = "profiles.none"
     const val PROFILES_ITEM: String = "profiles.item"

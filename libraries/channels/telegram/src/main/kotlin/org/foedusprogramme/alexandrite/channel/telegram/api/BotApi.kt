@@ -33,6 +33,10 @@ internal interface BotApi {
 
     /** Shows that the bot is typing in [chat], or in its topic [thread]. */
     suspend fun sendChatAction(chat: Long, thread: Long?)
+
+    suspend fun setMyCommands(request: SetMyCommands)
+
+    suspend fun deleteMyCommands(request: DeleteMyCommands)
 }
 
 /** A Bot API call that failed. */

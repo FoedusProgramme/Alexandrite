@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -32,6 +33,9 @@ public interface Channel {
      */
     public suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer =
         ApprovalAnswer.Unavailable("this channel cannot ask for approvals")
+
+    /** Whether [issuer] may run [command] in [chat], bare or with arguments; true where the channel sets no rules. */
+    public fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean = true
 }
 
 /** The reply of one turn, which delivers until the channel instance stops and then takes calls without delivering. */

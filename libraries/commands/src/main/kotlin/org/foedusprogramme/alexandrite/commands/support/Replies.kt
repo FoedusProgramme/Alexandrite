@@ -72,8 +72,8 @@ internal class Setting(val value: String, val source: String)
 
 internal fun Texts.replies(language: LanguageTag?): Replies = Replies(this, language)
 
-/** The command [name], described by the English text of its description. */
-internal fun Texts.spec(name: String): CommandSpec =
-    CommandSpec.builder(name, text(TextKeys.description(name), ENGLISH)).build()
+/** The command [name], described in the host's language. */
+internal fun Texts.spec(name: String): CommandSpec = CommandSpec.builder(name, description(name, null)).build()
 
-private val ENGLISH = LanguageTag("en")
+internal fun Texts.description(command: String, language: LanguageTag?): String =
+    text(TextKeys.description(command), language)

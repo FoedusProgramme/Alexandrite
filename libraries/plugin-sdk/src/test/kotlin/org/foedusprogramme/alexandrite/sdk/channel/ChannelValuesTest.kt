@@ -24,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -223,17 +224,24 @@ class ChannelValuesTest {
         assertFailsWith<IllegalArgumentException> { request("k3x9", tool = "fs-write") }
     }
 
+    private val bare = object : Channel {
+        override suspend fun capabilities(chat: ChatAddress) = ChannelCapabilities.builder().build()
+
+        override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = 1
+
+        override suspend fun openReply(request: ReplyRequest): ReplySink = error("Not opened.")
+
+        override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = error("Not sent.")
+    }
+
+    @Test
+    fun `a channel that sets no command rules lets anyone run any command, bare or with arguments`() {
+        for (withArguments in listOf(false, true)) assertTrue(bare.mayRun(chat, sender, "new", withArguments))
+    }
+
     @Test
     fun `a channel that does not ask for approvals answers that it cannot`() {
-        val channel = object : Channel {
-            override suspend fun capabilities(chat: ChatAddress) = ChannelCapabilities.builder().build()
-
-            override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = 1
-
-            override suspend fun openReply(request: ReplyRequest): ReplySink = error("Not opened.")
-
-            override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = error("Not sent.")
-        }
+        val channel = bare
         val request = ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x", null)
 
         assertEquals(

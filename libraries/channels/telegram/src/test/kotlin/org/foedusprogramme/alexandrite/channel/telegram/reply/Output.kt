@@ -15,6 +15,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
 import org.foedusprogramme.alexandrite.channel.telegram.intake.ChatTitles
+import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
 import org.foedusprogramme.alexandrite.channel.telegram.intake.MemoryBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.intake.RecordingControl
 import org.foedusprogramme.alexandrite.channel.telegram.intake.TestInstance
@@ -60,8 +61,8 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
         .also { runBlocking { it.onStart() } }
     private val approvals =
         ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())
-    val channel =
-        TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session), texts, approvals)
+    private val deliveries = Deliveries(instance, config, gate, outbox, Typing(instance, api, limiter, session), texts)
+    val channel = TelegramChannel(instance, config, gate, deliveries, approvals, CommandRules(emptyList(), null))
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */
     suspend fun open(chat: Long = DIRECT, trigger: String? = "41", thread: Long? = null): ReplySink {

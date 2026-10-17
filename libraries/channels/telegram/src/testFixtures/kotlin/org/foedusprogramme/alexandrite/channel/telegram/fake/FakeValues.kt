@@ -52,6 +52,9 @@ public class FakeChat internal constructor(
     }
 }
 
+/** The scope of a command menu, as `setMyCommands` names it. */
+public data class FakeScope(public val type: String, public val chat: Long? = null, public val user: Long? = null)
+
 /** A forum topic, whose thread id is the id of its root message. */
 public class FakeTopic internal constructor(
     public val chat: FakeChat,

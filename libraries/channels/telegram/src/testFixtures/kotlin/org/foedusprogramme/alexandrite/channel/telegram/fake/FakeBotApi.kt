@@ -62,6 +62,9 @@ public class FakeBotApi(
     private val received = mutableListOf<FakeCall>()
     private val scripts = HashMap<String, ArrayDeque<Step>>()
     private val files = HashMap<String, FakeFile>()
+
+    /** The command menus the bot set, by scope and language code. */
+    private val menus = HashMap<Pair<FakeScope, String>, Map<String, String>>()
     private var lastFileId = 0L
 
     /** The file part of the last form received for each method. */
@@ -299,6 +302,16 @@ public class FakeBotApi(
 
     public fun botMessage(chat: Long, id: Long): FakeBotMessage? = lock.withLock { sent[chat to id] }
 
+    /**
+     * The command menu the bot set for the scope of [type], [chat] and [user] in [language], empty for every language:
+     * the description of each command, in order; null when it set none.
+     */
+    public fun menu(type: String, chat: Long? = null, user: Long? = null, language: String = ""): Map<String, String>? =
+        lock.withLock { menus[FakeScope(type, chat, user) to language] }
+
+    /** The scopes and languages of the command menus the bot set. */
+    public val menuKeys: Set<Pair<FakeScope, String>> get() = lock.withLock { menus.keys.toSet() }
+
     /** Answers the [nth] call of [method] with a failure of [status] carrying [description]. */
     public fun fail(
         method: String,
@@ -453,6 +466,8 @@ public class FakeBotApi(
             method == "deleteMessage" -> deleteMessage(params)
             method == "answerCallbackQuery" -> answerCallbackQuery(params)
             method == "sendChatAction" -> sendChatAction(params)
+            method == "setMyCommands" -> setMyCommands(params)
+            method == "deleteMyCommands" -> deleteMyCommands(params)
             else -> 404 to error(404, "Not Found")
         }
         write(exchange, status, body.toString())
@@ -689,6 +704,52 @@ public class FakeBotApi(
         200 to ok(JsonPrimitive(true))
     }
 
+    private fun setMyCommands(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val (key, problem) = menuKey(params)
+        if (key == null) return 400 to error(400, problem.orEmpty())
+        val commands = params["commands"] as? JsonArray
+            ?: return 400 to error(400, "Bad Request: field \"commands\" must be an array")
+        if (commands.size > MAX_COMMANDS) return 400 to error(400, "Bad Request: too many commands")
+        val menu = LinkedHashMap<String, String>()
+        for (command in commands) {
+            val fields = command as? JsonObject ?: return 400 to error(400, BAD_COMMAND)
+            val name = fields.string("command")
+            val description = fields.string("description")
+            if (name == null || !COMMAND.matches(name) || name in menu) return 400 to error(400, BAD_COMMAND)
+            if (description.isNullOrBlank() || description.length > MAX_DESCRIPTION) {
+                return 400 to error(400, "Bad Request: BOT_COMMAND_DESCRIPTION_INVALID")
+            }
+            menu[name] = description
+        }
+        if (menu.isEmpty()) menus.remove(key) else menus[key] = menu
+        changed.signalAll()
+        200 to ok(JsonPrimitive(true))
+    }
+
+    private fun deleteMyCommands(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val (key, problem) = menuKey(params)
+        if (key == null) return 400 to error(400, problem.orEmpty())
+        menus.remove(key)
+        changed.signalAll()
+        200 to ok(JsonPrimitive(true))
+    }
+
+    /** The menu that [params] name, else null and what is wrong with them. */
+    private fun menuKey(params: JsonObject): Pair<Pair<FakeScope, String>?, String?> {
+        val scope = params["scope"] as? JsonObject ?: buildJsonObject { put("type", "default") }
+        val type = scope.string("type")?.takeIf { it in SCOPES } ?: return null to "Bad Request: unsupported scope type"
+        val chat = scope.long("chat_id")
+        val user = scope.long("user_id")
+        val language = params.string("language_code").orEmpty()
+        val problem = when {
+            type in CHAT_SCOPES && (chat == null || !chats.containsKey(chat)) -> CHAT_NOT_FOUND
+            type == "chat_member" && user == null -> "Bad Request: user not found"
+            language.isNotEmpty() && !LANGUAGE.matches(language) -> "Bad Request: invalid language code specified"
+            else -> null
+        }
+        return if (problem == null) (FakeScope(type, chat, user) to language) to null else null to problem
+    }
+
     private fun textProblem(text: String, entities: JsonArray): String? {
         if (text.isEmpty()) return "Bad Request: message text is empty"
         if (text.length > MAX_TEXT) return "Bad Request: message is too long"
@@ -746,6 +807,21 @@ public class FakeBotApi(
         const val BAD_MARKUP = "Bad Request: can't parse reply keyboard markup JSON object"
         const val QUERY_INVALID =
             "Bad Request: query is too old and response timeout expired or query ID is invalid"
+        const val MAX_COMMANDS = 100
+        const val MAX_DESCRIPTION = 256
+        const val BAD_COMMAND = "Bad Request: BOT_COMMAND_INVALID"
+        val COMMAND = Regex("[a-z0-9_]{1,32}")
+        val LANGUAGE = Regex("[a-z]{2}")
+        val SCOPES = setOf(
+            "default",
+            "all_private_chats",
+            "all_group_chats",
+            "all_chat_administrators",
+            "chat",
+            "chat_administrators",
+            "chat_member",
+        )
+        val CHAT_SCOPES = setOf("chat", "chat_administrators", "chat_member")
         val PATH = Regex("/bot([^/]*)/([A-Za-z]+)")
         val FILE_PATH = Regex("/file/bot([^/]*)/(.+)")
         val JSON_HEADERS = mapOf("content-type" to "application/json")

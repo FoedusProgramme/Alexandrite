@@ -2,10 +2,12 @@ package org.foedusprogramme.alexandrite.commands.chat
 
 import org.foedusprogramme.alexandrite.commands.support.Replies
 import org.foedusprogramme.alexandrite.commands.support.TextKeys
+import org.foedusprogramme.alexandrite.commands.support.description
 import org.foedusprogramme.alexandrite.commands.support.isKeyword
 import org.foedusprogramme.alexandrite.commands.support.replies
 import org.foedusprogramme.alexandrite.commands.support.spec
 import org.foedusprogramme.alexandrite.commands.support.words
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
@@ -25,6 +27,8 @@ import java.time.Duration
 internal class JobCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(JOBS))
+
+    override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
         val replies = texts.replies(context.turn.language)

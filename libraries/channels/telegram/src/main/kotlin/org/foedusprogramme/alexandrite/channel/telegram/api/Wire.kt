@@ -260,3 +260,37 @@ internal class SendChatAction(
     @SerialName("message_thread_id") val messageThreadId: Long?,
     val action: String,
 )
+
+@Serializable
+internal data class BotCommand(val command: String, val description: String)
+
+/** The chats and users a command menu applies to. */
+@Serializable
+internal data class BotCommandScope(
+    val type: String,
+    @SerialName("chat_id") val chatId: Long? = null,
+    @SerialName("user_id") val userId: Long? = null,
+) {
+    companion object {
+        val PRIVATE_CHATS = BotCommandScope("all_private_chats")
+        val GROUP_CHATS = BotCommandScope("all_group_chats")
+
+        fun chat(chat: Long): BotCommandScope = BotCommandScope("chat", chat)
+
+        fun member(chat: Long, user: Long): BotCommandScope = BotCommandScope("chat_member", chat, user)
+    }
+}
+
+@Serializable
+internal class SetMyCommands(
+    val commands: List<BotCommand>,
+    val scope: BotCommandScope,
+    /** The two-letter language of the users it applies to, every language when null. */
+    @SerialName("language_code") val languageCode: String? = null,
+)
+
+@Serializable
+internal class DeleteMyCommands(
+    val scope: BotCommandScope,
+    @SerialName("language_code") val languageCode: String? = null,
+)

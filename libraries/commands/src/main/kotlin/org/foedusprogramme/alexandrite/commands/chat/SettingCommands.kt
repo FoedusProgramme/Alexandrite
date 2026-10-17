@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.commands.support.RESET
 import org.foedusprogramme.alexandrite.commands.support.Replies
 import org.foedusprogramme.alexandrite.commands.support.TextKeys
 import org.foedusprogramme.alexandrite.commands.support.commandWord
+import org.foedusprogramme.alexandrite.commands.support.description
 import org.foedusprogramme.alexandrite.commands.support.groupOf
 import org.foedusprogramme.alexandrite.commands.support.isKeyword
 import org.foedusprogramme.alexandrite.commands.support.refusing
@@ -37,6 +38,8 @@ import kotlin.time.Duration.Companion.seconds
 internal class SettingCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
     override val commands: List<CommandSpec> = listOf(MODEL, REASONING, LANGUAGE, SETTINGS).map(texts::spec)
+
+    override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
         val replies = texts.replies(context.turn.language)
