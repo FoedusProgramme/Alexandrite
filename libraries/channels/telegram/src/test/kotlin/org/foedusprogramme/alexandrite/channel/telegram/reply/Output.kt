@@ -28,6 +28,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.testkit.TestChatStates
 import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testTexts
 import org.foedusprogramme.alexandrite.testkit.testTurn
@@ -44,15 +45,23 @@ val THREE_MESSAGES = "a".repeat(4_000) + "\n\n" + "b".repeat(4_000) + "\n\n" + "
  * [DIRECT], the direct chat after it and [GROUP] are paired.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-internal class Output(test: TestScope, streaming: Boolean = true) {
+internal class Output(
+    test: TestScope,
+    streaming: Boolean = true,
+    mode: StreamingMode = StreamingMode.EDIT,
+    quote: Boolean = true,
+) {
     val api = MemoryBotApi().apply { clock = { test.currentTime } }
     val control = RecordingControl()
     private val instance = TestInstance(test.backgroundScope)
     private val config = TelegramInstanceConfig(
         Secret(FAKE_BOT_TOKEN),
         allowedChats = listOf(DIRECT, DIRECT + 1, GROUP),
-        streaming = StreamingConfig(streaming),
+        streaming = StreamingConfig(streaming, mode = mode, quote = quote),
     )
+
+    /** The chats' own `/streaming` choices. */
+    val choices = StreamingChoices(TestChatStates().of("alexandrite-channel-telegram"))
     val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
     private val session = BotSession(instance, config, api, TelegramBots(), control)
     private val texts = testTexts("alexandrite-channel-telegram")
@@ -61,7 +70,16 @@ internal class Output(test: TestScope, streaming: Boolean = true) {
         .also { runBlocking { it.onStart() } }
     private val approvals =
         ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())
-    private val deliveries = Deliveries(instance, config, gate, outbox, Typing(instance, api, limiter, session), texts)
+    private val deliveries =
+        Deliveries(
+            instance,
+            config,
+            gate,
+            outbox,
+            Typing(instance, api, limiter, session),
+            texts,
+            ReplyStyles(config, choices),
+        )
     val channel = TelegramChannel(instance, config, gate, deliveries, approvals, CommandRules(emptyList(), null))
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */

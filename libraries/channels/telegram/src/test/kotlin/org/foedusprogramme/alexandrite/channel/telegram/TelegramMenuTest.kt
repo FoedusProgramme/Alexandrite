@@ -169,9 +169,10 @@ class TelegramMenuTest {
 
     private companion object {
         val CHINESE = LanguageTag("zh-CN")
-        val DEFAULT_COMMANDS = TelegramHarness.DEFAULT_COMMANDS.toList()
-        val MEMBER_GROUP =
-            listOf("agent", "context", "jobs", "language", "mode", "model", "profiles", "reasoning", "settings")
+        val DEFAULT_COMMANDS = TelegramHarness.DEFAULT_COMMANDS.toList() + "streaming"
+        val MEMBER_GROUP = listOf(
+            "agent", "context", "jobs", "language", "mode", "model", "profiles", "reasoning", "settings", "streaming",
+        )
         val MEMBER_DIRECT = (MEMBER_GROUP + listOf("cancel", "compact", "new")).sorted()
     }
 }

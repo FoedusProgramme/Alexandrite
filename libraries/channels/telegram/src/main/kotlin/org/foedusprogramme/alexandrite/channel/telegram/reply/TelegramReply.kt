@@ -3,11 +3,13 @@ package org.foedusprogramme.alexandrite.channel.telegram.reply
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.format.FormattedText
@@ -24,6 +26,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.slf4j.LoggerFactory
@@ -34,7 +37,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * The reply of one turn: a Telegram message per segment, sent at the segment's first preview and edited in place, and
  * the final message in place of the current segment's, its later parts after it.
  *
- * An editor coroutine shows each segment's latest preview at the chat's preview pace, the lower segments first; a
+ * An editor coroutine shows each segment's latest preview at the chat's preview pace, the lower segments first, by
+ * editing the segment's message, or in natural mode by sending each paragraph once written as a message of its own; a
  * second one shows the activity message of each segment's stretch of tool calls, the same way, holding off a
  * segment's first activity message until its own text message is sent.
  */
@@ -42,6 +46,7 @@ internal class TelegramReply(
     request: ReplyRequest,
     private val target: Target,
     private val streaming: Boolean,
+    private val style: ReplyStyle,
     private val outbox: Outbox,
     private val typing: Typing,
     private val texts: Texts,
@@ -62,8 +67,10 @@ internal class TelegramReply(
     private var current = 0
     private var state = State.OPEN
 
-    /** The message the reply's messages may quote. */
-    private val trigger = target.quoteOf(request.trigger)
+    /** The message the reply's messages may quote, null when the chat's replies quote nothing. */
+    private val trigger = target.quoteOf(request.trigger).takeIf { style.quote }
+
+    private val natural = style.mode == StreamingMode.NATURAL
 
     /** The message the reply's first message quotes. */
     private var quote = trigger
@@ -87,7 +94,10 @@ internal class TelegramReply(
         synchronized(lock) {
             if (!accepts("A preview", segment) || !streaming) return
             current = segment
-            segments.getOrPut(segment, ::Segment).pending = text
+            segments.getOrPut(segment, ::Segment).apply {
+                pending = text
+                latest = text
+            }
             if (editor == null && !flushing) editor = launchEditor()
         }
         wake.trySend(Unit)
@@ -95,8 +105,21 @@ internal class TelegramReply(
 
     override suspend fun startSegment(segment: Int) {
         synchronized(lock) {
-            if (accepts("The start of a segment", segment)) current = segment
+            if (!accepts("The start of a segment", segment)) return
+            current = segment
+            if (!natural) return
+            // The earlier segments are written: what is left of them goes out now.
+            for (earlier in segments.headMap(segment).values) {
+                if (earlier.sent <
+                    earlier.latest.length
+                ) {
+                    earlier.pending = earlier.latest
+                }
+            }
+            if (segments.headMap(segment).values.none { it.pending != null }) return
+            if (editor == null && !flushing) editor = launchEditor()
         }
+        wake.trySend(Unit)
     }
 
     override suspend fun event(event: TurnEvent) {
@@ -303,6 +326,7 @@ internal class TelegramReply(
     }
 
     private suspend fun showNext() {
+        if (natural) return sendNextParagraph()
         val (index, text) = synchronized(lock) {
             val (index, segment) = segments.entries.firstOrNull { it.value.pending != null } ?: return
             val text = segment.pending ?: return
@@ -315,6 +339,7 @@ internal class TelegramReply(
 
     /** Shows the pending text of the frozen segments once, and of the current one too when [all]. */
     private suspend fun showFrozen(all: Boolean) {
+        if (natural) return sendFrozenParagraphs(all)
         val frozen = synchronized(lock) {
             segments.headMap(current, all).mapNotNull { (index, segment) ->
                 segment.pending?.let { text -> index to text }.also { segment.pending = null }
@@ -483,6 +508,7 @@ internal class TelegramReply(
     }
 
     private suspend fun deliver(message: OutboundMessage): Delivery {
+        if (natural) return deliverNatural(message)
         val parts = partsOf(formatted(message.text, message.markup))
             ?: return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
         val (index, existing) = synchronized(lock) { current to segments[current]?.message }
@@ -513,6 +539,104 @@ internal class TelegramReply(
         }
     }
 
+    /** Sends the next written paragraph of the lowest segment that has one, as a message of its own. */
+    private suspend fun sendNextParagraph() {
+        val (index, paragraph) = synchronized(lock) {
+            val (index, segment) = segments.entries.firstOrNull { it.value.pending != null } ?: return
+            val next = nextParagraph(segment.latest, segment.sent, whole = index < current)
+            if (next == null) {
+                segment.pending = null
+                return
+            }
+            index to next
+        }
+        try {
+            sendParagraph(index, paragraph)
+        } catch (e: Exception) {
+            // The paragraph waits for the next preview, or for the final reply, which sends what is left.
+            if (e !is CancellationException) synchronized(lock) { segments.getValue(index).pending = null }
+            throw e
+        }
+    }
+
+    /** Sends what is written of the frozen segments, and of the current one too when [all], a paragraph at a time. */
+    private suspend fun sendFrozenParagraphs(all: Boolean) {
+        for (index in synchronized(lock) { segments.headMap(current, all).keys.toList() }) {
+            while (true) {
+                val next = synchronized(lock) {
+                    val segment = segments.getValue(index)
+                    segment.pending = null
+                    nextParagraph(segment.latest, segment.sent, whole = index < current)
+                } ?: break
+                try {
+                    outbox.paced(target) { sendParagraph(index, next) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.debug("A paragraph of turn {} did not reach chat {}: {}", turn, chat, e.toString())
+                    break
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends [paragraph] of segment [index] as messages of its own, the reply's first quoting its trigger; once begun it
+     * runs to its end, so that the final reply knows what went out.
+     */
+    private suspend fun sendParagraph(index: Int, paragraph: Paragraph) = withContext(NonCancellable) {
+        val text = formatted(paragraph.text, Markup.MARKDOWN)
+        val parts = partsOf(text) ?: listOf(text.clipped(MAX_MESSAGE_LENGTH))
+        synchronized(lock) { segments.getValue(index).sending = true }
+        try {
+            for ((number, part) in parts.withIndex()) {
+                val send: suspend () -> Long = { outbox.sendText(target, part, synchronized(lock) { quote }) }
+                val id = if (number == 0) send() else outbox.paced(target, send)
+                synchronized(lock) {
+                    val segment = segments.getValue(index)
+                    if (segment.message == null) segment.message = id
+                    segment.messages += id
+                    quote = null
+                }
+            }
+            synchronized(lock) { segments.getValue(index).sent = paragraph.end }
+        } catch (e: BotApiException) {
+            outbox.checkToken(e)
+            throw e
+        } finally {
+            synchronized(lock) { segments.getValue(index).sending = false }
+            activityWake.trySend(Unit)
+        }
+    }
+
+    /**
+     * Delivers the final [message] in natural mode: the part of it after what the current segment sent, paragraph by
+     * paragraph, or all of it again when it does not go on from what was sent.
+     */
+    private suspend fun deliverNatural(message: OutboundMessage): Delivery {
+        val (sent, earlier) = synchronized(lock) {
+            val segment = segments[current]
+            segment?.latest?.take(segment.sent).orEmpty() to segment?.messages.orEmpty().toList()
+        }
+        val continues = sent.isNotBlank() && message.text.startsWith(sent)
+        val rest = if (continues) message.text.substring(sent.length) else message.text
+        val ids = if (continues) earlier.toMutableList() else mutableListOf()
+        val parts = paragraphs(rest).flatMap {
+            partsOf(formatted(it, message.markup)) ?: return@deliverNatural TOO_LONG
+        }
+        for (part in parts) {
+            try {
+                ids +=
+                    outbox.paced(target) {
+                        outbox.sendText(target, part, synchronized(lock) { quote.also { quote = null } })
+                    }
+            } catch (e: BotApiException) {
+                return outbox.failed(chat, e)
+            }
+        }
+        return Delivery.Delivered(ids.map { ChannelMessageRef(chat, "$it") })
+    }
+
     private class Segment {
         /** The message that shows the segment, null before it is sent. */
         var message: Long? = null
@@ -525,9 +649,20 @@ internal class TelegramReply(
 
         /** Whether the segment's first message is being sent. */
         var sending = false
+
+        /** The segment's whole text so far. */
+        var latest: String = ""
+
+        /** How much of [latest] went out as messages of their own, in natural mode. */
+        var sent: Int = 0
+
+        /** The messages that [sent] went out in, in natural mode. */
+        val messages: MutableList<Long> = mutableListOf()
     }
 
     private enum class State { OPEN, ENDED, STOPPED }
 }
+
+private val TOO_LONG = Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
 
 private val logger = LoggerFactory.getLogger(TelegramReply::class.java)

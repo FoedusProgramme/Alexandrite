@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
 import org.foedusprogramme.alexandrite.channel.telegram.intake.Who
+import org.foedusprogramme.alexandrite.channel.telegram.reply.StreamingMode
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
@@ -83,6 +84,10 @@ internal class StreamingConfig(
     val editIntervalMillis: Long = 1000,
     /** The shortest pause between two preview edits in a group. */
     val groupEditIntervalMillis: Long = 3000,
+    /** How a chat sees a reply come, unless it chose otherwise with `/streaming`. */
+    val mode: StreamingMode = StreamingMode.EDIT,
+    /** Whether a reply quotes the message it answers, unless the chat chose otherwise. */
+    val quote: Boolean = true,
 ) {
     init {
         require(editIntervalMillis in 0..MAX_INTERVAL) { "streaming.editIntervalMillis must lie between 0 and 60000" }

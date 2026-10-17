@@ -18,6 +18,17 @@ internal object TextKeys {
     const val UNSUPPORTED: String = "unsupported.message"
     const val UNFINISHED: String = "shutdown.unfinished"
 
+    const val STREAMING_DESCRIPTION: String = "command.streaming.description"
+
+    const val STREAMING_USAGE: String = "streaming.usage"
+
+    /** Takes `{mode}` and `{quote}`. */
+    const val STREAMING_NOW: String = "streaming.now"
+
+    const val STREAMING_BOT_DEFAULT: String = "streaming.bot_default"
+
+    const val STREAMING_ELSEWHERE: String = "streaming.elsewhere"
+
     /** Takes `{id}`. */
     const val APPROVAL_TITLE: String = "approval.title"
 

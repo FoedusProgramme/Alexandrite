@@ -112,6 +112,7 @@ internal class CommandRules(
             "trust" to CommandRule(Who.ADMIN),
             "untrust" to CommandRule(Who.ADMIN),
             "allow" to CommandRule(Who.ADMIN),
+            "streaming" to CommandRule(Who.ANYONE, Who.DIRECT),
         )
 
         private val ADMIN_ONLY = CommandRule(Who.ADMIN)
