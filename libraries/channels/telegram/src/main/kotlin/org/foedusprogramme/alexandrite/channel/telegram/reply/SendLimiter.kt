@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.telegram.reply
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -108,23 +109,29 @@ internal class SendLimiter(
             until - now
         }
         if (backOff.isPositive()) withTimeoutOrNull(backOff) { closed.await() }
-        if (chat != null && spacing != null) {
-            delay(
-                reserve { now ->
-                    val slots = slots(chat, now)
-                    maxOf(now, slots.preview).also { slots.preview = it + spacing }
-                },
-            )
-        }
-        if (chat != null && paced) {
-            delay(
-                reserve { now ->
-                    val slots = slots(chat, now)
-                    maxOf(now, slots.next).also { slots.next = it + chatInterval }
-                },
-            )
-        }
+        if (chat != null && spacing != null) waitFor(chat, spacing) { it.preview }
+        if (chat != null && paced) waitFor(chat, chatInterval) { it.next }
         delay(reserve { now -> maxOf(now, nextGlobal).also { nextGlobal = it + globalInterval } })
+    }
+
+    /**
+     * Waits for the next free slot of [chat]'s [ledger], [spacing] long; a call cancelled while it waits, such as a
+     * preview that the final reply stops, frees its slot for the calls after it.
+     */
+    private suspend fun waitFor(chat: Long, spacing: Duration, ledger: (ChatSlots) -> Ledger) {
+        val (taken, wait) = synchronized(lock) {
+            val now = timeSource.markNow()
+            val slots = ledger(slots(chat, now))
+            val start = maxOf(now, slots.free)
+            slots.take(start + spacing) to (start - now)
+        }
+        try {
+            delay(wait)
+        } catch (e: CancellationException) {
+            synchronized(lock) { taken.drop() }
+            throw e
+        }
+        synchronized(lock) { taken.use() }
     }
 
     /** The wait until the slot that [take] reserves at the time it is given. */
@@ -149,17 +156,49 @@ internal class SendLimiter(
     /** The slots of [chat], dropping those of chats whose slots have all passed once there are too many. */
     private fun slots(chat: Long, now: ComparableTimeMark): ChatSlots {
         if (chats.size >= MAX_TRACKED_CHATS && chat !in chats) {
-            chats.values.removeIf { it.next <= now && it.preview <= now && it.backOff <= now }
+            chats.values.removeIf { it.next.free <= now && it.preview.free <= now && it.backOff <= now }
         }
-        return chats.getOrPut(chat) { ChatSlots(now, now, now) }
+        return chats.getOrPut(chat) { ChatSlots(Ledger(now), Ledger(now), now) }
     }
 
     private class ChatSlots(
-        var next: ComparableTimeMark,
-        var preview: ComparableTimeMark,
+        val next: Ledger,
+        val preview: Ledger,
         /** When the chat's last 429 has been waited out. */
         var backOff: ComparableTimeMark,
     )
+
+    /** The slots of one kind in a chat: those used, and those that calls still wait for. */
+    private class Ledger(private var used: ComparableTimeMark) {
+        /** The ends of the slots that calls wait for. */
+        private val waiting = mutableListOf<ComparableTimeMark>()
+
+        /** When the slots used and waited for end. */
+        val free: ComparableTimeMark get() = waiting.fold(used, ::maxOf)
+
+        /** Takes the slot that ends at [end] for a call that waits for it. */
+        fun take(end: ComparableTimeMark): Taken = object : Taken {
+            init {
+                waiting += end
+            }
+
+            override fun use() {
+                waiting -= end
+                used = maxOf(used, end)
+            }
+
+            override fun drop() {
+                waiting -= end
+            }
+        }
+    }
+
+    /** A slot that a call waits for: [use]d once the call goes ahead, [drop]ped when it is cancelled first. */
+    private interface Taken {
+        fun use()
+
+        fun drop()
+    }
 
     internal companion object {
         const val MAX_TRACKED_CHATS = 1024
