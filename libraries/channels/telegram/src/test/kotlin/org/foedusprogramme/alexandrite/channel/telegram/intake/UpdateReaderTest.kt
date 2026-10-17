@@ -463,8 +463,8 @@ class UpdateReaderTest {
     }
 
     @Test
-    fun `a bare mention is ignored unless it replies to a message, whose quote is the message`() {
-        assertEquals("it only mentions the bot", ignored("group_bare_mention"))
+    fun `a bare mention reaches the agent as written, or as the quote of the message it replies to`() {
+        assertEquals("@alexandrite_test_bot", message("group_bare_mention").text)
         val reply = message("group_bare_mention_reply")
         assertEquals("", reply.text)
         assertEquals("Deploy at five.", reply.quote?.text)

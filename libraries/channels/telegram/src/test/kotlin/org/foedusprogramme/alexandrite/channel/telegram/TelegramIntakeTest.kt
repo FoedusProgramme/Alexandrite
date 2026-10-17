@@ -89,14 +89,17 @@ class TelegramIntakeTest {
             fake.send(telegram.bob, telegram.group, "/start@other_bot")
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot what is new?")
             fake.send(telegram.bob, telegram.group, "And the tests?", replyTo = bot.messageId)
-            telegram.consumed(4)
+            fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot")
+            telegram.consumed(5)
 
-            val (mention, reply) = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message }
+            val (mention, reply, bare) =
+                telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message }
             assertEquals("what is new?", mention.text)
             assertEquals(ChatInfo(ChatKind.GROUP, "Backend", null), mention.chatInfo)
             assertEquals("And the tests?", reply.text)
             assertEquals(true, reply.quote?.senderIsBot)
-            assertEquals(2, telegram.submitter.submissions.size)
+            assertEquals("@alexandrite_test_bot", bare.text)
+            assertEquals(3, telegram.submitter.submissions.size)
         }
     }
 

@@ -129,7 +129,10 @@ internal class UpdateReader(
             withoutMentions(body, entities).trim().takeIf { it.isNotEmpty() }
         }.joinToString("\n\n")
         if (text.isEmpty() && quote == null && media.isEmpty()) {
-            return if (facts.isEmpty()) Inbound.Ignored("it only mentions the bot") else Inbound.Unsupported(chat, ref)
+            if (facts.isNotEmpty()) return Inbound.Unsupported(chat, ref)
+            // A bare mention reaches the model as it was written, which tells it all there is to tell.
+            val mention = parts.mapNotNull { it.text ?: it.caption }.joinToString("\n\n").trim()
+            return Inbound.Message(builder.text(mention).build())
         }
         return Inbound.Message(builder.text(text).build())
     }
