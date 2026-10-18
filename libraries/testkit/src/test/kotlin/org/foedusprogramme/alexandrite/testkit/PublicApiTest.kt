@@ -277,6 +277,7 @@ class PublicApiTest {
             return listOf(
                 mandate,
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
+                context.trigger,
                 context.turn, context.call, context.model, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
                 context.clearance, context.untrustedReasons, context.conversationDirectory,
                 context.openConversationDirectory(), quotaRefusal, background.toString(),
