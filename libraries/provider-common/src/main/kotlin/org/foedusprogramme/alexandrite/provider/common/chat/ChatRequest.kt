@@ -154,12 +154,40 @@ internal class ChatRequest(
     private fun media(part: MediaPart): Content {
         val source = part.source
         if (part.kind == MediaKind.IMAGE && MediaKind.IMAGE in info.inputMedia && source is InlineMedia) {
-            val encoded = Base64.getEncoder().encodeToString(source.bytes())
-            return Content.Image("data:${part.mediaType};base64,$encoded")
+            val bytes = source.bytes()
+            val type = imageType(part.mediaType, bytes)
+            if (type != null) {
+                return Content.Image("data:$type;base64," + Base64.getEncoder().encodeToString(bytes))
+            }
+            // A channel that can only name the kind of what it holds leaves the format to the bytes. Sending the kind
+            // as the type is refused for the whole request rather than for this part, which fails every turn that
+            // carries it, so what no format is read as is left out and said to be.
+            warnings += Warning(
+                "unsupported_media",
+                "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}: no image of a known format.",
+            )
+            return Content.Text(placeholder(part, "it is in no format the model takes"))
         }
         warnings += Warning("unsupported_media", "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
         return Content.Text(placeholder(part, "the model cannot take it"))
     }
+
+    // The type to send the bytes as: what the channel declared where it names a format, and where it names only the
+    // kind, the format the bytes themselves are, or null when they are no image the models take.
+    private fun imageType(declared: String, bytes: ByteArray): String? {
+        if (!declared.endsWith("/*")) return declared
+        return when {
+            bytes.startsWith(PNG) -> "image/png"
+            bytes.startsWith(JPEG) -> "image/jpeg"
+            bytes.startsWith(GIF) -> "image/gif"
+            bytes.startsWith(RIFF) && bytes.size > 12 && bytes.copyOfRange(8, 12).contentEquals(WEBP) -> "image/webp"
+            else -> null
+        }
+    }
+
+    // Whether these bytes begin with those, which is how a format is read from an image.
+    private fun ByteArray.startsWith(prefix: ByteArray): Boolean =
+        size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }
 
     private fun assistant(entry: AssistantEntry): JsonObject = buildJsonObject {
         put("role", "assistant")
@@ -255,5 +283,12 @@ internal class ChatRequest(
 
     private companion object {
         const val SEPARATOR = "\n\n"
+
+        // The bytes an image of each format begins with, which say what a channel that named only the kind holds.
+        val PNG: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val JPEG: ByteArray = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
+        val GIF: ByteArray = "GIF8".toByteArray()
+        val RIFF: ByteArray = "RIFF".toByteArray()
+        val WEBP: ByteArray = "WEBP".toByteArray()
     }
 }
