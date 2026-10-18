@@ -240,7 +240,7 @@ class TelegramIntakeTest {
     @Test
     fun `content the bot does not read is told once an hour`() {
         telegram.run {
-            repeat(2) { fake.queue(sticker()) }
+            repeat(2) { fake.queue(location()) }
             telegram.consumed(2)
         }
 
@@ -356,17 +356,14 @@ class TelegramIntakeTest {
         return problem.message
     }
 
-    private fun sticker() = buildJsonObject {
+    private fun location() = buildJsonObject {
         put("from", telegram.bob.json())
         put("chat", telegram.bobChat.json())
         put(
-            "sticker",
+            "location",
             buildJsonObject {
-                put("file_id", "CAAC")
-                put("file_unique_id", "AgAD")
-                put("type", "regular")
-                put("width", 512)
-                put("height", 512)
+                put("latitude", 51.5)
+                put("longitude", -0.12)
             },
         )
     }

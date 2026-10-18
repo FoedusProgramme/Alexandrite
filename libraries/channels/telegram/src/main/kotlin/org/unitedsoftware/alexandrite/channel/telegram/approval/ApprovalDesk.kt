@@ -21,6 +21,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.format.FormattedText
 import org.unitedsoftware.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.unitedsoftware.alexandrite.channel.telegram.format.Span
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
+import org.unitedsoftware.alexandrite.channel.telegram.i18n.languageOrNull
 import org.unitedsoftware.alexandrite.channel.telegram.intake.AccessGate
 import org.unitedsoftware.alexandrite.channel.telegram.intake.ChatTitles
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
@@ -74,7 +75,7 @@ internal class ApprovalDesk(
         val chats = recipients(request)
         if (chats.isEmpty()) return UNREACHABLE
         val shown = chats.map { chat ->
-            val language = if (chat == request.turn.chat) request.turn.language else language(chat)
+            val language = if (chat == request.turn.chat) request.turn.language else settings.languageOrNull(chat)
             Shown(chat, language, render(request, language) ?: return TOO_LARGE)
         }
         val waiting = Pending(request)
@@ -233,7 +234,7 @@ internal class ApprovalDesk(
     private suspend fun answer(query: CallbackQuery, presser: ChatUser) {
         val press = query.data?.let(PRESS::matchEntire)?.destructured
         val chat = query.message?.let { ChatAddress(instance.id, "${it.chat.id}") }
-        val language = chat?.let { language(it) }
+        val language = chat?.let { settings.languageOrNull(it) }
         val toast = when {
             press == null -> null
 
@@ -330,15 +331,6 @@ internal class ApprovalDesk(
 
     private fun text(key: String, language: LanguageTag?, vararg args: Pair<String, Any?>): String =
         texts.text(key, language, *args)
-
-    private suspend fun language(chat: ChatAddress): LanguageTag? = try {
-        settings?.language(chat)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        logger.debug("The language of chat {} is unknown: {}", chat, e.toString())
-        null
-    }
 
     /** One request on its way, with the messages that carry its buttons. */
     private class Pending(val request: ApprovalRequest) {

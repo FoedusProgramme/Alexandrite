@@ -380,13 +380,22 @@ class UpdateReaderTest {
     @Test
     fun `content without text is unsupported, a notice of the chat is ignored`() {
         assertEquals(1, message("photo_only").media.size)
-        for (name in listOf("sticker", "location")) {
-            val inbound = assertIs<Inbound.Unsupported>(read(name), name)
-            assertEquals(adaChat, inbound.chat)
-            assertEquals(adaChat, inbound.trigger.chat)
-        }
+        val inbound = assertIs<Inbound.Unsupported>(read("location"))
+        assertEquals(adaChat, inbound.chat)
+        assertEquals(adaChat, inbound.trigger.chat)
         assertEquals("it is not addressed to the bot", ignored("service_new_members"))
         assertFalse(reader.addressed(fixture("service_new_members")))
+    }
+
+    @Test
+    fun `a sticker alone reaches the agent as its fact`() {
+        val sticker = message("sticker")
+
+        assertEquals("", sticker.text)
+        assertEquals(
+            listOf(DisplayFact("attachment", "sticker 👍 (not passed on by this channel, id CAAC)")),
+            sticker.facts,
+        )
     }
 
     @Test
@@ -398,9 +407,12 @@ class UpdateReaderTest {
             approvals,
             everyGroupMessage = true,
         ) { MediaContent { _ -> ByteArray(0) } }
-        val sticker = buildJsonObject { put("file_id", "CAAC") }
-        val unnamed = with("group_unaddressed", "text" to JsonNull, "sticker" to sticker)
-        val named = with("group_reply_to_bot", "text" to JsonNull, "sticker" to sticker)
+        val location = buildJsonObject {
+            put("latitude", 51.5)
+            put("longitude", -0.12)
+        }
+        val unnamed = with("group_unaddressed", "text" to JsonNull, "location" to location)
+        val named = with("group_reply_to_bot", "text" to JsonNull, "location" to location)
 
         val plain = assertIs<Inbound.Message>(every.read(fixture("group_unaddressed"))).message
         assertEquals("Lunch at noon?", plain.text)

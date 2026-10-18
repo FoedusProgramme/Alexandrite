@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.channel.telegram.intake
 
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.api.Message
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.channel.telegram.replay.Replay
@@ -97,9 +98,7 @@ internal class Admissions(
 
     /** Lets one notice per key through in each [interval], or only the first when it is null. */
     private inner class Throttle<K : Any>(private val interval: Duration?) {
-        private val last = object : LinkedHashMap<K, Instant>(16, 0.75f, true) {
-            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<K, Instant>) = size > KEYS
-        }
+        private val last = BoundedMap<K, Instant>(KEYS)
 
         fun passes(key: K): Boolean = synchronized(last) {
             val now = clock.instant()

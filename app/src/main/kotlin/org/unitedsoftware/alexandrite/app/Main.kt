@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.app.control.ContributedDesks
 import org.unitedsoftware.alexandrite.app.control.ControlAnswers
 import org.unitedsoftware.alexandrite.app.control.serveControl
-import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesks
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
@@ -186,7 +185,7 @@ private fun host(
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
                     val answers = ControlAnswers(alexandriteVersion, { services.getOrNull<AgentControl>() }) {
-                        PairingDesks(services.get<ContributedDesks>().all)
+                        services.get<ContributedDesks>().desks
                     }
                     launch { serveControl(locations.dataDir, answers::answer) }
                     awaitCancellation()

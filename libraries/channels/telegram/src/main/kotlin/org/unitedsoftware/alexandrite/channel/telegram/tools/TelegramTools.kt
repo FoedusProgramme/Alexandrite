@@ -46,7 +46,10 @@ internal abstract class TelegramTool(private val desks: TelegramDesks) : Reviewe
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
-        ToolResult(planned(arguments, context.turn).run())
+        val planned = planned(arguments, context.turn)
+        val output = planned.run()
+        planned.untrusted?.let(context::untrusted)
+        ToolResult(output)
     } catch (e: ToolProblem) {
         ToolResult(e.message.orEmpty(), isError = true)
     }
@@ -59,7 +62,13 @@ internal abstract class TelegramTool(private val desks: TelegramDesks) : Reviewe
 }
 
 /** A call as it is [shown] for approval, allowed for good by [rule] unless it is null, and [run] once cleared. */
-internal class Planned(val shown: String, val rule: RuleSubject? = null, val run: suspend () -> String)
+internal class Planned(
+    val shown: String,
+    val rule: RuleSubject? = null,
+    /** Why what [run] returns is untrusted, null when it is not. */
+    val untrusted: String? = null,
+    val run: suspend () -> String,
+)
 
 @Singleton
 @Contribute(Tool::class)
@@ -242,7 +251,10 @@ internal class MemberTool(desks: TelegramDesks) : TelegramTool(desks) {
         val target = desk.target(turn.chat)
         val asked = arguments.required("user")
         val user = desk.user(target.chat, asked)
-        return Planned("Look up $asked in ${desk.name(turn.chat)}") {
+        return Planned(
+            "Look up $asked in ${desk.name(turn.chat)}",
+            untrusted = "telegram.member reads a profile its user wrote",
+        ) {
             val member = desk.read(
                 "getChatMember",
                 buildJsonObject {

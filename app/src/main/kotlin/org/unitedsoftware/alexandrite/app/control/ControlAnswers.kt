@@ -17,7 +17,9 @@ import kotlin.coroutines.cancellation.CancellationException
 /** The pairing desks that the channels contribute. */
 @HostApi
 @Singleton
-internal class ContributedDesks(val all: List<PairingDesk>)
+internal class ContributedDesks(all: List<PairingDesk>) {
+    val desks = PairingDesks(all)
+}
 
 /** Answers the requests of the control socket of the app [version] over what [desks] and [control] give. */
 internal class ControlAnswers(

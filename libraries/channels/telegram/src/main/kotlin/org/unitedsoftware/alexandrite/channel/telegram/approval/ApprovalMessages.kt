@@ -1,19 +1,21 @@
 package org.unitedsoftware.alexandrite.channel.telegram.approval
 
+import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 
 /** The messages that showed the latest approval requests, by Telegram chat and message id. */
 @ChannelInstanceScoped
 internal class ApprovalMessages {
-    private val requests = object : LinkedHashMap<Pair<Long, Long>, Request>() {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Long, Long>, Request>) = size > KEPT
-    }
+    private val requests = BoundedMap<Pair<Long, Long>, Request>(KEPT, accessOrder = false)
 
     fun note(chat: Long, message: Long, request: Request) {
         synchronized(requests) { requests[chat to message] = request }
     }
 
-    /** The line that stands for the message [message] of [chat] in a quote, null when it shows no noted request. */
+    /**
+     * The model-facing line that stands for the message [message] of [chat] in a quote, null when it shows no noted
+     * request.
+     */
     fun quoted(chat: Long, message: Long): String? {
         val request = synchronized(requests) { requests[chat to message] } ?: return null
         return "Alexandrite's approval request ${request.id} for ${request.tool} (${request.state})"

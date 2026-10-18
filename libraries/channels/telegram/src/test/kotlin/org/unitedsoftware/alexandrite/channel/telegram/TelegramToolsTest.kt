@@ -81,6 +81,22 @@ class TelegramToolsTest {
     }
 
     @Test
+    fun `a member's profile is untrusted, a lookup that finds no one is not`() {
+        telegram.run {
+            fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot hi")
+            telegram.submitted(1)
+            val context = testToolContext(testTurn(chat = telegram.address(GROUP)))
+            val missing = testToolContext(testTurn(chat = telegram.address(GROUP)))
+
+            tool("telegram.member").execute(Json.parseToJsonElement("""{"user": "$BOB"}""").jsonObject, context)
+            tool("telegram.member").execute(Json.parseToJsonElement("""{"user": "@nobody"}""").jsonObject, missing)
+
+            assertEquals(listOf("telegram.member reads a profile its user wrote"), context.untrustedReasons)
+            assertEquals(emptyList(), missing.untrustedReasons)
+        }
+    }
+
+    @Test
     fun `a message is the one that started the turn, the one it replies to, or an id`() {
         telegram.run {
             val first = fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot pin this").messageId()

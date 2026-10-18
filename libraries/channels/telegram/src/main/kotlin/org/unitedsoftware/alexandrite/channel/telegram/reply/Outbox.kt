@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.api.SendMessage
 import org.unitedsoftware.alexandrite.channel.telegram.format.FormattedText
 import org.unitedsoftware.alexandrite.channel.telegram.format.formatted
 import org.unitedsoftware.alexandrite.channel.telegram.format.parts
+import org.unitedsoftware.alexandrite.channel.telegram.i18n.languageOrNull
 import org.unitedsoftware.alexandrite.channel.telegram.intake.BotSession
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
@@ -64,7 +65,7 @@ internal class Outbox(
     /** Sends the text [key] to [chat], quoting [trigger] in a group. */
     suspend fun notice(chat: ChatAddress, trigger: ChannelMessageRef?, key: String, vararg args: Pair<String, Any?>) {
         val delivery = try {
-            deliver(chat, FormattedText(texts.text(key, language(chat), *args)), trigger)
+            deliver(chat, FormattedText(texts.text(key, settings.languageOrNull(chat), *args)), trigger)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -230,15 +231,6 @@ internal class Outbox(
         }
 
     private suspend fun <T> whole(call: suspend () -> T): T = withContext(NonCancellable) { call() }
-
-    private suspend fun language(chat: ChatAddress): LanguageTag? = try {
-        settings?.language(chat)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        logger.debug("The language of chat {} is unknown: {}", chat, e.toString())
-        null
-    }
 
     private companion object {
         val NO_PREVIEW = LinkPreviewOptions(isDisabled = true)

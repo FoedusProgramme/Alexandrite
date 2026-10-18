@@ -2,8 +2,6 @@ package org.unitedsoftware.alexandrite.channel.telegram
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import org.unitedsoftware.alexandrite.channel.telegram.intake.CommandRules
-import org.unitedsoftware.alexandrite.channel.telegram.intake.Who
 import org.unitedsoftware.alexandrite.channel.telegram.reply.StreamingMode
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
@@ -58,7 +56,7 @@ internal class TelegramInstanceConfig(
             require(COMMAND.matches(name)) {
                 "commands.$name must name a command: lowercase letters, digits and '_', 32 characters at most"
             }
-            require(name !in CommandRules.MATRIX) { "commands.$name: /$name keeps the rule of the default commands" }
+            require(name !in DEFAULT_COMMAND_RULES) { "commands.$name: /$name keeps the rule of the default commands" }
         }
     }
 

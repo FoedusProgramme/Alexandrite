@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.channel.telegram.tools
 
+import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.api.Message
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
@@ -7,9 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 /** The message that started each recent turn, and the message it replies to, for the tools that act on them. */
 @ChannelInstanceScoped
 internal class TurnMessages {
-    private val turns = object : LinkedHashMap<TurnId, TurnMessage>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TurnId, TurnMessage>) = size > KEPT
-    }
+    private val turns = BoundedMap<TurnId, TurnMessage>(KEPT)
 
     /** Notes [message], the first of the messages that started [turn]. */
     fun note(turn: TurnId, message: Message) {

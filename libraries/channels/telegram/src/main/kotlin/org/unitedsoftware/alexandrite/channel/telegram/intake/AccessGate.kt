@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.channel.telegram.intake
 
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.channel.common.pairing.InstancePairing
+import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.unitedsoftware.alexandrite.channel.telegram.configPath
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
@@ -26,9 +27,7 @@ internal class AccessGate(
     private val outbox: Outbox,
     private val control: AgentControl?,
 ) : Lifecycle {
-    private val dropped = object : LinkedHashMap<ChatAddress, Unit>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, Unit>) = size > LOGGED_CHATS
-    }
+    private val dropped = BoundedMap<ChatAddress, Unit>(LOGGED_CHATS)
 
     @Volatile
     private var pairing: InstancePairing? = null

@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NaturalStreamingTest {
@@ -28,6 +29,22 @@ class NaturalStreamingTest {
 
         assertEquals(listOf("sendMessage One", "sendMessage Two", "sendMessage Three"), output.shown())
         assertEquals(3, assertIs<Delivery.Delivered>(delivery).messages.size)
+    }
+
+    @Test
+    fun `a paragraph longer than a reply's messages goes out whole before the next one`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val long = "word ".repeat(9_000).trim()
+
+        reply.preview(0, "$long\n\nTwo")
+        advanceTimeBy(2_000)
+        reply.complete(markdown("$long\n\nTwo"))
+
+        val texts = output.api.calls("sendMessage").map { it.text.orEmpty() }
+        assertTrue(texts.size > MAX_PARTS_PER_REPLY + 1)
+        assertEquals("Two", texts.last())
+        assertEquals(long.split(" ").size, texts.dropLast(1).sumOf { it.split(" ").size })
     }
 
     @Test

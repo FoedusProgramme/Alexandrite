@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.api.BotCommand
 import org.unitedsoftware.alexandrite.channel.telegram.api.BotCommandScope
 import org.unitedsoftware.alexandrite.channel.telegram.api.DeleteMyCommands
 import org.unitedsoftware.alexandrite.channel.telegram.api.SetMyCommands
+import org.unitedsoftware.alexandrite.channel.telegram.i18n.languageOrNull
 import org.unitedsoftware.alexandrite.channel.telegram.intake.CommandRules
 import org.unitedsoftware.alexandrite.channel.telegram.intake.isDirect
 import org.unitedsoftware.alexandrite.channel.telegram.pairing.TelegramPairingDesk
@@ -121,7 +122,7 @@ internal class CommandMenu(
 
     private suspend fun menus(): Map<MenuKey, List<BotCommand>> {
         val chats = desk.paired().map { it.chat.parent }.filter { it.instance == instance.id }.distinct()
-        val languages = chats.associateWith { language(it) }
+        val languages = chats.associateWith { settings.languageOrNull(it) }
         val described = HashMap<LanguageTag?, Map<String, String>>()
         val describe = { language: LanguageTag? -> described.getOrPut(language) { descriptions(language) } }
         val default = describe(null)
@@ -179,15 +180,6 @@ internal class CommandMenu(
                 }
                 spec.name to text.take(MAX_DESCRIPTION)
             }
-
-    private suspend fun language(chat: ChatAddress): LanguageTag? = try {
-        settings?.language(chat)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        logger.debug("The language of chat {} is unknown: {}", chat, e.toString())
-        null
-    }
 
     private companion object {
         val INTERVAL = 1.minutes

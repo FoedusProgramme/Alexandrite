@@ -1,14 +1,13 @@
 package org.unitedsoftware.alexandrite.channel.telegram.intake
 
+import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 
 /** The titles of the groups that the bot heard from lately. */
 @ChannelInstanceScoped
 internal class ChatTitles {
-    private val titles = object : LinkedHashMap<ChatAddress, String>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, String>) = size > KEPT
-    }
+    private val titles = BoundedMap<ChatAddress, String>(KEPT)
 
     fun note(chat: ChatAddress, title: String?) {
         if (title == null) return

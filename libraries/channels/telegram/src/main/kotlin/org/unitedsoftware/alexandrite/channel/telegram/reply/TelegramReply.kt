@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.api.BotApiFailure
 import org.unitedsoftware.alexandrite.channel.telegram.format.FormattedText
 import org.unitedsoftware.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.unitedsoftware.alexandrite.channel.telegram.format.formatted
+import org.unitedsoftware.alexandrite.channel.telegram.format.parts
 import org.unitedsoftware.alexandrite.sdk.channel.DelegatedRun
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
@@ -261,11 +262,12 @@ internal class TelegramReply(
 
     /** Ends the reply at once because the channel stops. */
     fun stop() {
-        synchronized(lock) {
-            state = State.STOPPED
-            editor
-        }?.cancel()
+        val (was, running) = synchronized(lock) {
+            (state to editor).also { state = State.STOPPED }
+        }
+        running?.cancel()
         synchronized(lock) { activityEditor }?.cancel()
+        if (was == State.OPEN) typing.stop(chat)
     }
 
     /** Whether the reply takes [what] for [segment], warning when it does not. */
@@ -589,7 +591,7 @@ internal class TelegramReply(
      */
     private suspend fun sendParagraph(index: Int, paragraph: Paragraph) = withContext(NonCancellable) {
         val text = formatted(paragraph.text, Markup.MARKDOWN)
-        val parts = partsOf(text) ?: listOf(text.clipped(MAX_MESSAGE_LENGTH))
+        val parts = text.parts()
         synchronized(lock) { segments.getValue(index).sending = true }
         try {
             for ((number, part) in parts.withIndex()) {

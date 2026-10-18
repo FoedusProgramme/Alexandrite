@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
 import java.time.Clock
 import java.time.Duration
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * What one run of a bot leaves the next: the offset to poll from, and the messages whose turns had not ended, which
@@ -100,12 +101,22 @@ internal class Backlog(
 
                 !message.cutOff -> unfinished(message)
 
-                replay(message.parts) == Dispatch.CLOSING -> {
+                replayed(message, replay) == Dispatch.CLOSING -> {
                     write("keep message ${message.trigger}") { pending.put(message.key, message, null) }
                 }
             }
         }
         return offset()
+    }
+
+    /** What [replay] made of [message], null when it failed. */
+    private fun replayed(message: PendingMessage, replay: (List<Message>) -> Dispatch): Dispatch? = try {
+        replay(message.parts)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.warn("{} cannot replay message {}: {}", instance.id, message.trigger, e.toString())
+        null
     }
 
     /** Asks for the write [block], which [done] waits for unless it is null, and returns false once writes ended. */

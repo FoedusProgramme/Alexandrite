@@ -110,10 +110,10 @@ internal class UpdateReader(
         if (command != null && !command.forBot) return Inbound.Ignored("it is a command for @${command.target}")
         if (parts.none(::addressed)) return Inbound.Ignored("it is not addressed to the bot")
         val media = parts.flatMap { media(it, quoted = false) }
-        if (parts.all { it.text == null && it.caption == null } && media.isEmpty()) {
+        val facts = parts.flatMap(::facts).distinct()
+        if (parts.all { it.text == null && it.caption == null } && media.isEmpty() && facts.isEmpty()) {
             return if (parts.any(::hasContent)) unsupported(parts, chat, ref) else Inbound.Ignored("it is a notice")
         }
-        val facts = parts.flatMap(::facts).distinct()
         val quote = quote(message, chat)
         val quoted = (message.replyToMessage?.takeUnless { isTopicRoot(message) } ?: message.externalReply)
             ?.let { media(it, quoted = true) }
@@ -143,7 +143,6 @@ internal class UpdateReader(
             withoutMentions(body, entities).trim().takeIf { it.isNotEmpty() }
         }.joinToString("\n\n")
         if (text.isEmpty() && quote == null && media.isEmpty()) {
-            if (facts.isNotEmpty()) return unsupported(parts, chat, ref)
             // A bare mention reaches the model as it was written, which tells it all there is to tell.
             val mention = parts.mapNotNull { it.text ?: it.caption }.joinToString("\n\n").trim()
             return Inbound.Message(builder.text(mention).build())

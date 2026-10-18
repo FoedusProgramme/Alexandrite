@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.channel.telegram.tools
 
+import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.api.User
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import java.util.Locale
@@ -7,9 +8,7 @@ import java.util.Locale
 /** The users who wrote lately in each chat, by username, since the Bot API finds no user by name. */
 @ChannelInstanceScoped
 internal class KnownUsers {
-    private val users = object : LinkedHashMap<Pair<Long, String>, Long>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Long, String>, Long>) = size > KEPT
-    }
+    private val users = BoundedMap<Pair<Long, String>, Long>(KEPT)
 
     /** Notes that [user] wrote in [chat]. */
     fun note(chat: Long, user: User) {

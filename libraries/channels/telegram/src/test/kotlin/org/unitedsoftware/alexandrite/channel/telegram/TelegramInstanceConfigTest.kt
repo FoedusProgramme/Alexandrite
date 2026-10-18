@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.channel.telegram
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
-import org.unitedsoftware.alexandrite.channel.telegram.intake.Who
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

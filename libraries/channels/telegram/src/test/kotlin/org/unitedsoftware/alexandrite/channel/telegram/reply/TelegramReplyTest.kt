@@ -506,6 +506,18 @@ class TelegramReplyTest {
     }
 
     @Test
+    fun `typing stops when the channel stops`() = runTest {
+        val output = output()
+        output.open()
+
+        advanceTimeBy(1_000)
+        output.channel.onStop()
+        advanceTimeBy(10_000)
+
+        assertEquals(1, output.api.calls("sendChatAction").size)
+    }
+
+    @Test
     fun `typing stops after thirty minutes and a failed action is not tried again`() = runTest {
         val output = output()
         output.api.fail("sendChatAction", BotApiFailure.RATE_LIMITED, retryAfter = 2.seconds)
