@@ -334,6 +334,7 @@ internal class AgentControlImpl(
             .home(topology.homeAgent(chat) == key.agent)
             .agentSource(served.source)
             .defaultModel(agent?.model)
+            .models(agent?.models.orEmpty())
             .defaultReasoning(agent?.reasoning)
             .defaultLanguage(agent?.language)
             .mode(mode?.mode, mode?.until)

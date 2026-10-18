@@ -75,6 +75,7 @@ class HeartbeatTurnsTest {
             assertEquals(emptyList(), channel().events)
             assertEquals(2, beats().size)
             assertTrue(beats().none { it is NoticeEntry })
+            assertEquals(1, model.requests.size)
         }
     }
 

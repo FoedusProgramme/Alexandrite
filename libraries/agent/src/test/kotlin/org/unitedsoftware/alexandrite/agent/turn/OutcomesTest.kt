@@ -88,7 +88,7 @@ class OutcomesTest {
                     second
                 }
             },
-            "blank in round 0" to seen(script = { reply { reasoning("Nothing.") } }),
+            "blank in round 0" to seen(script = { repeat(2) { reply { reasoning("Nothing.") } } }),
             "refused in round 0" to seen(
                 script = {
                     reply {

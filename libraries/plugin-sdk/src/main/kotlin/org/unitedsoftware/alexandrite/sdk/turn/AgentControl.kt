@@ -412,6 +412,8 @@ public class ChatSettingsSnapshot private constructor(
     /** Why [agent] serves the chat. */
     public val agentSource: AgentSource,
     public val defaultModel: ModelRef?,
+    /** The models [agent] is configured with, as equals, [defaultModel] first. */
+    public val models: List<ModelRef>,
     public val defaultReasoning: ReasoningEffort?,
     public val defaultLanguage: LanguageTag?,
     public val mode: PermissionMode?,
@@ -443,6 +445,7 @@ public class ChatSettingsSnapshot private constructor(
         .home(home)
         .agentSource(agentSource)
         .defaultModel(defaultModel)
+        .models(models)
         .defaultReasoning(defaultReasoning)
         .defaultLanguage(defaultLanguage)
         .mode(mode, modeUntil)
@@ -457,6 +460,7 @@ public class ChatSettingsSnapshot private constructor(
         private var home: Boolean = false
         private var agentSource: AgentSource = AgentSource.DEFAULT
         private var defaultModel: ModelRef? = null
+        private var models: List<ModelRef> = emptyList()
         private var defaultReasoning: ReasoningEffort? = null
         private var defaultLanguage: LanguageTag? = null
         private var mode: PermissionMode? = null
@@ -478,6 +482,8 @@ public class ChatSettingsSnapshot private constructor(
         public fun agentSource(agentSource: AgentSource): Builder = apply { this.agentSource = agentSource }
 
         public fun defaultModel(defaultModel: ModelRef?): Builder = apply { this.defaultModel = defaultModel }
+
+        public fun models(models: List<ModelRef>): Builder = apply { this.models = models.toList() }
 
         public fun defaultReasoning(defaultReasoning: ReasoningEffort?): Builder =
             apply { this.defaultReasoning = defaultReasoning }
@@ -504,6 +510,7 @@ public class ChatSettingsSnapshot private constructor(
             home,
             agentSource,
             defaultModel,
+            models,
             defaultReasoning,
             defaultLanguage,
             mode,

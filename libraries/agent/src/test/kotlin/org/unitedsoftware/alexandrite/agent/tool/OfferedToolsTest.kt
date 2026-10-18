@@ -169,7 +169,9 @@ class OfferedToolsTest {
 
     @Test
     fun `a turn taken back before it stored anything leaves the notice to the next turn`() {
-        model.reply { text("Hello.") }.reply { reasoning("Nothing to say.") }.reply { text("Hello again.") }
+        model.reply { text("Hello.") }
+        repeat(2) { model.reply { reasoning("Nothing to say.") } }
+        model.reply { text("Hello again.") }
 
         harness(read, notes).execute { ask() }
         harness(changedRead, edit).execute {
@@ -184,7 +186,7 @@ class OfferedToolsTest {
                 kinds(entries),
             )
             assertEquals(listOf(notice), notices(entries))
-            assertEquals(entries.take(2) + entries.subList(3, 5).map(::unstored), model.requests[2].history)
+            assertEquals(entries.take(2) + entries.subList(3, 5).map(::unstored), model.requests[3].history)
             assertIs<NoticeEntry>(entries[2])
         }
     }

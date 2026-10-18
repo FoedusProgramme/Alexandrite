@@ -276,9 +276,11 @@ class ModelEdgesTest {
 
     @Test
     fun `an output limit reached before any answer takes the message back with a notice`() {
-        model.reply {
-            reasoning("A long thought.")
-            finish(FinishKind.MAX_OUTPUT_TOKENS)
+        repeat(2) {
+            model.reply {
+                reasoning("A long thought.")
+                finish(FinishKind.MAX_OUTPUT_TOKENS)
+            }
         }
         val text = "The model reached its output limit before it wrote an answer."
 

@@ -79,6 +79,7 @@ internal enum class Flaw(val check: String) {
     HOLDS_ON_CANCEL("cancelling the collector closes the exchange"),
     LOSES_RAW_FINISH("an unknown finish reason is kept raw"),
     DROPS_USAGE("usage is reported"),
+    BLANK_LIMIT_AS_ERROR("a response cut off before any output completes at its output limit"),
     TOOLS_TO_PLAIN("a model without tools is sent none"),
     IMAGES_TO_PLAIN("images reach only a model that takes them"),
     SILENT_EFFORT("an effort the model does not take is warned about, and the response still comes"),
@@ -131,6 +132,8 @@ internal class ReferenceFixture(private val flaw: Flaw? = null) : ProviderFixtur
         send("text", "text", text)
         send("finish", "reason", raw)
     }
+
+    override fun blankAtOutputLimit(): FakeResponse = events { send("finish", "reason", "length") }
 
     override fun usage(text: String, usage: Usage): FakeResponse = events {
         send("text", "text", text)
@@ -389,9 +392,16 @@ private class Reply(private val request: ModelRequest, private val flaw: Flaw?, 
                 .outputStarted(started)
                 .build(),
         )
+        if (raw == "length" && parts.isEmpty() && flaw == Flaw.BLANK_LIMIT_AS_ERROR) {
+            throw ModelException(
+                ModelError.builder(ModelErrorKind.PROTOCOL, "The response holds no output.").outputStarted(started)
+                    .build(),
+            )
+        }
         val finishKind = when (raw) {
             "stop" -> FinishKind.END_TURN
             "tool_calls" -> FinishKind.TOOL_USE
+            "length" -> FinishKind.MAX_OUTPUT_TOKENS
             else -> if (flaw == Flaw.LOSES_RAW_FINISH) FinishKind.END_TURN else FinishKind.OTHER
         }
         val reason = FinishReason(finishKind, raw.takeUnless { flaw == Flaw.LOSES_RAW_FINISH }, null)

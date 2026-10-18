@@ -484,7 +484,7 @@ class ToolRoundsTest {
 
     @Test
     fun `a blank or refused response after a tool round ends the turn on a notice and keeps the rounds before`() {
-        model.reply { toolCall("fs.read") }.reply { reasoning("Nothing.") }
+        model.reply { toolCall("fs.read") }.reply { reasoning("Nothing.") }.reply { reasoning("Nothing.") }
         model.reply { toolCall("fs.read") }.reply {
             text("No.")
             finish(FinishKind.REFUSAL)

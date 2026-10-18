@@ -141,6 +141,44 @@ class AgentDirectoryTest {
     }
 
     @Test
+    fun `an agent's models are equals, the first its default, and one model is read as a list of one`() {
+        val config = """
+            {
+              "agents": {
+                "coder": {"description": "Codes.", "models": ["side/big", "scripted/test-model"]},
+                "reviewer": {"description": "Reviews.", "model": "scripted/test-model"},
+                "loner": {"description": "Alone."}
+              }
+            }
+        """.trimIndent()
+        lateinit var models: List<Pair<String?, List<String>>>
+
+        agentHarness(config) { model(ScriptedModel()).model(ScriptedModel(EndpointId("side"))) }.execute {
+            models = get<AgentDirectory>().agents.map { agent -> agent.model?.toString() to agent.models.map { "$it" } }
+        }
+
+        assertEquals(
+            listOf(
+                "side/big" to listOf("side/big", "scripted/test-model"),
+                "scripted/test-model" to listOf("scripted/test-model"),
+                null to emptyList(),
+            ),
+            models,
+        )
+    }
+
+    @Test
+    fun `a listed model of an endpoint that no provider contributes fails the start`() {
+        val config = """{"agents": {"reviewer": {"description": "Reviews.", "models": ["scripted/a", "local/b"]}}}"""
+
+        agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
+            StartStage.GRAPH,
+            "Invalid config at 'agent.agents.reviewer.models[1]': no model provider contributes the endpoint " +
+                "'local'. Endpoints: scripted.",
+        )
+    }
+
+    @Test
     fun `a judge of an endpoint that no provider contributes fails the start`() {
         val config = """{"agents": {"reviewer": {"description": "Reviews.", "permission": {"judge": "local/llama"}}}}"""
 

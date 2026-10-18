@@ -11,6 +11,12 @@ internal object TextKeys {
     const val OUTPUT_LIMIT: String = "notice.output_limit"
     const val OUTPUT_LIMIT_UNANSWERED: String = "notice.output_limit_unanswered"
     const val REPLY_TOO_LONG: String = "notice.reply_too_long"
+
+    /** Takes `{kind}`, why the reply did not arrive. */
+    const val REPLY_UNDELIVERED: String = "notice.reply_undelivered"
+
+    /** Takes `{from}`, `{why}` and `{to}`, the model that answered. */
+    const val MODEL_SWITCHED: String = "notice.model_switched"
     const val ROUND_LIMIT: String = "notice.round_limit"
     const val BUDGET: String = "notice.budget"
     const val FAILED: String = "notice.failed"

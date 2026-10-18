@@ -76,6 +76,8 @@ class PublicApiTest {
             scripted.fail(ModelError.builder(ModelErrorKind.RATE_LIMITED, "Slow.").build(), RequestMatch.ANY)
             scripted.fail(ModelErrorKind.OVERLOADED, "Busy.")
             scriptedReply { fail(ModelError.builder(ModelErrorKind.SERVER_ERROR, "Gone.").build()) }
+            scriptedReply { stop() }
+            scriptedReply { crash(IllegalStateException("Unreadable.")) }
             val request = testModelRequest(testTurn(), 0, listOf(testUserEntry(testTurn(), "hi", testRecord(1)))) {
                 model(scripted.ref)
             }
@@ -398,6 +400,7 @@ class PublicApiTest {
                 override fun toolCalls(calls: List<ScriptedToolCall>): FakeResponse =
                     stream.also { calls.map { listOf(it.id, it.wireName, it.arguments) } }
                 override fun finish(text: String, raw: String): FakeResponse = stream
+                override fun blankAtOutputLimit(): FakeResponse = stream
                 override fun usage(text: String, usage: Usage): FakeResponse = stream
                 override fun rateLimited(retryAfterSeconds: Int, requestId: String): FakeResponse = error
                 override fun serverError(): FakeResponse = error

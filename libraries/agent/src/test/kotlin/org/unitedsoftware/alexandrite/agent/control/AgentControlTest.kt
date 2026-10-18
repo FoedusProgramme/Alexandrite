@@ -96,6 +96,7 @@ class AgentControlTest {
     ): ChatSettingsSnapshot = ChatSettingsSnapshot.builder(agent)
         .agentSource(source)
         .defaultModel(model.ref)
+        .models(listOf(model.ref))
         .defaultLanguage(LanguageTag("en").takeIf { agent == coder })
         .apply(block)
         .build()

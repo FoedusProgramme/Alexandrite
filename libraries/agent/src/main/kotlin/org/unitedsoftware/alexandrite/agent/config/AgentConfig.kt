@@ -22,8 +22,10 @@ internal class AgentConfig(
     /** Persona text, before the [instructionFiles]. */
     val instructions: List<String> = emptyList(),
     val instructionFiles: List<InstructionFile> = emptyList(),
-    /** `<endpoint>/<model>`. */
+    /** `<endpoint>/<model>`, read as the one item of [models]. */
     val model: String? = null,
+    /** Equal models, each `<endpoint>/<model>`, the first the default. */
+    val models: List<String> = emptyList(),
     val reasoning: String? = null,
     /** A BCP 47 tag. */
     val language: String? = null,

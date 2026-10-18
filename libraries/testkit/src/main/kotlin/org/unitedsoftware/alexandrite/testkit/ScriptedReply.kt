@@ -33,7 +33,7 @@ public class ScriptedReply private constructor(
     private val warnings: List<Warning>,
 ) {
     /** Whether the reply ends without its terminal event. */
-    internal val cutShort: Boolean get() = actions.lastOrNull().let { it is Fail || it is Hang }
+    internal val cutShort: Boolean get() = actions.lastOrNull().let(::ends)
 
     /** Emits the events of the response to a request of [model] with [ids], as the stream contract orders them. */
     internal suspend fun FlowCollector<ModelEvent>.respond(
@@ -69,6 +69,10 @@ public class ScriptedReply private constructor(
                 Hang -> awaitCancellation()
 
                 is Fail -> throw ModelException(action.error.rebuild { outputStarted(true) })
+
+                Stop -> return
+
+                is Crash -> throw action.error
             }
             action.part(index, model, ids, dialect)?.let { part ->
                 emit(ModelEvent.PartCompleted(index, part))
@@ -81,7 +85,7 @@ public class ScriptedReply private constructor(
 
     /** The terminal event of the response to a request of [model] with [ids]. */
     internal fun completed(model: ModelRef, ids: RequestIds, dialect: Dialect): ModelEvent.Completed {
-        require(!cutShort) { "A reply that hangs or fails has no terminal event." }
+        require(!cutShort) { "A reply that hangs, fails, stops or crashes has no terminal event." }
         val parts = mutableListOf<AssistantPart>()
         for (action in actions) action.part(parts.size, model, ids, dialect)?.let(parts::add)
         return completed(parts, model)
@@ -130,6 +134,15 @@ public class ScriptedReply private constructor(
         public fun fail(kind: ModelErrorKind, message: String = "Scripted $kind failure."): Builder =
             fail(ModelError.builder(kind, message).build())
 
+        /** Ends the stream without its terminal event once the events so far are emitted. */
+        public fun stop(): Builder = add(Stop)
+
+        /** Throws [error], which is no [ModelException], once the events so far are emitted. */
+        public fun crash(error: Throwable): Builder {
+            require(error !is ModelException) { "A crash throws what is no ModelException." }
+            return add(Crash(error))
+        }
+
         public fun usage(usage: Usage): Builder = apply { this.usage = usage }
 
         /** The finish reason, by default TOOL_USE when the reply calls tools and END_TURN otherwise. */
@@ -141,8 +154,8 @@ public class ScriptedReply private constructor(
         public fun build(): ScriptedReply = ScriptedReply(actions.toList(), usage, finish, warnings.toList())
 
         private fun add(action: Action): Builder = apply {
-            check(actions.lastOrNull().let { it !is Fail && it !is Hang }) {
-                "A scripted reply ends where it hangs or fails."
+            check(!ends(actions.lastOrNull())) {
+                "A scripted reply ends where it hangs, fails, stops or crashes."
             }
             actions += action
         }
@@ -155,6 +168,9 @@ public class ScriptedReply private constructor(
 
 public fun scriptedReply(block: ScriptedReply.Builder.() -> Unit): ScriptedReply =
     ScriptedReply.builder().apply(block).build()
+
+/** Whether [action] ends a reply before its terminal event. */
+private fun ends(action: Action?): Boolean = action is Fail || action is Hang || action is Stop || action is Crash
 
 private sealed interface Action {
     /** The part at [index] of the response, null when the action makes none. */
@@ -188,3 +204,7 @@ private class Pause(val gate: suspend () -> Unit) : Action
 private data object Hang : Action
 
 private class Fail(val error: ModelError) : Action
+
+private data object Stop : Action
+
+private class Crash(val error: Throwable) : Action

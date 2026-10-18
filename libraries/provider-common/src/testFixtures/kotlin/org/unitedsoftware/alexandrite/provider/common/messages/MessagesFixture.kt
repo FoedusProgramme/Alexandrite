@@ -249,6 +249,8 @@ public open class MessagesFixture(private val flavor: MessagesFlavor = MessagesF
 
     override fun finish(text: String, raw: String): FakeResponse = sse(*textEvents(listOf(text), raw))
 
+    override fun blankAtOutputLimit(): FakeResponse? = sse(messageStart(), messageDelta("max_tokens"), messageStop())
+
     override fun usage(text: String, usage: Usage): FakeResponse {
         val read = usage.cacheReadTokens ?: 0
         val write = usage.cacheWriteTokens ?: 0

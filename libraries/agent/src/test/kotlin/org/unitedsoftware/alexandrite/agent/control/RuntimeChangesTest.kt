@@ -87,6 +87,7 @@ class RuntimeChangesTest {
     ): ChatSettingsSnapshot = ChatSettingsSnapshot.builder(agent)
         .agentSource(source)
         .defaultModel(model.ref)
+        .models(listOf(model.ref))
         .apply(block)
         .build()
 

@@ -81,6 +81,9 @@ public interface ProviderFixture {
     /** A response that streams [text] and ends for the reason [raw], which the dialect does not define. */
     public fun finish(text: String, raw: String): FakeResponse
 
+    /** A response that reaches its output limit before it writes anything, null when the dialect cannot send one. */
+    public fun blankAtOutputLimit(): FakeResponse? = null
+
     /** A response that streams [text] and reports [usage] as the dialect counts it. */
     public fun usage(text: String, usage: Usage): FakeResponse
 

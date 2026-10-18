@@ -38,6 +38,13 @@ internal object TextKeys {
 
     const val MODEL_CURRENT: String = "model.current"
     const val MODEL_ENDPOINTS: String = "model.endpoints"
+
+    /** Takes `{models}`, the agent's models as a numbered list. */
+    const val MODEL_MODELS: String = "model.models"
+
+    /** Takes `{number}` and `{models}`. */
+    const val MODEL_NO_NUMBER: String = "model.no_number"
+    const val MODEL_NO_MODELS: String = "model.no_models"
     const val MODEL_LIST: String = "model.list"
     const val MODEL_LIST_MORE: String = "model.list_more"
     const val MODEL_LIST_EMPTY: String = "model.list_empty"

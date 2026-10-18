@@ -58,8 +58,12 @@ import org.unitedsoftware.alexandrite.agent.model.RetryPolicy
 import org.unitedsoftware.alexandrite.agent.model.SelectedModel
 import org.unitedsoftware.alexandrite.agent.model.cacheKey
 import org.unitedsoftware.alexandrite.agent.model.collectResponse
+import org.unitedsoftware.alexandrite.agent.model.crossedTo
+import org.unitedsoftware.alexandrite.agent.model.movesOn
+import org.unitedsoftware.alexandrite.agent.model.nextModel
 import org.unitedsoftware.alexandrite.agent.model.plus
 import org.unitedsoftware.alexandrite.agent.model.requestOptions
+import org.unitedsoftware.alexandrite.agent.model.roomier
 import org.unitedsoftware.alexandrite.agent.model.select
 import org.unitedsoftware.alexandrite.agent.permission.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.permission.Mandates
@@ -97,6 +101,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.DelegatedRun
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
+import org.unitedsoftware.alexandrite.sdk.channel.Markup
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyActivity
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
@@ -133,6 +138,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextItem
 import org.unitedsoftware.alexandrite.sdk.model.Usage
 import org.unitedsoftware.alexandrite.sdk.store.ConversationInfo
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
@@ -258,6 +264,15 @@ internal class AgentTurnRunner(
         private var maxRounds: Int? = null
         private var maxTurnTokens: Long? = null
 
+        /** The model the turn moved on from after it failed, null while the turn keeps its first. */
+        private var movedFrom: ModelRef? = null
+
+        /** Why the turn moved on from [movedFrom]. */
+        private var movedWhy: String? = null
+
+        /** The turn-context items of the turn, as the hooks injected them. */
+        private var contextItems: List<TurnContextItem> = emptyList()
+
         /** The entries of the history that the turn's conversation forks. */
         private var inherited: List<TranscriptEntry> = emptyList()
         private var callable: Set<String> = emptySet()
@@ -286,11 +301,27 @@ internal class AgentTurnRunner(
                 conversations.startTurn(turn)
                 recorded = true
             }
-            val selected = try {
-                endpoints.select(model)
-            } catch (e: ModelException) {
-                return modelFailed(e.error)
-            } ?: return unknownModel()
+            var selection = selection(model)
+            val why = when (selection) {
+                is Selection.Found -> null
+                is Selection.Failed -> selection.error.takeIf(::movesOn)?.kind?.toString()
+                Selection.Unknown -> UNKNOWN_MODEL
+            }
+            val next = why?.let { nextAfterFailure() }
+            if (next != null) {
+                val moved = selection(next)
+                if (moved is Selection.Found) {
+                    movedOn(next, why)
+                    selection = moved
+                } else {
+                    logger.warn("Turn {} of {} cannot move on to model {} either", plan.id, plan.key, next)
+                }
+            }
+            val selected = when (selection) {
+                is Selection.Found -> selection.model
+                is Selection.Failed -> return modelFailed(selection.error)
+                Selection.Unknown -> return unknownModel()
+            }
             images = MediaKind.IMAGE in selected.info.inputMedia
             val options = requestOptions(agent, selected.info, reasoning)
             val toolset = toolsOf(selected)
@@ -361,7 +392,7 @@ internal class AgentTurnRunner(
                 if (message == null) {
                     attempt("abandon its reply") { sink.abandon(ReplyEnd.FAILED) }
                 } else {
-                    show(sink, message)
+                    showNotice(sink, turn, message)
                 }
             }
             if (sink == null) attempt("send its failure notice") { routeNotice(turn, text) }
@@ -501,6 +532,7 @@ internal class AgentTurnRunner(
             options: ModelOptions,
         ): TurnContextPlan {
             val items = hooks.contextInject(turn, text, emptyList())
+            contextItems = items
             val context = turnContextPlan(items) { model.endpoint.turnContextMode(model.ref.model, options, it) }
             if (context.tainted) taint.mark("untrusted turn context")
             return context
@@ -641,20 +673,24 @@ internal class AgentTurnRunner(
 
         /** Runs the turn's rounds from its [opening] entries until the turn ends. */
         private suspend fun rounds(
-            parts: RequestParts,
+            first: RequestParts,
             opening: List<UserEntry>,
-            tools: TurnTools,
+            firstTools: TurnTools,
             comparison: ToolComparison?,
             commands: PendingComparison?,
             interrupted: InterruptedComparison?,
             sent: SentComparison?,
         ): TurnOutcome {
             val turn = checkNotNull(turn)
+            var parts = first
+            var tools = firstTools
             var pending = opening
             var round = 0
             var toolRounds = 0
             var pauses = 0
             var noted = false
+            var retried = -1
+            var retry: ModelOptions? = null
             while (true) {
                 if (round > 0) previews?.nextSegment()
                 val limit = limit(toolRounds)
@@ -663,12 +699,17 @@ internal class AgentTurnRunner(
                     noted = true
                 }
                 val final = limit != null
-                val built = fitted(parts, pending, round, final) ?: return windowFull(parts.model)
+                val options = retry ?: parts.options
+                retry = null
+                val built = fitted(parts, options, pending, round, final) ?: return windowFull(parts.model)
                 val request = hooks.llmRequest(turn, round, built).or { return stopped(it) }
                 val response = try {
                     call(parts.model, request)
                 } catch (e: ModelException) {
-                    return modelFailed(e.error)
+                    val moved = moveOn(parts, e.error) ?: return modelFailed(e.error)
+                    parts = moved.first
+                    tools = moved.second
+                    continue
                 }
                 usage = usage?.plus(response.usage) ?: response.usage
                 spend(spentOn(response.usage))
@@ -680,6 +721,7 @@ internal class AgentTurnRunner(
                 val finish = response.finish.kind
                 val paused = finish == FinishKind.PAUSED && calls.isEmpty() && pauses < MAX_PAUSES
                 val first = pending.isNotEmpty()
+                val retries = retried < round && turn.kind !in SILENT_KINDS
                 when {
                     finish == FinishKind.CONTEXT_WINDOW_EXCEEDED -> return windowFull(parts.model)
 
@@ -687,8 +729,21 @@ internal class AgentTurnRunner(
 
                     paused -> Unit
 
+                    message.blank && finish == FinishKind.MAX_OUTPUT_TOKENS && retries -> {
+                        logger.info("Turn {} of {} asks again: its blank answer was cut off", plan.id, plan.key)
+                        retried = round
+                        retry = roomier(options, parts.model.info)
+                        continue
+                    }
+
                     message.blank && finish == FinishKind.MAX_OUTPUT_TOKENS ->
                         return unanswered(first, NoticeKind.OUTPUT_LIMIT, TextKeys.OUTPUT_LIMIT_UNANSWERED)
+
+                    message.blank && retries -> {
+                        logger.info("Turn {} of {} asks again: the model gave a blank answer", plan.id, plan.key)
+                        retried = round
+                        continue
+                    }
 
                     message.blank && turn.kind !in SILENT_KINDS ->
                         return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
@@ -731,12 +786,14 @@ internal class AgentTurnRunner(
          */
         private suspend fun fitted(
             parts: RequestParts,
+            options: ModelOptions,
             pending: List<UserEntry>,
             round: Int,
             toolless: Boolean,
         ): ModelRequest? {
             val current = appending.withLock { stored.toList() } + pending
-            val fit = parts.window.fit(current, round, { request(parts, pending, round, toolless) }) { summary ->
+            val build = suspend { request(parts, options, pending, round, toolless) }
+            val fit = parts.window.fit(current, round, build) { summary ->
                 append(summary).single() as SummaryEntry
             }
             val compaction = fit.compaction
@@ -747,25 +804,73 @@ internal class AgentTurnRunner(
             return fit.request
         }
 
-        /** The request of [round], whose history ends with what the turn stored and the unstored [pending]. */
+        /** The request of [round] with [options], whose history ends with what the turn stored and [pending]. */
         private suspend fun request(
             parts: RequestParts,
+            options: ModelOptions,
             pending: List<UserEntry>,
             round: Int,
             toolless: Boolean,
         ): ModelRequest {
             val turn = checkNotNull(turn)
             val (entries, turnStart) = parts.window.history(appending.withLock { stored.toList() } + pending)
-            val history = media.inline(entries)
+            val history = crossedTo(parts.model.ref, media.inline(entries))
             val ids = RequestIds(turn.conversation, turn.id, round)
             return ModelRequest.builder(parts.model.ref, history, turnStart, ids)
                 .instructions(parts.sections)
                 .turnContext(parts.context.kept)
                 .tools(parts.tools)
                 .toolChoice(if (toolless) ToolChoice.None else ToolChoice.Auto)
-                .options(parts.options)
+                .options(options)
                 .cacheKey(cacheKey(turn.key))
                 .build()
+        }
+
+        /** The model [ref] names, as its endpoint lists it. */
+        private suspend fun selection(ref: ModelRef): Selection = try {
+            endpoints.select(ref)?.let(Selection::Found) ?: Selection.Unknown
+        } catch (e: ModelException) {
+            Selection.Failed(e.error)
+        }
+
+        /** The model the turn moves on to once its own failed, null when it moved on already or is a sub-agent run. */
+        private fun nextAfterFailure(): ModelRef? =
+            if (movedFrom != null || delegation != null) null else nextModel(agent.models, model)
+
+        /** Has the turn's later requests go to [next], as its model failed for [why]. */
+        private fun movedOn(next: ModelRef, why: String) {
+            logger.warn("Turn {} of {} moves on from model {} ({}) to {}", plan.id, plan.key, model, why, next)
+            movedFrom = model
+            movedWhy = why
+            model = next
+        }
+
+        /**
+         * The parts and tools of the turn's requests to the next model once [error] failed the request of [parts], null
+         * when the turn does not move on.
+         */
+        private suspend fun moveOn(parts: RequestParts, error: ModelError): Pair<RequestParts, TurnTools>? {
+            if (!movesOn(error)) return null
+            val next = nextAfterFailure() ?: return null
+            val selected = (selection(next) as? Selection.Found)?.model
+            if (selected == null) {
+                logger.warn("Turn {} of {} cannot move on to model {} either", plan.id, plan.key, next)
+                return null
+            }
+            movedOn(next, error.kind.toString())
+            previews?.discard()
+            images = MediaKind.IMAGE in selected.info.inputMedia
+            val turn = checkNotNull(turn)
+            val options = requestOptions(agent, selected.info, reasoning)
+            val toolset = toolsOf(selected)
+            val names = parts.tools.mapTo(HashSet()) { it.name }
+            val definitions = toolset.offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
+                .filter { it.name in names }
+            val kept = turnContextPlan(contextItems) { selected.endpoint.turnContextMode(next.model, options, it) }.kept
+            val context = TurnContextPlan(parts.context.baked, kept, parts.context.tainted)
+            parts.window.moveTo(selected.info.contextWindow, agent.summaryModel ?: next)
+            val tools = TurnTools((toolset.offered + toolset.unoffered).associateBy { it.definition.name }, callable)
+            return RequestParts(selected, options, parts.window, parts.sections, definitions, context) to tools
         }
 
         /** The response of [model] to [request], whose text the chat is shown as it comes. */
@@ -1034,14 +1139,49 @@ internal class AgentTurnRunner(
             }
             val deliveries = sink?.let { mapOf(turn.chat to deliver(it, turn, text)) } ?: route(turn, text)
             after?.let { (kind, key) -> notify(kind, notices.text(turn, key)) }
+            movedFrom?.let { from ->
+                val text = notices.text(turn, TextKeys.MODEL_SWITCHED, "from" to from, "why" to movedWhy, "to" to model)
+                notify(NoticeKind.MODEL_SWITCHED, text)
+            }
             return end(TurnOutcome.Completed(reply, deliveries), TurnEndKind.COMPLETED)
         }
 
         private suspend fun deliver(sink: ReplySink, turn: TurnInfo, text: String): Delivery {
-            val reply = replyMessage(text, capabilities, plan.trigger, turn.conversation)
-            val delivery = show(sink, hooks.responseBefore(turn, reply, turn.chat))
-            if (delivery is Delivery.NotDelivered && delivery.kind == DeliveryFailure.TOO_LONG) {
+            val drafted = replyMessage(text, capabilities, plan.trigger, turn.conversation)
+            val reply = hooks.responseBefore(turn, drafted, turn.chat)
+            return fallBack(turn, turn.chat, reply, show(sink, reply))
+        }
+
+        /**
+         * The [delivery] of the final [reply] to [chat], else that of the reply sent again as plain text, after which
+         * the chat is told in a notice where that fails too.
+         */
+        private suspend fun fallBack(
+            turn: TurnInfo,
+            chat: ChatAddress,
+            reply: OutboundMessage,
+            delivery: Delivery,
+        ): Delivery {
+            if (delivery !is Delivery.NotDelivered || delivery.kind in UNREACHABLE) return delivery
+            if (delivery.kind == DeliveryFailure.TOO_LONG) {
                 notify(NoticeKind.TOO_LONG, notices.text(turn, TextKeys.REPLY_TOO_LONG))
+                return delivery
+            }
+            val plain = channels.channel(chat.instance)?.let { channel ->
+                delivered { channel.send(chat, reply.toBuilder().markup(Markup.PLAIN).build()) }
+            }
+            if (plain is Delivery.Delivered) {
+                logger.info("The reply of turn {} reached chat {} as plain text, after {}", turn.id, chat, delivery)
+                return plain
+            }
+            logger.warn("The reply of turn {} did not reach chat {} as plain text either: {}", turn.id, chat, plain)
+            val text = notices.text(turn, TextKeys.REPLY_UNDELIVERED, "kind" to delivery.kind)
+            append(NoticeEntry(null, text, NoticeKind.UNDELIVERED))
+            val told = channels.channel(chat.instance)?.let { channel ->
+                delivered { channel.send(chat, notice(text, reply.replyTo, turn.conversation)) }
+            }
+            if (told !is Delivery.Delivered) {
+                logger.warn("Turn {} could not tell chat {} that its reply did not arrive: {}", turn.id, chat, told)
             }
             return delivery
         }
@@ -1055,21 +1195,19 @@ internal class AgentTurnRunner(
         /** Sends [text] to [destination] as the turn's reply. */
         private suspend fun send(turn: TurnInfo, text: String, destination: ChatAddress): Delivery {
             val channel = channels.channel(destination.instance)
-            val delivery = if (channel == null) {
-                Delivery.NotDelivered(
+                ?: return Delivery.NotDelivered(
                     DeliveryFailure.TRANSIENT,
                     "Channel instance ${destination.instance} is not open.",
-                )
-            } else {
-                delivered {
-                    val reply = replyMessage(text, channel.capabilities(destination), null, turn.conversation)
-                    channel.send(destination, hooks.responseBefore(turn, reply, destination))
-                }
+                ).also { logger.warn("The reply of turn {} did not reach chat {}: {}", turn.id, destination, it) }
+            var reply: OutboundMessage? = null
+            val delivery = delivered {
+                val drafted = replyMessage(text, channel.capabilities(destination), null, turn.conversation)
+                channel.send(destination, hooks.responseBefore(turn, drafted, destination).also { reply = it })
             }
             if (delivery is Delivery.NotDelivered) {
                 logger.warn("The reply of turn {} did not reach chat {}: {}", turn.id, destination, delivery)
             }
-            return delivery
+            return reply?.let { fallBack(turn, destination, it, delivery) } ?: delivery
         }
 
         /** Stores the notice [text] of [kind] and sends it beside the turn's reply, replying to [replyTo]. */
@@ -1135,7 +1273,7 @@ internal class AgentTurnRunner(
             withContext(NonCancellable) {
                 val turn = checkNotNull(turn)
                 append(NoticeEntry(null, text, kind))
-                sink?.let { show(it, notice(text, plan.trigger, turn.conversation)) }
+                sink?.let { showNotice(it, turn, notice(text, plan.trigger, turn.conversation)) }
                 if (sink == null && end == TurnEndKind.FAILED) {
                     attempt("send its failure notice") { routeNotice(turn, text) }
                 }
@@ -1175,6 +1313,18 @@ internal class AgentTurnRunner(
             stored += appended
             history.appended(turn.conversation, appended)
             return appended
+        }
+
+        /** Shows the final [notice] of [turn] through [sink], else sends it once more beside the reply. */
+        private suspend fun showNotice(sink: ReplySink, turn: TurnInfo, notice: OutboundMessage) {
+            val delivery = show(sink, notice)
+            if (delivery !is Delivery.NotDelivered || delivery.kind in UNREACHABLE) return
+            val again = channels.channel(turn.chat.instance)?.let { channel ->
+                delivered { channel.send(turn.chat, notice) }
+            }
+            if (again !is Delivery.Delivered) {
+                logger.warn("The notice of turn {} did not reach chat {} again: {}", turn.id, turn.chat, again)
+            }
         }
 
         private suspend fun show(sink: ReplySink, message: OutboundMessage): Delivery {
@@ -1420,6 +1570,21 @@ private val logger = LoggerFactory.getLogger(AgentTurnRunner::class.java)
  * config sets up and whose gated calls are refused, as it has nobody to ask.
  */
 private fun operatorSet(turn: TurnInfo): Boolean = turn.kind == TurnKind.HEARTBEAT && turn.actor == null
+
+/** The failures after which nothing more reaches a chat. */
+private val UNREACHABLE = setOf(DeliveryFailure.FORBIDDEN, DeliveryFailure.CHAT_GONE)
+
+/** Why a turn moved on from a model that its endpoint does not list. */
+private const val UNKNOWN_MODEL = "unknown"
+
+/** What selecting a turn's model came to. */
+private sealed interface Selection {
+    class Found(val model: SelectedModel) : Selection
+
+    class Failed(val error: ModelError) : Selection
+
+    data object Unknown : Selection
+}
 
 /** The kinds of turn that may end saying nothing: a job's that has nothing to add, a heartbeat's. */
 private val SILENT_KINDS = setOf(TurnKind.JOB, TurnKind.HEARTBEAT)

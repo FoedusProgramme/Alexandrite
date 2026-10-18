@@ -166,6 +166,12 @@ public value class NoticeKind internal constructor(public val id: String) {
         /** A folder's project instructions were not loaded, as the folder is not trusted. */
         public val UNTRUSTED_FOLDER: NoticeKind = NoticeKind("untrusted_folder")
 
+        /** The turn's model failed, so the next of its agent's models answered. */
+        public val MODEL_SWITCHED: NoticeKind = NoticeKind("model_switched")
+
+        /** The final reply did not reach its chat. */
+        public val UNDELIVERED: NoticeKind = NoticeKind("undelivered")
+
         /** The values this version knows. */
         public val entries: List<NoticeKind> = listOf(
             BLANK_REPLY,
@@ -178,6 +184,8 @@ public value class NoticeKind internal constructor(public val id: String) {
             ROUND_LIMIT,
             BUDGET,
             UNTRUSTED_FOLDER,
+            MODEL_SWITCHED,
+            UNDELIVERED,
         )
 
         /** The value of [id], which keeps an id this version does not know. */

@@ -525,7 +525,10 @@ internal class TelegramReply(
         return outbox.sendParts(chat, target, parts.drop(1), trigger, listOf(first))
     }
 
-    /** Has the message [message] of segment [index] read the final [text], once more after a transient failure. */
+    /**
+     * Has the message [message] of segment [index] read the final [text], once more after a transient failure, in a new
+     * message where Telegram refuses the edit.
+     */
     private suspend fun replace(index: Int, message: Long, text: FormattedText): Long {
         if (synchronized(lock) { segments.getValue(index).shown } == text) return message
         var retried = false
@@ -536,7 +539,7 @@ internal class TelegramReply(
             } catch (e: BotApiException) {
                 when {
                     e.failure == BotApiFailure.NOT_MODIFIED -> return message
-                    e.failure == BotApiFailure.EDIT_TARGET_GONE -> return outbox.paced(target) { send(index, text) }
+                    e.failure in SENT_AGAIN -> return outbox.paced(target) { send(index, text) }
                     e.failure == BotApiFailure.TRANSIENT && !retried -> retried = true
                     else -> throw e
                 }
@@ -680,5 +683,8 @@ internal class TelegramReply(
 }
 
 private val TOO_LONG = Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
+
+/** The refusals of a final edit after which the final goes out as a new message. */
+private val SENT_AGAIN = setOf(BotApiFailure.EDIT_TARGET_GONE, BotApiFailure.BAD_REQUEST)
 
 private val logger = LoggerFactory.getLogger(TelegramReply::class.java)

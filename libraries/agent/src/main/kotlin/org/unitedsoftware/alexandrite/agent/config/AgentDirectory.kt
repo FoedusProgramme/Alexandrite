@@ -17,7 +17,10 @@ import java.time.ZoneId
 internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: List<Attachment>) {
     val name: String get() = config.name ?: id.value
 
-    val model: ModelRef? = config.model?.let(ModelRef::parse)
+    /** The agent's equal models, the first its default. */
+    val models: List<ModelRef> = (config.model?.let(::listOf) ?: config.models).map(ModelRef::parse)
+
+    val model: ModelRef? = models.firstOrNull()
 
     val reasoning: ReasoningEffort? = config.reasoning?.let(ReasoningEffort::of)
 
@@ -64,11 +67,12 @@ internal class AgentDirectory(settings: AgentSettings, channels: ChannelDirector
 
 private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirectory, endpoints: Endpoints): Agent {
     val path = "agent.agents.$id"
-    val models = listOf(
-        "model" to config.model,
-        "permission.judge" to config.permission.judge,
-        "compaction.model" to config.compaction.model,
-    )
+    val models = listOf("model" to config.model) +
+        config.models.mapIndexed { index, model -> "models[$index]" to model } +
+        listOf(
+            "permission.judge" to config.permission.judge,
+            "compaction.model" to config.compaction.model,
+        )
     for ((key, text) in models) {
         val model = text?.let(ModelRef::parse) ?: continue
         if (endpoints.endpoint(model.endpoint) == null) {

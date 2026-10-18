@@ -243,6 +243,20 @@ class TelegramReplyTest {
     }
 
     @Test
+    fun `a final whose edit Telegram refuses goes out as a new message`() = runTest {
+        val output = output()
+        val reply = output.open()
+        reply.preview(0, "One")
+        advanceTimeBy(100)
+        output.api.fail("editMessageText", BotApiFailure.BAD_REQUEST)
+
+        val delivery = reply.complete(markdown("One two"))
+
+        assertEquals(listOf("sendMessage One", "editMessageText One two", "sendMessage One two"), output.shown())
+        assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(output.address(), "102"))), delivery)
+    }
+
+    @Test
     fun `a longer final replaces the preview with its first part and sends the others after it, a second apart`() =
         runTest {
             val output = output()

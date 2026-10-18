@@ -283,6 +283,8 @@ public open class ResponsesFixture(private val flavor: ResponsesFlavor = Respons
 
     override fun finish(text: String, raw: String): FakeResponse = sse(*textEvents(listOf(text), incomplete(raw)))
 
+    override fun blankAtOutputLimit(): FakeResponse? = sse(created(), incomplete("max_output_tokens"))
+
     override fun usage(text: String, usage: Usage): FakeResponse {
         val counted =
             responsesUsage(usage.inputTokens!!, usage.cacheReadTokens!!, usage.outputTokens!!, usage.reasoningTokens!!)

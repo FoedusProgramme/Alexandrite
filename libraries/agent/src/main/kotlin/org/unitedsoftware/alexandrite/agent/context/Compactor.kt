@@ -110,8 +110,8 @@ internal class Compactor(
         private val turn: TurnInfo,
         private val config: CompactionConfig,
         /** Null when unknown. */
-        private val window: Int?,
-        private val summaryModel: ModelRef,
+        private var window: Int?,
+        private var summaryModel: ModelRef,
         view: ContextView,
         private var record: ContextRecord,
     ) {
@@ -123,6 +123,12 @@ internal class Compactor(
 
         /** Whether a compaction failed since the prompt last fell below the trigger. */
         private var stalled = false
+
+        /** Fits the turn's later requests to a model with the context window [window], summarized by [summaryModel]. */
+        fun moveTo(window: Int?, summaryModel: ModelRef) {
+            this.window = window
+            this.summaryModel = summaryModel
+        }
 
         /** The history of a request whose turn's own entries are [current], and the index of the first of them. */
         fun history(current: List<TranscriptEntry>): Pair<List<TranscriptEntry>, Int> {

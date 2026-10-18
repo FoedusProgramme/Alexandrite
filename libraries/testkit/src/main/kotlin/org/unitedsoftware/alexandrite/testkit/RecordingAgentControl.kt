@@ -101,7 +101,7 @@ public class RecordingAgentControl(
 
     /**
      * Lists [agent], in its place when it is listed already, with [name], [description] and the [model], [reasoning],
-     * [language], permission [mode] and [zone] it is configured with.
+     * [language], permission [mode], [zone] and equal [models] it is configured with, [model] the first of them.
      */
     public fun scriptAgent(
         agent: AgentId,
@@ -112,8 +112,10 @@ public class RecordingAgentControl(
         language: LanguageTag? = null,
         mode: PermissionMode? = null,
         zone: ZoneId? = null,
+        models: List<ModelRef> = listOfNotNull(model),
     ) {
-        synchronized(lock) { profiles[agent] = Profile(name, description, model, reasoning, language, mode, zone) }
+        val profile = Profile(name, description, model ?: models.firstOrNull(), reasoning, language, mode, zone, models)
+        synchronized(lock) { profiles[agent] = profile }
     }
 
     /** Lists [endpoint], in its place when it is listed already, with [models]. */
@@ -481,6 +483,7 @@ public class RecordingAgentControl(
             .home(home == agent)
             .agentSource(source)
             .defaultModel(profile?.model)
+            .models(profile?.models.orEmpty())
             .defaultReasoning(profile?.reasoning)
             .defaultLanguage(profile?.language)
             .apply { if (ended) mode(null) }
@@ -524,6 +527,7 @@ public class RecordingAgentControl(
         val language: LanguageTag?,
         val mode: PermissionMode?,
         val zone: ZoneId?,
+        val models: List<ModelRef> = emptyList(),
     )
 
     /** A call of the control port. */

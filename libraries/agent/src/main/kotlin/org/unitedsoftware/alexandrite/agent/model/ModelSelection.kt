@@ -4,6 +4,8 @@ import org.unitedsoftware.alexandrite.agent.config.Agent
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
+import org.unitedsoftware.alexandrite.sdk.model.ModelError
+import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
@@ -12,8 +14,13 @@ import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.model.Usage
+import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
+import org.unitedsoftware.alexandrite.sdk.transcript.ProviderData
+import org.unitedsoftware.alexandrite.sdk.transcript.ReasoningPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
+import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 
@@ -68,6 +75,57 @@ internal fun requestOptions(agent: Agent, model: ModelInfo, reasoning: Reasoning
  */
 internal fun outputReserve(agent: Agent, model: ModelInfo): Int? =
     agent.config.maxOutputTokens ?: model.maxOutputTokens?.coerceAtMost(DEFAULT_MAX_OUTPUT_TOKENS)
+
+/**
+ * The [options] of a retry to [model] after its output limit cut off a response before its answer: the model's least
+ * reasoning, and twice the answer tokens where the model takes that many, else its most.
+ */
+internal fun roomier(options: ModelOptions, model: ModelInfo): ModelOptions {
+    val room = options.maxOutputTokens
+    val most = model.maxOutputTokens
+    val more = if (room == null || most == null) room else maxOf(room, minOf(room.toLong() * 2, most.toLong()).toInt())
+    return options.toBuilder().maxOutputTokens(more).reasoning(leastReasoning(model)).build()
+}
+
+/**
+ * Whether a turn moves on to its next model after [error]: an unreachable or failing backend, a rate limit that its
+ * retries did not outlast, or a model the endpoint does not know.
+ */
+internal fun movesOn(error: ModelError): Boolean = error.kind in MOVING_ON || error.status in 500..599
+
+private val MOVING_ON = setOf(
+    ModelErrorKind.CONNECTION,
+    ModelErrorKind.TIMEOUT,
+    ModelErrorKind.SERVER_ERROR,
+    ModelErrorKind.OVERLOADED,
+    ModelErrorKind.RATE_LIMITED,
+    ModelErrorKind.MODEL_NOT_FOUND,
+)
+
+/** [entries] as a request to [model] carries them, without the reasoning seals and provider data of other endpoints. */
+internal fun crossedTo(model: ModelRef, entries: List<TranscriptEntry>): List<TranscriptEntry> = entries.map { entry ->
+    if (entry !is AssistantEntry) return@map entry
+    val own = entry.producedBy.endpoint == model.endpoint
+    val parts = entry.parts.mapNotNull { part ->
+        when {
+            part is ReasoningPart && part.seal != null && part.seal?.origin?.endpoint != model.endpoint ->
+                ReasoningPart(part.text, part.summary, null).takeIf { it.text != null || it.summary != null }
+
+            part is ToolCallPart && !own && part.providerData != ProviderData.EMPTY ->
+                ToolCallPart(part.id, part.name, part.arguments)
+
+            else -> part
+        }
+    }
+    if (own && parts == entry.parts) entry else AssistantEntry(entry.record, parts, entry.producedBy)
+}
+
+/** The model of [models] after [current], round to the first, else their first when [current] is none of them. */
+internal fun nextModel(models: List<ModelRef>, current: ModelRef): ModelRef? {
+    val at = models.indexOf(current)
+    val next = if (at < 0) models.firstOrNull() else models[(at + 1) % models.size]
+    return next?.takeIf { it != current }
+}
 
 /**
  * The least reasoning [model] takes, for a side request whose short answer a reasoning model could spend all its

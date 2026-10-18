@@ -90,6 +90,16 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.model == null || ModelRef.parseOrNull(agent.model) != null) {
         "$path.model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\""
     }
+    require(agent.model == null || agent.models.isEmpty()) {
+        "$path sets both model and models: name one model, or list them all in models"
+    }
+    for ((index, model) in agent.models.withIndex()) {
+        require(ModelRef.parseOrNull(model) != null) {
+            "$path.models[$index] is no model reference: write <endpoint>/<model>, such as " +
+                "\"anthropic/claude-sonnet-5-5\""
+        }
+    }
+    require(agent.models.toSet().size == agent.models.size) { "$path.models names a model twice" }
     require(agent.reasoning == null || reasoningOf(agent.reasoning) != null) {
         "$path.reasoning must be one of ${ReasoningEffort.entries.joinToString()}"
     }
@@ -137,7 +147,7 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
             "$path.channels.$key.home is no chat of the instance: write its chat id, and #<thread> for a thread"
         }
     }
-    require(agent.channels.isEmpty() || agent.model != null) {
+    require(agent.channels.isEmpty() || agent.model != null || agent.models.isNotEmpty()) {
         "$path.model is missing: an agent that serves channels needs a model"
     }
     require(agent.channels.isNotEmpty() || !agent.description.isNullOrBlank()) {

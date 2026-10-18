@@ -74,6 +74,38 @@ class SettingCommandsTest {
     }
 
     @Test
+    fun `model shows the agent's equal models numbered, the one in use marked, and picks one by its number`() =
+        runTest {
+            val models = listOf("big/m-01", "big/m-02", "big/m-03").map(ModelRef::parse)
+            control.scriptAgent(AgentId.MAIN, "Main", models = models)
+            val endpoints = "Endpoints: big, slow, broken. List an endpoint's models with /model <endpoint>, switch " +
+                "with /model <endpoint>/<model>, go back to the agent's model with /model reset."
+            val listed = "The agent's models, the first its default; pick one with /model <number>:\n" +
+                "- 1. big/m-01 (in use)\n- 2. big/m-02\n- 3. big/m-03"
+
+            val shown = commands.answer(testCommand("model"))
+            assertEquals("Model: big/m-01 (the agent's setting).\n$listed\n$endpoints", shown)
+            assertEquals("This chat now uses the model big/m-02.", commands.answer(testCommand("model", "2")))
+            assertEquals(
+                "There is no model 4. The agent's models:\n- 1. big/m-01\n- 2. big/m-02 (in use)\n- 3. big/m-03",
+                commands.answer(testCommand("model", "4")),
+            )
+            assertEquals(
+                listOf(ChatSettingsUpdate.builder().model(models[1]).build()),
+                control.calls.filterIsInstance<Call.UpdateSettings>().map { it.update },
+            )
+        }
+
+    @Test
+    fun `a number picks nothing for an agent that names no models`() = runTest {
+        assertEquals(
+            "The agent names no models to pick by number: switch with /model <endpoint>/<model>.",
+            commands.answer(testCommand("model", "1")),
+        )
+        assertEquals(emptyList(), control.calls.filterIsInstance<Call.UpdateSettings>())
+    }
+
+    @Test
     fun `model with an endpoint lists its first models sorted, the one in use marked`() = runTest {
         control.scriptAgent(AgentId.MAIN, "Main", model = ModelRef.parse("big/m-03"))
 
@@ -164,8 +196,9 @@ class SettingCommandsTest {
 
     @Test
     fun `a malformed model reference or more than one argument changes nothing`() = runTest {
-        val usage = "Send /model to see the model, /model <endpoint> to list an endpoint's models, " +
-            "/model <endpoint>/<model> to switch, or /model reset to go back to the agent's."
+        val usage = "Send /model to see the model, /model <number> to pick one of the agent's models, " +
+            "/model <endpoint> to list an endpoint's models, /model <endpoint>/<model> to switch, or /model reset " +
+            "to go back to the agent's."
 
         assertEquals(usage, commands.answer(testCommand("model", "Big/m-01")))
         assertEquals(usage, commands.answer(testCommand("model", "big m-01")))

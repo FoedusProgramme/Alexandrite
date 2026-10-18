@@ -224,6 +224,12 @@ public open class ChatFixture(private val flavor: ChatFlavor) : ProviderFixture 
 
     override fun finish(text: String, raw: String): FakeResponse = chunks(chunk { with("content", text) }, chunk(raw))
 
+    override fun blankAtOutputLimit(): FakeResponse? = chunks(
+        chunk { with("role", "assistant").with("content", "") },
+        chunk("length"),
+        usageChunk(openAiUsage(10, 0, 5, 0)),
+    )
+
     override fun usage(text: String, usage: Usage): FakeResponse =
         chunks(chunk { with("content", text) }, chunk("stop"), usageChunk(usageObject(usage)))
 

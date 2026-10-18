@@ -343,8 +343,8 @@ class FirstAnswerTest {
     // Answers the chat does not get.
 
     @Test
-    fun `a blank reply is taken back with a notice`() {
-        model.reply { reasoning("Nothing to say.") }
+    fun `a blank reply is asked once more, and then taken back with a notice`() {
+        repeat(2) { model.reply { reasoning("Nothing to say.") } }
 
         harness().execute {
             val admission = channel().receive("Hi")
@@ -356,6 +356,21 @@ class FirstAnswerTest {
                 NoticeKind.BLANK_REPLY,
                 TurnEndKind.TAKEN_BACK,
             )
+            assertEquals(2, model.requests.size)
+            assertEquals(model.requests[0], model.requests[1])
+        }
+    }
+
+    @Test
+    fun `a blank reply asked once more delivers the answer of the second request`() {
+        model.reply { reasoning("Nothing to say.") }.reply { text("Hello") }
+
+        harness().execute {
+            val admission = channel().receive("Hi")
+
+            assertIs<TurnOutcome.Completed>(admission.outcome())
+            assertEquals("Hello", channel().reply(admission.turn).completed?.text)
+            assertEquals(listOf(UserEntry::class, AssistantEntry::class), stored().map { it::class })
         }
     }
 
@@ -454,7 +469,7 @@ class FirstAnswerTest {
 
     @Test
     fun `notices are in the host's language where the catalog has them`() {
-        model.reply { reasoning("Nothing.") }
+        repeat(2) { model.reply { reasoning("Nothing.") } }
 
         harness { language(LanguageTag("zh-CN")).texts(chinese) }.execute {
             val admission = channel().receive("Hi")
@@ -466,7 +481,7 @@ class FirstAnswerTest {
 
     @Test
     fun `notices and the prompt follow the chat's language before the agent's`() {
-        model.reply { reasoning("Nothing.") }
+        repeat(2) { model.reply { reasoning("Nothing.") } }
         val language = standaloneChatStates("alexandrite-agent", store.chatStates)
             .agentState(SettingsStates.LANGUAGE, Choice<LanguageTag>())
         blocking { language.set(coder, Choice(LanguageTag("zh-CN"))) }
@@ -482,7 +497,7 @@ class FirstAnswerTest {
                     "Answer in zh-CN unless the user writes in another language.",
                     stable = true,
                 ),
-                model.requests.single().instructions.last(),
+                model.requests.last().instructions.last(),
             )
         }
     }

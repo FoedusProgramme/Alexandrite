@@ -183,6 +183,17 @@ internal val PROVIDER_CHECKS: List<ProviderCheck> = listOf(
         expectEqual("mystery_stop", completed.finish.raw, "The reply's raw finish")
         expectEqual(listOf(TextPart("Done.")), completed.message.parts, "The reply's parts")
     },
+    providerCheck("a response cut off before any output completes at its output limit") {
+        val response = fixture.blankAtOutputLimit() ?: return@providerCheck
+        server.enqueue(response)
+
+        val completed = respond(request()).completed
+
+        expectEqual(FinishKind.MAX_OUTPUT_TOKENS, completed.finish.kind, "The reply's finish")
+        expect(completed.message.parts.none { (it is TextPart && it.text.isNotBlank()) || it is ToolCallPart }) {
+            "The cut-off reply holds output: ${completed.message.parts}."
+        }
+    },
     providerCheck("usage is reported") {
         val usage = Usage.builder().inputTokens(1200).cacheReadTokens(1000).outputTokens(80).reasoningTokens(30).build()
         server.enqueue(fixture.usage("Done.", usage))

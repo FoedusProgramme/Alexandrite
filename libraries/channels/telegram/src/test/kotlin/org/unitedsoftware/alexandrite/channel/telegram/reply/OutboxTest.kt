@@ -141,6 +141,25 @@ class OutboxTest {
     }
 
     @Test
+    fun `a formatted message Telegram refuses as a bad request goes once more as plain text, a plain one not`() =
+        runTest {
+            val output = Output(this)
+            output.api.fail("sendMessage", BotApiFailure.BAD_REQUEST)
+
+            val formatted = output.outbox.send(output.address(), markdown("**Bold** move"))
+            output.api.fail("sendMessage", BotApiFailure.BAD_REQUEST)
+            val plain = output.outbox.send(output.address(), markdown("Plain move"))
+
+            assertTrue(formatted is Delivery.Delivered, "$formatted")
+            assertEquals(Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "scripted"), plain)
+            val sent = output.api.calls("sendMessage").map { it.text to it.entities }
+            assertEquals(
+                listOf("Bold move" to listOf("bold 0+4"), "Bold move" to emptyList(), "Plain move" to emptyList()),
+                sent,
+            )
+        }
+
+    @Test
     fun `an address that names no Telegram chat is not delivered`() = runTest {
         val output = Output(this)
 

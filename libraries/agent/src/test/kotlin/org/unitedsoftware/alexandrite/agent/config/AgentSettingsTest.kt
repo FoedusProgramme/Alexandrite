@@ -230,6 +230,27 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `models beside a model, a malformed or repeated model, fail the start, and models serve channels`() {
+        assertConfigFails(
+            agents(""""coder": {"model": "a/b", "models": ["a/b"], "channels": {"test:main": {}}}"""),
+            "agents.coder sets both model and models: name one model, or list them all in models",
+        )
+        assertConfigFails(
+            agents(""""coder": {"models": ["a/b", "sonnet"], "channels": {"test:main": {}}}"""),
+            "agents.coder.models[1] is no model reference: write <endpoint>/<model>, such as " +
+                "\"anthropic/claude-sonnet-5-5\"",
+        )
+        assertConfigFails(
+            agents(""""coder": {"models": ["a/b", "a/b"], "channels": {"test:main": {}}}"""),
+            "agents.coder.models names a model twice",
+        )
+        assertConfigFails(
+            agents(""""coder": {"models": [], "channels": {"test:main": {}}}"""),
+            "agents.coder.model is missing: an agent that serves channels needs a model",
+        )
+    }
+
+    @Test
     fun `a permission mode that is unknown or a bypass fails the start`() {
         for (mode in listOf("yolo", "bypass")) {
             assertConfigFails(

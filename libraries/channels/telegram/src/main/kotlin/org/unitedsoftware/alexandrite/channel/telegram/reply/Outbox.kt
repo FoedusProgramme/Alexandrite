@@ -39,8 +39,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Sends and edits the bot's messages at the [SendLimiter]'s pace, as plain text once more where Telegram refuses their
- * entities.
+ * Sends and edits the bot's messages at the [SendLimiter]'s pace, as plain text once more where Telegram refuses them
+ * formatted.
  *
  * A call that started runs to its end.
  */
@@ -219,10 +219,10 @@ internal class Outbox(
         try {
             whole { call(text) }
         } catch (e: BotApiException) {
-            if (e.failure != BotApiFailure.ENTITIES_REJECTED || text.entities.isEmpty()) throw e
+            if (e.failure !in PLAIN_AGAIN || text.entities.isEmpty()) throw e
             if (warnedEntities.compareAndSet(false, true)) {
                 logger.warn(
-                    "{}: Telegram refused the entities of a message, which went again as plain text: {}",
+                    "{}: Telegram refused a formatted message, which went again as plain text: {}",
                     instance.id,
                     e.message,
                 )
@@ -234,6 +234,9 @@ internal class Outbox(
 
     private companion object {
         val NO_PREVIEW = LinkPreviewOptions(isDisabled = true)
+
+        /** The refusals of a formatted message after which it goes again as plain text. */
+        val PLAIN_AGAIN = setOf(BotApiFailure.ENTITIES_REJECTED, BotApiFailure.BAD_REQUEST)
     }
 }
 

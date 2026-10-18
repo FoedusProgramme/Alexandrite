@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -54,6 +55,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
                 argument.isEmpty() -> model(invocation, context, replies)
                 argument.isKeyword(RESET) -> resetModel(invocation, context)
                 '/' in argument -> setModel(argument, invocation, context, replies)
+                argument.toIntOrNull() != null -> pickModel(argument.toInt(), invocation, context, replies)
                 words.size == 1 -> listModels(argument, invocation, context, replies)
                 else -> context.reply(replies.usage(name))
             }
@@ -89,8 +91,47 @@ internal class SettingCommands(private val control: AgentControl, private val te
     private suspend fun model(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
         val model = replies.model(snapshot)
-        val current = replies.text(TextKeys.MODEL_CURRENT, "model" to model.value, "source" to model.source)
-        context.reply(current + "\n" + replies.text(TextKeys.MODEL_ENDPOINTS, "endpoints" to endpointIds(replies)))
+        val lines = listOfNotNull(
+            replies.text(TextKeys.MODEL_CURRENT, "model" to model.value, "source" to model.source),
+            snapshot.models.takeIf { it.size > 1 }?.let {
+                replies.text(TextKeys.MODEL_MODELS, "models" to numbered(snapshot, replies))
+            },
+            replies.text(TextKeys.MODEL_ENDPOINTS, "endpoints" to endpointIds(replies)),
+        )
+        context.reply(lines.joinToString("\n"))
+    }
+
+    /** Switches the chat to the [number]th of its agent's models. */
+    private suspend fun pickModel(
+        number: Int,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val model = snapshot.models.getOrNull(number - 1)
+        if (model == null) {
+            val text = if (snapshot.models.isEmpty()) {
+                replies.text(TextKeys.MODEL_NO_MODELS)
+            } else {
+                replies.text(TextKeys.MODEL_NO_NUMBER, "number" to number, "models" to numbered(snapshot, replies))
+            }
+            context.reply(text)
+            return
+        }
+        val updated = context.updateSettings(control, invocation) { model(model) } ?: return
+        context.reply(texts.replies(updated.effectiveLanguage).text(TextKeys.MODEL_SET, "model" to model))
+    }
+
+    /** The agent's models of [snapshot] as a numbered list, the one in use marked. */
+    private fun numbered(snapshot: ChatSettingsSnapshot, replies: Replies): String {
+        val current = snapshot.model ?: snapshot.defaultModel
+        return replies.list(
+            snapshot.models.mapIndexed { index, model ->
+                val mark = if (model == current) " ${replies.text(TextKeys.MODEL_CURRENT_MARK)}" else ""
+                "${index + 1}. $model$mark"
+            },
+        )
     }
 
     private suspend fun listModels(
