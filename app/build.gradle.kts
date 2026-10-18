@@ -26,6 +26,7 @@ dependencies {
     testImplementation(project(":libraries:testkit"))
     testImplementation(project(":examples:notes"))
     testImplementation(testFixtures(project(":libraries:channels:telegram")))
+    testImplementation(testFixtures(project(":libraries:mcp")))
     testImplementation(project(":libraries:automation-common"))
     testImplementation(libs.logback.classic)
 }

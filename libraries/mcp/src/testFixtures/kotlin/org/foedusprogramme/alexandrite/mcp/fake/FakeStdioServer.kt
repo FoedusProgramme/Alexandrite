@@ -1,4 +1,4 @@
-package org.foedusprogramme.alexandrite.mcp.client
+package org.foedusprogramme.alexandrite.mcp.fake
 
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -6,14 +6,27 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.nio.file.Path
 import kotlin.system.exitProcess
 
 /**
  * A stdio MCP server run as a real child process by the tests, in the mode its first argument names: `modern`,
  * `legacy`, `legacy-old`, `silent-legacy`, `unsupported`, `ancient`, `crash`, `noisy` or `stubborn`.
  */
-fun main(args: Array<String>) {
+public fun main(args: Array<String>) {
     FakeStdioServer(args.firstOrNull() ?: "modern").run()
+}
+
+/** How to start the fake stdio server in [mode] from a test's JVM. */
+public object FakeStdioServers {
+    public val command: String = Path.of(System.getProperty("java.home"), "bin", "java").toString()
+
+    public fun args(mode: String): List<String> = listOf(
+        "-cp",
+        System.getProperty("java.class.path"),
+        "org.foedusprogramme.alexandrite.mcp.fake.FakeStdioServerKt",
+        mode,
+    )
 }
 
 private class FakeStdioServer(private val mode: String) {
@@ -401,8 +414,10 @@ private class FakeStdioServer(private val mode: String) {
     }
 }
 
-internal object FakeJson {
+private object FakeJson {
     val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     fun parse(text: String): JsonObject = json.parseToJsonElement(text) as JsonObject
 }
+
+private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content

@@ -1,0 +1,113 @@
+package org.foedusprogramme.alexandrite.mcp
+
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.foedusprogramme.alexandrite.mcp.client.McpClientOptions
+import org.foedusprogramme.alexandrite.mcp.client.McpImplementation
+import org.foedusprogramme.alexandrite.mcp.fake.FakeStdioServers
+import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
+import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+
+internal const val PLUGIN = "alexandrite-mcp"
+
+internal val QUICK = McpTimings(
+    firstPause = 100.milliseconds,
+    maxPause = 400.milliseconds,
+    steady = 10.seconds,
+    minTtl = 1.seconds,
+    stopGrace = 1.seconds,
+    client = McpClientOptions(probeTimeout = 2.seconds, requestTimeout = 10.seconds),
+)
+
+/** A stdio server running the fake server in [mode]. */
+internal fun fake(mode: String = "modern", block: ServerConfigBuilder.() -> Unit = {}): ServerConfig =
+    ServerConfigBuilder(command = FakeStdioServers.command, args = FakeStdioServers.args(mode)).apply(block).build()
+
+internal class ServerConfigBuilder(
+    var command: String? = null,
+    var args: List<String> = emptyList(),
+    var env: Map<String, String> = emptyMap(),
+    var url: String? = null,
+    var headers: Map<String, String> = emptyMap(),
+    var allow: List<String> = listOf("*"),
+    var deny: List<String> = emptyList(),
+    var risk: Map<String, String> = emptyMap(),
+    var trustAnnotations: Boolean = false,
+    var trusted: Boolean = false,
+    var timeoutSeconds: Int = 60,
+    var enabled: Boolean = true,
+) {
+    fun build(): ServerConfig = ServerConfig(
+        command = command,
+        args = args,
+        env = env.mapValues { Secret(it.value) },
+        url = url,
+        headers = headers.mapValues { Secret(it.value) },
+        tools = ToolsConfig(allow, deny),
+        risk = risk,
+        trustAnnotations = trustAnnotations,
+        trusted = trusted,
+        timeoutSeconds = timeoutSeconds,
+        enabled = enabled,
+    )
+}
+
+/** A hub of [servers] in a scope of its own, opened, drained when [block] ends. */
+internal fun withHub(vararg servers: Pair<String, ServerConfig>, block: suspend Hub.() -> Unit) = realTime {
+    val scope = CoroutineScope(SupervisorJob())
+    val hub = McpHub(
+        McpSettings(McpConfig(servers.toMap())),
+        scope,
+        McpImplementation("alexandrite-test", "0.0.1"),
+        System.getenv(),
+        QUICK,
+    )
+    try {
+        hub.onOpen()
+        Hub(hub, this).block()
+    } finally {
+        hub.onDrain()
+        hub.onDestroy()
+        scope.cancel()
+    }
+}
+
+internal class Hub(val hub: McpHub, scope: CoroutineScope) : CoroutineScope by scope {
+    fun server(name: String): McpServer = checkNotNull(hub.server(name))
+
+    val names: List<String> get() = hub.tools.value.map { it.definition.name }
+
+    fun tool(name: String): Tool = hub.tools.value.first { it.definition.name == name }
+
+    /** Waits until [predicate] holds of the hub. */
+    suspend fun until(what: String, timeout: Duration = 20.seconds, predicate: Hub.() -> Boolean) {
+        withTimeoutOrNull(timeout) {
+            while (!predicate()) delay(20.milliseconds)
+        } ?: throw AssertionError("Not $what: ${hub.servers.map { it.spec.name to it.status.value }}, $names")
+    }
+
+    suspend fun connected(vararg names: String) =
+        until("connected") { names.all { server(it).status.value.state == ServerState.CONNECTED } }
+}
+
+internal fun realTime(limit: Duration = 60.seconds, block: suspend CoroutineScope.() -> Unit) =
+    runBlocking { withTimeout(limit) { block() } }
+
+internal fun args(vararg pairs: Pair<String, String>): JsonObject = buildJsonObject {
+    pairs.forEach { (key, value) -> put(key, value) }
+}
+
+internal val ToolResult.text: String get() = content.filterIsInstance<TextPart>().joinToString("") { it.text }

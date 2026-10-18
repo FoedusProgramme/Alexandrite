@@ -117,6 +117,7 @@ internal class CommandRules(
             "streaming" to CommandRule(Who.ANYONE, Who.DIRECT),
             "heartbeat" to CommandRule(Who.ANYONE),
             "schedule" to CommandRule(Who.ANYONE, Who.ADMIN),
+            "mcp" to CommandRule(Who.ANYONE, Who.ADMIN),
         )
 
         private val ADMIN_ONLY = CommandRule(Who.ADMIN)

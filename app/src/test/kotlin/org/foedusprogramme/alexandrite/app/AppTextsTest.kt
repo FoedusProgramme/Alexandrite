@@ -87,6 +87,7 @@ class AppTextsTest {
                 "alexandrite-automation-schedule",
                 "alexandrite-channel-telegram",
                 "alexandrite-commands",
+                "alexandrite-mcp",
             ),
             packs.plugins,
         )

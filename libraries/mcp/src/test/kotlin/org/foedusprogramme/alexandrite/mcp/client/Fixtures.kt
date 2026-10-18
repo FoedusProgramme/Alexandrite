@@ -6,7 +6,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
-import java.nio.file.Path
+import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.mcp.fake.FakeStdioServers
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -29,16 +30,13 @@ internal fun fakeLaunch(
     mode: String,
     host: Map<String, String> = System.getenv(),
     env: Map<String, String> = emptyMap(),
-): StdioLaunch = StdioLaunch(
-    Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-    listOf(
-        "-cp",
-        System.getProperty("java.class.path"),
-        "org.foedusprogramme.alexandrite.mcp.client.FakeStdioServerKt",
-        mode,
-    ),
-    McpEnvironment.minimal(host, env),
-)
+): StdioLaunch = StdioLaunch(FakeStdioServers.command, FakeStdioServers.args(mode), McpEnvironment.minimal(host, env))
+
+internal object FakeJson {
+    val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    fun parse(text: String): JsonObject = json.parseToJsonElement(text) as JsonObject
+}
 
 /** Lines a server wrote, which a test can wait for. */
 internal class Lines {

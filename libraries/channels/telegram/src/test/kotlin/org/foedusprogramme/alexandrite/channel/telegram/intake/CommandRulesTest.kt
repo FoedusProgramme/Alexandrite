@@ -111,6 +111,23 @@ class CommandRulesTest {
     }
 
     @Test
+    fun `anyone sees the MCP servers, only admins restart one`() {
+        val rules = CommandRules(listOf(ClaimedCommands("mcp")), control)
+        val member = testUser("bob")
+        val admin = testUser("ada", isAdmin = true)
+
+        for (kind in kinds) {
+            assertEquals(null, rules.refusal(testCommand("mcp", "", issuer = member), kind))
+            assertEquals(
+                TextKeys.REFUSED_ADMIN,
+                rules.refusal(testCommand("mcp", "restart github", issuer = member), kind),
+            )
+            assertEquals(null, rules.refusal(testCommand("mcp", "restart github", issuer = admin), kind))
+        }
+        assertEquals(true, rules.listed("mcp", admin = false, direct = false))
+    }
+
+    @Test
     fun `names are matched ignoring case, and a command no handler claims reaches the agent from anyone`() {
         assertRow("New", "", direct = null, others = TextKeys.REFUSED_ADMIN_HERE)
         assertRow("MODEL", "x/y", direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
