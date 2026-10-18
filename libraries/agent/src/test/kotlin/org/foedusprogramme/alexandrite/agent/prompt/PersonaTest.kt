@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
@@ -31,7 +32,14 @@ class PersonaTest {
 
     private fun persona(config: String, configFile: Path? = this.configFile): Persona {
         val settings = settings(config)
-        return Persona(agentDirectory(settings), settings, hostPaths(configFile)).also { blocking { it.onStart() } }
+        return Persona(
+            agentDirectory(settings),
+            settings,
+            hostPaths(configFile),
+            ConventionalAgentPlaces(hostPaths(configFile)),
+        ).also {
+            blocking { it.onStart() }
+        }
     }
 
     private fun Persona.texts(

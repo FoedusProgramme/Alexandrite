@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.permission.AgentFloor
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
@@ -58,7 +59,14 @@ class SendFileToolTest {
     private fun tool(open: Boolean = true): SendFileTool {
         val settings = settings("{}")
         val paths = hostPaths(null, data)
-        val floor = AgentFloor(paths, Workspaces(paths, settings), settings, ConversationDirectories(paths, settings))
+        val floor =
+            AgentFloor(
+                paths,
+                ConventionalAgentPlaces(paths),
+                Workspaces(paths, ConventionalAgentPlaces(paths), settings),
+                settings,
+                ConversationDirectories(ConventionalAgentPlaces(paths), settings),
+            )
         val channels = object : ChannelDirectory {
             override val instances: Set<ChannelInstanceId> = setOf(channel.instance)
 
@@ -117,7 +125,7 @@ class SendFileToolTest {
 
     @Test
     fun `the floor refuses protected places, and only the turn's own conversation directory is sendable`() {
-        val directories = ConversationDirectories(hostPaths(null, data), settings("{}"))
+        val directories = ConversationDirectories(ConventionalAgentPlaces(hostPaths(null, data)), settings("{}"))
         val own = directories.open(turn).resolve("inbox/photo-40-1.jpg").also { it.parent.createDirectories() }
         own.writeText("jpeg")
         val other = directories.open(turn.agent, ConversationId("other")).resolve("secret.txt")

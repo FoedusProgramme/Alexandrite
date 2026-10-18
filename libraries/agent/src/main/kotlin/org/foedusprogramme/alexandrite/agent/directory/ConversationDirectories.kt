@@ -9,29 +9,30 @@ import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
-import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
 
 /**
- * Where each conversation keeps its own files, under `<data root>/conversations/<agent>/<conversation>/`.
+ * Where each conversation keeps its own files, in the directory named by its id within the directory that the host's
+ * [AgentPlaces] give its agent's conversations.
  *
  * A delegated run's own conversation is never given one: every lookup takes the turn's root conversation, so a
  * sub-agent shares its root conversation's directory. `command.exec` is not policed by [quotaRefusal]: a program it
  * runs may write past the quota, as the floor and the permission gate (unchanged for that tool) are its only limits.
  */
 @Singleton
-internal class ConversationDirectories(paths: HostPaths, private val settings: AgentSettings) {
-    /** Every agent's and conversation's own directory lives under this one. */
-    val root: Path = paths.dataRoot.resolve(CONVERSATIONS)
-
+internal class ConversationDirectories(private val places: AgentPlaces, private val settings: AgentSettings) {
     private val canonicalizer = PathCanonicalizer()
 
     /** Where [agent]'s conversation [conversation] keeps its own files, canonical. */
     fun path(agent: AgentId, conversation: ConversationId): Path =
-        canonicalizer.canonicalize(root.resolve(agent.value).resolve(conversation.value)).real
+        canonicalizer.canonicalize(conversations(agent).resolve(conversation.value)).real
+
+    /** The directory that holds a directory of each of [agent]'s conversations. */
+    fun conversations(agent: AgentId): Path = places.conversations(agent)
 
     /** [path] for [turn]'s own root conversation. */
     fun path(turn: TurnInfo): Path = path(turn.agent, turn.rootConversation)
@@ -73,10 +74,6 @@ internal class ConversationDirectories(paths: HostPaths, private val settings: A
         return Files.walk(directory).use { entries ->
             entries.filter(Files::isRegularFile).mapToLong(Files::size).sum()
         }
-    }
-
-    private companion object {
-        const val CONVERSATIONS = "conversations"
     }
 }
 

@@ -16,6 +16,7 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.slf4j.LoggerFactory
 import java.io.IOException
@@ -35,8 +36,9 @@ internal class PersonaConditions(
 
 /** The agents' instructions: inline text and files, which are read at the start and again when they change. */
 @Singleton
-internal class Persona(directory: AgentDirectory, settings: AgentSettings, paths: HostPaths) : Lifecycle {
-    private val personas = directory.agents.associate { it.id to AgentPersona(it, settings.persona, paths) }
+internal class Persona(directory: AgentDirectory, settings: AgentSettings, paths: HostPaths, places: AgentPlaces) :
+    Lifecycle {
+    private val personas = directory.agents.associate { it.id to AgentPersona(it, settings.persona, paths, places) }
 
     override suspend fun onStart() {
         withContext(Dispatchers.IO) { personas.values.forEach { it.load() } }
@@ -52,7 +54,7 @@ internal class Persona(directory: AgentDirectory, settings: AgentSettings, paths
     fun files(agent: AgentId): List<Path> = personas[agent]?.sources.orEmpty()
 }
 
-private class AgentPersona(agent: Agent, private val limits: PersonaConfig, paths: HostPaths) {
+private class AgentPersona(agent: Agent, private val limits: PersonaConfig, paths: HostPaths, places: AgentPlaces) {
     private val id = agent.id
     private val inline = agent.config.instructions
     private val files: List<PersonaFile>
@@ -65,9 +67,8 @@ private class AgentPersona(agent: Agent, private val limits: PersonaConfig, path
         val path = "agent.agents.$id.instructionFiles"
         val entries = agent.config.instructionFiles
         files = if (entries.isEmpty()) {
-            val convention = "agents/$id/PERSONA.md"
-            val file = directory?.resolve(convention)
-            listOfNotNull(file?.let { PersonaFile(id, path, convention, it, false, emptyList()) })
+            val file = places.personaDirectory(id)?.resolve(PERSONA_FILE)
+            listOfNotNull(file?.let { PersonaFile(id, path, "$it", it, false, emptyList()) })
         } else {
             entries.map { entry -> PersonaFile(id, path, entry.file, resolve(entry, directory), true, entry.`when`) }
         }
@@ -231,5 +232,8 @@ private fun keptLength(text: String, limit: Int): Int = when {
 
 internal fun cutMarker(kept: Int, length: Int): String =
     "\n\n[Cut: the first $kept of $length characters of this file.]"
+
+/** The persona file of an agent whose config lists no instruction files. */
+private const val PERSONA_FILE = "PERSONA.md"
 
 private val logger = LoggerFactory.getLogger(Persona::class.java)

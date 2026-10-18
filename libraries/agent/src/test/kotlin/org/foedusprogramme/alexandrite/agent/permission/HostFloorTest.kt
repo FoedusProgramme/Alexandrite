@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.agent.workspace.agentWorkspaces
 import org.foedusprogramme.alexandrite.internal.floor.FloorDecision
 import org.foedusprogramme.alexandrite.internal.path.NameCase
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
@@ -57,10 +58,13 @@ class HostFloorTest {
         protectedPaths: List<String> = emptyList(),
     ): HostFloor = hostFloor(
         paths,
-        agentWorkspaces(paths, settings("""{"agents": $agents}""").agents),
+        agentWorkspaces(paths, ConventionalAgentPlaces(paths), settings("""{"agents": $agents}""").agents),
         home,
         operatorPlaces(paths, protectedPaths),
-        PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
+        settings("""{"agents": $agents}""").agents.keys.mapNotNull { id ->
+            ConventionalAgentPlaces(paths).personaDirectory(AgentId(id))?.let { AgentId(id) to it }
+        }.toMap(),
+        canonicalizer = PathCanonicalizer(nameCase = { NameCase.INSENSITIVE }),
     )
 
     private fun coder(workspace: Path) =

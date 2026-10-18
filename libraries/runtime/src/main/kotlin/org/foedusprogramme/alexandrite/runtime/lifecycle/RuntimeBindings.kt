@@ -31,6 +31,7 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginInfo
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginOrigins
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginScope
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
@@ -68,6 +69,7 @@ internal fun runtimeBindings(
     channels: ChannelControl,
     initiated: Boolean,
     context: CoroutineContext,
+    agentPlaces: (HostPaths) -> AgentPlaces,
 ): PluginBindings {
     val hooks = key<Hook>()
     val stateStore = key<ChatStateStore>()
@@ -90,6 +92,7 @@ internal fun runtimeBindings(
         },
         instanceBinding(key<Clock>(), clock, RUNTIME_PLUGIN, "Clock"),
         instanceBinding(key<HostPaths>(), paths, RUNTIME_PLUGIN, "HostPaths"),
+        instanceBinding(key<AgentPlaces>(), agentPlaces(paths), RUNTIME_PLUGIN, "AgentPlaces"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
         binding(key<PluginOrigins>(), RUNTIME_PLUGIN, "PluginOrigins", managed = false) { r ->

@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
 import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -81,8 +82,8 @@ class PermissionStatusToolTest {
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext = AgentToolContext(
         turn,
         ToolCallId("call-1"),
-        Workspaces(hostPaths(null), settings("{}")),
-        ConversationDirectories(hostPaths(null), settings("{}")),
+        Workspaces(hostPaths(null), ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
+        ConversationDirectories(ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
         null,
         taint,
     )

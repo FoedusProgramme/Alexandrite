@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.testkit.testDelegatedTurn
@@ -28,7 +29,7 @@ class ConversationDirectoriesTest {
     private val conversation = ConversationId("convo-1")
 
     private fun directories(config: String = "{}"): ConversationDirectories =
-        ConversationDirectories(hostPaths(null, data), settings(config))
+        ConversationDirectories(ConventionalAgentPlaces(hostPaths(null, data)), settings(config))
 
     @Test
     fun `a conversation's directory is under the data root, by agent and conversation`() {

@@ -23,7 +23,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
-import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
@@ -49,7 +49,7 @@ import java.security.MessageDigest
 internal class PersonaEditTool(
     private val floor: AgentFloor,
     private val persona: Persona,
-    private val paths: HostPaths,
+    private val places: AgentPlaces,
 ) : ReviewedTool,
     AgentScopedTool {
     override val definition: ToolDefinition = ToolDefinition(
@@ -100,7 +100,7 @@ internal class PersonaEditTool(
         val bytes = edit.current?.encode(edit.text) ?: edit.text.toByteArray(Charsets.UTF_8)
         val loaded = runInterruptible(Dispatchers.IO) {
             try {
-                openPersonaDirectory(paths, agent)
+                openPersonaDirectory(places, agent)
                 writeAtomically(edit.file) { it.write(bytes) }
             } catch (e: IOException) {
                 throw Refused("${edit.shown} could not be written: ${e.message ?: e.javaClass.simpleName}")
@@ -158,7 +158,7 @@ internal class PersonaEditTool(
         return Edit(file, shown, current, snapshot, text)
     }
 
-    private fun directory(agent: AgentId): Path? = personaDirectory(paths, agent)
+    private fun directory(agent: AgentId): Path? = places.personaDirectory(agent)
 
     private class Edit(
         val file: Path,

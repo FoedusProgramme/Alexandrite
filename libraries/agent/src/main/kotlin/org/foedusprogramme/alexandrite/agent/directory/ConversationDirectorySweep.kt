@@ -59,11 +59,10 @@ internal class ConversationDirectorySweep(
     @OptIn(ExperimentalPathApi::class)
     suspend fun sweep() {
         try {
-            val root = directories.root
-            if (!Files.isDirectory(root)) return
             val cutoff = clock.instant().minus(Duration.ofDays(settings.conversationDirectory.keepDays.toLong()))
-            for (agentDirectory in children(root)) {
-                val agent = AgentId(agentDirectory.fileName.toString())
+            for (agent in settings.agents.keys.map(::AgentId)) {
+                val agentDirectory = directories.conversations(agent)
+                if (!Files.isDirectory(agentDirectory)) continue
                 for (conversationDirectory in children(agentDirectory)) {
                     val conversation = ConversationId(conversationDirectory.fileName.toString())
                     if (sealedBefore(conversation, cutoff)) {

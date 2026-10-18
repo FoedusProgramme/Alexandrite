@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.pluginScope
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
@@ -39,12 +40,13 @@ class ConversationDirectorySweepTest {
         store.conversations.newConversation(recent)
         clock.now += Duration.ofDays(3)
 
-        val directories = ConversationDirectories(hostPaths(null, data), settings("{}"))
+        val settings = settings("""{"agents": {"coder": {"description": "Codes."}}}""")
+        val directories = ConversationDirectories(ConventionalAgentPlaces(hostPaths(null, data)), settings)
         val own = listOf(activeId, oldId, recentId).map { directories.open(coder, it) }
         val ghost = directories.open(coder, ConversationId("ghost"))
         val sweep = ConversationDirectorySweep(
             directories,
-            settings("{}"),
+            settings,
             store.conversations,
             clock,
             pluginScope(backgroundScope),

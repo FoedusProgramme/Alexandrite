@@ -24,6 +24,7 @@ import org.foedusprogramme.alexandrite.agent.tool.ToolCallEnd
 import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolGate
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
@@ -91,8 +92,8 @@ class JobsTest {
         val executor = ToolExecutor(
             gate,
             settings("{}"),
-            Workspaces(paths, settings("{}")),
-            ConversationDirectories(paths, settings("{}")),
+            Workspaces(paths, ConventionalAgentPlaces(paths), settings("{}")),
+            ConversationDirectories(ConventionalAgentPlaces(paths), settings("{}")),
             this,
         )
         val name = tool.definition.name

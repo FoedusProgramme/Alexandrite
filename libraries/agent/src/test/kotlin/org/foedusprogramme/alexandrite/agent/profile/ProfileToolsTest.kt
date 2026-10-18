@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.prompt.Persona
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
@@ -32,7 +33,12 @@ class ProfileToolsTest {
     private val turn = testTurn { actor(admin) }
     private val catalog = Profiles(
         agentDirectory(settings("{}")),
-        Persona(agentDirectory(settings("{}")), settings("{}"), hostPaths(null)),
+        Persona(
+            agentDirectory(settings("{}")),
+            settings("{}"),
+            hostPaths(null),
+            ConventionalAgentPlaces(hostPaths(null)),
+        ),
         emptyList(),
         TestRecords().of("alexandrite-agent"),
         Endpoints(emptyList(), settings("{}"), TestClock()),

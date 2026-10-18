@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.prompt.Persona
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
@@ -54,9 +55,15 @@ class PersonaEditToolTest {
         val settings = settings("""{"agents": $agents}""")
         val paths = hostPaths(configFile, root.resolve("data"))
         return PersonaEditTool(
-            AgentFloor(paths, Workspaces(paths, settings), settings, ConversationDirectories(paths, settings)),
-            Persona(agentDirectory(settings), settings, paths),
-            paths,
+            AgentFloor(
+                paths,
+                ConventionalAgentPlaces(paths),
+                Workspaces(paths, ConventionalAgentPlaces(paths), settings),
+                settings,
+                ConversationDirectories(ConventionalAgentPlaces(paths), settings),
+            ),
+            Persona(agentDirectory(settings), settings, paths, ConventionalAgentPlaces(paths)),
+            ConventionalAgentPlaces(paths),
         )
     }
 

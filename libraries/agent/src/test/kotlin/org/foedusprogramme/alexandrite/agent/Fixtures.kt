@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.permission.AgentFloor
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
@@ -239,8 +240,17 @@ internal object DirectCalls : TurnCalls {
 internal fun inbox(dataRoot: Path, config: String = "{}"): Inbox {
     val settings = settings(config)
     val paths = hostPaths(null, dataRoot)
-    val directories = ConversationDirectories(paths, settings)
-    return Inbox(directories, AgentFloor(paths, Workspaces(paths, settings), settings, directories))
+    val directories = ConversationDirectories(ConventionalAgentPlaces(paths), settings)
+    return Inbox(
+        directories,
+        AgentFloor(
+            paths,
+            ConventionalAgentPlaces(paths),
+            Workspaces(paths, ConventionalAgentPlaces(paths), settings),
+            settings,
+            directories,
+        ),
+    )
 }
 
 fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths = object : HostPaths {

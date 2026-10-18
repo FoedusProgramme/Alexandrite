@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -28,6 +29,7 @@ import java.nio.file.attribute.PosixFilePermissions
 @Binds(HardFloor::class)
 internal class AgentFloor(
     paths: HostPaths,
+    places: AgentPlaces,
     workspaces: Workspaces,
     settings: AgentSettings,
     private val directories: ConversationDirectories,
@@ -37,6 +39,7 @@ internal class AgentFloor(
         workspaces.paths,
         userHome(),
         operatorPlaces(paths, settings.protectedPaths),
+        personas = workspaces.paths.keys.mapNotNull { id -> places.personaDirectory(id)?.let { id to it } }.toMap(),
         environment = System.getenv(),
     )
 
@@ -130,6 +133,8 @@ internal fun hostFloor(
     workspaces: Map<AgentId, Path>,
     home: Path?,
     operator: List<Path> = emptyList(),
+    /** Each agent's persona directory, carved out for that agent alone. */
+    personas: Map<AgentId, Path> = emptyMap(),
     canonicalizer: PathCanonicalizer = PathCanonicalizer(),
     environment: Map<String, String> = emptyMap(),
 ): HostFloor {
@@ -145,7 +150,6 @@ internal fun hostFloor(
         operator.map { DenyRoot(it, "a place the operator protects") }
     val keepsCarveOuts = setOfNotNull(configuration, data)
     val plain = Floor(places, home, canonicalizer, environment)
-    val personas = workspaces.keys.mapNotNull { id -> personaDirectory(paths, id)?.let { id to it } }.toMap()
     val personaPlaces = Floor(
         personas.map { (id, persona) -> DenyRoot(persona, "the persona directory of agent '$id'") },
         null,
@@ -193,13 +197,9 @@ internal fun hostFloor(
     return HostFloor(floor(emptyMap()), own, personas, withConversation)
 }
 
-/** The persona directory of [agent] beside the config file in [paths], null when the host read no config file. */
-internal fun personaDirectory(paths: HostPaths, agent: AgentId): Path? =
-    paths.configFile?.parent?.resolve(PERSONAS)?.resolve(agent.value)?.normalize()
-
-/** [agent]'s persona directory, created owner-only when it does not exist, null when the host read no config file. */
-internal fun openPersonaDirectory(paths: HostPaths, agent: AgentId): Path? {
-    val directory = personaDirectory(paths, agent) ?: return null
+/** [agent]'s persona directory as [places] gives it, created owner-only when missing, null where the host keeps none. */
+internal fun openPersonaDirectory(places: AgentPlaces, agent: AgentId): Path? {
+    val directory = places.personaDirectory(agent) ?: return null
     if (Files.isDirectory(directory)) return directory
     if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
         Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)))
@@ -251,8 +251,6 @@ private fun userHome(): Path? = try {
 private const val CONFIGURATION = "Alexandrite's configuration"
 
 /** Where the agents' persona directories lie in the config directory. */
-private const val PERSONAS = "agents"
-
 private const val OWNER = "rwx------"
 
 private const val UNKNOWN_HOME = "every path, as the home directory is unknown"

@@ -306,6 +306,7 @@ class PublicApiTest {
                 .texts(TextCatalog.EMPTY)
                 .texts(kotlinx.coroutines.flow.MutableStateFlow(TextCatalog.EMPTY))
                 .shutdownGrace(1.seconds)
+                .agentPlaces { org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces(it) }
                 .inspectTermination()
                 .model(model)
                 .watch(ScriptedModel(EndpointId("decorated")))

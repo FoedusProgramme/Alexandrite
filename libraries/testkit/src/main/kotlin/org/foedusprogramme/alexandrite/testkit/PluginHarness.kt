@@ -26,6 +26,8 @@ import org.foedusprogramme.alexandrite.sdk.hook.Hook
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
@@ -71,6 +73,7 @@ public class PluginHarness private constructor(
     private val temporaryRoot: () -> Path,
     private val models: List<ScriptedModel>,
     private val channels: List<RecordingChannelPlugin>,
+    private val agentPlaces: ((HostPaths) -> AgentPlaces)?,
 ) {
     /**
      * Starts the plugins, runs [block] once they are ready, stops them and returns how the runtime ended, or throws
@@ -104,6 +107,7 @@ public class PluginHarness private constructor(
         shutdownGrace?.let(settings::shutdownGrace)
         val builder = RuntimeSpec.builder(settings.build(), plugins)
         texts?.let(builder::texts)
+        agentPlaces?.let(builder::agentPlaces)
         val file = configFile
         if (file == null) {
             builder.pluginConfig(JsonConfigSource(ConfigFile.resolve(tree, environment, CONFIG_ORIGIN)))
@@ -253,6 +257,7 @@ public class PluginHarness private constructor(
         private var language: LanguageTag? = null
         private var texts: StateFlow<TextCatalog>? = null
         private var grace: Duration? = null
+        private var agentPlaces: ((HostPaths) -> AgentPlaces)? = null
         private var inspectTermination = false
         private val models = mutableListOf<ScriptedModel>()
         private val watched = mutableListOf<ScriptedModel>()
@@ -333,6 +338,9 @@ public class PluginHarness private constructor(
         public fun texts(texts: StateFlow<TextCatalog>): Builder = apply { this.texts = texts }
 
         public fun shutdownGrace(shutdownGrace: Duration): Builder = apply { grace = shutdownGrace }
+
+        /** Lays the agents' places out as [places] makes them from the run's host paths. */
+        public fun agentPlaces(places: (HostPaths) -> AgentPlaces): Builder = apply { agentPlaces = places }
 
         /** Lets [run] return a termination whose stop cut the block short or met problems. */
         public fun inspectTermination(): Builder = apply { inspectTermination = true }
@@ -446,6 +454,7 @@ public class PluginHarness private constructor(
                 temporaryRoot,
                 (models + watched).distinct(),
                 recording,
+                agentPlaces,
             )
         }
     }

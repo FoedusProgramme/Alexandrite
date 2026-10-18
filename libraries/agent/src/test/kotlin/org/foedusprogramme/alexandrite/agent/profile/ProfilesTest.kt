@@ -8,6 +8,7 @@ import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.prompt.Persona
 import org.foedusprogramme.alexandrite.agent.provider
 import org.foedusprogramme.alexandrite.agent.settings
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
 import org.foedusprogramme.alexandrite.sdk.agent.ProfileSource
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
@@ -42,7 +43,14 @@ class ProfilesTest {
     private fun profiles(config: String = "{}", contributed: List<AgentProfile> = emptyList()): Profiles {
         val settings = settings(config)
         val directory = agentDirectory(settings, providers = listOf(provider(ScriptedModel())))
-        val persona = Persona(directory, settings, hostPaths(configFile)).also { blocking { it.onStart() } }
+        val persona = Persona(
+            directory,
+            settings,
+            hostPaths(configFile),
+            ConventionalAgentPlaces(hostPaths(configFile)),
+        ).also {
+            blocking { it.onStart() }
+        }
         val endpoints = Endpoints(listOf(provider(ScriptedModel())), settings, TestClock())
         return Profiles(directory, persona, contributed, TestRecords(store.records).of(PLUGIN), endpoints)
     }

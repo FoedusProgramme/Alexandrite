@@ -29,6 +29,7 @@ import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.pluginScope
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
@@ -86,8 +87,9 @@ class ToolExecutorTest {
 
     private fun executor(
         gate: ToolGate = AdmittingGate(),
-        workspaces: Workspaces = Workspaces(hostPaths(null), settings("{}")),
-        directories: ConversationDirectories = ConversationDirectories(hostPaths(null), settings("{}")),
+        workspaces: Workspaces = Workspaces(hostPaths(null), ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
+        directories: ConversationDirectories =
+            ConversationDirectories(ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
     ): ToolExecutor {
         val settings = settings("""{"shutdown": {"cancelJoinSeconds": 3}}""")
         val jobs =
@@ -314,7 +316,11 @@ class ToolExecutorTest {
     @DisabledOnOs(OS.WINDOWS)
     fun `a call's context names its agent's workspace and creates it owner-only once a tool opens it`() = runBlocking {
         val workspaces =
-            Workspaces(hostPaths(null, directory), settings("""{"agents": {"main": {"description": "Main."}}}"""))
+            Workspaces(
+                hostPaths(null, directory),
+                ConventionalAgentPlaces(hostPaths(null, directory)),
+                settings("""{"agents": {"main": {"description": "Main."}}}"""),
+            )
         val workspace = directory.resolve("workspaces/main")
         var existed: Boolean? = null
         val tool = recordingTool("fs.read") { _, context ->

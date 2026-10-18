@@ -6,6 +6,7 @@ import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.project.FolderTrust
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
@@ -38,9 +39,9 @@ class ReadTaintTest {
         return ReadTaint(
             floor,
             trust,
-            Workspaces(paths, settings("{}")),
-            paths,
-            ConversationDirectories(paths, settings("{}")),
+            Workspaces(paths, ConventionalAgentPlaces(paths), settings("{}")),
+            ConventionalAgentPlaces(paths),
+            ConversationDirectories(ConventionalAgentPlaces(paths), settings("{}")),
         )
     }
 
