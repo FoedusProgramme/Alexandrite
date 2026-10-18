@@ -32,7 +32,7 @@ dependencies {
 }
 
 application {
-    mainClass = "org.foedusprogramme.alexandrite.app.MainKt"
+    mainClass = "org.unitedsoftware.alexandrite.app.MainKt"
 }
 
 val versionResource = tasks.register<WriteProperties>("versionResource") {

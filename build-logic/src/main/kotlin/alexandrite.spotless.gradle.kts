@@ -1,6 +1,6 @@
 import com.diffplug.gradle.spotless.SpotlessTask
-import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
-import org.foedusprogramme.alexandrite.buildlogic.BuildFileScan
+import org.unitedsoftware.alexandrite.buildlogic.AlexandriteLayout
+import org.unitedsoftware.alexandrite.buildlogic.BuildFileScan
 
 plugins {
     id("com.diffplug.spotless")

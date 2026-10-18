@@ -4,9 +4,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
-import org.foedusprogramme.alexandrite.sdk.di.Singleton
-import org.foedusprogramme.alexandrite.sdk.plugin.PluginFiles
+import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
+import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.plugin.PluginFiles
 import java.sql.Connection
 import java.sql.DriverManager
 
