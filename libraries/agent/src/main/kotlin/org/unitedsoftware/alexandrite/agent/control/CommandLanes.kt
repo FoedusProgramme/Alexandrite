@@ -65,6 +65,8 @@ internal class CommandLanes(
     private val notices: Notices,
     private val channels: ChannelDirectory,
     private val pendingCommands: PendingCommands,
+    /** Lazy, as the command handlers it holds reach back to the agent's control, which reaches these lanes. */
+    private val registry: Lazy<CommandRegistry>,
     private val scope: PluginScope,
     private val clock: Clock,
 ) {
@@ -239,10 +241,11 @@ internal class CommandLanes(
             val context = AgentCommandContext(turn, invocation.command.trigger, channels)
             withContext(running) { invocation.handler.handle(invocation.command, context) }
             val recordedIn = recordedConversation(invocation, turn)
+            val secret = registry.value.spec(invocation.command.name)?.secretArguments == true
             pendingCommands.record(
                 recordedIn,
                 invocation.command.issuer,
-                commandLine(invocation.command),
+                commandLine(invocation.command, secret),
                 context.replies,
             )
             TurnOutcome.Completed(null, context.deliveries)
@@ -367,10 +370,17 @@ private class Invocation(
     }
 }
 
-/** [command] as it was typed: `/<name>`, with its arguments when it took any. */
-private fun commandLine(command: CommandInvocation): String {
+/** [command] as it was typed: `/<name>`, with its arguments when it took any, or a placeholder for [secret] ones. */
+private fun commandLine(command: CommandInvocation, secret: Boolean): String {
     val arguments = command.arguments.trim()
-    return if (arguments.isEmpty()) "/${command.name}" else "/${command.name} $arguments"
+    return when {
+        arguments.isEmpty() -> "/${command.name}"
+        secret -> "/${command.name} $WITHHELD"
+        else -> "/${command.name} $arguments"
+    }
 }
+
+/** What the model is told in place of a command's secret arguments. */
+private const val WITHHELD = "[arguments withheld]"
 
 private val logger = LoggerFactory.getLogger(CommandLanes::class.java)

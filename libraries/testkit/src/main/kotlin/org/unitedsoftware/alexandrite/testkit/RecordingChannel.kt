@@ -253,7 +253,11 @@ public class RecordingChannel(
 
     private fun carried(name: String, arguments: String, chat: ChatAddress, issuer: ChatUser): Submission.Command {
         val message = message("/$name $arguments".trimEnd(), chat, issuer)
-        val invocation = CommandInvocation.builder(chat, name, issuer).arguments(arguments).trigger(message.ref).build()
+        val invocation = CommandInvocation.builder(chat, name, issuer)
+            .arguments(arguments)
+            .trigger(message.ref)
+            .chatKind(message.chatInfo.kind)
+            .build()
         return Submission.Command(invocation, message)
     }
 

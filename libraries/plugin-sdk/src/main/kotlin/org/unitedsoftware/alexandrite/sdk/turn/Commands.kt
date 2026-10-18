@@ -6,6 +6,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.Markup
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -22,6 +23,8 @@ public class CommandInvocation private constructor(
     /** The message or interaction that carried the command, null when none did. */
     public val trigger: ChannelMessageRef?,
     public val issuer: ChatUser,
+    /** The kind of [chat] as the channel saw it, [ChatKind.UNKNOWN] when it did not say. */
+    public val chatKind: ChatKind,
 ) {
     init {
         require(name.isNotEmpty() && name.none { it.isWhitespace() || it.isISOControl() } && !name.startsWith('/')) {
@@ -39,6 +42,7 @@ public class CommandInvocation private constructor(
     public fun toBuilder(): Builder = Builder(chat, name, issuer)
         .arguments(arguments)
         .trigger(trigger)
+        .chatKind(chatKind)
 
     public class Builder internal constructor(
         private var chat: ChatAddress,
@@ -47,6 +51,7 @@ public class CommandInvocation private constructor(
     ) {
         private var arguments: String = ""
         private var trigger: ChannelMessageRef? = null
+        private var chatKind: ChatKind = ChatKind.UNKNOWN
 
         public fun chat(chat: ChatAddress): Builder = apply { this.chat = chat }
 
@@ -58,7 +63,9 @@ public class CommandInvocation private constructor(
 
         public fun issuer(issuer: ChatUser): Builder = apply { this.issuer = issuer }
 
-        public fun build(): CommandInvocation = CommandInvocation(chat, name, arguments, trigger, issuer)
+        public fun chatKind(chatKind: ChatKind): Builder = apply { this.chatKind = chatKind }
+
+        public fun build(): CommandInvocation = CommandInvocation(chat, name, arguments, trigger, issuer, chatKind)
     }
 
     public companion object {
@@ -94,6 +101,11 @@ public class CommandSpec private constructor(
     public val description: String,
     /** Whether it runs at once beside the chat's other commands. */
     public val runsAlongside: Boolean,
+    /**
+     * Whether its arguments may carry credentials, such as a pasted sign-in address: the agent then tells the model
+     * only that the command ran, never its arguments.
+     */
+    public val secretArguments: Boolean,
 ) {
     init {
         require(COMMAND_NAME.matches(name)) {
@@ -103,10 +115,12 @@ public class CommandSpec private constructor(
         require(description.isNotBlank()) { "The description of command '$name' may not be blank." }
     }
 
-    public fun toBuilder(): Builder = Builder(name, description).runsAlongside(runsAlongside)
+    public fun toBuilder(): Builder =
+        Builder(name, description).runsAlongside(runsAlongside).secretArguments(secretArguments)
 
     public class Builder internal constructor(private var name: String, private var description: String) {
         private var runsAlongside: Boolean = false
+        private var secretArguments: Boolean = false
 
         public fun name(name: String): Builder = apply { this.name = name }
 
@@ -114,7 +128,9 @@ public class CommandSpec private constructor(
 
         public fun runsAlongside(runsAlongside: Boolean): Builder = apply { this.runsAlongside = runsAlongside }
 
-        public fun build(): CommandSpec = CommandSpec(name, description, runsAlongside)
+        public fun secretArguments(secretArguments: Boolean): Builder = apply { this.secretArguments = secretArguments }
+
+        public fun build(): CommandSpec = CommandSpec(name, description, runsAlongside, secretArguments)
     }
 
     public companion object {

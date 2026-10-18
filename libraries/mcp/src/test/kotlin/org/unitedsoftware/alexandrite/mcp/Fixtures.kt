@@ -14,9 +14,12 @@ import org.unitedsoftware.alexandrite.mcp.client.McpClientOptions
 import org.unitedsoftware.alexandrite.mcp.client.McpImplementation
 import org.unitedsoftware.alexandrite.mcp.fake.FakeStdioServers
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
+import org.unitedsoftware.alexandrite.testkit.testRecords
+import java.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -42,6 +45,7 @@ internal class ServerConfigBuilder(
     var env: Map<String, String> = emptyMap(),
     var url: String? = null,
     var headers: Map<String, String> = emptyMap(),
+    var oauth: OAuthConfig? = null,
     var allow: List<String> = listOf("*"),
     var deny: List<String> = emptyList(),
     var risk: Map<String, String> = emptyMap(),
@@ -56,6 +60,7 @@ internal class ServerConfigBuilder(
         env = env.mapValues { Secret(it.value) },
         url = url,
         headers = headers.mapValues { Secret(it.value) },
+        oauth = oauth,
         tools = ToolsConfig(allow, deny),
         risk = risk,
         trustAnnotations = trustAnnotations,
@@ -66,14 +71,25 @@ internal class ServerConfigBuilder(
 }
 
 /** A hub of [servers] in a scope of its own, opened, drained when [block] ends. */
-internal fun withHub(vararg servers: Pair<String, ServerConfig>, block: suspend Hub.() -> Unit) = realTime {
+internal fun withHub(vararg servers: Pair<String, ServerConfig>, block: suspend Hub.() -> Unit) =
+    withHub(McpConfig(servers.toMap()), block = block)
+
+/** A hub of [config] with [records] at [clock] in a scope of its own, opened, drained when [block] ends. */
+internal fun withHub(
+    config: McpConfig,
+    records: Records = testRecords(PLUGIN),
+    clock: Clock = Clock.systemUTC(),
+    block: suspend Hub.() -> Unit,
+) = realTime {
     val scope = CoroutineScope(SupervisorJob())
     val hub = McpHub(
-        McpSettings(McpConfig(servers.toMap())),
+        McpSettings(config),
         scope,
         McpImplementation("alexandrite-test", "0.0.1"),
         System.getenv(),
         QUICK,
+        records,
+        clock,
     )
     try {
         hub.onOpen()

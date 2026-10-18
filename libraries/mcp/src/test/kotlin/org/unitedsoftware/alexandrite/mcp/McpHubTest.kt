@@ -174,7 +174,12 @@ class McpHubTest {
                 until("waiting for a login") { server("web").status.value.state == ServerState.NEEDS_LOGIN }
                 val result = server("web").call("echo", JsonObject(emptyMap()), testToolContext())
 
-                assertContains(result.text, "MCP server web is waiting for a login (last error: The server refused")
+                assertEquals(
+                    "MCP server web needs a login, so the call did not run. An administrator must send " +
+                        "/mcp login web in a direct chat with the bot, then try again.",
+                    result.text,
+                )
+                assertTrue(result.isError)
                 assertFalse(names.any { it.startsWith("mcp.web.") })
             }
         }

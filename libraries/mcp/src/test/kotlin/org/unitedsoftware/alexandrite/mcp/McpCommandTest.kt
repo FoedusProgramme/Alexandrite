@@ -55,7 +55,11 @@ class McpCommandTest {
         assertEquals("Restarting MCP server files.", run("restart files", admin))
         assertEquals("No MCP server nope is configured.", run("restart nope", admin))
         assertEquals("MCP server off is disabled in the config.", run("restart off", admin))
-        assertEquals("Send /mcp to see the MCP servers, or /mcp restart <server> to restart one.", run("stop files"))
+        assertEquals(
+            "Send /mcp to see the MCP servers, /mcp restart <server> to restart one, or /mcp login <server> and " +
+                "/mcp logout <server> in a direct chat with the bot to log in to one and out again.",
+            run("stop files"),
+        )
         connected("files")
     }
 

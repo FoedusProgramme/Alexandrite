@@ -32,6 +32,7 @@ import org.unitedsoftware.alexandrite.mcp.client.McpTimeoutException
 import org.unitedsoftware.alexandrite.mcp.client.McpToolList
 import org.unitedsoftware.alexandrite.mcp.client.McpUnauthorized
 import org.unitedsoftware.alexandrite.mcp.client.StdioLaunch
+import org.unitedsoftware.alexandrite.mcp.oauth.McpOAuth
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -66,13 +67,14 @@ internal class McpTimings(
     val client: McpClientOptions = McpClientOptions(),
 )
 
-/** What the servers share: how they are reached and what they are told of the client. */
+/** What the servers share: how they are reached, what they are told of the client and their logins. */
 internal class McpLinks(
     val transport: HttpTransport,
     val client: McpImplementation,
     /** The host's environment, of which a stdio server gets the minimal part. */
     val host: Map<String, String>,
     val timings: McpTimings,
+    val oauth: McpOAuth,
 )
 
 /**
@@ -111,6 +113,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
                 continue
             }
             if (connected.get()?.let { it.elapsedNow() >= timings.steady } == true) pause = timings.firstPause
+            if (failure is McpUnauthorized) refused(failure)
             failed(failure, pause)
             val early = withTimeoutOrNull(pause) { restarts.receive() } != null
             pause = if (early) timings.firstPause else (pause * 2).coerceAtMost(timings.maxPause)
@@ -127,8 +130,21 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
         } catch (e: McpTimeoutException) {
             return error("MCP server ${spec.name} did not answer within ${spec.timeout}, so the call was cancelled.")
         } catch (e: McpUnauthorized) {
+            val wider = if (e.status == FORBIDDEN) {
+                refused(e)
+                links.oauth.widerScopes(spec.name)
+            } else {
+                null
+            }
+            if (wider != null) {
+                val scope = wider.joinToString(" ")
+                return error(
+                    "MCP server ${spec.name} needs a login with more permissions (scope '$scope'), so the call did " +
+                        "not run. ${loginHint()}",
+                )
+            }
             active.broken.complete(e)
-            return error("MCP server ${spec.name} needs a login (${e.message}); the call did not run.")
+            return error("MCP server ${spec.name} needs a login, so the call did not run. ${loginHint()}")
         } catch (e: McpRpcException) {
             taint(context)
             return error("MCP server ${spec.name} refused the call: ${cut(e.rpcMessage, MAX_ERROR)} (${e.code}).")
@@ -174,6 +190,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
             session = active
             offer(listed)
             connected.set(TimeSource.Monotonic.markNow())
+            links.oauth.connected(spec.name)
             current.update { it.copy(state = ServerState.CONNECTED, protocolVersion = client.server.protocolVersion) }
             logger.info(
                 "MCP server {} is connected (protocol {}) and offers {} tools",
@@ -252,7 +269,9 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
             stopGrace = timings.stopGrace,
         )
 
-        is Transport.Http -> McpHttpConnection(transport.url, transport.headers, links.transport)
+        is Transport.Http -> McpHttpConnection(transport.url, transport.headers, links.transport) {
+            links.oauth.bearer(spec.name)
+        }
     }
 
     private suspend fun list(client: McpClient): McpToolList {
@@ -312,8 +331,18 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
         }
     }
 
+    private suspend fun refused(e: McpUnauthorized) {
+        links.oauth.refused(spec.name, e.status, e.wwwAuthenticate, e.authorized)
+    }
+
+    private fun loginHint(): String =
+        "An administrator must send /mcp login ${spec.name} in a direct chat with the bot, then try again."
+
     private fun unavailable(): ToolResult {
         val status = current.value
+        if (status.state == ServerState.NEEDS_LOGIN) {
+            return error("MCP server ${spec.name} needs a login, so the call did not run. ${loginHint()}")
+        }
         val error = status.lastError?.let { " (last error: $it)" } ?: ""
         return error("MCP server ${spec.name} is ${words(status.state)}$error, so the call did not run.")
     }
@@ -331,6 +360,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
     }
 
     private companion object {
+        const val FORBIDDEN = 403
         const val MAX_ERROR = 300
         const val MAX_STDERR = 1000
 

@@ -45,11 +45,13 @@ public fun testMessage(
         .apply(block)
         .build()
 
-/** An invocation of the command [name] by [issuer] in [chat], carried by the message [trigger]. */
+/** An invocation of the command [name] by [issuer] in [chat], a chat of [kind], carried by the message [trigger]. */
 public fun testCommand(
     name: String,
     arguments: String = "",
     chat: ChatAddress = testChat(),
     issuer: ChatUser = testUser(instance = chat.instance),
     trigger: ChannelMessageRef? = ChannelMessageRef(chat, "test-command"),
-): CommandInvocation = CommandInvocation.builder(chat, name, issuer).arguments(arguments).trigger(trigger).build()
+    kind: ChatKind = ChatKind.DIRECT,
+): CommandInvocation =
+    CommandInvocation.builder(chat, name, issuer).arguments(arguments).trigger(trigger).chatKind(kind).build()

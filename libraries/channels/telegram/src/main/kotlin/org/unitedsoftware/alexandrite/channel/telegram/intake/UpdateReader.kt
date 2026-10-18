@@ -133,6 +133,7 @@ internal class UpdateReader(
             val invocation = CommandInvocation.builder(chat, command.name, incoming.sender)
                 .arguments(command.arguments)
                 .trigger(ref)
+                .chatKind(incoming.chatInfo.kind)
                 .build()
             return Inbound.Command(invocation, incoming)
         }

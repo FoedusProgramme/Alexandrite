@@ -424,6 +424,7 @@ class UpdateReaderTest {
             CommandInvocation.builder(group, "model", command.message.sender)
                 .arguments("deepseek/chat")
                 .trigger(ref)
+                .chatKind(ChatKind.GROUP)
                 .build(),
             command.invocation,
         )

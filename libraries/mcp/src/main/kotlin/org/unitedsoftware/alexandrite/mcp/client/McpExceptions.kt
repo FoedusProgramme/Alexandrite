@@ -20,6 +20,9 @@ internal class McpUnauthorized(
     /** The `WWW-Authenticate` header of the response, null when it had none. */
     val wwwAuthenticate: String?,
     message: String,
+    val status: Int = 401,
+    /** Whether the refused request carried a bearer token. */
+    val authorized: Boolean = false,
 ) : McpException(message)
 
 internal class McpTimeoutException(val method: String, val timeout: Duration) :

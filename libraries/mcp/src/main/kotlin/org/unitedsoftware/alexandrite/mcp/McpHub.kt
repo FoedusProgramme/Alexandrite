@@ -11,14 +11,17 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.http.HttpTimeouts
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.mcp.client.McpImplementation
+import org.unitedsoftware.alexandrite.mcp.oauth.McpOAuth
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Inject
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginScope
+import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
+import java.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -31,14 +34,26 @@ internal class McpHub internal constructor(
     client: McpImplementation,
     host: Map<String, String>,
     timings: McpTimings,
+    records: Records,
+    clock: Clock,
 ) : ToolSource,
     Lifecycle {
     @Inject
-    constructor(settings: McpSettings, scope: PluginScope, info: PluginInfo) :
-        this(settings, scope, McpImplementation(CLIENT_NAME, info.version), System.getenv(), McpTimings())
+    constructor(settings: McpSettings, scope: PluginScope, info: PluginInfo, records: Records) : this(
+        settings,
+        scope,
+        McpImplementation(CLIENT_NAME, info.version),
+        System.getenv(),
+        McpTimings(),
+        records,
+        Clock.systemUTC(),
+    )
 
     private val transport = HttpTransport(HttpTimeouts(connect = 10.seconds, firstByte = 60.seconds, idle = 5.minutes))
-    private val links = McpLinks(transport, client, host, timings)
+
+    val oauth: McpOAuth = McpOAuth(settings, records, transport, scope, clock) { server(it)?.restart() }
+
+    private val links = McpLinks(transport, client, host, timings, oauth)
     private val published = MutableStateFlow<List<Tool>>(emptyList())
     private val byServer = LinkedHashMap<String, List<Tool>>()
     private val jobs = mutableListOf<Job>()
@@ -54,6 +69,7 @@ internal class McpHub internal constructor(
     override suspend fun onOpen() {
         val enabled = servers.filter { it.spec.enabled }
         if (servers.isNotEmpty()) logger.info("Connecting to {} of {} MCP servers", enabled.size, servers.size)
+        oauth.open()
         synchronized(jobs) { enabled.forEach { server -> jobs += scope.launch { server.run() } } }
     }
 
@@ -68,6 +84,7 @@ internal class McpHub internal constructor(
     }
 
     override fun onDestroy() {
+        oauth.close()
         transport.close()
     }
 

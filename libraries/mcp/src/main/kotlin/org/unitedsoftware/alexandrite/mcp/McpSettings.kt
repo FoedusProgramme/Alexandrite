@@ -16,7 +16,7 @@ import kotlin.time.Duration.Companion.seconds
 internal sealed interface Transport {
     class Stdio(val command: String, val args: List<String>, val env: Map<String, String>, val cwd: Path?) : Transport
 
-    class Http(val url: URI, val headers: Map<String, String>) : Transport
+    class Http(val url: URI, val headers: Map<String, String>, val oauth: OAuthSpec?) : Transport
 }
 
 /** A configured server, checked. */
@@ -44,10 +44,50 @@ internal class ServerSpec(
     }
 }
 
+/** The configured OAuth client of a server, [clientId] null for one registered dynamically. */
+internal class OAuthSpec(val clientId: String?, val clientSecret: String?, val scopes: List<String>)
+
+/** Where authorization servers send the browser back: under [publicOrigin] when set, else to a loopback address. */
+internal class CallbackSpec(val publicOrigin: URI?, val port: Int?)
+
 /** The servers of the config, checked at the start. */
 @Singleton
 internal class McpSettings(config: McpConfig) {
     val servers: List<ServerSpec> = config.servers.map { (name, server) -> spec(name, server) }
+
+    val callback: CallbackSpec = callback(config)
+
+    private fun callback(config: McpConfig): CallbackSpec {
+        val port = config.callbackPort
+        if (port != null && port !in 1..MAX_PORT) {
+            throw ConfigException("$ROOT.callbackPort", "must be a port from 1 to $MAX_PORT.")
+        }
+        val origin = config.publicOrigin ?: return CallbackSpec(null, port)
+        val uri = try {
+            URI(origin.removeSuffix("/"))
+        } catch (e: URISyntaxException) {
+            null
+        }
+        val scheme = uri?.scheme?.lowercase()
+        val valid = uri != null && !uri.host.isNullOrEmpty() && uri.rawUserInfo == null &&
+            uri.rawPath.isNullOrEmpty() && uri.rawQuery == null && uri.rawFragment == null &&
+            (scheme == "https" || (scheme == "http" && isLoopback(uri.host)))
+        if (!valid) {
+            throw ConfigException(
+                "$ROOT.publicOrigin",
+                "must be an https origin such as \"https://bot.example.com\", or an http one on 127.0.0.1 or " +
+                    "localhost, with no path.",
+            )
+        }
+        if (port == null) {
+            throw ConfigException(
+                "$ROOT.callbackPort",
+                "is needed with publicOrigin: the port on 127.0.0.1 that <publicOrigin>$PUBLIC_PREFIX reaches.",
+            )
+        }
+        val canonical = URI(scheme, null, uri.host.lowercase(), uri.port, null, null, null)
+        return CallbackSpec(canonical, port)
+    }
 
     private fun spec(name: String, server: ServerConfig): ServerSpec {
         val path = "$ROOT.servers.$name"
@@ -92,6 +132,7 @@ internal class McpSettings(config: McpConfig) {
 
     private fun stdio(path: String, server: ServerConfig, command: String): Transport.Stdio {
         if (server.headers.isNotEmpty()) throw ConfigException("$path.headers", "only a server with a url has headers.")
+        if (server.oauth != null) throw ConfigException("$path.oauth", "only a server with a url has oauth.")
         LaunchCheck.problem(command, server.args)?.let { throw ConfigException("$path.command", it) }
         val cwd = server.cwd?.let { cwd ->
             val directory = try {
@@ -119,15 +160,43 @@ internal class McpSettings(config: McpConfig) {
         if (uri == null || uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrEmpty()) {
             throw ConfigException("$path.url", "must be an http or https URL.")
         }
-        return Transport.Http(uri, server.headers.mapValues { it.value.reveal() })
+        val oauth = server.oauth?.let { oauth(path, server, it) }
+        return Transport.Http(uri, server.headers.mapValues { it.value.reveal() }, oauth)
+    }
+
+    private fun oauth(path: String, server: ServerConfig, oauth: OAuthConfig): OAuthSpec {
+        if (server.headers.keys.any { it.equals(AUTHORIZATION, ignoreCase = true) }) {
+            throw ConfigException("$path.oauth", "a server has either an Authorization header or oauth, not both.")
+        }
+        val clientId = oauth.clientId
+        if (clientId != null && clientId.isBlank()) throw ConfigException("$path.oauth.clientId", "may not be blank.")
+        if (oauth.clientSecret != null && clientId == null) {
+            throw ConfigException("$path.oauth.clientSecret", "needs the clientId it belongs to.")
+        }
+        oauth.scopes.forEachIndexed { index, scope ->
+            if (!SCOPE.matches(scope)) throw ConfigException("$path.oauth.scopes[$index]", "'$scope' is no scope.")
+        }
+        return OAuthSpec(clientId, oauth.clientSecret?.reveal(), oauth.scopes.distinct())
     }
 
     companion object {
         const val ROOT: String = "mcp"
         const val MAX_NAME: Int = 32
         val NAME: Regex = Regex("[a-z][a-z0-9_]{0,${MAX_NAME - 1}}")
+        const val MAX_PORT: Int = 65535
+        const val AUTHORIZATION: String = "Authorization"
+
+        /** The path under a public origin that the host serves its callback and its client document at. */
+        const val PUBLIC_PREFIX: String = "/oauth/mcp/"
+
+        /** A scope token of RFC 6749. */
+        val SCOPE: Regex = Regex("[\\x21\\x23-\\x5b\\x5d-\\x7e]+")
     }
 }
+
+/** Whether [host] names the loopback interface. */
+internal fun isLoopback(host: String?): Boolean =
+    host != null && host.lowercase().removePrefix("[").removeSuffix("]") in setOf("127.0.0.1", "localhost", "::1")
 
 /** A pattern over names where `*` stands for any run of characters and `?` for one. */
 internal class Glob(pattern: String) {

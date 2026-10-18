@@ -33,4 +33,7 @@ internal class CommandRegistry(handlers: List<CommandHandler>) {
 
     /** The handler that claims the command [name], ignoring case, null when none does. */
     fun handler(name: String): CommandHandler? = handlers[name.lowercase(Locale.ROOT)]?.first
+
+    /** The spec of the command [name], null when no handler claims it. */
+    fun spec(name: String): CommandSpec? = handlers[name.lowercase(Locale.ROOT)]?.second
 }

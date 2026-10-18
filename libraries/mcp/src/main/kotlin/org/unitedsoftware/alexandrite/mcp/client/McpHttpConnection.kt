@@ -31,7 +31,8 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * A server behind one Streamable HTTP endpoint at [url], sent [headers] with every message.
+ * A server behind one Streamable HTTP endpoint at [url], sent [headers] with every message and the token of [bearer]
+ * when it has one.
  *
  * Speaks both the stateless revision and the session-based legacy ones, as [protocolVersion] says.
  */
@@ -39,6 +40,7 @@ internal class McpHttpConnection(
     private val url: URI,
     private val headers: Map<String, String>,
     private val transport: HttpTransport,
+    private val bearer: suspend () -> String? = { null },
 ) : McpConnection {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val ids = AtomicLong()
@@ -83,11 +85,12 @@ internal class McpHttpConnection(
             putAll(headers)
         }
         val session = sessionId
-        val call = post(JsonRpc.request(id, method, body), protocolHeaders, timeout)
+        val post = post(JsonRpc.request(id, method, body), protocolHeaders, timeout)
+        val authorized = post.authorized
         var abandoned = true
         try {
             val response = try {
-                transport.open(call) { stream ->
+                transport.open(post.call) { stream ->
                     if (method == INITIALIZE) {
                         sessionId = stream.headers.firstValue(McpHeaders.SESSION_ID).orElse(null)
                     }
@@ -95,7 +98,7 @@ internal class McpHttpConnection(
                 }
             } catch (e: HttpException) {
                 if (e.status != null) abandoned = false
-                throw failure(e, method, timeout, session)
+                throw failure(e, method, timeout, session, authorized)
             }
             abandoned = false
             response.error?.let { throw McpRpcException(it.code, it.message, it.data) }
@@ -123,7 +126,8 @@ internal class McpHttpConnection(
 
     override suspend fun listenLegacy(): Boolean {
         val session = sessionId
-        val call = HttpCall("GET", url, baseHeaders(EVENT_STREAM), secrets = secrets)
+        val base = base(EVENT_STREAM)
+        val call = HttpCall("GET", url, base.headers, secrets = base.secrets)
         return try {
             transport.open(call) { stream ->
                 if (stream.mediaType != EVENT_STREAM) return@open false
@@ -134,7 +138,7 @@ internal class McpHttpConnection(
             when {
                 e.status == METHOD_NOT_ALLOWED -> false
                 e.kind == HttpFailureKind.TIMEOUT && e.afterResponse -> true
-                else -> throw failure(e, "the GET stream", null, session)
+                else -> throw failure(e, "the GET stream", null, session, base.authorized)
             }
         }
     }
@@ -145,11 +149,14 @@ internal class McpHttpConnection(
         if (session != null && legacy) {
             withContext(NonCancellable) {
                 try {
+                    val base = base(null)
                     transport.open(
-                        HttpCall("DELETE", url, baseHeaders(null), secrets = secrets, firstByte = CLOSE_WAIT),
+                        HttpCall("DELETE", url, base.headers, secrets = base.secrets, firstByte = CLOSE_WAIT),
                     ) {
                     }
                 } catch (e: HttpException) {
+                    // The session ends with the server anyway.
+                } catch (e: McpException) {
                     // The session ends with the server anyway.
                 }
             }
@@ -158,31 +165,45 @@ internal class McpHttpConnection(
         end.complete(McpConnectionException("The connection was closed."))
     }
 
-    private fun post(body: String, protocolHeaders: Map<String, String>, timeout: Duration?): HttpCall = HttpCall(
-        "POST",
-        url,
-        baseHeaders("$JSON, $EVENT_STREAM") + (CONTENT_TYPE to JSON) + protocolHeaders,
-        body,
-        secrets,
-        firstByte = timeout,
-    )
+    private suspend fun post(body: String, protocolHeaders: Map<String, String>, timeout: Duration?): Post {
+        val base = base("$JSON, $EVENT_STREAM")
+        val call = HttpCall(
+            "POST",
+            url,
+            base.headers + (CONTENT_TYPE to JSON) + protocolHeaders,
+            body,
+            base.secrets,
+            firstByte = timeout,
+        )
+        return Post(call, base.authorized)
+    }
 
-    private fun baseHeaders(accept: String?): Map<String, String> = buildMap {
-        val reserved = RESERVED.map { it.lowercase() }.toSet()
-        headers.filterKeys { it.lowercase() !in reserved }.forEach(::put)
-        accept?.let { put(ACCEPT, it) }
-        protocolVersion?.let { put(McpHeaders.PROTOCOL_VERSION, it) }
-        sessionId?.let { put(McpHeaders.SESSION_ID, it) }
+    private class Post(val call: HttpCall, val authorized: Boolean)
+
+    private class Base(val headers: Map<String, String>, val secrets: List<String>, val authorized: Boolean)
+
+    private suspend fun base(accept: String?): Base {
+        val token = bearer()
+        val reserved = RESERVED.map { it.lowercase() }.toSet() + if (token == null) emptySet() else setOf(AUTHORIZATION)
+        val merged = buildMap {
+            headers.filterKeys { it.lowercase() !in reserved }.forEach(::put)
+            token?.let { put(AUTHORIZATION_HEADER, "Bearer $it") }
+            accept?.let { put(ACCEPT, it) }
+            protocolVersion?.let { put(McpHeaders.PROTOCOL_VERSION, it) }
+            sessionId?.let { put(McpHeaders.SESSION_ID, it) }
+        }
+        return Base(merged, if (token == null) secrets else secrets + token, token != null)
     }
 
     /** POSTs a message that gets no response. */
     private suspend fun send(message: String, protocolHeaders: Map<String, String>, what: String) {
         if (closed.get()) throw McpConnectionException("The connection was closed.")
         val session = sessionId
+        val post = post(message, protocolHeaders, null)
         try {
-            transport.open(post(message, protocolHeaders, null)) {}
+            transport.open(post.call) {}
         } catch (e: HttpException) {
-            throw failure(e, what, null, session)
+            throw failure(e, what, null, session, post.authorized)
         }
     }
 
@@ -212,11 +233,12 @@ internal class McpHttpConnection(
                 throw McpConnectionException("The server ended the response stream of $method without an answer.")
             }
             delay(last.retry ?: DEFAULT_RETRY)
-            val call = HttpCall("GET", url, baseHeaders(EVENT_STREAM) + (LAST_EVENT_ID to eventId), secrets = secrets)
+            val base = base(EVENT_STREAM)
+            val call = HttpCall("GET", url, base.headers + (LAST_EVENT_ID to eventId), secrets = base.secrets)
             last = try {
                 transport.open(call) { read(it, id) }
             } catch (e: HttpException) {
-                throw failure(e, method, null, sessionId)
+                throw failure(e, method, null, sessionId, base.authorized)
             }
             last.response?.let { return it }
         }
@@ -270,13 +292,19 @@ internal class McpHttpConnection(
         }
     }
 
-    /** What [e] means for the call [what], which carried [session]. */
-    private fun failure(e: HttpException, what: String, timeout: Duration?, session: String?): McpException {
+    /** What [e] means for the call [what], which carried [session] and a bearer token when [authorized]. */
+    private fun failure(
+        e: HttpException,
+        what: String,
+        timeout: Duration?,
+        session: String?,
+        authorized: Boolean,
+    ): McpException {
         val status = e.status
-        val challenge = e.headers?.firstValue(WWW_AUTHENTICATE)?.orElse(null)
+        val challenge = e.headers?.allValues(WWW_AUTHENTICATE)?.joinToString(", ")?.ifEmpty { null }
         return when {
             status == UNAUTHORIZED || (status == FORBIDDEN && challenge != null) ->
-                McpUnauthorized(challenge, "The server refused $what with HTTP $status.")
+                McpUnauthorized(challenge, "The server refused $what with HTTP $status.", status, authorized)
 
             status == NOT_FOUND && session != null && what != INITIALIZE -> {
                 if (sessionId == session) sessionId = null
@@ -302,6 +330,8 @@ internal class McpHttpConnection(
         private const val CONTENT_TYPE = "Content-Type"
         private const val LAST_EVENT_ID = "Last-Event-ID"
         private const val WWW_AUTHENTICATE = "www-authenticate"
+        private const val AUTHORIZATION = "authorization"
+        private const val AUTHORIZATION_HEADER = "Authorization"
         private const val UNAUTHORIZED = 401
         private const val FORBIDDEN = 403
         private const val NOT_FOUND = 404

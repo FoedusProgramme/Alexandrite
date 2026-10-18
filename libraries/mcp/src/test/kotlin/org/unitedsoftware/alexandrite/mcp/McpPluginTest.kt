@@ -28,10 +28,10 @@ class McpPluginTest {
 
     private fun quoted(text: String) = Json.encodeToString(JsonPrimitive.serializer(), JsonPrimitive(text))
 
-    /** The one config problem that the start fails with for the server `files` of [server]. */
-    private fun problem(server: String, name: String = "files"): String {
+    /** The one config problem that the start fails with for the server `files` of [server] and the rest [plugin]. */
+    private fun problem(server: String, name: String = "files", plugin: String = ""): String {
         val error = assertFailsWith<RuntimeStartException> {
-            runBlocking { harness("""{"servers": {"$name": {$server}}}""").run {} }
+            runBlocking { harness("""{"servers": {"$name": {$server}}$plugin}""").run {} }
         }
         return error.problems.single().message
     }
@@ -93,6 +93,47 @@ class McpPluginTest {
         assertEquals(
             "Invalid config at 'mcp.servers.files.timeoutSeconds': must be positive.",
             problem("""$launch, "timeoutSeconds": 0"""),
+        )
+    }
+
+    @Test
+    fun `OAuth config problems fail the start, naming their path`() {
+        val web = """"url": "https://mcp.example.test/mcp""""
+        assertEquals(
+            "Invalid config at 'mcp.servers.files.oauth': only a server with a url has oauth.",
+            problem("""$launch, "oauth": {}"""),
+        )
+        assertEquals(
+            "Invalid config at 'mcp.servers.files.oauth.clientSecret': needs the clientId it belongs to.",
+            problem("""$web, "oauth": {"clientSecret": "s"}"""),
+        )
+        assertEquals(
+            "Invalid config at 'mcp.servers.files.oauth': a server has either an Authorization header or oauth, not " +
+                "both.",
+            problem("""$web, "headers": {"authorization": "Bearer t"}, "oauth": {}"""),
+        )
+        assertEquals(
+            "Invalid config at 'mcp.servers.files.oauth.scopes[1]': 'a b' is no scope.",
+            problem("""$web, "oauth": {"scopes": ["read", "a b"]}"""),
+        )
+        val origin = "Invalid config at 'mcp.publicOrigin': must be an https origin such as " +
+            "\"https://bot.example.com\", or an http one on 127.0.0.1 or localhost, with no path."
+        assertEquals(
+            origin,
+            problem(web, plugin = """, "publicOrigin": "http://bot.example.com", "callbackPort": 8080"""),
+        )
+        assertEquals(
+            origin,
+            problem(web, plugin = """, "publicOrigin": "https://bot.example.com/x", "callbackPort": 1"""),
+        )
+        assertEquals(
+            "Invalid config at 'mcp.callbackPort': is needed with publicOrigin: the port on 127.0.0.1 that " +
+                "<publicOrigin>/oauth/mcp/ reaches.",
+            problem(web, plugin = """, "publicOrigin": "https://bot.example.com""""),
+        )
+        assertEquals(
+            "Invalid config at 'mcp.callbackPort': must be a port from 1 to 65535.",
+            problem(web, plugin = """, "callbackPort": 70000"""),
         )
     }
 }
