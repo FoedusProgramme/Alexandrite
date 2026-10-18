@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.agent.context
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.model.RetryPolicy
 import org.foedusprogramme.alexandrite.agent.model.collectResponse
+import org.foedusprogramme.alexandrite.agent.model.leastReasoning
 import org.foedusprogramme.alexandrite.agent.model.select
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.model.ModelError
@@ -41,6 +42,7 @@ internal class Summarizer(private val endpoints: Endpoints, private val retries:
         )
         val options = ModelOptions.builder()
             .maxOutputTokens(minOf(maxTokens, selected.info.maxOutputTokens ?: maxTokens))
+            .reasoning(leastReasoning(selected.info))
             .build()
         val input = UserEntry(
             null,

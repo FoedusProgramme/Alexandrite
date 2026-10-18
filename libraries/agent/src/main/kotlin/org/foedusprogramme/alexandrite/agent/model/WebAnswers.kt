@@ -34,7 +34,12 @@ internal class WebAnswers(private val endpoints: Endpoints, private val director
         )
         val request = ModelRequest.builder(ref, history, 0, RequestIds(turn.conversation, turn.id, 0))
             .instructions(listOf(PromptSection("web-fetch", WEB_RUBRIC, stable = true)))
-            .options(ModelOptions.builder().maxOutputTokens(minOf(4000, selected.info.maxOutputTokens ?: 4000)).build())
+            .options(
+                ModelOptions.builder()
+                    .maxOutputTokens(minOf(4000, selected.info.maxOutputTokens ?: 4000))
+                    .reasoning(leastReasoning(selected.info))
+                    .build(),
+            )
             .build()
         return collectResponse(selected.endpoint, request).message.parts.filterIsInstance<TextPart>()
             .joinToString("") { it.text }.also { require(it.isNotBlank()) { "Web side model returned no answer." } }

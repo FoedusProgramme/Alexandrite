@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.model.collectResponse
+import org.foedusprogramme.alexandrite.agent.model.leastReasoning
 import org.foedusprogramme.alexandrite.agent.model.select
 import org.foedusprogramme.alexandrite.internal.text.ReviewText
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
@@ -119,6 +120,7 @@ internal class SideModelJudge(private val endpoints: Endpoints, private val dire
         )
         val options = ModelOptions.builder()
             .maxOutputTokens(minOf(MAX_OUTPUT_TOKENS, selected.info.maxOutputTokens ?: MAX_OUTPUT_TOKENS))
+            .reasoning(leastReasoning(selected.info))
             .temperature(0.0)
             .build()
         val history = listOf(UserEntry(null, listOf(TextPart(prompt)), UserOrigin.SystemWritten(SOURCE)))

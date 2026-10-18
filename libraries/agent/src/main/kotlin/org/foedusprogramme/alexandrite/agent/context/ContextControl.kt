@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.agent.control.SettingsStates
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.model.outputReserve
 import org.foedusprogramme.alexandrite.agent.turn.HistoryCache
 import org.foedusprogramme.alexandrite.agent.worker.newTurnId
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
@@ -17,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
@@ -50,7 +52,7 @@ internal class ContextControl(
         val conversation = conversations.current(key).id
         val view = contextView(history.entries(conversation))
         val entries = view.entries.filter(::isSent)
-        val window = window(model)
+        val window = info(model)?.contextWindow
         val record = records.get(conversation)
         val density = record.density(window) ?: 1.0
         val read = listOfNotNull(view.summary?.let(::summaryEntry)) + withCleared(entries, record.clearedIds)
@@ -87,14 +89,16 @@ internal class ContextControl(
         val agent = directory.agent(key.agent)
         val conversation = conversations.current(key).id
         val model = states.model(key) ?: agent?.model
-        val window = model?.let { window(it) }
+        val info = model?.let { info(it) }
+        val window = info?.contextWindow
         val record = records.get(conversation)
         val stored = transcripts.entries(conversation)
         val summary = stored.lastOrNull { it is SummaryEntry } as SummaryEntry?
         val summarized = summary?.let { last ->
             stored.count { entry -> isSent(entry) && entry.record?.id?.let(last::covers) == true }
         } ?: 0
-        val limits = window?.let { agent?.config?.compaction?.limits(it) }
+        val reserve = agent?.let { info?.let { model -> outputReserve(it, model) } }
+        val limits = window?.let { agent?.config?.compaction?.limits(it, reserve) }
         return ContextStatus(
             conversation,
             model,
@@ -122,9 +126,9 @@ internal class ContextControl(
         }
     }
 
-    /** The context window of [model], null when it is unknown or cannot be listed in time. */
-    private suspend fun window(model: ModelRef): Int? = try {
-        withTimeoutOrNull(LISTING_TIMEOUT) { endpoints.model(model) }?.contextWindow
+    /** What its endpoint lists of [model], null when it is unknown or cannot be listed in time. */
+    private suspend fun info(model: ModelRef): ModelInfo? = try {
+        withTimeoutOrNull(LISTING_TIMEOUT) { endpoints.model(model) }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
