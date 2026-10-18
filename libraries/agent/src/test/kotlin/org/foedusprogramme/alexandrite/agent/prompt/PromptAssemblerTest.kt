@@ -109,7 +109,13 @@ class PromptAssemblerTest {
 
             val sections = assembler.sections(coder, ChatKind.DIRECT)
             assertEquals(
-                listOf(BASE_SECTION, WORKSPACE_SECTION, CONVERSATION_DIRECTORY_SECTION, LANGUAGE_SECTION),
+                listOf(
+                    BASE_SECTION,
+                    WORKSPACE_SECTION,
+                    CONVERSATION_DIRECTORY_SECTION,
+                    SKILLS_SECTION,
+                    LANGUAGE_SECTION,
+                ),
                 sections.map { it.id },
             )
             assertEquals(workspaceSection(Path.of("/srv/coder")), sections[1])

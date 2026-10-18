@@ -140,6 +140,7 @@ class ToolRoundsTest {
                     "profile.edit",
                     "profile.list",
                     "profile.remove",
+                    "skill.load",
                 ),
                 requests[0].tools.map {
                     it.name
@@ -384,6 +385,7 @@ class ToolRoundsTest {
                     "profile.edit",
                     "profile.list",
                     "profile.remove",
+                    "skill.load",
                 ),
                 requests[1].tools.map { it.name },
             )
@@ -545,6 +547,7 @@ class ToolRoundsTest {
                         "fs.glob", "fs.read",
                         "fs.write", "permission.status", "profile.create", "profile.edit", "profile.list",
                         "profile.remove",
+                        "skill.load",
                     ) to ToolChoice.Auto
                 },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
@@ -584,6 +587,7 @@ class ToolRoundsTest {
                         "profile.edit",
                         "profile.list",
                         "profile.remove",
+                        "skill.load",
                     ) to ToolChoice.Auto
                 },
                 member.map { request -> request.tools.map { it.name } to request.toolChoice },
@@ -618,6 +622,7 @@ class ToolRoundsTest {
                         "profile.edit",
                         "profile.list",
                         "profile.remove",
+                        "skill.load",
                     ) to ToolChoice.Auto
                 },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },

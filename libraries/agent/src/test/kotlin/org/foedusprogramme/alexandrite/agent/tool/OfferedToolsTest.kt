@@ -120,6 +120,7 @@ class OfferedToolsTest {
                         "profile.edit",
                         "profile.list",
                         "profile.remove",
+                        "skill.load",
                     ),
                 ),
                 recorded(),
@@ -156,6 +157,7 @@ class OfferedToolsTest {
             val tools = setOf(
                 "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.send_file", "fs.edit", "fs.read",
                 "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
+                "skill.load",
             )
             assertEquals(mapOf("${conversation()}" to tools), recorded())
         }
@@ -218,6 +220,7 @@ class OfferedToolsTest {
             val tools = setOf(
                 "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.send_file", "fs.edit", "fs.read",
                 "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
+                "skill.load",
             )
             assertEquals(mapOf("${conversation()}" to tools), recorded())
         }

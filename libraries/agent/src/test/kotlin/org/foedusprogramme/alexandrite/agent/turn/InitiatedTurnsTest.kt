@@ -186,6 +186,7 @@ class InitiatedTurnsTest {
                     "profile.edit",
                     "profile.list",
                     "profile.remove",
+                    "skill.load",
                 ) to
                     ToolChoice.Auto,
                 request.tools.map { it.name } to request.toolChoice,

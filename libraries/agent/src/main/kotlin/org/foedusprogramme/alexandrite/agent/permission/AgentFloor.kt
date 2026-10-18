@@ -40,6 +40,7 @@ internal class AgentFloor(
         userHome(),
         operatorPlaces(paths, settings.protectedPaths),
         personas = workspaces.paths.keys.mapNotNull { id -> places.personaDirectory(id)?.let { id to it } }.toMap(),
+        skills = workspaces.paths.keys.associateWith { places.skillDirectories(it).map(Path::normalize) },
         environment = System.getenv(),
     )
 
@@ -135,6 +136,8 @@ internal fun hostFloor(
     operator: List<Path> = emptyList(),
     /** Each agent's persona directory, carved out for that agent alone. */
     personas: Map<AgentId, Path> = emptyMap(),
+    /** The skill directories each agent may read and no file tool may write. */
+    skills: Map<AgentId, List<Path>> = emptyMap(),
     canonicalizer: PathCanonicalizer = PathCanonicalizer(),
     environment: Map<String, String> = emptyMap(),
 ): HostFloor {
@@ -177,21 +180,24 @@ internal fun hostFloor(
             checkNotNull(overlap.root).path,
         )
     }
-    fun floor(extra: Map<DenyRoot, Path>) = Floor(
-        places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty() + listOfNotNull(extra[it])) },
+    fun floor(extra: Map<DenyRoot, List<Path>>) = Floor(
+        places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty() + extra[it].orEmpty()) },
         home,
         canonicalizer,
         environment,
     )
-    val own = personas.mapValues { (_, persona) ->
+    val own = (personas.keys + skills.keys).associateWith { id ->
+        val readable = listOfNotNull(personas[id]) + skills[id].orEmpty()
         floor(
-            plain.overlaps(persona)
-                .filter { it.placement == Placement.INSIDE && it.root in keepsCarveOuts }
-                .associate { checkNotNull(it.root) to persona },
+            readable.flatMap { place ->
+                plain.overlaps(place)
+                    .filter { it.placement == Placement.INSIDE && it.root in keepsCarveOuts }
+                    .map { checkNotNull(it.root) to place }
+            }.groupBy({ it.first }, { it.second }),
         )
     }
     val withConversation = { path: Path, conversationDirectory: Path, tree: Boolean ->
-        val extended = floor(mapOf(data to conversationDirectory))
+        val extended = floor(mapOf(data to listOf(conversationDirectory)))
         if (tree) extended.checkTree(path) else extended.check(path)
     }
     return HostFloor(floor(emptyMap()), own, personas, withConversation)

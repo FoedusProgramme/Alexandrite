@@ -109,6 +109,7 @@ class RepositoryQuestionTest {
                 "profile.edit",
                 "profile.list",
                 "profile.remove",
+                "skill.load",
                 "web.fetch",
                 "web.search",
             ),

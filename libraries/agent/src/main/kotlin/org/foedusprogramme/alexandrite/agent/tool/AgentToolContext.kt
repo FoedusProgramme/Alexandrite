@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
+import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -85,6 +86,17 @@ internal class AgentToolContext(
 
     /** The paths that the call reported as touched, each once, in order. */
     val touchedPaths: List<Path> get() = reported.distinct()
+
+    private val loading = CopyOnWriteArrayList<UserEntry>()
+
+    /** The trusted instructions that the call loads, added to the conversation once its round ends. */
+    val loads: List<UserEntry> get() = loading.toList()
+
+    /** Loads [entry], trusted instructions that Alexandrite wrote, into the conversation once the round ends. */
+    fun load(entry: UserEntry) {
+        checkOpen()
+        loading.add(entry)
+    }
 
     override fun touched(path: Path) {
         checkOpen()

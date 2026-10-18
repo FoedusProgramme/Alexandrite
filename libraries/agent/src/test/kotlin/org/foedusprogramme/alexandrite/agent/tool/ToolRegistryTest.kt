@@ -66,6 +66,7 @@ class ToolRegistryTest {
                     "profile.edit",
                     "profile.list",
                     "profile.remove",
+                    "skill.load",
                 ),
                 offered("helper"),
             )

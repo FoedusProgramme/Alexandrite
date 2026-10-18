@@ -147,6 +147,7 @@ class TelegramRepositoryTest {
                 "profile.edit",
                 "profile.list",
                 "profile.remove",
+                "skill.load",
                 "telegram.chats",
                 "telegram.member",
                 "telegram.pin",

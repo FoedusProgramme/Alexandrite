@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.prompt
 
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
+import org.foedusprogramme.alexandrite.agent.skill.Skills
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.agent.AgentProfile
@@ -19,6 +20,7 @@ internal class PromptAssembler(
     private val tools: ToolRegistry,
     workspaces: Workspaces,
     private val directories: ConversationDirectories,
+    private val skills: Skills,
 ) {
     /** The workspace section of each agent that selects a tool. */
     private val workspaceSections = workspaces.paths.filterKeys { tools.offered(it).isNotEmpty() }
@@ -32,6 +34,7 @@ internal class PromptAssembler(
         instructions?.let { add(PromptSection(instructionsSection(1), it, stable = true)) }
         workspaceSections[turn.agent]?.let(::add)
         addConversationDirectory(turn)
+        addSkills(turn)
         turn.language?.let { add(languageSection(it)) }
     }
 
@@ -43,7 +46,15 @@ internal class PromptAssembler(
             addAll(persona.sections(agent.id, PersonaConditions(chatKind, turn.kind)))
             workspaceSections[agent.id]?.let(::add)
             addConversationDirectory(turn)
+            addSkills(turn)
             turn.language?.let { add(languageSection(it)) }
+        }
+    }
+
+    /** The skills section of [turn], for an agent offered `skill.load`. */
+    private fun MutableList<PromptSection>.addSkills(turn: TurnInfo) {
+        if (tools.offered(turn.agent).any { it.definition.name == SKILL_LOAD }) {
+            add(skillsSection(skills.global(turn.agent).values))
         }
     }
 
@@ -52,3 +63,5 @@ internal class PromptAssembler(
         if (tools.offered(turn.agent).isNotEmpty()) add(conversationDirectorySection(directories.path(turn)))
     }
 }
+
+private const val SKILL_LOAD = "skill.load"

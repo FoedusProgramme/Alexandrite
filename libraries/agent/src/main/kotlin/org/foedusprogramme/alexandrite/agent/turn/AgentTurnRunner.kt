@@ -754,6 +754,7 @@ internal class AgentTurnRunner(
             val slots = Semaphore(if (parallel) MAX_PARALLEL_CALLS else 1)
             val loading = Collections.synchronizedList(mutableListOf<LoadedFile>())
             val untrusted = Collections.synchronizedList(mutableListOf<UntrustedFolder>())
+            val skills = Collections.synchronizedList(mutableListOf<UserEntry>())
             val budget = InstructionBudget()
             var loaded = false
             val workspace = workspaces.paths[turn.agent]
@@ -774,6 +775,7 @@ internal class AgentTurnRunner(
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
                                 untrusted += found.untrusted
+                                skills += end.loads
                                 val result = withContext(NonCancellable) {
                                     appending.withLock {
                                         appendLocked(listOf(media.stored(found.noted(end.result)))).single()
@@ -786,7 +788,7 @@ internal class AgentTurnRunner(
                     }
                 }
                 if (untrusted.isNotEmpty()) warn(turn, untrusted.toList())
-                val entries = entries(loading)
+                val entries = entries(loading) + skills
                 if (entries.isNotEmpty()) append(*entries.toTypedArray())
                 loaded = true
             } finally {

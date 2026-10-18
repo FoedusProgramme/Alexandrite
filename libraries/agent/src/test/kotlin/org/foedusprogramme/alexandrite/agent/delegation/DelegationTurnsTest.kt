@@ -14,6 +14,7 @@ import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.prompt.BASE_SECTION
 import org.foedusprogramme.alexandrite.agent.prompt.CONVERSATION_DIRECTORY_SECTION
 import org.foedusprogramme.alexandrite.agent.prompt.DELEGATION_SECTION
+import org.foedusprogramme.alexandrite.agent.prompt.SKILLS_SECTION
 import org.foedusprogramme.alexandrite.agent.prompt.WORKSPACE_SECTION
 import org.foedusprogramme.alexandrite.agent.startingInBackground
 import org.foedusprogramme.alexandrite.agent.tool.CANCELLED_RESULT
@@ -238,6 +239,7 @@ class DelegationTurnsTest {
                     "agent.instructions.1",
                     WORKSPACE_SECTION,
                     CONVERSATION_DIRECTORY_SECTION,
+                    SKILLS_SECTION,
                 ),
                 runs[0].instructions.map { it.id },
             )

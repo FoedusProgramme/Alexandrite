@@ -37,6 +37,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import kotlin.time.Duration
@@ -56,6 +57,8 @@ internal class ToolCallEnd(
     val notice: String?,
     /** The paths that the call reported as touched. */
     val touched: List<Path> = emptyList(),
+    /** The trusted instructions that the call loads after its round. */
+    val loads: List<UserEntry> = emptyList(),
 )
 
 /** Runs the tool calls of a turn's responses. */
@@ -125,7 +128,7 @@ internal class ToolExecutor(
                 }
                 val content = contentOf(tool.definition.activity, admission.preview, result, admission.scratch)
                 calls.ended(call.id, statusOf(result.outcome), content)
-                ToolCallEnd(result, null, context.touchedPaths)
+                ToolCallEnd(result, null, context.touchedPaths, context.loads)
             }
         }
     }

@@ -16,4 +16,10 @@ public interface AgentPlaces {
 
     /** The directory that holds one directory of [agent]'s own for each of its conversations, named by its id. */
     public fun conversations(agent: AgentId): Path
+
+    /**
+     * The directories of the host's skills for [agent], each holding one directory per skill, a later one's skill
+     * taking the place of an earlier one's of its name.
+     */
+    public fun skillDirectories(agent: AgentId): List<Path> = emptyList()
 }
