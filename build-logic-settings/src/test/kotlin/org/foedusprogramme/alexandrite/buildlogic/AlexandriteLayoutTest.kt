@@ -28,6 +28,8 @@ class AlexandriteLayoutTest {
     private val openRouter = ":libraries:providers:openrouter"
     private val providerCommon = ":libraries:provider-common"
     private val sqlite = ":libraries:stores:sqlite"
+    private val automationCommon = ":libraries:automation-common"
+    private val schedule = ":libraries:automations:schedule"
     private val testkit = ":libraries:testkit"
     private val ksp = ":build-ksp-plugin"
     private val app = ":app"
@@ -36,7 +38,7 @@ class AlexandriteLayoutTest {
     private val vendors = listOf(deepSeek, lmStudio, openRouter)
     private val libraries =
         listOf(sdk, internals, runtime, agent, tools, commands, telegram, channelCommon, openAi, anthropic) + vendors +
-            listOf(providerCommon, sqlite, testkit)
+            listOf(providerCommon, sqlite, automationCommon, testkit)
     private val builtIn = libraries + ksp + app
     private val all = builtIn + notes
     private val indexed = listOf(agent, tools, commands, telegram, openAi, anthropic) + vendors + listOf(sqlite, app)
@@ -90,6 +92,8 @@ class AlexandriteLayoutTest {
             openRouter to Layer.PROVIDER,
             providerCommon to Layer.PROVIDER_COMMON,
             sqlite to Layer.STORE,
+            automationCommon to Layer.AUTOMATION_COMMON,
+            schedule to Layer.AUTOMATION,
             testkit to Layer.TESTKIT,
             ksp to Layer.KSP,
             app to Layer.APP,
@@ -108,6 +112,7 @@ class AlexandriteLayoutTest {
             "", ":", ":libraries", ":libraries:channels", ":libraries:providers", ":libraries:stores", ":libraries:foo",
             ":libraries:providers:x:y", ":libraries:agent:sub", ":libraries:runtime:sub", ":build-logic", ":other",
             ":libraries:provider-common:sub", ":libraries:commands:sub", ":libraries:channel-common:sub",
+            ":libraries:automations", ":libraries:automation-common:sub", ":libraries:automations:x:y",
             "libraries:agent", ":examples", ":examples:hello:sub", ":libraries:examples:hello",
         )) {
             assertNull(AlexandriteLayout.moduleAt(path), path)
@@ -132,6 +137,7 @@ class AlexandriteLayoutTest {
             openRouter to "alexandrite-provider-openrouter",
             providerCommon to "alexandrite-provider-common",
             sqlite to "alexandrite-store-sqlite",
+            automationCommon to "alexandrite-automation-common",
             testkit to "alexandrite-testkit",
             ksp to "alexandrite-ksp",
             app to "alexandrite",
@@ -145,6 +151,7 @@ class AlexandriteLayoutTest {
         assertEquals("alexandrite-provider-example", module(":libraries:providers:example").jarName)
         assertEquals("alexandrite-store-postgres", module(":libraries:stores:postgres").jarName)
         assertEquals("alexandrite-channel-discord", module(":libraries:channels:discord").jarName)
+        assertEquals("alexandrite-automation-schedule", module(schedule).jarName)
         assertEquals("example-echo", module(echo).jarName)
     }
 
@@ -166,6 +173,7 @@ class AlexandriteLayoutTest {
             openRouter to "providers.openrouter",
             providerCommon to null,
             sqlite to "stores.sqlite",
+            automationCommon to null,
             testkit to null,
             ksp to null,
             app to "app",
@@ -179,12 +187,13 @@ class AlexandriteLayoutTest {
         assertEquals("providers.example", module(":libraries:providers:example").configRoot)
         assertEquals("stores.postgres", module(":libraries:stores:postgres").configRoot)
         assertEquals("channels.discord", module(":libraries:channels:discord").configRoot)
+        assertEquals("automations.schedule", module(schedule).configRoot)
         assertEquals("plugins.echo", module(echo).configRoot)
     }
 
     @Test
     fun `exactly the modules of indexed layers have a config root`() {
-        for (path in all + ":libraries:channels:discord" + ":libraries:providers:example" + echo) {
+        for (path in all + ":libraries:channels:discord" + ":libraries:providers:example" + schedule + echo) {
             val module = module(path)
             assertEquals(module.layer in AlexandriteLayout.INDEXED_LAYERS, module.configRoot != null, path)
         }
@@ -205,6 +214,7 @@ class AlexandriteLayoutTest {
             sqlite to "alexandrite-store-sqlite",
             app to "alexandrite-app",
             ":libraries:channels:discord" to "alexandrite-channel-discord",
+            schedule to "alexandrite-automation-schedule",
             notes to "notes",
         )
         assertEquals(expected, expected.keys.associateWith { module(it).moduleName })
@@ -224,11 +234,13 @@ class AlexandriteLayoutTest {
             openRouter to "org.foedusprogramme.alexandrite.provider.openrouter",
             providerCommon to null,
             channelCommon to null,
+            automationCommon to null,
             sqlite to "org.foedusprogramme.alexandrite.store.sqlite",
             app to "org.foedusprogramme.alexandrite.app",
             ":libraries:channels:discord-bot" to "org.foedusprogramme.alexandrite.channel.discordbot",
             ":libraries:providers:open-router" to "org.foedusprogramme.alexandrite.provider.openrouter",
             ":libraries:stores:sql-server" to "org.foedusprogramme.alexandrite.store.sqlserver",
+            ":libraries:automations:heart-beat" to "org.foedusprogramme.alexandrite.automation.heartbeat",
         )
         assertEquals(expected, expected.keys.associateWith { module(it).packageName })
     }
@@ -283,7 +295,9 @@ class AlexandriteLayoutTest {
             app to base,
             providerCommon to base,
             channelCommon to base,
+            automationCommon to base,
             telegram to "$base.channels",
+            schedule to "$base.automations",
             openAi to "$base.providers",
             sqlite to "$base.stores",
             notes to "$base.examples",
@@ -294,14 +308,20 @@ class AlexandriteLayoutTest {
     @Test
     fun `no two modules share a group and a project name`() {
         val sameNames = listOf("agent", "notes", "app").flatMap { name ->
-            listOf("libraries/channels/$name", "libraries/providers/$name", "libraries/stores/$name", "examples/$name")
+            listOf(
+                "libraries/channels/$name",
+                "libraries/providers/$name",
+                "libraries/stores/$name",
+                "libraries/automations/$name",
+                "examples/$name",
+            )
         }
         val discovery = discoverIn(today + sameNames)
 
         assertNull(discovery.failure)
         val coordinates = discovery.modules.map { it.group to it.path.substringAfterLast(':') }
         assertEquals(coordinates.distinct(), coordinates)
-        assertEquals(today.size + 11, coordinates.size)
+        assertEquals(today.size + 14, coordinates.size)
     }
 
     @Test
@@ -314,7 +334,7 @@ class AlexandriteLayoutTest {
     // Discovery.
 
     @Test
-    fun `today's tree yields today's nineteen modules in path order`() {
+    fun `today's tree yields today's twenty modules in path order`() {
         val discovery = AlexandriteLayout.discover(today)
         assertNull(discovery.failure)
         assertEquals(all.sorted(), discovery.modules.map { it.path })
@@ -327,14 +347,14 @@ class AlexandriteLayoutTest {
         val shuffled = (today + added).shuffled(Random(7))
         val paths = AlexandriteLayout.discover(shuffled).modules.map { it.path }
         assertEquals(paths.sorted(), paths)
-        assertEquals(22, paths.size)
+        assertEquals(23, paths.size)
     }
 
     @Test
-    fun `every child of channels, providers, stores and examples with a build file is discovered`() {
+    fun `every child of channels, providers, stores, automations and examples with a build file is discovered`() {
         val discovery = discoverIn(
             today + "libraries/channels/discord" + "libraries/providers/example" + "libraries/stores/postgres" +
-                "examples/echo",
+                "libraries/automations/schedule" + "examples/echo",
         )
         assertNull(discovery.failure)
         assertEquals(
@@ -353,6 +373,7 @@ class AlexandriteLayoutTest {
             listOf(":libraries:stores:postgres", sqlite),
             discovery.modules.filter { it.layer == Layer.STORE }.map { it.path },
         )
+        assertEquals(listOf(schedule), discovery.modules.filter { it.layer == Layer.AUTOMATION }.map { it.path })
     }
 
     @Test
@@ -363,6 +384,13 @@ class AlexandriteLayoutTest {
             AlexandriteLayout.scan(FakeTree(withoutExamples.toSet(), setOf("examples"))),
         )
         assertEquals(emptyList(), discoverIn(withoutExamples).modules.filter { it.layer == Layer.EXAMPLE })
+    }
+
+    @Test
+    fun `no automation is fine`() {
+        assertEquals(today.sorted(), AlexandriteLayout.scan(FakeTree(today.toSet())))
+        assertEquals(today.sorted(), AlexandriteLayout.scan(FakeTree(today.toSet(), setOf("libraries/automations"))))
+        assertNull(discoverIn(today, setOf("libraries/automations")).failure)
     }
 
     @Test
@@ -408,6 +436,8 @@ class AlexandriteLayoutTest {
             "libraries/channels",
             "libraries/stores",
             "libraries/stores/x/y",
+            "libraries/automations",
+            "libraries/automations/x/y",
             "libraries",
             "libraries/examples/hello",
             "examples",
@@ -427,6 +457,7 @@ class AlexandriteLayoutTest {
         for (slot in listOf(
             "libraries/agent",
             "libraries/channel-common",
+            "libraries/automation-common",
             "libraries/commands",
             "libraries/runtime",
             "libraries/testkit",
@@ -448,6 +479,8 @@ class AlexandriteLayoutTest {
         assertContains(failure, "libraries/channel-common/ (CHANNEL_COMMON)")
         assertContains(failure, "libraries/providers/<name>/ (PROVIDER)")
         assertContains(failure, "libraries/stores/<name>/ (STORE)")
+        assertContains(failure, "libraries/automations/<name>/ (AUTOMATION)")
+        assertContains(failure, "libraries/automation-common/ (AUTOMATION_COMMON)")
         assertContains(failure, "libraries/runtime/ (RUNTIME)")
         assertContains(failure, "libraries/testkit/ (TESTKIT)")
         assertContains(failure, "examples/<name>/ (EXAMPLE)")
@@ -481,12 +514,12 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `the built-in list holds every built-in indexed module and no example`() {
-        val discovery = discoverIn(today + "libraries/channels/discord")
+        val discovery = discoverIn(today + "libraries/channels/discord" + "libraries/automations/schedule")
 
         assertEquals(
             listOf(
-                app, agent, ":libraries:channels:discord", telegram, commands, anthropic, deepSeek, lmStudio, openAi,
-                openRouter, sqlite, tools,
+                app, agent, schedule, ":libraries:channels:discord", telegram, commands, anthropic, deepSeek, lmStudio,
+                openAi, openRouter, sqlite, tools,
             ),
             BuiltInList.modules(discovery).map { it.path },
         )
@@ -511,6 +544,7 @@ class AlexandriteLayoutTest {
                 CHANNEL,
                 PROVIDER,
                 STORE,
+                AUTOMATION,
                 APP,
             }
 
@@ -596,6 +630,8 @@ class AlexandriteLayoutTest {
         assertAllowed(":libraries:providers:example", internals)
         for (from in vendors + openAi + anthropic + ":libraries:providers:example") assertAllowed(from, providerCommon)
         for (from in listOf(telegram, ":libraries:channels:discord")) assertAllowed(from, channelCommon)
+        for (to in listOf(sdk, internals, automationCommon)) assertAllowed(schedule, to)
+        assertAllowed(app, schedule)
     }
 
     @Test
@@ -625,8 +661,10 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `the runtime knows only the SDK and internal, and only the testkit and app know the runtime`() {
-        for (to in plugins + providerCommon + channelCommon + testkit + notes) assertForbidden(runtime, to)
-        for (from in listOf(sdk, internals, ksp, notes, providerCommon, channelCommon) + plugins) {
+        for (to in plugins + providerCommon + channelCommon + automationCommon + testkit + notes) {
+            assertForbidden(runtime, to)
+        }
+        for (from in listOf(sdk, internals, ksp, notes, providerCommon, channelCommon, automationCommon) + plugins) {
             assertForbidden(from, runtime)
         }
         assertAllowed(testkit, runtime)
@@ -635,7 +673,7 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `the testkit sits on the SDK, internal and runtime`() {
-        for (to in plugins + providerCommon + channelCommon + notes) assertForbidden(testkit, to)
+        for (to in plugins + providerCommon + channelCommon + automationCommon + notes) assertForbidden(testkit, to)
         for (from in listOf(sdk, internals, runtime)) {
             assertForbidden(from, testkit)
             assertForbidden(from, testkit, "testImplementation")
@@ -644,7 +682,7 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `built-in plugin modules test with the testkit`() {
-        for (from in plugins + ":libraries:channels:discord") {
+        for (from in plugins + ":libraries:channels:discord" + schedule) {
             for (configuration in listOf("testImplementation", "testCompileOnly", "testRuntimeOnly")) {
                 assertAllowed(from, testkit, configuration)
             }
@@ -684,6 +722,32 @@ class AlexandriteLayoutTest {
         assertAllowed(channelCommon, testkit, "testImplementation")
         assertAllowed(channelCommon, testkit, "testFixturesApi")
         assertForbidden(channelCommon, testkit, "api")
+    }
+
+    @Test
+    fun `automation-common depends on nothing of ours and serves only the automations and the app`() {
+        for (to in all - automationCommon + schedule) {
+            assertForbidden(automationCommon, to)
+            assertForbidden(automationCommon, to, "testImplementation")
+        }
+        for (from in all - app - automationCommon + ":libraries:channels:discord") {
+            assertForbidden(from, automationCommon)
+            assertForbidden(from, automationCommon, "testImplementation")
+        }
+        assertAllowed(schedule, automationCommon)
+        assertAllowed(app, automationCommon)
+    }
+
+    @Test
+    fun `automations sit on the SDK, internal and automation-common, below the app`() {
+        for (to in all - sdk - internals - automationCommon - testkit + ":libraries:automations:heartbeat") {
+            assertForbidden(schedule, to)
+        }
+        assertAllowed(schedule, testkit, "testImplementation")
+        for (from in plugins + providerCommon + channelCommon + automationCommon + runtime + testkit + notes) {
+            assertForbidden(from, schedule)
+        }
+        assertAllowed(app, schedule)
     }
 
     @Test
@@ -778,7 +842,7 @@ class AlexandriteLayoutTest {
         assertContains(
             assertNotNull(violation(app, ksp)),
             ":libraries:channels:*, $channelCommon, :libraries:providers:*, :libraries:provider-common, " +
-                ":libraries:stores:*; " +
+                ":libraries:stores:*, :libraries:automations:*, $automationCommon; " +
                 "$testkit, :examples:* only from configurations named test*;",
         )
         assertContains(

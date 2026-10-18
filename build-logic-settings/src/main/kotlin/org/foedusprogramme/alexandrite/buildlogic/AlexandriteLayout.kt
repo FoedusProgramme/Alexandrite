@@ -34,6 +34,12 @@ enum class Layer {
     /** Storage back ends. */
     STORE,
 
+    /** Timed turns: scheduled tasks and heartbeats. */
+    AUTOMATION,
+
+    /** The timing that automations share. */
+    AUTOMATION_COMMON,
+
     /** Doubles for plugin authors. */
     TESTKIT,
 
@@ -153,6 +159,13 @@ object AlexandriteLayout {
             jarPrefix = "alexandrite-store-",
             packagePrefix = "$PACKAGE.store.",
         ),
+        Location.Family(
+            "libraries/automations",
+            Layer.AUTOMATION,
+            jarPrefix = "alexandrite-automation-",
+            packagePrefix = "$PACKAGE.automation.",
+        ),
+        Location.Slot("libraries/automation-common", Layer.AUTOMATION_COMMON),
         Location.Slot("libraries/testkit", Layer.TESTKIT),
         Location.Slot("build-ksp-plugin", Layer.KSP, jarName = "alexandrite-ksp"),
         Location.Family(
@@ -186,6 +199,8 @@ object AlexandriteLayout {
         Layer.PROVIDER to setOf(Layer.SDK, Layer.INTERNAL, Layer.PROVIDER_COMMON),
         Layer.PROVIDER_COMMON to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.STORE to setOf(Layer.SDK, Layer.INTERNAL),
+        Layer.AUTOMATION to setOf(Layer.SDK, Layer.INTERNAL, Layer.AUTOMATION_COMMON),
+        Layer.AUTOMATION_COMMON to emptySet(),
         Layer.TESTKIT to setOf(Layer.SDK, Layer.INTERNAL, Layer.RUNTIME),
         Layer.EXAMPLE to setOf(Layer.SDK, Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON),
         Layer.APP to setOf(
@@ -200,6 +215,8 @@ object AlexandriteLayout {
             Layer.PROVIDER,
             Layer.PROVIDER_COMMON,
             Layer.STORE,
+            Layer.AUTOMATION,
+            Layer.AUTOMATION_COMMON,
         ),
     )
 
@@ -212,6 +229,7 @@ object AlexandriteLayout {
         Layer.PROVIDER to setOf(Layer.TESTKIT),
         Layer.PROVIDER_COMMON to setOf(Layer.TESTKIT),
         Layer.STORE to setOf(Layer.TESTKIT),
+        Layer.AUTOMATION to setOf(Layer.TESTKIT),
         Layer.KSP to setOf(Layer.SDK),
         Layer.EXAMPLE to setOf(Layer.TESTKIT),
         Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
@@ -228,6 +246,7 @@ object AlexandriteLayout {
         Layer.CHANNEL,
         Layer.PROVIDER,
         Layer.STORE,
+        Layer.AUTOMATION,
         Layer.EXAMPLE,
         Layer.APP,
     )
@@ -315,9 +334,9 @@ object AlexandriteLayout {
         return "Modules are out of place:\n" +
             problems.joinToString("\n") { "  - $it" } + "\n" +
             "Modules may live only at:\n" + locationList() + "\n" +
-            "Every slot must hold its module; a channel, provider, store or example is added by creating its " +
-            "directory. A new kind of module needs a new slot or family in the location map, with its layer's " +
-            "dependency rules, in $LAYOUT_LOCATION."
+            "Every slot must hold its module; a channel, provider, store, automation or example is added by " +
+            "creating its directory. A new kind of module needs a new slot or family in the location map, with its " +
+            "layer's dependency rules, in $LAYOUT_LOCATION."
     }
 
     /** Null when the module name of every indexed module in [modules] is a plugin id. */
