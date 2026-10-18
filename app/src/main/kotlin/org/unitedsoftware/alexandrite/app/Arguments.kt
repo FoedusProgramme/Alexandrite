@@ -40,8 +40,10 @@ internal sealed interface CliAction {
     }
 }
 
-/** Thrown by a command that cannot read its arguments. */
-internal class UsageException(message: String) : Exception(message)
+/** Thrown by a command that cannot read its arguments, saying why in [text]. */
+internal class UsageException(val text: Text) : Exception(text.key) {
+    constructor(key: String, vararg args: Pair<String, Any?>) : this(Text(key, *args))
+}
 
 /** The arguments a command was given: its [operands], flags and options. */
 internal class Given(
@@ -57,10 +59,10 @@ internal class Given(
     fun all(name: String): List<String> = options[name].orEmpty()
 
     /** The only operand, or a [UsageException] saying the command [what] it needs. */
-    fun single(what: String): String = operands.singleOrNull() ?: throw UsageException(what)
+    fun single(what: Text): String = operands.singleOrNull() ?: throw UsageException(what)
 
     /** Throws [message] when there are more operands than [count]. */
-    fun atMost(count: Int, message: String) {
+    fun atMost(count: Int, message: Text) {
         if (operands.size > count) throw UsageException(message)
     }
 }
@@ -70,11 +72,8 @@ internal class CliCommand(
     val words: List<String>,
     /** What follows the words in the usage line. */
     val synopsis: String,
-    /** The group in the overview. */
+    /** The text key of the group in the overview. */
     val area: String,
-    val summary: String,
-    /** What the command's own help tells beyond [summary]. */
-    val help: String = "",
     val flags: Set<String> = emptySet(),
     val options: Set<String> = emptySet(),
     val read: (Given) -> CliAction,
@@ -82,6 +81,9 @@ internal class CliCommand(
     val name: String get() = words.joinToString(" ")
 
     val usage: String get() = "alexandrite $name${if (synopsis.isEmpty()) "" else " $synopsis"}"
+
+    /** The text key of its summary, and with `.help` of what its own help tells beyond it. */
+    val textKey: String get() = "command.${words.joinToString(".")}"
 }
 
 private const val CONFIG = "--config"
@@ -94,7 +96,11 @@ private const val END = "--"
 /** Where the summaries start in the usage's list of commands. */
 private const val COLUMN = 30
 
-internal fun parseArguments(args: List<String>, commands: List<CliCommand> = COMMANDS): Command {
+internal fun parseArguments(
+    args: List<String>,
+    commands: List<CliCommand> = COMMANDS,
+    texts: CliTexts = CliTexts.ENGLISH,
+): Command {
     val paths = mutableMapOf<String, Path>()
     val rest = mutableListOf<String>()
     var index = 0
@@ -107,12 +113,14 @@ internal fun parseArguments(args: List<String>, commands: List<CliCommand> = COM
         val option = arg.substringBefore('=')
         if (option == CONFIG || option == DATA_DIR || option == CACHE_DIR) {
             val value = if ('=' in arg) arg.substringAfter('=') else args.getOrNull(index++)
-            if (value.isNullOrEmpty() || value.startsWith("--")) return Command.Invalid("$option needs a value.")
-            if (option in paths) return Command.Invalid("$option is given more than once.")
+            if (value.isNullOrEmpty() || value.startsWith("--")) {
+                return Command.Invalid(texts("usage.needs_value", "option" to option))
+            }
+            if (option in paths) return Command.Invalid(texts("usage.given_twice", "option" to option))
             paths[option] = try {
                 Path.of(value)
             } catch (e: InvalidPathException) {
-                return Command.Invalid("$option names no valid path: ${e.reason}.")
+                return Command.Invalid(texts("usage.invalid_path", "option" to option, "reason" to e.reason))
             }
         } else {
             rest += arg
@@ -120,7 +128,9 @@ internal fun parseArguments(args: List<String>, commands: List<CliCommand> = COM
     }
     val options = Options(paths[CONFIG], paths[DATA_DIR], paths[CACHE_DIR])
     if (rest.isEmpty() || rest.first().startsWith("-")) {
-        rest.firstOrNull { it != HELP && it != VERSION }?.let { return Command.Invalid("Unknown option $it.") }
+        rest.firstOrNull { it != HELP && it != VERSION }?.let {
+            return Command.Invalid(texts("usage.unknown_option", "option" to it))
+        }
         return when {
             HELP in rest -> Command.Help()
             VERSION in rest -> Command.Version
@@ -129,12 +139,12 @@ internal fun parseArguments(args: List<String>, commands: List<CliCommand> = COM
     }
     val words = rest.takeWhile { !it.startsWith("-") }
     val command = commands.filter { words.take(it.words.size) == it.words }.maxByOrNull { it.words.size }
-        ?: return unknown(words, commands)
+        ?: return unknown(words, commands, texts)
     val given = given(command, rest.drop(command.words.size)) ?: return Command.Help(command)
     val action = try {
-        command.read(given.getOrElse { return Command.Invalid(it.message.orEmpty(), command) })
+        command.read(given.getOrThrow())
     } catch (e: UsageException) {
-        return Command.Invalid(e.message.orEmpty(), command)
+        return Command.Invalid(texts(e.text), command)
     }
     return when (action) {
         CliAction.Foreground -> Command.Run(options)
@@ -164,12 +174,12 @@ private fun given(command: CliCommand, arguments: List<String>): Result<Given>? 
 
             name in command.options -> {
                 val value = if ('=' in arg) arg.substringAfter('=') else arguments.getOrNull(index++)
-                if (value == null || value.startsWith("--")) return failure("$name needs a value.")
+                if (value == null || value.startsWith("--")) return failure("usage.needs_value", "option" to name)
                 options.getOrPut(name, ::mutableListOf) += value
             }
 
             arg.startsWith("-") && arg != "-" && arg.getOrNull(1)?.isDigit() != true ->
-                return failure("Unknown option $arg.")
+                return failure("usage.unknown_option", "option" to arg)
 
             else -> operands += arg
         }
@@ -177,62 +187,79 @@ private fun given(command: CliCommand, arguments: List<String>): Result<Given>? 
     return Result.success(Given(operands, flags, options))
 }
 
-private fun failure(message: String): Result<Given> = Result.failure(UsageException(message))
+private fun failure(key: String, vararg args: Pair<String, Any?>): Result<Given> =
+    Result.failure(UsageException(key, *args))
 
-private fun unknown(words: List<String>, commands: List<CliCommand>): Command {
+private fun unknown(words: List<String>, commands: List<CliCommand>, texts: CliTexts): Command {
     val group = commands.filter { it.words.size > 1 && it.words.first() == words.first() }
-    if (group.isEmpty()) return Command.Invalid("Unknown command ${words.first()}.")
+    if (group.isEmpty()) return Command.Invalid(texts("usage.unknown_command", "command" to words.first()))
     val subcommands = group.map { it.words[1] }.distinct().joinToString(", ")
-    val given = words.getOrNull(1)
-    return if (given == null) {
-        Command.Invalid("${words.first()} needs one of $subcommands.")
-    } else {
-        Command.Invalid("Unknown command ${words.first()} $given: ${words.first()} takes $subcommands.")
-    }
+    val given = words.getOrNull(1) ?: return Command.Invalid(
+        texts("usage.needs_subcommand", "command" to words.first(), "subcommands" to subcommands),
+    )
+    return Command.Invalid(
+        texts(
+            "usage.unknown_subcommand",
+            "command" to words.first(),
+            "given" to given,
+            "subcommands" to subcommands,
+        ),
+    )
 }
 
 /** The usage of every command, with the default locations [defaults]. */
-internal fun usage(defaults: Locations, commands: List<CliCommand> = COMMANDS): String = buildString {
-    appendLine("Usage: alexandrite [$CONFIG <file>] [$DATA_DIR <dir>] [$CACHE_DIR <dir>] [$VERSION] [$HELP]")
-    appendLine("       alexandrite <command> [<argument>...] [$HELP]")
+internal fun usage(
+    defaults: Locations,
+    commands: List<CliCommand> = COMMANDS,
+    texts: CliTexts = CliTexts.ENGLISH,
+): String = buildString {
+    appendLine(
+        texts(
+            "usage.line",
+            "options" to "[$CONFIG <file>] [$DATA_DIR <dir>] [$CACHE_DIR <dir>] [$VERSION] [$HELP]",
+        ),
+    )
+    appendLine(texts("usage.line_command", "help" to HELP))
     appendLine()
-    appendLine("Runs Alexandrite until it receives SIGTERM or SIGINT, or carries out a command.")
+    appendLine(texts("usage.about"))
     for ((area, members) in commands.groupBy { it.area }) {
         appendLine()
-        appendLine("$area:")
+        appendLine(texts("usage.area", "area" to Text(area)))
         for (command in members) {
             val line = "${command.name} ${command.synopsis}".trimEnd()
+            val summary = texts(command.textKey)
             if (line.length < COLUMN) {
-                appendLine("  ${line.padEnd(COLUMN)}${command.summary}")
+                appendLine("  ${line.padEnd(COLUMN)}$summary")
             } else {
                 appendLine("  $line")
-                appendLine("  ${"".padEnd(COLUMN)}${command.summary}")
+                appendLine("  ${"".padEnd(COLUMN)}$summary")
             }
         }
     }
     appendLine()
-    append(
-        """
-        Options:
-          $CONFIG <file>     the config file, by default ${defaults.configFile}
-          $DATA_DIR <dir>    the data directory, by default ${defaults.dataDir}
-          $CACHE_DIR <dir>   the cache directory, by default ${defaults.cacheDir}
-          $VERSION           print the version and exit
-          $HELP              print this help, or a command's own after it, and exit
-
-        Each default comes from ALEXANDRITE_CONFIG, ALEXANDRITE_DATA_DIR and ALEXANDRITE_CACHE_DIR when set,
-        else from XDG_CONFIG_HOME, XDG_DATA_HOME and XDG_CACHE_HOME, else from the platform's own locations.
-        The cache is the data directory's "cache" directory when only the data directory is named.
-        Commands that change the config go through the Alexandrite that runs with the same data directory,
-        or write the file themselves when none runs.
-        """.trimIndent(),
+    appendLine(texts("usage.options"))
+    val options = listOf(
+        "$CONFIG <file>" to texts("usage.option.config", "default" to defaults.configFile),
+        "$DATA_DIR <dir>" to texts("usage.option.data_dir", "default" to defaults.dataDir),
+        "$CACHE_DIR <dir>" to texts("usage.option.cache_dir", "default" to defaults.cacheDir),
+        VERSION to texts("usage.option.version"),
+        HELP to texts("usage.option.help"),
     )
+    for ((option, about) in options) appendLine("  ${option.padEnd(OPTION_COLUMN)}$about")
+    appendLine()
+    append(texts("usage.defaults"))
 }
 
+/** Where the descriptions start in the usage's list of options. */
+private const val OPTION_COLUMN = 20
+
 /** The usage of [command]. */
-internal fun usage(command: CliCommand): String = buildString {
-    appendLine("Usage: ${command.usage}")
+internal fun usage(command: CliCommand, texts: CliTexts = CliTexts.ENGLISH): String = buildString {
+    appendLine(texts("usage.of", "usage" to command.usage))
     appendLine()
-    append(command.summary.replaceFirstChar(Char::uppercaseChar)).append('.')
-    if (command.help.isNotEmpty()) append("\n\n").append(command.help)
+    append(texts("usage.summary", "summary" to texts(command.textKey).replaceFirstChar(Char::uppercaseChar)))
+    val help = "${command.textKey}.help"
+    if (texts.has(help)) {
+        append("\n\n").append(texts(help, "changes" to Text("help.changes"), "json" to Text("help.json")))
+    }
 }

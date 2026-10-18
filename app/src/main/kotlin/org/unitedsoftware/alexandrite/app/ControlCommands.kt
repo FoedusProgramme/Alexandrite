@@ -26,11 +26,12 @@ internal fun control(
     out: PrintStream,
     err: PrintStream,
     zone: ZoneId = ZoneId.systemDefault(),
+    texts: CliTexts = CliTexts.ENGLISH,
 ): Int {
     val reply = try {
         askDaemon(controlSocket(dataDir), request)
     } catch (e: NoDaemonException) {
-        err.println("alexandrite: ${e.message}")
+        err.println("alexandrite: ${texts(e.text)}")
         return ExitCode.UNAVAILABLE
     } catch (e: IOException) {
         err.println("alexandrite: ${e.message ?: e}")
@@ -46,53 +47,57 @@ internal fun control(
         err.println("alexandrite: $text")
         return ExitCode.FAILURE
     }
+    val t = texts
     return when (reply) {
-        is ControlReply.Pong -> done("Alexandrite ${shown(reply.version)} is running.")
+        is ControlReply.Pong -> done(t("control.pong", "version" to shown(reply.version)))
 
-        is ControlReply.Pairings -> done(pairings(reply, time, day))
+        is ControlReply.Pairings -> done(pairings(t, reply, time, day))
 
-        is ControlReply.Approved -> done("Paired ${described(reply.request)}.")
+        is ControlReply.Approved -> done(t("pairing.approved", "chat" to described(t, reply.request)))
 
-        is ControlReply.Denied -> done("Denied the request of ${described(reply.request)}.")
+        is ControlReply.Denied -> done(t("pairing.denied", "chat" to described(t, reply.request)))
 
         is ControlReply.NotKept -> refused(
-            "Cannot pair ${shown(reply.request.chat)}: ${shown(reply.reason).trimEnd('.')}. Its request now waits " +
-                "under the new code ${reply.request.code}.",
+            t(
+                "pairing.not_kept",
+                "chat" to shown(reply.request.chat),
+                "reason" to shown(reply.reason).trimEnd('.'),
+                "code" to reply.request.code,
+            ),
         )
 
-        ControlReply.UnknownCode -> refused("No chat waits with the code ${shown(codeOf(request))}.")
+        ControlReply.UnknownCode -> refused(t("pairing.unknown_code", "code" to shown(codeOf(request))))
 
-        ControlReply.MalformedCode -> refused(
-            "${shown(codeOf(request))} is no pairing code: a code is 8 letters and digits, such as ABCD-EFGH.",
-        )
+        ControlReply.MalformedCode -> refused(t("pairing.malformed_code", "code" to shown(codeOf(request))))
 
-        is ControlReply.Unpaired -> done("Unpaired ${shown(reply.chat)}.${stillUsed(reply)}")
+        is ControlReply.Unpaired -> done(t("pairing.unpaired", "chat" to shown(reply.chat)) + stillUsed(t, reply))
 
-        is ControlReply.NotPaired -> refused("${shown(reply.chat)} is not paired.")
+        is ControlReply.NotPaired -> refused(t("pairing.not_paired", "chat" to shown(reply.chat)))
 
         is ControlReply.Declared -> refused(
-            if (reply.approvalRemoved) {
-                "Removed the approval of ${shown(reply.chat)}, but it stays paired: the config file declares it, so " +
-                    "edit the file and restart Alexandrite to unpair it."
-            } else {
-                "${shown(reply.chat)} stays paired: the config file declares it, so edit the file to unpair it."
-            },
+            t(
+                if (reply.approvalRemoved) "pairing.declared_approval_removed" else "pairing.declared",
+                "chat" to shown(reply.chat),
+            ),
         )
 
-        is ControlReply.UnpairFailed ->
-            refused("Cannot unpair ${shown(reply.chat)}: ${shown(reply.reason).trimEnd('.')}.")
+        is ControlReply.UnpairFailed -> refused(
+            t("pairing.unpair_failed", "chat" to shown(reply.chat), "reason" to shown(reply.reason).trimEnd('.')),
+        )
 
-        ControlReply.NoDesk -> refused("No channel takes pairing codes.")
+        ControlReply.NoDesk -> refused(t("pairing.no_desk"))
 
         is ControlReply.Failure -> refused(shown(reply.message))
 
-        else -> refused("The running Alexandrite gave an unexpected answer.")
+        else -> refused(t("unexpected_answer"))
     }
 }
 
 /** Prints the waiting and the paired chats, as JSON when [json]. */
 internal fun pairings(cli: Cli, json: Boolean): Int {
-    if (!json) return control(cli.locations.dataDir, ControlRequest.ListPairings, cli.out, cli.err)
+    if (!json) {
+        return control(cli.locations.dataDir, ControlRequest.ListPairings, cli.out, cli.err, texts = cli.texts)
+    }
     val reply = asked(cli, ControlRequest.ListPairings) ?: return ExitCode.UNAVAILABLE
     if (reply !is ControlReply.Pairings) return answered(cli, reply)
     cli.printJson(
@@ -112,14 +117,14 @@ internal fun chats(cli: Cli, json: Boolean): Int {
         cli.printJson(PROTOCOL.encodeToJsonElement(ListSerializer(ChatView.serializer()), reply.chats))
         return ExitCode.OK
     }
-    if (reply.chats.isEmpty()) return cli.done("No chat is paired.")
+    if (reply.chats.isEmpty()) return cli.done(cli.t("pairing.none_paired"))
     for (chat in reply.chats) {
         val about = listOfNotNull(
             chat.kind?.let { kind -> chat.title?.let { "$kind \"${shown(it)}\"" } ?: kind },
-            chat.agent?.let { "agent $it" + if (chat.home) " (its home)" else "" },
-            chat.model?.let { "model $it" },
+            chat.agent?.let { cli.t(if (chat.home) "chats.agent_home" else "chats.agent", "agent" to it) },
+            chat.model?.let { cli.t("chats.model", "model" to it) },
         )
-        cli.out.println("${shown(chat.chat)}  ${about.joinToString(", ").ifEmpty { "declared in the config file" }}")
+        cli.out.println("${shown(chat.chat)}  ${about.joinToString(", ").ifEmpty { cli.t("chats.declared") }}")
     }
     return ExitCode.OK
 }
@@ -128,7 +133,7 @@ internal fun chats(cli: Cli, json: Boolean): Int {
 private fun asked(cli: Cli, request: ControlRequest): ControlReply? = try {
     cli.ask(request) ?: run {
         val socket = controlSocket(cli.locations.dataDir)
-        cli.fail("No Alexandrite runs with the data directory ${socket.parent}.", ExitCode.UNAVAILABLE)
+        cli.fail(cli.t("control.not_running", "directory" to socket.parent), ExitCode.UNAVAILABLE)
         null
     }
 } catch (e: IOException) {
@@ -137,67 +142,76 @@ private fun asked(cli: Cli, request: ControlRequest): ControlReply? = try {
 }
 
 private fun answered(cli: Cli, reply: ControlReply): Int = when (reply) {
-    ControlReply.NoDesk -> cli.fail("No channel takes pairing codes.")
+    ControlReply.NoDesk -> cli.fail(cli.t("pairing.no_desk"))
     is ControlReply.Failure -> cli.fail(shown(reply.message))
-    else -> cli.fail("The running Alexandrite gave an unexpected answer.")
+    else -> cli.fail(cli.t("unexpected_answer"))
 }
 
 private val PROTOCOL = Json { encodeDefaults = true }
 
-private fun pairings(reply: ControlReply.Pairings, time: DateTimeFormatter, day: DateTimeFormatter): String =
-    buildString {
-        if (reply.requests.isEmpty()) {
-            appendLine("No chat waits to be paired.")
-        } else {
-            appendLine("Waiting to be paired:")
-            for (request in reply.requests) {
-                appendLine("  ${request.code}  ${described(request)}, expires ${time.format(request.expiresAt)}")
-            }
-        }
-        if (reply.paired.isEmpty()) {
-            append("No chat is paired.")
-        } else {
-            append("Paired:")
-            for (paired in reply.paired) append("\n  ").append(described(paired, day))
+private fun pairings(
+    t: CliTexts,
+    reply: ControlReply.Pairings,
+    time: DateTimeFormatter,
+    day: DateTimeFormatter,
+): String = buildString {
+    if (reply.requests.isEmpty()) {
+        appendLine(t("pairing.none_waiting"))
+    } else {
+        appendLine(t("pairing.waiting"))
+        for (request in reply.requests) {
+            val expires = time.format(request.expiresAt)
+            appendLine(
+                "  ${request.code}  ${t("pairing.request", "chat" to described(t, request), "expires" to expires)}",
+            )
         }
     }
+    if (reply.paired.isEmpty()) {
+        append(t("pairing.none_paired"))
+    } else {
+        append(t("pairing.paired"))
+        for (paired in reply.paired) append("\n  ").append(described(t, paired, day))
+    }
+}
 
 /** The paired chat [paired] and how it was paired. */
-private fun described(paired: PairedView, day: DateTimeFormatter): String {
-    val approval = paired.approval ?: return "${shown(paired.chat)} (declared in the config file)"
-    val approved = "approved ${day.format(approval.approvedAt)} by ${approval.approvedBy?.let(::shown) ?: "the host"}"
+private fun described(t: CliTexts, paired: PairedView, day: DateTimeFormatter): String {
+    val approval = paired.approval ?: return t("pairing.declared_chat", "chat" to shown(paired.chat))
+    val by = approval.approvedBy?.let(::shown) ?: t("pairing.the_host")
+    val approved = t("pairing.approved_at", "day" to day.format(approval.approvedAt), "by" to by)
     val how = when {
-        paired.declared -> "declared in the config file and $approved"
+        paired.declared -> t("pairing.declared_and", "approved" to approved)
 
         !paired.instanceRunning -> {
-            val instance = ChatAddress.parseOrNull(paired.chat)?.instance?.let { shown("$it") } ?: "its instance"
-            "$approved; $instance is not running and pairs it again when it runs"
+            val instance = ChatAddress.parseOrNull(paired.chat)?.instance?.let { shown("$it") }
+                ?: t("pairing.its_instance")
+            t("pairing.not_running", "approved" to approved, "instance" to instance)
         }
 
         else -> approved
     }
-    return "${shown(paired.chat)} (${chatOf(approval.kind, approval.title, approval.requester)}), $how"
+    return "${shown(paired.chat)} (${chatOf(t, approval.kind, approval.title, approval.requester)}), $how"
 }
 
 /** The note that the chat of [reply] is still a home chat or linked, empty when it is neither. */
-private fun stillUsed(reply: ControlReply.Unpaired): String {
-    val uses = reply.homeOf.map { "the home chat of agent ${shown(it)}" } +
-        reply.linkedAt.map { "linked at agent ${shown(it)}" }
+private fun stillUsed(t: CliTexts, reply: ControlReply.Unpaired): String {
+    val uses = reply.homeOf.map { t("pairing.home_of", "agent" to shown(it)) } +
+        reply.linkedAt.map { t("pairing.linked_at", "agent" to shown(it)) }
     if (uses.isEmpty()) return ""
-    return " It is still ${uses.joinToString(" and ")}, so the bot sends it nothing until it is paired again."
+    return t("pairing.still_used", "uses" to uses.joinToString(t("pairing.and")))
 }
 
 /** The chat of [request], its kind and title, and who asked. */
-private fun described(request: RequestView): String =
-    "${shown(request.chat)} (${chatOf(request.kind, request.title, request.requester)})"
+private fun described(t: CliTexts, request: RequestView): String =
+    "${shown(request.chat)} (${chatOf(t, request.kind, request.title, request.requester)})"
 
 /** A chat's [kind] and [title], and [requester]. */
-private fun chatOf(kind: String, title: String?, requester: RequesterView?): String = buildString {
+private fun chatOf(t: CliTexts, kind: String, title: String?, requester: RequesterView?): String = buildString {
     append(shown(kind))
     title?.let { append(" \"").append(shown(it)).append('"') }
-    append(", from ")
+    append(t("pairing.from"))
     if (requester == null) {
-        append("an unknown sender")
+        append(t("pairing.unknown_sender"))
     } else {
         append(shown(requester.name))
         requester.username?.let { append(" @").append(shown(it)) }

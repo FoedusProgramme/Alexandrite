@@ -14,6 +14,8 @@ import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
+import java.time.ZoneId
+import java.util.Locale
 import kotlin.time.Duration
 
 /** What a command works with: the [locations] it acts on, its streams and the [machine] it runs on. */
@@ -27,8 +29,17 @@ internal class Cli(
     val home: Path,
     /** The distribution the command runs from, null when it runs from none. */
     val install: Path?,
+    val texts: CliTexts = CliTexts.ENGLISH,
+    /** The system's locale and zone, which `init` proposes. */
+    val locale: Locale = Locale.ENGLISH,
+    val zone: ZoneId = ZoneId.systemDefault(),
+    /** Draws the one-time code of an admin claim. */
+    val claimCode: () -> String = ::newClaimCode,
 ) {
     val secrets: Path get() = secretsFile(locations.configFile)
+
+    /** The text of [key] in the command's language. */
+    fun t(key: String, vararg args: Pair<String, Any?>): String = texts(key, *args)
 
     /** Prints [message] to stderr and returns [code]. */
     fun fail(message: String, code: Int = ExitCode.FAILURE): Int {
@@ -64,7 +75,7 @@ internal class Cli(
     fun confirm(question: String, default: Boolean = false): Boolean {
         if (!machine.interactive) return false
         val answer = machine.ask("$question ${if (default) "[Y/n]" else "[y/N]"} ")?.trim()?.lowercase() ?: return false
-        return if (answer.isEmpty()) default else answer == "y" || answer == "yes"
+        return if (answer.isEmpty()) default else answer in YES
     }
 
     /** The config file as written, or null after printing why it cannot be read. */
@@ -73,19 +84,21 @@ internal class Cli(
         val text = try {
             Files.readString(file)
         } catch (e: NoSuchFileException) {
-            err.println("alexandrite: There is no config file at $file. Create it with alexandrite init.")
+            fail(t("config.missing", "file" to file))
             return null
         } catch (e: IOException) {
-            err.println("alexandrite: Cannot read the config file $file: $e")
+            fail(t("config.unreadable", "file" to file, "reason" to e))
             return null
         }
         return writtenConfig(text) ?: run {
-            err.println("alexandrite: The config file $file is not a JSON object: fix it with alexandrite config edit.")
+            fail(t("config.no_object", "file" to file))
             null
         }
     }
 
     private companion object {
+        val YES = setOf("y", "yes", "是", "好")
+
         @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
         val PRETTY = Json {
             prettyPrint = true

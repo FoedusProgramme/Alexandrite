@@ -40,6 +40,9 @@ internal interface Machine {
     /** Answers a GET of [url], or throws [IOException] when it is unreachable. */
     fun get(url: String, headers: Map<String, String> = emptyMap()): Fetched
 
+    /** Answers a POST of the JSON [body] to [url], or throws [IOException] when it is unreachable. */
+    fun post(url: String, body: String): Fetched
+
     fun sleep(duration: KotlinDuration)
 
     /** Whether a follow of a log goes on. */
@@ -80,10 +83,29 @@ internal object LocalMachine : Machine {
     override fun attach(command: List<String>): Int = ProcessBuilder(command).inheritIO().start().waitFor()
 
     override fun get(url: String, headers: Map<String, String>): Fetched {
-        val request = HttpRequest.newBuilder(URI(url)).timeout(Duration.ofSeconds(20)).GET()
+        val request = try {
+            HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20)).GET()
+        } catch (e: IllegalArgumentException) {
+            throw IOException(e.message, e)
+        }
         headers.forEach { (name, value) -> request.header(name, value) }
+        return send(request.build())
+    }
+
+    override fun post(url: String, body: String): Fetched {
+        val request = try {
+            HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(POST_TIMEOUT_SECONDS))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+        } catch (e: IllegalArgumentException) {
+            throw IOException(e.message, e)
+        }
+        return send(request.build())
+    }
+
+    private fun send(request: HttpRequest): Fetched {
         val response = try {
-            http.send(request.build(), HttpResponse.BodyHandlers.ofString())
+            http.send(request, HttpResponse.BodyHandlers.ofString())
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             throw IOException("interrupted", e)
@@ -92,6 +114,9 @@ internal object LocalMachine : Machine {
         }
         return Fetched(response.statusCode(), response.body())
     }
+
+    /** Long enough for a long poll of the Bot API. */
+    private const val POST_TIMEOUT_SECONDS = 40L
 
     override fun sleep(duration: KotlinDuration) {
         Thread.sleep(duration.toJavaDuration())

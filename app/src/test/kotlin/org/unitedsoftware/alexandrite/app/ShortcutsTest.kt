@@ -116,7 +116,7 @@ class ShortcutsTest {
     }
 
     @Test
-    fun `a Telegram bot is checked, its token saved as a secret and the only agent serves it`() {
+    fun `a Telegram bot is checked, its token saved as a secret and the only agent serves it from its admin's chat`() {
         cli.machine.answers += token
         cli.machine.web["https://api.telegram.org/bot$token/getMe"] =
             Fetched(200, """{"ok": true, "result": {"id": 42, "is_bot": true, "username": "helper_bot"}}""")
@@ -129,10 +129,11 @@ class ShortcutsTest {
         assertFalse(token in printed.out + printed.err + cli.config())
         assertEquals("ALEXANDRITE_TELEGRAM_MAIN_TOKEN=$token\n", Files.readString(cli.secrets))
         assertEquals(
-            """{"botToken":"${'$'}{env:ALEXANDRITE_TELEGRAM_MAIN_TOKEN}","adminUserIds":[1001]}""",
+            """{"botToken":"${'$'}{env:ALEXANDRITE_TELEGRAM_MAIN_TOKEN}",""" +
+                """"adminUserIds":[1001],"allowedChats":[1001]}""",
             "${file().at("channels.telegram.instances.main")}",
         )
-        assertEquals("{}", "${file().objectAt("agent.agents.main.channels")["telegram:main"]}")
+        assertEquals("""{"home":"1001"}""", "${file().objectAt("agent.agents.main.channels")["telegram:main"]}")
     }
 
     @Test

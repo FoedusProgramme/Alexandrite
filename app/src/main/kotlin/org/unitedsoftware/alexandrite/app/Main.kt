@@ -33,6 +33,8 @@ import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.time.ZoneId
+import java.util.Locale
 import java.util.Properties
 import kotlin.system.exitProcess
 import kotlin.time.Duration
@@ -84,20 +86,24 @@ internal fun run(
     install: Path? = installDirectory(appLocation()),
     textsInterval: Duration = TEXTS_INTERVAL,
     machine: Machine = LocalMachine,
+    locale: Locale = Locale.getDefault(),
+    zone: ZoneId = ZoneId.systemDefault(),
+    claimCode: () -> String = ::newClaimCode,
 ): Int {
+    val texts = CliTexts.of(environment, locale)
     fun located(options: Options): Locations? = try {
         locations(options, environment, osName, home)
     } catch (e: IllegalArgumentException) {
         err.println("alexandrite: ${e.message}")
         null
     }
-    val options = when (val command = parseArguments(args)) {
+    val options = when (val command = parseArguments(args, texts = texts)) {
         is Command.Run -> command.options
 
         is Command.Control -> {
             val locations = located(command.options) ?: return ExitCode.CONFIG
             return try {
-                control(locations.dataDir, command.request, out, err)
+                control(locations.dataDir, command.request, out, err, texts = texts)
             } catch (e: Exception) {
                 logger.error("Unexpected error", e)
                 err.println("alexandrite: unexpected error: $e")
@@ -107,7 +113,20 @@ internal fun run(
 
         is Command.Act -> {
             val locations = located(command.options) ?: return ExitCode.CONFIG
-            val cli = Cli(locations, environment, out, err, machine, platformOf(osName), home, install)
+            val cli = Cli(
+                locations,
+                environment,
+                out,
+                err,
+                machine,
+                platformOf(osName),
+                home,
+                install,
+                texts,
+                locale,
+                zone,
+                claimCode,
+            )
             return try {
                 command.action.run(cli)
             } catch (e: Exception) {
@@ -118,7 +137,8 @@ internal fun run(
         }
 
         is Command.Help -> {
-            val help = command.command?.let(::usage) ?: usage(located(Options()) ?: return ExitCode.CONFIG)
+            val help = command.command?.let { usage(it, texts) }
+                ?: usage(located(Options()) ?: return ExitCode.CONFIG, texts = texts)
             out.println(help)
             return ExitCode.OK
         }
@@ -131,7 +151,10 @@ internal fun run(
         is Command.Invalid -> {
             err.println("alexandrite: ${command.message}")
             err.println()
-            err.println(command.command?.let(::usage) ?: usage(located(Options()) ?: return ExitCode.USAGE))
+            err.println(
+                command.command?.let { usage(it, texts) }
+                    ?: usage(located(Options()) ?: return ExitCode.USAGE, texts = texts),
+            )
             return ExitCode.USAGE
         }
     }

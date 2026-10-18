@@ -19,15 +19,12 @@ private val POLL = 500.milliseconds
 /** How long a start may take before the command gives up waiting for it. */
 private val READY_TIMEOUT = 90.seconds
 
-private const val NO_SERVICE = "No background service is installed: run Alexandrite in the foreground with " +
-    "alexandrite run, or install the service with alexandrite init."
-
 internal fun start(cli: Cli): Int {
     val running = cli.status()
     val service = installedService(cli)
-    if (running != null) return cli.done("${described(running)} is already running.")
-    service ?: return cli.fail(NO_SERVICE, ExitCode.UNAVAILABLE)
-    if (service.start() != 0) return cli.fail("Cannot start ${service.description}.")
+    if (running != null) return cli.done(cli.t("service.already_running", "app" to described(cli, running)))
+    service ?: return cli.fail(cli.t("service.none"), ExitCode.UNAVAILABLE)
+    if (service.start() != 0) return cli.fail(cli.t("service.cannot_start", "service" to service.description))
     return ready(cli, awaitReady(cli, null))
 }
 
@@ -35,31 +32,28 @@ internal fun stop(cli: Cli): Int {
     val service = installedService(cli)
     val running = cli.status()
     if (service != null) {
-        if (service.stop() != 0) return cli.fail("Cannot stop ${service.description}.")
+        if (service.stop() != 0) return cli.fail(cli.t("service.cannot_stop", "service" to service.description))
     } else if (running != null) {
         try {
             cli.ask(ControlRequest.Stop)
         } catch (e: IOException) {
-            return cli.fail("Cannot stop Alexandrite: ${e.message ?: e}")
+            return cli.fail(cli.t("service.cannot_stop_app", "reason" to (e.message ?: e)))
         }
     }
-    if (running == null) return cli.done("Alexandrite is not running.")
-    if (!awaitStopped(cli)) return cli.fail("Alexandrite did not stop within $READY_TIMEOUT.")
-    return cli.done("Stopped ${described(running)}.")
+    if (running == null) return cli.done(cli.t("service.not_running"))
+    if (!awaitStopped(cli)) return cli.fail(cli.t("service.stop_timeout", "timeout" to READY_TIMEOUT))
+    return cli.done(cli.t("service.stopped", "app" to described(cli, running)))
 }
 
 internal fun restart(cli: Cli): Int {
     val running = cli.status()
     val service = installedService(cli)
         ?: return if (running == null) {
-            cli.fail(NO_SERVICE, ExitCode.UNAVAILABLE)
+            cli.fail(cli.t("service.none"), ExitCode.UNAVAILABLE)
         } else {
-            cli.fail(
-                "Alexandrite runs without a background service, so it cannot be restarted from here: stop it " +
-                    "and run it again.",
-            )
+            cli.fail(cli.t("service.no_restart_here"))
         }
-    if (service.restart() != 0) return cli.fail("Cannot restart ${service.description}.")
+    if (service.restart() != 0) return cli.fail(cli.t("service.cannot_restart", "service" to service.description))
     return ready(cli, awaitReady(cli, running?.pid))
 }
 
@@ -103,7 +97,7 @@ internal fun status(cli: Cli, json: Boolean): Int {
             },
         )
     } else {
-        cli.out.println(statusText(status, service, state))
+        cli.out.println(statusText(cli, status, service, state))
     }
     return if (status == null) ExitCode.UNAVAILABLE else ExitCode.OK
 }
@@ -112,35 +106,48 @@ internal fun logs(cli: Cli, lines: Int, follow: Boolean): Int {
     installedService(cli)?.let { return it.logs(lines, follow) }
     val log = serviceLog(cli.locations)
     if (Files.isRegularFile(log)) return tail(cli, log, lines, follow)
-    return cli.fail(
-        "No background service is installed, and an Alexandrite run in the foreground logs to its terminal.",
-        ExitCode.UNAVAILABLE,
-    )
+    return cli.fail(cli.t("logs.foreground"), ExitCode.UNAVAILABLE)
 }
 
-private fun statusText(status: ControlReply.Status?, service: Service?, state: String?): String = buildString {
-    if (status == null) {
-        append("Alexandrite is not running.")
-    } else {
-        val started = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault())
-        append("${described(status)} is running, started ${started.format(status.startedAt)}.")
-        status.configFile?.let { append("\nConfig file: ").append(it) }
-        append("\nData directory: ").append(status.dataDir)
-        if (status.instances.isNotEmpty()) {
-            append("\nChannel instances: ").append(status.instances.joinToString { "${it.id} ${it.state}" })
+private fun statusText(cli: Cli, status: ControlReply.Status?, service: Service?, state: String?): String =
+    buildString {
+        if (status == null) {
+            append(cli.t("service.not_running"))
+        } else {
+            val started = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault())
+            append(
+                cli.t(
+                    "service.running_since",
+                    "app" to described(cli, status),
+                    "started" to started.format(status.startedAt),
+                ),
+            )
+            status.configFile?.let { append('\n').append(cli.t("service.config_file", "file" to it)) }
+            append('\n').append(cli.t("service.data_dir", "directory" to status.dataDir))
+            if (status.instances.isNotEmpty()) {
+                val instances = status.instances.joinToString { "${it.id} ${it.state}" }
+                append('\n').append(cli.t("service.instances", "instances" to instances))
+            }
         }
+        val about = if (service == null) {
+            cli.t("service.none_installed")
+        } else {
+            cli.t(
+                "service.state",
+                "service" to service.description,
+                "state" to (state ?: cli.t("service.state_unknown")),
+            )
+        }
+        append('\n').append(cli.t("service.service", "service" to about))
     }
-    append("\nService: ")
-    append(if (service == null) "none installed" else "${service.description}, ${state ?: "state unknown"}")
-}
 
-private fun described(status: ControlReply.Status): String = "Alexandrite ${status.version} (pid ${status.pid})"
+internal fun described(cli: Cli, status: ControlReply.Status): String =
+    cli.t("service.app", "version" to status.version, "pid" to status.pid)
 
-private fun ready(cli: Cli, status: ControlReply.Status?): Int {
-    status ?: return cli.fail(
-        "Alexandrite did not answer within $READY_TIMEOUT of its start: see alexandrite logs.",
-    )
-    return cli.done("${described(status)} is running.")
+/** Prints that the app of [status] runs, or that none answered after a start. */
+internal fun ready(cli: Cli, status: ControlReply.Status?): Int {
+    status ?: return cli.fail(cli.t("service.ready_timeout", "timeout" to READY_TIMEOUT))
+    return cli.done(cli.t("service.running", "app" to described(cli, status)))
 }
 
 /** The status of the app once one answers that is not the process [previous], null after [timeout]. */

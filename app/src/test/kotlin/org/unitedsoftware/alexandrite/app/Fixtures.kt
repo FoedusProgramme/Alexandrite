@@ -34,6 +34,8 @@ import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.time.ZoneId
+import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -142,7 +144,7 @@ data class Printed(val code: Int, val out: String, val err: String)
 
 /**
  * A machine whose terminal answers with [answers] in order, whose programs answer as [programs] says and whose web
- * answers with [web] by URL, recording what it is asked.
+ * answers with [web] by URL, or for real on the loopback when [live], recording what it is asked.
  */
 internal class FakeMachine(
     override val interactive: Boolean = false,
@@ -155,7 +157,9 @@ internal class FakeMachine(
     val executed = mutableListOf<List<String>>()
     val attached = mutableListOf<List<String>>()
     val fetched = mutableListOf<Pair<String, Map<String, String>>>()
+    val posted = mutableListOf<Pair<String, String>>()
     val web = mutableMapOf<String, Fetched>()
+    var live = false
     var programs: (List<String>) -> Executed = { Executed(0, "") }
     var attach: (List<String>) -> Int = { 0 }
 
@@ -181,7 +185,12 @@ internal class FakeMachine(
 
     override fun get(url: String, headers: Map<String, String>): Fetched {
         fetched += url to headers
-        return web[url] ?: throw IOException("Connection refused")
+        return web[url] ?: if (live) LocalMachine.get(url, headers) else throw IOException("Connection refused")
+    }
+
+    override fun post(url: String, body: String): Fetched {
+        posted += url to body
+        return web[url] ?: if (live) LocalMachine.post(url, body) else throw IOException("Connection refused")
     }
 
     override fun sleep(duration: Duration) {
@@ -198,6 +207,9 @@ internal class Commands(
     var environment: Map<String, String> = emptyMap(),
     private val osName: String = "Linux",
     var install: Path? = null,
+    var locale: Locale = Locale.ENGLISH,
+    var zone: ZoneId = ZoneId.of("Europe/Berlin"),
+    var claimCode: String = "TEST-C0DE",
 ) {
     val configFile: Path = directory.resolve("config").resolve("alexandrite.json")
     val dataDir: Path = directory.resolve("data")
@@ -223,6 +235,9 @@ internal class Commands(
             PrintStream(err, true),
             install = install,
             machine = machine,
+            locale = locale,
+            zone = zone,
+            claimCode = { claimCode },
         )
         return Printed(code, out.toString(Charsets.UTF_8), err.toString(Charsets.UTF_8))
     }

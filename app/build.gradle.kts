@@ -46,6 +46,8 @@ sourceSets.main {
 }
 
 tasks.test {
+    systemProperty("user.language", "en")
+    systemProperty("user.country", "US")
     inputs.file("src/dist/config/alexandrite.example.json")
         .withPropertyName("exampleConfig")
         .withPathSensitivity(PathSensitivity.RELATIVE)

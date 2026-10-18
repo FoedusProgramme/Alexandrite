@@ -37,12 +37,9 @@ internal fun installRoot(cli: Cli): Path {
 
 /** Runs the installed install script in its update mode for this command's config file and data directory. */
 internal fun update(cli: Cli, version: String?): Int {
-    if (version != null && !RELEASE.matches(version)) return cli.fail("'$version' is no release, such as 1.2.0.")
+    if (version != null && !RELEASE.matches(version)) return cli.fail(cli.t("update.no_release", "version" to version))
     val root = cli.environment[INSTALL_DIR]?.takeIf { it.isNotEmpty() }?.let { Path.of(it) }
-        ?: return cli.fail(
-            "This Alexandrite was not installed by the install script, so it cannot update itself: install it " +
-                "with the script, or update it the way it was installed.",
-        )
+        ?: return cli.fail(cli.t("update.not_scripted"))
     val config = "${cli.locations.configFile.toAbsolutePath()}"
     val data = "${cli.locations.dataDir.toAbsolutePath()}"
     val command = if (cli.platform == Platform.WINDOWS) {
@@ -56,7 +53,7 @@ internal fun update(cli: Cli, version: String?): Int {
     return try {
         cli.machine.attach(command)
     } catch (e: IOException) {
-        cli.fail("Cannot run ${command.first()}: ${e.message ?: e}")
+        cli.fail(cli.t("service.cannot_run", "program" to command.first(), "reason" to (e.message ?: e)))
     }
 }
 
@@ -69,15 +66,15 @@ internal fun uninstall(cli: Cli, keepData: Boolean, yes: Boolean): Int {
     val trees = if (keepData) emptyList() else dataTrees(cli)
     val plan = listOfNotNull(
         service?.let { "${it.description}${it.definition?.let { file -> " ($file)" }.orEmpty()}" },
-        root?.let { "the program in $it" },
-        launcher?.let { "the launcher $it" },
-    ) + files.map { "$it" } + trees.map { "$it and all it holds" }
-    if (plan.isEmpty()) return cli.done("Nothing of Alexandrite is installed here.")
-    cli.out.println("This removes:")
+        root?.let { cli.t("uninstall.program", "directory" to it) },
+        launcher?.let { cli.t("uninstall.launcher", "file" to it) },
+    ) + files.map { "$it" } + trees.map { cli.t("uninstall.tree", "directory" to it) }
+    if (plan.isEmpty()) return cli.done(cli.t("uninstall.nothing"))
+    cli.out.println(cli.t("uninstall.removes"))
     plan.forEach { cli.out.println("  $it") }
-    if (keepData) cli.out.println("The config file, the secrets, the data and the cache stay.")
-    if (!yes && !cli.confirm("Remove all of this?")) {
-        return cli.fail(if (cli.machine.interactive) "Nothing was removed." else "Nothing was removed: add --yes.")
+    if (keepData) cli.out.println(cli.t("uninstall.data_stays"))
+    if (!yes && !cli.confirm(cli.t("uninstall.confirm"))) {
+        return cli.fail(cli.t(if (cli.machine.interactive) "uninstall.kept" else "uninstall.kept_yes"))
     }
     if (service != null) {
         service.stop()
@@ -85,7 +82,7 @@ internal fun uninstall(cli: Cli, keepData: Boolean, yes: Boolean): Int {
         try {
             cli.ask(ControlRequest.Stop)
         } catch (e: IOException) {
-            cli.err.println("alexandrite: Cannot stop the running Alexandrite: ${e.message ?: e}")
+            cli.fail(cli.t("uninstall.cannot_stop", "reason" to (e.message ?: e)))
         }
     }
     awaitStopped(cli)
@@ -108,13 +105,13 @@ internal fun uninstall(cli: Cli, keepData: Boolean, yes: Boolean): Int {
         }
     }
     if (failures.isNotEmpty()) {
-        failures.forEach { cli.err.println("alexandrite: Cannot remove $it") }
+        failures.forEach { cli.fail(cli.t("uninstall.cannot_remove", "what" to it)) }
         return ExitCode.FAILURE
     }
     if (cli.platform == Platform.WINDOWS && root != null) {
-        cli.out.println("Take ${root.resolve("bin")} out of your PATH in the environment variables settings.")
+        cli.out.println(cli.t("uninstall.path", "directory" to root.resolve("bin")))
     }
-    return cli.done("Alexandrite is uninstalled.")
+    return cli.done(cli.t("uninstall.done"))
 }
 
 private fun isInstallRoot(directory: Path): Boolean = Files.isDirectory(directory.resolve(VERSIONS)) ||
