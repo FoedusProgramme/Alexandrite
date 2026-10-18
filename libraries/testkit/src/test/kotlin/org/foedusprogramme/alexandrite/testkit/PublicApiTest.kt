@@ -169,6 +169,9 @@ class PublicApiTest {
             control.stopJob(testChat(), RunId("j"), null)
             control.newConversation(testChat(), null)
             control.compact(testChat(), "the tests", null)
+            control.taints[testChat()] =
+                org.foedusprogramme.alexandrite.sdk.store.ConversationTaint(java.time.Instant.EPOCH, "a quote")
+            control.untaint(testChat(), null)
             control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.unlink(AgentId.MAIN, testChat("other"), null)
@@ -185,6 +188,7 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
                 is RecordingAgentControl.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
+                is RecordingAgentControl.Call.Untaint -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
                 is RecordingAgentControl.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
                 is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)

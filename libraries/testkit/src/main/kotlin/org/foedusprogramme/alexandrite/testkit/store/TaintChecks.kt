@@ -71,4 +71,38 @@ internal val TAINT_CHECKS: List<StoreCheck> = listOf(
             expectEqual(null, conversations.taint(next.id), "the taint of the current conversation")
         }
     },
+    StoreCheck("a cleared taint is returned once and gone, and the conversation takes a new mark") {
+        val conversation = open {
+            val conversation = conversations.current(main)
+            val other = conversations.current(coder)
+            conversations.markTainted(conversation.id, "a web page", AT)
+            conversations.markTainted(other.id, "a forwarded message", AT)
+
+            expectEqual(
+                ConversationTaint(KEPT_AT, "a web page"),
+                conversations.clearTaint(conversation.id),
+                "the cleared mark",
+            )
+            expectEqual(null, conversations.taint(conversation.id), "the taint once cleared")
+            expectEqual(null, conversations.clearTaint(conversation.id), "a second clearing")
+            expectEqual(null, conversations.clearTaint(ConversationId("missing")), "the clearing of an unknown one")
+            expectEqual(
+                ConversationTaint(KEPT_AT, "a forwarded message"),
+                conversations.taint(other.id),
+                "the taint of another conversation",
+            )
+            expect(conversations.markTainted(conversation.id, "a quote", AT.plusSeconds(60))) {
+                "A cleared conversation took no new mark."
+            }
+            conversation.id
+        }
+
+        open {
+            expectEqual(
+                ConversationTaint(KEPT_AT.plusSeconds(60), "a quote"),
+                conversations.taint(conversation),
+                "the new mark after a restart",
+            )
+        }
+    },
 )

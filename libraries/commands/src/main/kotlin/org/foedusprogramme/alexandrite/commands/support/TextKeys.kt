@@ -115,6 +115,8 @@ internal object TextKeys {
     const val TRUST_DONE: String = "trust.done"
     const val UNTRUST_DONE: String = "untrust.done"
     const val UNTRUST_NOT_TRUSTED: String = "untrust.not_trusted"
+    const val UNTAINT_DONE: String = "untaint.done"
+    const val UNTAINT_CLEAN: String = "untaint.clean"
     const val UNTRUST_DECLARED: String = "untrust.declared"
     const val UNTRUST_DECLARED_REMOVED: String = "untrust.declared_removed"
 

@@ -126,6 +126,9 @@ internal class MemoryConversations(private val data: MemoryData) : ConversationS
 
     override suspend fun taint(conversation: ConversationId): ConversationTaint? = data.locked { taints[conversation] }
 
+    override suspend fun clearTaint(conversation: ConversationId): ConversationTaint? =
+        data.locked { taints.remove(conversation) }
+
     private fun MemoryData.currentOf(key: AgentChatKey, kind: ConversationKind, now: Instant): ConversationInfo {
         val id = current[key to kind] ?: insert(kind, key, null, null, now).id.also { current[key to kind] = it }
         return conversations.getValue(id)

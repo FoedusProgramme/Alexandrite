@@ -23,12 +23,12 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 
-/** `/trust` and `/untrust`. */
+/** `/trust`, `/untrust` and `/untaint`. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class TrustCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
-    override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST))
+    override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST), texts.spec(UNTAINT))
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
@@ -45,7 +45,22 @@ internal class TrustCommands(private val control: AgentControl, private val text
                 argument.isEmpty() -> context.reply(replies.usage(name))
                 else -> untrust(argument, invocation, context, replies)
             }
+
+            UNTAINT -> untaint(invocation, context, replies)
         }
+    }
+
+    private suspend fun untaint(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
+        if (invocation.arguments.isNotBlank()) {
+            context.reply(replies.usage(UNTAINT))
+            return
+        }
+        val cleared = context.refusing { control.untaint(invocation.chat, invocation.issuer) }
+        val text = when {
+            cleared == null -> replies.text(TextKeys.UNTAINT_CLEAN)
+            else -> replies.text(TextKeys.UNTAINT_DONE, "reason" to cleared.reason, "date" to dateOf(cleared.at))
+        }
+        context.reply(text)
     }
 
     private suspend fun trust(text: String, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
@@ -127,6 +142,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
     private companion object {
         const val TRUST = "trust"
         const val UNTRUST = "untrust"
+        const val UNTAINT = "untaint"
     }
 }
 

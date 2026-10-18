@@ -103,6 +103,7 @@ class CommandsPluginTest {
             "settings",
             "trust",
             "unlink",
+            "untaint",
             "untrust",
         )
     }

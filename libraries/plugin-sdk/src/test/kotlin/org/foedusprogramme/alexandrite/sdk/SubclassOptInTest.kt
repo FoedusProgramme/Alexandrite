@@ -282,6 +282,10 @@ class SubclassOptInTest {
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
             override suspend fun context(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun untaint(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
             override fun agents(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
             override suspend fun settings(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun updateSettings(

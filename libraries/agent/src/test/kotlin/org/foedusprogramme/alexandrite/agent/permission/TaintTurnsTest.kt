@@ -302,6 +302,32 @@ class TaintTurnsTest {
         assertEquals("I like coffee.\n", persona.readText())
     }
 
+    @Test
+    fun `untaint clears the mark after the queued turns, keeps the history, and a later source marks it again`() {
+        model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+            .reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Noted.") }
+            .reply { toolCall("notes.paste") }.reply { text("Pasted again.") }
+
+        harness().execute {
+            ask()
+            val conversation = store.conversations.current(key).id
+            val control = get<AgentControl>()
+
+            val cleared = control.untaint(channel().chat(), channel().user("admin"))
+            val again = control.untaint(channel().chat(), channel().user("admin"))
+            ask()
+            ask()
+
+            assertTrue(cleared?.reason.orEmpty().endsWith("reported untrusted content: a pasted page"), "$cleared")
+            assertEquals(null, again)
+            assertEquals(conversation, store.conversations.current(key).id)
+            assertEquals(emptyList(), channel().approvals)
+            assertEquals(List(3) { ToolOutcome.Succeeded }, results().map { it.outcome })
+            assertTrue(mark() != null)
+        }
+        assertEquals("I like coffee.\n", persona.readText())
+    }
+
     // Failures.
 
     @Test

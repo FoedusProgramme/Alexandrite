@@ -111,6 +111,7 @@ internal class CommandRules(
             "unlink" to CommandRule(Who.ADMIN),
             "trust" to CommandRule(Who.ADMIN),
             "untrust" to CommandRule(Who.ADMIN),
+            "untaint" to CommandRule(Who.ADMIN),
             "allow" to CommandRule(Who.ADMIN),
             "streaming" to CommandRule(Who.ANYONE, Who.DIRECT),
         )

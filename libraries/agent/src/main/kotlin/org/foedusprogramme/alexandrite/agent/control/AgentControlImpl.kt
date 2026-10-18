@@ -51,6 +51,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -164,6 +165,21 @@ internal class AgentControlImpl(
 
     override suspend fun context(chat: ChatAddress): ContextStatus =
         contexts.status(refusing(null) { served(chat).key })
+
+    override suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint? {
+        val key = refusing(null) { served(chat).key }
+        val cleared = onWorker(key) { conversations.clearTaint(conversations.current(key).id) }
+        if (cleared != null) {
+            logger.info(
+                "The taint of the conversation of {} (since {}: {}) is cleared by {}",
+                key,
+                cleared.at,
+                cleared.reason,
+                who(by),
+            )
+        }
+        return cleared
+    }
 
     override fun agents(instance: ChannelInstanceId): List<AgentSummary> {
         val default = directory.default(instance)?.id

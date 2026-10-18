@@ -18,6 +18,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.runtime.HostApi
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -77,6 +78,15 @@ public interface AgentControl {
 
     /** How much of its model's context window the current conversation of the chat's agent takes. */
     public suspend fun context(chat: ChatAddress): ContextStatus
+
+    /**
+     * Clears the taint of the conversation of the chat's agent once the turns queued at its key before the call have
+     * ended, so that its next turns run as in a clean conversation until something taints it again, and returns the
+     * mark it had, null when it had none.
+     *
+     * Throws [IllegalStateException] where [newConversation] does.
+     */
+    public suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint?
 
     /** The agents that serve [instance], in config order. */
     public fun agents(instance: ChannelInstanceId): List<AgentSummary>
