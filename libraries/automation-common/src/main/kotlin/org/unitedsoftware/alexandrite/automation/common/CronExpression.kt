@@ -38,8 +38,6 @@ public class CronExpression internal constructor(
     }
 
     /** The canonical expression, which [parse] reads back. */
-    public fun describe(): String = canonical
-
     override fun toString(): String = canonical
 
     override fun equals(other: Any?): Boolean = other is CronExpression && other.canonical == canonical

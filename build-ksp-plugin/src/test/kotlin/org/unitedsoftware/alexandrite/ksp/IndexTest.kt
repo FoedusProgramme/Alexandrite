@@ -607,6 +607,8 @@ class IndexTest {
             annotation class Suppress
             fun listOf(vararg items: Any): Int = items.size
             fun <T> emptyList(): Int = 0
+            fun binding(vararg items: Any, create: Any? = null): Int = items.size
+            inline fun <reified T : Any> key(name: kotlin.String? = null): Int = 0
             """,
         )
         compile(workingDir.resolve("shadows"), shadows, entry("sample")).use { compiled ->

@@ -3,9 +3,8 @@ package org.unitedsoftware.alexandrite.runtime.chat
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.Json
-import org.slf4j.LoggerFactory
-import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
+import org.unitedsoftware.alexandrite.runtime.store.PluginValues
+import org.unitedsoftware.alexandrite.runtime.store.logUnreadable
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -29,7 +28,7 @@ internal class PluginChatStates(
     private val chatStates = ConcurrentHashMap<String, State<ChatAddress, *>>()
     private val agentStates = ConcurrentHashMap<String, State<AgentChatKey, *>>()
     private val locks = Array(LOCK_STRIPES) { Mutex() }
-    private val reported = ConcurrentHashMap.newKeySet<Pair<String, Any>>()
+    private val values = PluginValues(plugin)
 
     override fun <T : Any> state(name: String, serializer: KSerializer<T>, default: T): ChatState<ChatAddress, T> =
         registered(chatStates, PerChat, name, serializer, default)
@@ -47,10 +46,7 @@ internal class PluginChatStates(
         serializer: KSerializer<T>,
         default: T,
     ): ChatState<K, T> {
-        require(NAME.matches(name)) {
-            "Malformed chat state name '$name' of plugin '$plugin': it must be lowercase words of letters, digits " +
-                "and '_', joined by dots, such as \"streaming.mode\"."
-        }
+        values.requireName("chat state", name, "streaming.mode")
         val state = states.computeIfAbsent(name) { State(name, scope, serializer, default) }
         require(state.serializer.descriptor == serializer.descriptor && state.default == default) {
             "Chat state '$name' of plugin '$plugin' exists already with another type or default."
@@ -84,18 +80,13 @@ internal class PluginChatStates(
 
         private suspend fun own(key: K): T? {
             val json = store.read(plugin, name, scope.agent(key), scope.chat(key)) ?: return null
-            return try {
-                JSON.decodeFromString(serializer, json)
-            } catch (e: Exception) {
-                if (reported.add(name to key)) listener.onUnreadable(plugin, name, "$key", e)
-                null
-            }
+            return values.decode(serializer, json, name, key) { listener.onUnreadable(plugin, name, "$key", it) }
         }
 
         /** Stores [value], or removes the row when [value] is what a key without a parent falls back to. */
         private suspend fun write(key: K, value: T) {
             val removed = scope.parent(key) == null && value == default
-            val json = if (removed) null else JSON.encodeToString(serializer, value)
+            val json = if (removed) null else values.encode(serializer, value)
             store.write(plugin, name, scope.agent(key), scope.chat(key), json)
         }
 
@@ -107,8 +98,7 @@ internal class PluginChatStates(
 @InternalAlexandriteApi
 public fun standaloneChatStates(plugin: String, store: ChatStateStore): ChatStates =
     PluginChatStates(plugin, store) { owner, name, key, error ->
-        LoggerFactory.getLogger(AlexandriteRuntime::class.java)
-            .warn("chat state '{}' of plugin {} at {} cannot be read and counts as absent", name, owner, key, error)
+        logUnreadable(owner, "chat state '$name' at $key", error)
     }
 
 /** How the keys of one scope of states are stored and fall back. */
@@ -138,10 +128,3 @@ private object PerAgent : KeyScope<AgentChatKey> {
 }
 
 private const val LOCK_STRIPES = 64
-
-private val NAME = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*")
-
-private val JSON = Json {
-    encodeDefaults = true
-    ignoreUnknownKeys = true
-}

@@ -2,11 +2,14 @@ package org.unitedsoftware.alexandrite.automation.heartbeat
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.automation.common.ActiveHours
+import org.unitedsoftware.alexandrite.automation.common.parseDuration
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 
 @ConfigSection
@@ -16,8 +19,12 @@ internal class HeartbeatConfig(
     val agents: Map<String, AgentHeartbeatConfig> = emptyMap(),
 ) {
     init {
-        for ((id, heartbeat) in agents) heartbeat.check("agents.$id", id)
+        heartbeats(ZoneOffset.UTC)
     }
+
+    /** The heartbeats in config order, each in [hostZone] when it names no zone. */
+    fun heartbeats(hostZone: ZoneId): List<Heartbeat> =
+        agents.map { (id, heartbeat) -> heartbeat.read("agents.$id", id, hostZone) }
 }
 
 @Serializable
@@ -31,41 +38,36 @@ internal class AgentHeartbeatConfig(
     /** The zone of [activeHours], a region id or an offset, the host's when null. */
     val zone: String? = null,
 ) {
-    fun check(path: String, id: String) {
+    /** The heartbeat of agent [id] at [path], in [hostZone] when it names no zone. */
+    fun read(path: String, id: String, hostZone: ZoneId): Heartbeat {
         require(PluginIds.PATTERN.matches(id)) {
             "$path is no agent id: an id is lowercase words of letters and digits, each starting with a letter, " +
                 "joined by single hyphens, such as \"coder\""
         }
-        val interval = interval(every)
-        require(interval != null) {
-            "$path.every is no interval: write minutes and hours, such as \"30m\" or \"1h30m\""
+        val interval = try {
+            parseDuration(every)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("$path.every: ${e.message}", e)
         }
         require(interval >= MIN_INTERVAL) { "$path.every must be $MIN_INTERVAL at least, was $interval" }
         require(prompt == null || prompt.isNotBlank()) { "$path.prompt may not be blank" }
-        require(activeHours == null || activeHoursOrNull(activeHours) != null) {
-            "$path.activeHours must be written HH:mm-HH:mm, such as \"08:00-23:00\" or \"22:00-06:00\""
+        val hours = activeHours?.let {
+            try {
+                ActiveHours.parse(it)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException(
+                    "$path.activeHours must be written HH:mm-HH:mm, such as \"08:00-23:00\" or \"22:00-06:00\"",
+                    e,
+                )
+            }
         }
-        require(zone == null || zoneOrNull(zone) != null) {
-            "$path.zone is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as \"+08:00\""
+        val zoneId = zone?.let {
+            requireNotNull(zoneOrNull(it)) {
+                "$path.zone is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as \"+08:00\""
+            }
         }
+        return Heartbeat(AgentId(id), interval, prompt ?: DEFAULT_PROMPT, hours, zoneId ?: hostZone)
     }
 }
 
-/** The interval [text] names, such as `1h30m`, null when it names none. */
-internal fun interval(text: String): Duration? {
-    val match = INTERVAL.matchEntire(text.trim()) ?: return null
-    val (hours, minutes) = match.destructured
-    if (hours.isEmpty() && minutes.isEmpty()) return null
-    return (hours.toLongOrNull() ?: 0).hours + (minutes.toLongOrNull() ?: 0).minutes
-}
-
-/** The active hours [text] names, null when it names none. */
-internal fun activeHoursOrNull(text: String): ActiveHours? = try {
-    ActiveHours.parse(text)
-} catch (e: IllegalArgumentException) {
-    null
-}
-
 internal val MIN_INTERVAL: Duration = 5.minutes
-
-private val INTERVAL = Regex("(?:(\\d{1,4})h)?(?:(\\d{1,6})m)?")

@@ -60,10 +60,14 @@ internal class Scheduling(
     @Volatile
     private var job: Job? = null
 
+    @Volatile
+    private var opened: Instant? = null
+
     /** The scheduler that runs now, or that ran last while it waits to start again. */
     fun scheduler(): Scheduler<String> = current
 
     override suspend fun onOpen() {
+        opened = time.now()
         job = scope.launch { supervise() }
     }
 
@@ -102,7 +106,8 @@ internal class Scheduling(
             logger.warn("Scheduled task {} came due without its record: skipped", task.id)
             return Fired.DONE
         }
-        val turn = InitiatedTurn.builder(record.key, TurnKind.REMINDER, framing(task.id, record, occurrence))
+        val turn = InitiatedTurn.builder(record.chat, TurnKind.REMINDER, framing(task.id, record, occurrence))
+            .agent(record.key.agent)
             .route(ReplyRoute.ToChat(record.chat))
             .trust(if (record.mandate == null) Trust.UNTRUSTED else Trust.TRUSTED)
             .mandate(record.mandate)
@@ -114,7 +119,7 @@ internal class Scheduling(
                 is Admission.Accepted -> return fired(outcome(admission.ticket))
 
                 is Admission.Refused -> {
-                    if (admission.reason != RefusalReason.SHUTTING_DOWN) {
+                    if (!opening(admission.reason)) {
                         refused(task.id, record, occurrence, admission.reason)
                         return Fired.DONE
                     }
@@ -123,6 +128,13 @@ internal class Scheduling(
                 }
             }
         }
+    }
+
+    /** Whether [reason] may come from a part of the host that is still opening. */
+    private fun opening(reason: RefusalReason): Boolean = when (reason) {
+        RefusalReason.SHUTTING_DOWN -> true
+        RefusalReason.UNKNOWN_CHAT, RefusalReason.NO_AGENT -> time.now() < (opened ?: return true).plus(STARTING)
+        else -> false
     }
 
     /** The outcome of [ticket], also when the stop cancels the wait just after the agent ended its turn. */
@@ -184,6 +196,9 @@ internal class Scheduling(
         val STEADY = 10.minutes
         val SETTLE = 1.seconds
 
+        /** How long after the open a chat's channel or agent may still be missing. */
+        val STARTING: java.time.Duration = java.time.Duration.ofMinutes(2)
+
         /** How many seconds a task waits for the agent to open. */
         const val OPEN_TRIES = 120
     }
@@ -193,7 +208,7 @@ internal class Scheduling(
 internal fun framing(id: String, record: TaskRecord, occurrence: Occurrence): String {
     val zone = record.zoneId
     val late = occurrence.late.inWholeMinutes.takeIf { it > 0 }?.let { ", running $it min late" }.orEmpty()
-    return "Scheduled task $id, set by ${record.byName} on ${day(record.createdInstant, zone)}; " +
+    return "Scheduled task $id, set by ${record.creatorName} on ${day(record.createdInstant, zone)}; " +
         "due ${shown(occurrence.due, zone)}$late. Do what it asks; it was scheduled earlier, so do not schedule it " +
         "again.\n\n${record.prompt}"
 }

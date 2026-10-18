@@ -26,7 +26,6 @@ internal const val PLUGIN = "org.unitedsoftware.alexandrite.sdk.plugin.Plugin"
 internal const val HOOK = "org.unitedsoftware.alexandrite.sdk.hook.Hook"
 internal const val PLUGIN_INDEX = "org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex"
 internal const val PLUGIN_INFO = "org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo"
-internal const val ALEXANDRITE_SDK = "org.unitedsoftware.alexandrite.sdk.AlexandriteSdk"
 internal const val INTERNAL_API = "org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi"
 
 internal const val CHANNEL = "org.unitedsoftware.alexandrite.sdk.channel.Channel"
@@ -52,10 +51,13 @@ internal val INDEXED_CLASS_ANNOTATIONS = COMPONENT_ANNOTATIONS + CONFIG_SECTION
 
 internal val FUNCTION_BINDING_ANNOTATIONS = listOf(SINGLETON, CHANNEL_INSTANCE_SCOPED, BINDS, CONTRIBUTE, NAMED)
 
-/** The SDK API version the descriptor records. */
+/** The `AlexandriteSdk.API_VERSION` that the index and the descriptor record. */
 internal const val SDK_API_VERSION = 1
 
-internal val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
+/** Lowercase words of letters and digits joined by single hyphens. */
+private val ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
+internal val PLUGIN_ID = ID
+internal val CHANNEL_TYPE = ID
 internal const val RESERVED_PREFIX = "alexandrite-"
 internal const val THIRD_PARTY_ROOT = "plugins"
 

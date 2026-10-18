@@ -51,6 +51,21 @@ public class BeatPlan<K : Any>(
     init {
         require(every.isPositive()) { "A beat interval must be positive, not $every." }
     }
+
+    /** The first beat after [now] of the beats every [every] from [start]. */
+    public fun dueAfter(start: Instant, now: Instant): Instant {
+        val step = every.toJavaDuration()
+        return start.plus(step.multipliedBy(java.time.Duration.between(start, now).dividedBy(step) + 1))
+    }
+
+    /** Whether a beat due at [due] falls within the active hours. */
+    public fun isActive(due: Instant): Boolean = activeHours == null || LocalTime.ofInstant(due, zone) in activeHours
+
+    /** The first beat after [now] from [start] that falls within the active hours, null when none comes by [until]. */
+    public fun nextActive(start: Instant, now: Instant, until: Instant): Instant? =
+        generateSequence(dueAfter(start, now)) { it.plus(every.toJavaDuration()) }
+            .takeWhile { it <= until }
+            .firstOrNull(::isActive)
 }
 
 @InternalAutomationApi
@@ -88,22 +103,19 @@ public class Beats<K : Any>(
         require(plans.map { it.id }.toSet().size == plans.size) { "Beat ids must be distinct." }
     }
 
-    /** Beats until cancelled, which cancels the beats still running. */
-    public suspend fun run(): Nothing = coroutineScope {
-        val start = time.now()
+    /** Beats from [start] until cancelled, which cancels the beats still running. */
+    public suspend fun run(start: Instant = time.now()): Nothing = coroutineScope {
         for (plan in plans) launch { beat(this@coroutineScope, plan, start) }
         awaitCancellation()
     }
 
     private suspend fun beat(scope: CoroutineScope, plan: BeatPlan<K>, start: Instant): Nothing {
-        val every = plan.every.toJavaDuration()
-        var due = start.plus(every)
+        var due = plan.dueAfter(start, start)
         var running: Job? = null
         while (true) {
             time.sleepUntil(due)
             when {
-                plan.activeHours != null && LocalTime.ofInstant(due, plan.zone) !in plan.activeHours ->
-                    events.skipped(plan.id, due, BeatSkip.INACTIVE)
+                !plan.isActive(due) -> events.skipped(plan.id, due, BeatSkip.INACTIVE)
 
                 running?.isActive == true -> events.skipped(plan.id, due, BeatSkip.BUSY)
 
@@ -117,8 +129,7 @@ public class Beats<K : Any>(
                     }
                 }
             }
-            val steps = java.time.Duration.between(start, time.now()).dividedBy(every) + 1
-            due = start.plus(every.multipliedBy(steps))
+            due = plan.dueAfter(start, time.now())
         }
     }
 }

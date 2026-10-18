@@ -153,6 +153,16 @@ class BeatsTest {
     }
 
     @Test
+    fun `the next active beat is on the grid from the start, past the inactive hours`() {
+        val plan = BeatPlan("a", 1.hours, UTC, ActiveHours.parse("13:00-14:00"))
+
+        assertEquals(at(1.hours), plan.dueAfter(ORIGIN, ORIGIN))
+        assertEquals(at(2.hours), plan.dueAfter(ORIGIN, at(90.minutes)))
+        assertEquals(at(3.hours), plan.nextActive(ORIGIN, at(90.minutes), at(24.hours)))
+        assertEquals(null, plan.nextActive(ORIGIN, at(90.minutes), at(150.minutes)))
+    }
+
+    @Test
     fun `malformed active hours and plans are refused`() {
         for (text in listOf("", "08:00", "8-12", "08:00-25:00", "08:00-12:00-14:00")) {
             assertFailsWith<IllegalArgumentException>(text) { ActiveHours.parse(text) }

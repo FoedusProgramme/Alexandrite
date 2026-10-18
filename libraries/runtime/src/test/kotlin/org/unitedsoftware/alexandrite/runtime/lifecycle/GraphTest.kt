@@ -87,7 +87,6 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
@@ -178,8 +177,6 @@ class GraphTest {
 
             assertEquals(ZONE, (values.getValue("clock") as Clock).zone)
             assertEquals(index.info, values.getValue("info"))
-            assertFalse(Files.exists(dataDir.resolve("plugins")))
-            assertFalse(Files.exists(dataDir.resolve("cache/plugins")))
             assertEquals(dataDir.resolve("plugins/probe"), files.dataDir)
             assertTrue(Files.isDirectory(dataDir.resolve("plugins/probe")))
             assertEquals(dataDir.resolve("cache/plugins/probe"), files.cacheDir)

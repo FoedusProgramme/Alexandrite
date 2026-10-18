@@ -174,12 +174,11 @@ class DataDirTest {
     }
 
     @Test
-    fun `a plugin's cache directory is created again after it was deleted`() {
+    fun `reading a plugin's directories writes nothing`() {
         spec(explicit(TestIndex("core", bindings = listOf(files("core")))), dataDir).execute {
-            val cache = files().cacheDir
-            Files.delete(cache)
+            Files.delete(files().cacheDir)
 
-            assertTrue(Files.isDirectory(files().cacheDir))
+            assertFalse(Files.exists(files().cacheDir))
         }
     }
 
@@ -206,11 +205,9 @@ class DataDirTest {
     }
 
     @Test
-    fun `a plugin's data and cache directories are created owner-only when first asked for`() {
+    fun `a plugin's data and cache directories are created owner-only at the start`() {
         assumePosix()
         spec(explicit(TestIndex("core", bindings = listOf(files("core")))), dataDir).execute {
-            assertFalse(Files.exists(dataDir.resolve("plugins")))
-            assertFalse(Files.exists(dataDir.resolve("cache/plugins")))
             val files = files()
 
             assertEquals(dataDir.resolve("plugins/core"), files.dataDir)

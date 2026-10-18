@@ -27,7 +27,9 @@ fun instant(text: String): Instant = Instant.parse(text)
 
 fun cron(expression: String): CronExpression = CronExpression.parse(expression)
 
-class MemoryTaskStore<K : Any>(initial: List<Task<K>> = emptyList()) : TaskStore<K> {
+/** Calls [saved] with each task it saves. */
+class MemoryTaskStore<K : Any>(initial: List<Task<K>> = emptyList(), private val saved: (Task<K>) -> Unit = {}) :
+    TaskStore<K> {
     val tasks = LinkedHashMap<K, Task<K>>().apply { initial.forEach { put(it.id, it) } }
     val saves = mutableListOf<Task<K>>()
 
@@ -36,6 +38,7 @@ class MemoryTaskStore<K : Any>(initial: List<Task<K>> = emptyList()) : TaskStore
     override suspend fun save(task: Task<K>) {
         saves += task
         tasks[task.id] = task
+        saved(task)
     }
 
     override suspend fun remove(id: K) {

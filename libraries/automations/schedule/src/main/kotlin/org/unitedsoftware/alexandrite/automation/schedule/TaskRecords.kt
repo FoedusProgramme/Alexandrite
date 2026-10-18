@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -36,11 +37,19 @@ internal class TaskRecords(records: Records, private val initiator: TurnInitiato
     private val gone = object : LinkedHashMap<String, TaskRecord>() {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TaskRecord>): Boolean = size > GONE
     }
-    private val loaded = MutableStateFlow(false)
 
-    /** Suspends until the records were first loaded. */
+    /** Null until the records were first read, then how the latest read went. */
+    private val loaded = MutableStateFlow<Result<Unit>?>(null)
+
+    /**
+     * Suspends until the records were first read.
+     *
+     * @throws IllegalStateException when the latest read failed
+     */
     suspend fun awaitLoaded() {
-        loaded.first { it }
+        loaded.filterNotNull().first().onFailure {
+            throw IllegalStateException("The scheduled tasks cannot be read: $it", it)
+        }
     }
 
     /** The tasks, in the order they were made. */
@@ -61,7 +70,16 @@ internal class TaskRecords(records: Records, private val initiator: TurnInitiato
         drafts.remove(id)
     }
 
-    override suspend fun load(): List<Task<String>> {
+    override suspend fun load(): List<Task<String>> = try {
+        readTasks().also { loaded.value = Result.success(Unit) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        loaded.value = Result.failure(e)
+        throw e
+    }
+
+    private suspend fun readTasks(): List<Task<String>> {
         val tasks = mutableListOf<Task<String>>()
         val read = LinkedHashMap<String, TaskRecord>()
         for (stored in collection.list()) {
@@ -78,14 +96,13 @@ internal class TaskRecords(records: Records, private val initiator: TurnInitiato
             live.clear()
             live.putAll(read)
         }
-        loaded.value = true
         return tasks
     }
 
     override suspend fun save(task: Task<String>) {
         val details = checkNotNull(live(task.id) ?: drafts[task.id]) { "Task ${task.id} has no record to save into." }
         val record = details.with(task)
-        collection.put(task.id, record, record.by)
+        collection.put(task.id, record, record.createdBy)
         synchronized(live) { live[task.id] = record }
         drafts.remove(task.id)
     }
@@ -126,8 +143,10 @@ internal data class TaskRecord(
     val schedule: ScheduleForm,
     val zone: String,
     val prompt: String,
-    val by: UserAddress,
-    val byName: String,
+    @SerialName("by")
+    val createdBy: UserAddress,
+    @SerialName("byName")
+    val creatorName: String,
     val createdAt: String,
     /** Null for a task whose turns run as nobody */
     val mandate: Mandate? = null,
@@ -182,7 +201,7 @@ internal sealed interface ScheduleForm {
         fun of(schedule: When): ScheduleForm = when (schedule) {
             is When.Once -> Once(schedule.at.toString())
             is When.Every -> Every(schedule.interval.inWholeSeconds, schedule.from.toString())
-            is When.Cron -> Cron(schedule.expression.describe())
+            is When.Cron -> Cron(schedule.expression.toString())
         }
     }
 }

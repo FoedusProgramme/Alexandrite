@@ -191,7 +191,7 @@ class HeartbeatPluginTest {
     fun `an invalid heartbeat fails the start, naming its path`() {
         val cases = mapOf(
             """{"every": "2m"}""" to "agents.coder.every must be 5m at least, was 2m",
-            """{"every": "half an hour"}""" to "agents.coder.every is no interval",
+            """{"every": "half an hour"}""" to "is no duration; write minutes and up",
             """{"every": "30m", "prompt": " "}""" to "agents.coder.prompt may not be blank",
             """{"every": "30m", "activeHours": "8-12"}""" to "agents.coder.activeHours must be written HH:mm-HH:mm",
             """{"every": "30m", "zone": "Mars/Olympus"}""" to "agents.coder.zone is no time zone",
@@ -211,15 +211,6 @@ class HeartbeatPluginTest {
             runBlocking { harness("""{"agents": {"Coder!": {"every": "1h"}}}""").run {} }
         }
         assertContains(error.problems.single().message, "agents.Coder! is no agent id")
-    }
-
-    @Test
-    fun `intervals are written in hours and minutes`() {
-        assertEquals(
-            listOf(30.minutes, 2.hours, 90.minutes, 100.minutes),
-            listOf("30m", "2h", "1h30m", "100m").map(::interval),
-        )
-        assertEquals(listOf(null, null, null, null), listOf("", "30", "1d", "m").map(::interval))
     }
 
     // The home chat.

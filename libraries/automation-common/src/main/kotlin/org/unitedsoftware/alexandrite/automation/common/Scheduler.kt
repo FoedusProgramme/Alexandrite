@@ -192,6 +192,10 @@ public class Scheduler<K : Any>(
     }
 
     private suspend fun fire(task: Task<K>, occurrence: Occurrence) {
+        val current = mutex.withLock {
+            (tasks[task.id]?.pending?.occurrence == occurrence).also { if (!it) running -= task.id }
+        }
+        if (!current) return
         val outcome = try {
             trigger.fire(task, occurrence)
         } catch (e: CancellationException) {

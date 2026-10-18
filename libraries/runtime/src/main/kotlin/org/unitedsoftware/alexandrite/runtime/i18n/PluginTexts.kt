@@ -67,8 +67,8 @@ internal class PluginTexts(
 
 /**
  * The tags of the files a text is looked up in, in order: [language] and its shorter tags, then, for a bare language
- * such as the `zh` a Telegram client sends, the tags of it among [regional] (the catalog's, such as `zh-CN`), then
- * [host] and its shorter tags, then `en`.
+ * such as `zh`, the tags of it among [regional] (the catalog's, such as `zh-CN`), then [host] and its shorter tags,
+ * then `en`.
  */
 internal fun fallbacks(
     language: LanguageTag?,

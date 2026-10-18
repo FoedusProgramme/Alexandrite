@@ -21,11 +21,11 @@ internal class StoreRun(private val harness: () -> PluginHarness.Builder, privat
 
     /** Runs [block] on the store of a new harness run, over what the earlier runs stored. */
     suspend fun <T> open(block: suspend Ports.() -> T): T {
-        val results = mutableListOf<T>()
+        var result: Result<T>? = null
         harness().dataRoot(root).build().run {
-            results += Ports(get(), get(), get(), get(), get(), turns).block()
+            result = Result.success(Ports(get(), get(), get(), get(), get(), turns).block())
         }
-        return results.single()
+        return checkNotNull(result) { "The harness did not run the block." }.getOrThrow()
     }
 }
 

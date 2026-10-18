@@ -207,7 +207,7 @@ internal abstract class DeclarationReader(
         return when {
             !named && name.isNotEmpty() -> Messages.namedContribution(label, bound.name, name)
             named && name.isBlank() -> Messages.unnamedContribution(label, bound.name)
-            bound.name == CHANNEL && !PLUGIN_ID.matches(name) -> Messages.malformedChannelType(label, name)
+            bound.name == CHANNEL && !CHANNEL_TYPE.matches(name) -> Messages.malformedChannelType(label, name)
             else -> null
         }
     }

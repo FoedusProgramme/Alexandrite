@@ -2,7 +2,6 @@ package org.unitedsoftware.alexandrite.automation.heartbeat
 
 import org.unitedsoftware.alexandrite.automation.common.ActiveHours
 import org.unitedsoftware.alexandrite.automation.common.BeatPlan
-import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -31,15 +30,7 @@ internal class Heartbeats(
     private val channels: ChannelDirectory,
 ) {
     /** In config order. */
-    val all: List<Heartbeat> = config.agents.map { (id, beat) ->
-        Heartbeat(
-            AgentId(id),
-            checkNotNull(interval(beat.every)),
-            beat.prompt ?: DEFAULT_PROMPT,
-            beat.activeHours?.let(ActiveHours::parse),
-            beat.zone?.let(::zoneOrNull) ?: clock.zone,
-        )
-    }
+    val all: List<Heartbeat> = config.heartbeats(clock.zone)
 
     private val byAgent = all.associateBy { it.agent }
 

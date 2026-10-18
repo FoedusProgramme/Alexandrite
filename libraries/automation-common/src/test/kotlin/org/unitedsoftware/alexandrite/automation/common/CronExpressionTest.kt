@@ -177,12 +177,12 @@ class CronExpressionTest {
 
     @Test
     fun `the canonical expression reads back to an equal expression`() {
-        assertEquals("0 9 * * MON-FRI", cron("  0  9 * *\tmon-fri ").describe())
+        assertEquals("0 9 * * MON-FRI", cron("  0  9 * *\tmon-fri ").toString())
         assertEquals("@yearly", cron("@annually").toString())
         assertEquals("@daily", cron("@Midnight").toString())
         assertEquals("0 0 L-3,15W * 5L", cron("0 0 l-3,15w * 5l").toString())
         for (text in listOf("*/5 1-3 L * SUN#2", "@weekly", "0 0 ? JAN-MAR 1-7/2")) {
-            assertEquals(cron(text), cron(cron(text).describe()))
+            assertEquals(cron(text), cron(cron(text).toString()))
         }
     }
 

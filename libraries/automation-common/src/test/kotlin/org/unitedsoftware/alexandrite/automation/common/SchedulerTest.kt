@@ -218,6 +218,23 @@ class SchedulerTest {
     }
 
     @Test
+    fun `a task cancelled as its occurrence is dispatched does not fire`() = runTest {
+        lateinit var harness: Harness
+        val cancelled = CompletableDeferred<Boolean>()
+        val store = MemoryTaskStore<String> { task ->
+            if (task.pending != null) launch { cancelled.complete(harness.scheduler.cancel(task.id)) }
+        }
+        harness = harness(store)
+        harness.scheduler.schedule("t", once(5.minutes), UTC)
+
+        advance(10.minutes)
+
+        assertTrue(cancelled.await())
+        assertEquals(emptyList(), harness.fires)
+        assertTrue(store.tasks.isEmpty())
+    }
+
+    @Test
     fun `changing a task moves its next occurrence`() = runTest {
         val harness = harness()
         harness.scheduler.schedule("t", once(5.minutes), UTC)

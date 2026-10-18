@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.automation.common.CronExpression
 import org.unitedsoftware.alexandrite.automation.common.When
+import org.unitedsoftware.alexandrite.automation.common.parseDuration
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Contribute

@@ -1,9 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime.store
 
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.Json
-import org.slf4j.LoggerFactory
-import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.store.RecordCollection
@@ -24,13 +21,10 @@ internal class PluginRecords(
     private val listener: UnreadableRecordListener,
 ) : Records {
     private val collections = ConcurrentHashMap<String, Collection<*>>()
-    private val reported = ConcurrentHashMap.newKeySet<Pair<String, String>>()
+    private val values = PluginValues(plugin)
 
     override fun <T : Any> collection(name: String, serializer: KSerializer<T>): RecordCollection<T> {
-        require(NAME.matches(name)) {
-            "Malformed record collection name '$name' of plugin '$plugin': it must be lowercase words of letters, " +
-                "digits and '_', joined by dots, such as \"trusted_folders\"."
-        }
+        values.requireName("record collection", name, "trusted_folders")
         val collection = collections.computeIfAbsent(name) { Collection(name, serializer) }
         require(collection.serializer.descriptor == serializer.descriptor) {
             "Record collection '$name' of plugin '$plugin' exists already with another type."
@@ -44,20 +38,17 @@ internal class PluginRecords(
         override suspend fun get(key: String): StoredRecord<T>? = store.get(plugin, name, checked(key))?.let(::decoded)
 
         override suspend fun put(key: String, value: T, by: UserAddress?): StoredRecord<T> =
-            store.put(plugin, name, checked(key), JSON.encodeToString(serializer, value), by).holding(value)
+            store.put(plugin, name, checked(key), values.encode(serializer, value), by).holding(value)
 
         override suspend fun remove(key: String): Boolean = store.remove(plugin, name, checked(key))
 
         override suspend fun list(): List<StoredRecord<T>> = store.list(plugin, name).mapNotNull(::decoded)
 
         private fun decoded(record: StoredRecord<String>): StoredRecord<T>? {
-            val value = try {
-                JSON.decodeFromString(serializer, record.value)
-            } catch (e: Exception) {
-                if (reported.add(name to record.key)) listener.onUnreadable(plugin, name, record.key, e)
-                return null
+            val value = values.decode(serializer, record.value, name, record.key) {
+                listener.onUnreadable(plugin, name, record.key, it)
             }
-            return record.holding(value)
+            return value?.let(record::holding)
         }
 
         private fun checked(key: String): String {
@@ -71,21 +62,8 @@ internal class PluginRecords(
 @InternalAlexandriteApi
 public fun standaloneRecords(plugin: String, store: RecordStore): Records =
     PluginRecords(plugin, store) { owner, collection, key, error ->
-        LoggerFactory.getLogger(AlexandriteRuntime::class.java).warn(
-            "record '{}' of collection '{}' of plugin {} cannot be read and counts as absent",
-            key,
-            collection,
-            owner,
-            error,
-        )
+        logUnreadable(owner, "record '$key' of collection '$collection'", error)
     }
 
 private fun <T : Any> StoredRecord<*>.holding(value: T): StoredRecord<T> =
     StoredRecord(key, value, createdAt, createdBy, updatedAt, updatedBy)
-
-private val NAME = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*")
-
-private val JSON = Json {
-    encodeDefaults = true
-    ignoreUnknownKeys = true
-}

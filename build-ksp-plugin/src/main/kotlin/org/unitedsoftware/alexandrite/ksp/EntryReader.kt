@@ -5,9 +5,8 @@ import com.google.devtools.ksp.symbol.KSClassDeclaration
 /** Reads what the @Plugin class [declaration] says about the plugin [pluginId]. */
 internal fun readEntry(declaration: KSClassDeclaration, symbols: Symbols, pluginId: String): Read<PluginEntry> {
     val label = declaration.name
-    val arguments = symbols.annotation(declaration, PLUGIN)?.arguments.orEmpty()
-        .associate { it.name?.asString() to it.value }
-    val requires = when (val value = arguments["requires"]) {
+    val annotation = symbols.annotation(declaration, PLUGIN)
+    val requires = when (val value = annotation?.argument("requires")) {
         is List<*> -> value.filterIsInstance<String>()
         is Array<*> -> value.filterIsInstance<String>()
         else -> emptyList()
@@ -24,8 +23,8 @@ internal fun readEntry(declaration: KSClassDeclaration, symbols: Symbols, plugin
     val entry = PluginEntry(
         label,
         declaration.location,
-        name = arguments["name"] as? String ?: "",
-        description = arguments["description"] as? String ?: "",
+        name = annotation?.argument("name") as? String ?: "",
+        description = annotation?.argument("description") as? String ?: "",
         requires,
     )
     return Read(entry.takeIf { problems.isEmpty() }, problems.map { Problem(it, declaration.location) })

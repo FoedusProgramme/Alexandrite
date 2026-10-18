@@ -63,7 +63,6 @@ class SdkContractTest {
     @Test
     fun `the types the generated index refers to are the SDK's`() {
         assertNames(
-            AlexandriteSdk::class to ALEXANDRITE_SDK,
             InternalAlexandriteApi::class to INTERNAL_API,
             ConfigSectionSpec::class to CONFIG_SECTION_SPEC,
             Binding::class to BINDING,
@@ -86,8 +85,14 @@ class SdkContractTest {
     }
 
     @Test
+    fun `the API version the index records is the SDK's`() {
+        assertEquals(AlexandriteSdk.API_VERSION, SDK_API_VERSION)
+    }
+
+    @Test
     fun `the id rules are the SDK's`() {
         assertEquals(PluginIds.PATTERN.pattern, PLUGIN_ID.pattern)
+        assertEquals(PluginIds.PATTERN.pattern, CHANNEL_TYPE.pattern)
         assertEquals(PluginIds.RESERVED_PREFIX, RESERVED_PREFIX)
         assertEquals(PluginIds.THIRD_PARTY_ROOT, THIRD_PARTY_ROOT)
         assertEquals(PluginIds.ENABLED_KEY, ENABLED)

@@ -106,15 +106,12 @@ internal fun runtimeBindings(
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
-            instanceBinding(
-                key<PluginFiles>(plugin.id),
+            binding(key<PluginFiles>(plugin.id), RUNTIME_PLUGIN, "PluginFiles of ${plugin.id}", managed = false) {
                 PluginDirectories(
                     paths.pluginDataRoot.resolve(plugin.id),
                     config.cacheDir.resolve(PLUGINS_DIRECTORY).resolve(plugin.id),
-                ),
-                RUNTIME_PLUGIN,
-                "PluginFiles of ${plugin.id}",
-            ),
+                )
+            },
             instanceBinding(
                 key<PluginScope>(plugin.id),
                 scopes.create(plugin.id),
@@ -173,9 +170,12 @@ private class ResolvedOrigins(private val resolver: Resolver, private val builtI
     override fun pluginOf(instance: Any): String? = resolver.pluginOf(instance)
 }
 
-private class PluginDirectories(private val data: Path, private val cache: Path) : PluginFiles {
-    override val dataDir: Path get() = data.also(::createOwnerOnly)
-    override val cacheDir: Path get() = cache.also(::createOwnerOnly)
+/** Creates both directories as it is made. */
+private class PluginDirectories(override val dataDir: Path, override val cacheDir: Path) : PluginFiles {
+    init {
+        createOwnerOnly(dataDir)
+        createOwnerOnly(cacheDir)
+    }
 }
 
 private class RuntimeHostPaths(config: RuntimeConfig, given: Path?) : HostPaths {

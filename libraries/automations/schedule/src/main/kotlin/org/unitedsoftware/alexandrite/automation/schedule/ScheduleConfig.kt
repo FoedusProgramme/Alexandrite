@@ -1,13 +1,14 @@
 package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.automation.common.Scheduler
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 
 @ConfigSection
 @Serializable
 internal class ScheduleConfig(
     /** How late an occurrence may still run after the host was down. */
-    val missedWindowHours: Int = 24,
+    val missedWindowHours: Int = Scheduler.DEFAULT_MISSED_WINDOW.inWholeHours.toInt(),
     val maxPerChat: Int = 50,
     val maxPerAgent: Int = 500,
     /** The shortest interval a recurring task may repeat at. */

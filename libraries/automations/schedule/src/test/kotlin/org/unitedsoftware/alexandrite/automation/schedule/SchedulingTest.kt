@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.KSerializer
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -35,6 +36,25 @@ class SchedulingTest {
 
     private suspend fun TestScope.opened(origin: Instant = ORIGIN, language: LanguageTag? = null): Schedule =
         Schedule(this, records, origin = origin, language = language).open()
+
+    private var failures = 0
+
+    /** Makes the next [count] reads of the records through [flaky] fail. */
+    private fun failing(count: Int) {
+        failures = count
+    }
+
+    private val flaky = { records: Records ->
+        object : Records {
+            override fun <T : Any> collection(name: String, serializer: KSerializer<T>): RecordCollection<T> {
+                val inner = records.collection(name, serializer)
+                return object : RecordCollection<T> by inner {
+                    override suspend fun list(): List<StoredRecord<T>> =
+                        if (failures-- > 0) throw IOException("The disk is gone.") else inner.list()
+                }
+            }
+        }
+    }
 
     @Test
     fun `a task fires on time as a reminder in its chat, and a one-shot one is then gone with its mandate`() = test {
@@ -77,6 +97,19 @@ class SchedulingTest {
         assertEquals(listOf("19:00", "20:00", "21:00").map { "2026-10-18 $it +08:00" }, dues)
         assertEquals(ORIGIN.plusSeconds(4 * 3600), schedule.control.list(KEY).single().next)
         assertEquals(emptyList(), schedule.initiator.revoked)
+    }
+
+    @Test
+    fun `a task made in a linked group runs there as the anchor's agent`() = test {
+        val schedule = opened()
+        schedule.make(mapOf("in" to "10m"), turn(chat = OTHER_CHAT) { key(KEY) })
+
+        schedule.advance(10.minutes)
+
+        val turn = schedule.initiator.turns.single()
+        assertEquals(OTHER_CHAT to KEY.agent, turn.chat to turn.agent)
+        assertEquals(ReplyRoute.ToChat(OTHER_CHAT), turn.route)
+        assertEquals(KEY, schedule.control.list(KEY).single().key)
     }
 
     @Test
@@ -227,22 +260,55 @@ class SchedulingTest {
     }
 
     @Test
+    fun `a task due at the start waits for its chat's channel and agent to open`() = test {
+        val first = opened()
+        first.make(mapOf("in" to "10m"))
+        first.stop()
+        val second = Schedule(this, records, origin = ORIGIN.plusSeconds(3600))
+        second.initiator.recording.refuseNext(RefusalReason.UNKNOWN_CHAT)
+        second.initiator.recording.refuseNext(RefusalReason.NO_AGENT)
+
+        second.open()
+        second.advance(2.seconds)
+
+        assertEquals(1, second.initiator.tickets.size)
+        assertEquals(emptyList(), second.notices)
+    }
+
+    @Test
+    fun `a chat still unknown a while after the start is reported`() = test {
+        val schedule = opened()
+        val id = schedule.make(mapOf("in" to "10m"))
+        schedule.initiator.recording.refuseNext(RefusalReason.UNKNOWN_CHAT)
+
+        schedule.advance(10.minutes)
+
+        assertEquals(
+            listOf(
+                "Scheduled task $id, due at 2026-10-18 18:10 +08:00, could not run (unknown_chat): Check the build.",
+            ),
+            schedule.notices,
+        )
+        assertEquals(emptyList(), schedule.initiator.tickets)
+    }
+
+    @Test
+    fun `the tools fail at once while the records cannot be read`() = test {
+        failing(Int.MAX_VALUE)
+        val schedule = Schedule(this, records, wrap = flaky).open()
+
+        val answer = withTimeout(1.minutes) { schedule.call(schedule.list, emptyMap()) }
+
+        assertTrue(answer.isError)
+        assertContains(answer.text, "The scheduled tasks cannot be read: java.io.IOException: The disk is gone.")
+    }
+
+    @Test
     fun `a schedule whose records fail starts again and fires what they hold`() = test {
         val first = opened()
         val id = first.make(mapOf("in" to "10m"))
         first.stop()
-        var failures = 1
-        val flaky = { records: Records ->
-            object : Records {
-                override fun <T : Any> collection(name: String, serializer: KSerializer<T>): RecordCollection<T> {
-                    val inner = records.collection(name, serializer)
-                    return object : RecordCollection<T> by inner {
-                        override suspend fun list(): List<StoredRecord<T>> =
-                            if (failures-- > 0) throw IOException("The disk is gone.") else inner.list()
-                    }
-                }
-            }
-        }
+        failing(1)
 
         val second = Schedule(this, records, wrap = flaky).open()
         assertEquals(emptyList(), second.initiator.turns)

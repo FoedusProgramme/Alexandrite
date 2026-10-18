@@ -30,6 +30,17 @@ internal class IndexWriter(
         }
     }
 
+    /** The fields of [PLUGIN_INFO], which the descriptor repeats. */
+    private val infoFields: List<Pair<String, Any>> = listOf(
+        "id" to options.id,
+        "name" to entry.name,
+        "version" to options.version,
+        "description" to entry.description,
+        "sdkApi" to SDK_API_VERSION,
+        "requires" to entry.requires,
+        "entryClass" to entry.className,
+    )
+
     private fun source(sections: Collection<Section>, components: Collection<Component>): String {
         val bindings = components.sortedBy { it.origin }.flatMap(::componentBindings)
         val specs = sections.sortedWith(compareBy({ it.channelInstance }, { it.path })).map(::sectionSpec)
@@ -45,13 +56,7 @@ internal class IndexWriter(
             appendLine()
             appendLine("public class ${sourceName(className)} : PluginIndex {")
             appendLine("    override val info: PluginInfo = PluginInfo(")
-            appendLine("        id = ${literal(options.id)},")
-            appendLine("        name = ${literal(entry.name)},")
-            appendLine("        version = ${literal(options.version)},")
-            appendLine("        description = ${literal(entry.description)},")
-            appendLine("        sdkApi = AlexandriteSdk.API_VERSION,")
-            appendLine("        requires = ${listCode(entry.requires.map(::literal))},")
-            appendLine("        entryClass = ${literal(entry.className)},")
+            infoFields.forEach { (name, value) -> appendLine("        $name = ${kotlinValue(value)},") }
             appendLine("    )")
             appendLine()
             appendLine("    override val configRoot: String = ${literal(options.configRoot)}")
@@ -79,14 +84,7 @@ internal class IndexWriter(
             .joinToString(prefix = "{", postfix = "}") { (spi, values) ->
                 "${jsonString(spi)}: ${values.joinToString(prefix = "[", postfix = "]")}"
             }
-        val fields = listOf(
-            "id" to jsonString(options.id),
-            "name" to jsonString(entry.name),
-            "version" to jsonString(options.version),
-            "description" to jsonString(entry.description),
-            "sdkApi" to SDK_API_VERSION.toString(),
-            "requires" to entry.requires.joinToString(prefix = "[", postfix = "]") { jsonString(it) },
-            "entryClass" to jsonString(entry.className),
+        val fields = infoFields.map { (name, value) -> name to jsonValue(value) } + listOf(
             "contributionNames" to names,
             "indexClass" to jsonString(indexClass),
             "configRoot" to jsonString(options.configRoot),
@@ -191,6 +189,18 @@ internal class IndexWriter(
     private fun listCode(elements: List<String>): String =
         if (elements.isEmpty()) "emptyList()" else elements.joinToString(prefix = "listOf(", postfix = ")")
 
+    private fun kotlinValue(value: Any): String = when (value) {
+        is String -> literal(value)
+        is List<*> -> listCode(value.map { literal(it as String) })
+        else -> value.toString()
+    }
+
+    private fun jsonValue(value: Any): String = when (value) {
+        is String -> jsonString(value)
+        is List<*> -> value.joinToString(prefix = "[", postfix = "]") { jsonString(it as String) }
+        else -> value.toString()
+    }
+
     private fun jsonString(value: String): String = buildString {
         append('"')
         for (char in value) {
@@ -216,7 +226,6 @@ private val IMPORTED_CLASSES = listOf(
     STRING,
     SUPPRESS,
     LIST,
-    ALEXANDRITE_SDK,
     INTERNAL_API,
     CONFIG_SECTION_SPEC,
     BINDING,

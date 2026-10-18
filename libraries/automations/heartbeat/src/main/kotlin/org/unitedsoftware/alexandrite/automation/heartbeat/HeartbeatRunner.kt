@@ -21,7 +21,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import java.time.Instant
-import java.time.LocalTime
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -70,23 +69,15 @@ internal class HeartbeatRunner(
     fun nextBeat(heartbeat: Heartbeat): Instant? {
         val start = started ?: return null
         val now = time.now()
-        val every = heartbeat.every.toJavaDuration()
-        var due = start.plus(every.multipliedBy(java.time.Duration.between(start, now).dividedBy(every) + 1))
-        val horizon = now.plus(HORIZON)
-        while (due <= horizon) {
-            val hours = heartbeat.activeHours
-            if (hours == null || LocalTime.ofInstant(due, heartbeat.zone) in hours) return due
-            due = due.plus(every)
-        }
-        return null
+        return heartbeat.plan.nextActive(start, now, now.plus(HORIZON))
     }
 
     private suspend fun supervise() {
         var failures = 0
         while (true) {
             try {
-                started = time.now()
-                Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, time).run()
+                val start = time.now().also { started = it }
+                Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, time).run(start)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
