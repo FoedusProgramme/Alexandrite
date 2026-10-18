@@ -3,6 +3,9 @@ package org.unitedsoftware.alexandrite.store.sqlite
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.internal.id.newId
+import org.unitedsoftware.alexandrite.internal.path.writeAtomically
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -13,18 +16,11 @@ import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
 import java.io.IOException
-import java.io.OutputStream
-import java.nio.channels.Channels
-import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 import java.time.Duration
-import java.util.HexFormat
 import java.util.concurrent.ConcurrentHashMap
 
 /** The bytes of media, in files under `media` in the plugin's data directory named by their SHA-256. */
@@ -47,11 +43,14 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
             "Media of ${bytes.size} bytes is larger than the $MAX_BYTES bytes the store takes."
         }
         require(mediaType.isNotBlank()) { "Media needs a media type." }
-        val sha256 = sha256(bytes)
+        val sha256 = sha256Hex(bytes)
         val id = MediaId(newId())
         database.transaction {
             val file = fileOf(sha256)
-            if (!holds(file, bytes.size, sha256)) writeAtomically(file) { it.write(bytes) }
+            if (!holds(file, bytes.size, sha256)) {
+                Files.createDirectories(file.parent)
+                writeAtomically(file) { it.write(bytes) }
+            }
             execute(
                 "INSERT INTO media (id, kind, media_type, size, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 id.value,
@@ -74,7 +73,7 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
                 null
             }
         } ?: return null
-        if (sha256(bytes) != info.sha256) {
+        if (sha256Hex(bytes) != info.sha256) {
             if (damaged.add(id)) logger.error("The file of media {} does not hold the bytes that were stored", id)
             return null
         }
@@ -126,7 +125,7 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
 
     /** Whether [file] holds [size] bytes whose hash is [sha256]. */
     private fun holds(file: Path, size: Int, sha256: String): Boolean = try {
-        Files.size(file) == size.toLong() && sha256(Files.readAllBytes(file)) == sha256
+        Files.size(file) == size.toLong() && sha256Hex(Files.readAllBytes(file)) == sha256
     } catch (e: NoSuchFileException) {
         false
     }
@@ -164,28 +163,5 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
         val UNREFERENCED_FOR: Duration = Duration.ofHours(24)
     }
 }
-
-/** Writes [target] through [write] to a temporary file beside it, which takes its place once it is complete. */
-internal fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
-    Files.createDirectories(target.parent)
-    val temporary = target.resolveSibling("${target.fileName}.${newId()}.tmp")
-    try {
-        FileChannel.open(temporary, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE).use { channel ->
-            write(Channels.newOutputStream(channel))
-            channel.force(true)
-        }
-        Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE)
-    } catch (e: Throwable) {
-        try {
-            Files.deleteIfExists(temporary)
-        } catch (delete: IOException) {
-            e.addSuppressed(delete)
-        }
-        throw e
-    }
-}
-
-private fun sha256(bytes: ByteArray): String =
-    HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
 
 private val logger = LoggerFactory.getLogger(SqliteMediaStore::class.java)

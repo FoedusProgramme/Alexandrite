@@ -10,6 +10,7 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.FileAttribute
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermission
 import java.nio.file.attribute.PosixFilePermissions
@@ -23,15 +24,8 @@ import java.util.UUID
 public fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
     val directory = target.parent ?: throw IOException("$target names no file in a directory.")
     val temporary = directory.resolve(temporaryName(target.fileName.toString()))
-    val options = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-    val attribute = PosixFilePermissions.asFileAttribute(targetPermissions(target))
     try {
-        FileChannel.open(temporary, options, attribute).use { channel ->
-            val output = Channels.newOutputStream(channel).buffered()
-            write(Unclosed(output))
-            output.flush()
-            channel.force(true)
-        }
+        writeNewFile(temporary, targetPermissions(target), write)
         Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE)
     } catch (e: Throwable) {
         try {
@@ -42,6 +36,23 @@ public fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
         throw e
     }
     syncDirectory(directory)
+}
+
+/**
+ * Writes the new file [file] through [write] and syncs it, owner-only while it is written and then with [permissions]
+ * (owner-only when null) where the file system has POSIX permissions.
+ */
+public fun writeNewFile(file: Path, permissions: Set<PosixFilePermission>? = null, write: (OutputStream) -> Unit) {
+    val posix = "posix" in file.fileSystem.supportedFileAttributeViews()
+    val owner = if (posix) arrayOf<FileAttribute<*>>(PosixFilePermissions.asFileAttribute(OWNER_ONLY)) else emptyArray()
+    val options = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+    FileChannel.open(file, options, *owner).use { channel ->
+        val output = Channels.newOutputStream(channel).buffered()
+        write(Unclosed(output))
+        output.flush()
+        channel.force(true)
+    }
+    if (posix && permissions != null && permissions != OWNER_ONLY) Files.setPosixFilePermissions(file, permissions)
 }
 
 /** [target]'s own permissions, or owner-only when it has none to read. */
@@ -64,7 +75,7 @@ private fun temporaryName(name: String): String {
 private val OWNER_ONLY: Set<PosixFilePermission> = PosixFilePermissions.fromString("rw-------")
 
 /** Syncs the entries of [directory] where the platform can. */
-private fun syncDirectory(directory: Path) {
+public fun syncDirectory(directory: Path) {
     try {
         FileChannel.open(directory, StandardOpenOption.READ).use { it.force(true) }
     } catch (e: IOException) {

@@ -1,6 +1,8 @@
 package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.internal.hash.hex
+import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -14,7 +16,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import java.io.InputStream
 import java.nio.file.Path
 import java.security.DigestInputStream
-import java.security.MessageDigest
 
 @Singleton
 @Contribute(Tool::class)
@@ -45,7 +46,7 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
             val attributes = attributes(file)
             checkReadable(file, path, attributes)
             context.touched(file)
-            val digest = MessageDigest.getInstance("SHA-256")
+            val digest = sha256Digest()
             DigestInputStream(openRegularFile(file), digest).use { input ->
                 val text = try {
                     rendered(TextLines(input, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
@@ -53,7 +54,7 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
                     throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
                 }
                 if (attributes.size() <= MAX_WRITE_BYTES && drained(input)) {
-                    ledger.record(conversation, file, hashText(digest.digest()))
+                    ledger.record(conversation, file, HASH_PREFIX + hex(digest.digest()))
                 }
                 ToolResult(text)
             }

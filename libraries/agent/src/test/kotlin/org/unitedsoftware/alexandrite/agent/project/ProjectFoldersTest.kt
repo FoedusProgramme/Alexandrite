@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.agent.project
 
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.testkit.testHardFloor
@@ -101,8 +102,8 @@ class ProjectFoldersTest {
         write(workspace.resolve("AGENTS.md"))
         val floor = testHardFloor(listOf(data))
         val carved = object : HardFloor by floor {
-            override fun checkRead(path: Path, agent: AgentId?): FloorCheck =
-                if (path.startsWith(workspace)) FloorCheck.Allowed(path) else floor.checkRead(path, agent)
+            override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+                if (path.startsWith(workspace)) FloorCheck.Allowed(path) else floor.checkRead(path, agent, conversation)
         }
 
         val projects = ProjectFolders(carved) { false }.projects(listOf(workspace.resolve("notes.md")), agent)

@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.path.syncDirectory
+import org.unitedsoftware.alexandrite.internal.path.writeNewFile
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
@@ -27,15 +29,12 @@ import org.unitedsoftware.alexandrite.sdk.di.container.Scope
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.channels.FileChannel
 import java.nio.charset.CharacterCodingException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.PosixFilePermission
-import java.nio.file.attribute.PosixFilePermissions
 
 /** [value] set at [path] below a plugin's config root, or that member removed when [value] is null. */
 internal class ConfigChange(val path: List<String>, val value: JsonElement?)
@@ -174,8 +173,6 @@ internal class ConfigWriter(
 
         val REFERENCE = Regex("\\$\\{env:[A-Za-z_][A-Za-z0-9_]*}")
 
-        val OWNER_ONLY = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
-
         val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
 
         fun isReference(value: JsonElement): Boolean =
@@ -244,25 +241,13 @@ internal class ConfigWriter(
             } catch (e: IOException) {
                 logger.warn("Cannot keep the previous config file as {}: {}", backup, e.toString())
             }
-            val directory = checkNotNull(target.parent)
-            try {
-                FileChannel.open(directory, StandardOpenOption.READ).use { it.force(true) }
-            } catch (e: IOException) {
-                logger.debug("Cannot sync the directory {}", directory, e)
-            }
+            syncDirectory(checkNotNull(target.parent))
         }
 
         /** Writes [bytes] to a new file at [destination] with [permissions], in the place of what is there. */
         private fun create(destination: Path, bytes: ByteArray, permissions: Set<PosixFilePermission>?) {
             Files.deleteIfExists(destination)
-            val owner = permissions?.let { arrayOf(PosixFilePermissions.asFileAttribute(OWNER_ONLY)) }.orEmpty()
-            val options = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-            FileChannel.open(destination, options, *owner).use { channel ->
-                val buffer = ByteBuffer.wrap(bytes)
-                while (buffer.hasRemaining()) channel.write(buffer)
-                channel.force(true)
-            }
-            permissions?.let { Files.setPosixFilePermissions(destination, it) }
+            writeNewFile(destination, permissions) { it.write(bytes) }
         }
     }
 }

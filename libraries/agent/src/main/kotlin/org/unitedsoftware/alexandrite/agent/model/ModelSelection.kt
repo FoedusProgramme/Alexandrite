@@ -1,14 +1,13 @@
 package org.unitedsoftware.alexandrite.agent.model
 
 import org.unitedsoftware.alexandrite.agent.config.Agent
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import java.security.MessageDigest
-import java.util.HexFormat
 
 /** The model a turn calls, as its endpoint lists it. */
 internal class SelectedModel(val ref: ModelRef, val endpoint: ModelEndpoint, val info: ModelInfo)
@@ -55,9 +54,6 @@ private val EFFORTS = listOf(
 internal const val DEFAULT_MAX_OUTPUT_TOKENS: Int = 32_768
 
 /** The prompt cache key of the conversations at [key]: the first 32 hex digits of the SHA-256 of the printed key. */
-internal fun cacheKey(key: AgentChatKey): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(key.toString().toByteArray(Charsets.UTF_8))
-    return HexFormat.of().formatHex(digest).take(CACHE_KEY_LENGTH)
-}
+internal fun cacheKey(key: AgentChatKey): String = sha256Hex(key.toString()).take(CACHE_KEY_LENGTH)
 
 private const val CACHE_KEY_LENGTH = 32

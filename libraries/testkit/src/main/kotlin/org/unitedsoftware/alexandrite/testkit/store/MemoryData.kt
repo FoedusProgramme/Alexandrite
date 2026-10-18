@@ -11,11 +11,9 @@ import org.unitedsoftware.alexandrite.sdk.store.MediaInfo
 import org.unitedsoftware.alexandrite.sdk.store.TurnRecord
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryRecord
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
-import java.security.SecureRandom
 import java.time.Clock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import java.util.Base64
 
 /** What a memory store holds, changed only inside [locked]. */
 internal class MemoryData(private val clock: Clock) {
@@ -43,12 +41,3 @@ internal class StoredEntry(
 )
 
 internal class StoredBytes(val info: MediaInfo, val bytes: ByteArray)
-
-private val random = SecureRandom()
-
-/** A random id of 22 URL-safe characters. */
-internal fun newId(): String {
-    val bytes = ByteArray(16)
-    random.nextBytes(bytes)
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-}

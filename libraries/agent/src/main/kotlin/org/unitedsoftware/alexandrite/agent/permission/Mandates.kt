@@ -2,8 +2,15 @@ package org.unitedsoftware.alexandrite.agent.permission
 
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.delivery.Notices
+import org.unitedsoftware.alexandrite.agent.delivery.delivered
+import org.unitedsoftware.alexandrite.agent.delivery.notice
+import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
+import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
@@ -19,12 +26,17 @@ import java.util.Base64
 
 /**
  * The mandates that operators' turns granted to plugins: each lets the plugin's later turns at one agent chat key run
- * as the operator, until the plugin revokes it.
+ * as the operator while the operator's channel still counts them an admin, until the plugin revokes it.
  */
 @Singleton
 @Binds(MandateGrants::class)
-internal class Mandates(records: Records, private val registry: ToolRegistry, private val clock: Clock) :
-    MandateGrants {
+internal class Mandates(
+    records: Records,
+    private val registry: ToolRegistry,
+    private val channels: ChannelDirectory,
+    private val notices: Notices,
+    private val clock: Clock,
+) : MandateGrants {
     private val granted = records.collection<MandateRecord>(COLLECTION)
     private val random = SecureRandom()
 
@@ -45,13 +57,17 @@ internal class Mandates(records: Records, private val registry: ToolRegistry, pr
             actor.displayName,
             actor.username,
             clock.instant().toString(),
+            turn.chat.toString(),
         )
         granted.put(mandate.value, record, actor.address)
         logger.info("Turn {} of {} grants plugin '{}' a mandate of {}", turn.id, turn.key, plugin, actor.address)
         return mandate
     }
 
-    /** The operator that [mandate] lets [plugin]'s turns at [key] run as, null when it lets them run as nobody. */
+    /**
+     * The operator that [mandate] lets [plugin]'s turns at [key] run as, null when it lets them run as nobody; the
+     * chat at [key] is told once when the operator is no longer an admin.
+     */
     suspend fun actor(mandate: Mandate, plugin: String, key: AgentChatKey): ChatUser? {
         val record = granted.get(mandate.value)?.value
         if (record == null || record.plugin != plugin || record.key != key.toString()) {
@@ -64,7 +80,34 @@ internal class Mandates(records: Records, private val registry: ToolRegistry, pr
             return null
         }
         val address = UserAddress.parseOrNull(record.actor) ?: return null
+        val chat = record.chat?.let(ChatAddress::parseOrNull) ?: key.chat
+        val admin = channels.channel(address.instance)?.isAdmin(chat, address) == true
+        if (!admin) {
+            logger.info(
+                "Mandate {} of {} lets plugin '{}' run as nobody: {} is no admin",
+                mandate,
+                key,
+                plugin,
+                address,
+            )
+            if (!record.lapsed) {
+                tellLapsed(key, record)
+                granted.put(mandate.value, record.copy(lapsed = true), null)
+            }
+            return null
+        }
+        if (record.lapsed) granted.put(mandate.value, record.copy(lapsed = false), null)
         return ChatUser(address, record.name, record.username, isBot = false, isAdmin = true)
+    }
+
+    private suspend fun tellLapsed(key: AgentChatKey, record: MandateRecord) {
+        val text = notices.text(key, TextKeys.MANDATE_LAPSED, "operator" to record.name, "plugin" to record.plugin)
+        val delivery = channels.channel(key.chat.instance)?.let { channel ->
+            delivered { channel.send(key.chat, notice(text, null, null)) }
+        }
+        if (delivery !is Delivery.Delivered) {
+            logger.warn("Chat {} is not told that a mandate of {} lapsed: {}", key.chat, record.actor, delivery)
+        }
     }
 
     /** Ends [mandate] when [plugin] holds it. */
@@ -86,7 +129,10 @@ internal fun interface MandateGrants {
     suspend fun grant(turn: TurnInfo, tool: Tool): Mandate?
 }
 
-/** A mandate that [actor], named [name], granted [plugin] for turns at [key], at the ISO-8601 instant [at]. */
+/**
+ * A mandate that [actor], named [name], granted [plugin] in [chat] for turns at [key], at the ISO-8601 instant [at];
+ * [lapsed] once the chat was told that the actor is no longer an admin.
+ */
 @Serializable
 internal data class MandateRecord(
     val plugin: String,
@@ -95,6 +141,8 @@ internal data class MandateRecord(
     val name: String,
     val username: String? = null,
     val at: String,
+    val chat: String? = null,
+    val lapsed: Boolean = false,
 )
 
 private val logger = LoggerFactory.getLogger(Mandates::class.java)

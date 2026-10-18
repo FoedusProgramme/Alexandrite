@@ -46,7 +46,7 @@ class TelegramMediaTest {
             fake.sendDocument(telegram.ada, telegram.adaChat, "report.pdf", pdf, "application/pdf", "Summarize this")
             message = messages(1).single()
             val untouched = fake.calls("getFile").size
-            read = message.media.single().content.read(1_000)
+            read = checkNotNull(message.media.single().content).read(1_000)
             assertEquals(0, untouched)
         }
 
@@ -70,7 +70,12 @@ class TelegramMediaTest {
 
             val (album, question) = messages(2)
             assertEquals("Two views", album.text)
-            assertEquals(listOf(listOf<Byte>(1), listOf<Byte>(2)), album.media.map { it.content.read(10).toList() })
+            assertEquals(
+                listOf(listOf<Byte>(1), listOf<Byte>(2)),
+                album.media.map {
+                    checkNotNull(it.content).read(10).toList()
+                },
+            )
             assertEquals("Which is better?", question.text)
         }
 
@@ -127,9 +132,9 @@ class TelegramMediaTest {
                 telegram.run {
                     fake.sendDocument(telegram.ada, telegram.adaChat, "report.pdf", pdf, "application/pdf", "Look")
                     val attachment = messages(1).single().media.single()
-                    attachment.content.read(1_000)
+                    checkNotNull(attachment.content).read(1_000)
                     fake.respond("download", 502, "<html>/file/bot${fake.token}/documents is down</html>")
-                    assertNull(runCatching { attachment.content.read(1_000) }.getOrNull())
+                    assertNull(runCatching { checkNotNull(attachment.content).read(1_000) }.getOrNull())
                     val file = OutboundFile.builder("summary.txt", "text/plain", "Short.".encodeToByteArray()).build()
                     val message = OutboundMessage.builder("", MessageKind.REPLY).files(listOf(file)).build()
                     assertIs<Delivery.Delivered>(telegramChannel().send(telegram.address(ADA), message))

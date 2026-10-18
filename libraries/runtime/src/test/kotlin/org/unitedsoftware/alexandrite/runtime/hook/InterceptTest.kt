@@ -44,6 +44,29 @@ class InterceptTest {
     }
 
     @Test
+    fun `interceptors of one order run by plugin id, then by class name`() = runTest {
+        val first = appending("a")
+        val second = Rewriter(rewrite)
+        val third = Denier(rewrite)
+        val plugins = mapOf<Hook, String>(first to "alpha", second to "beta", third to "beta")
+        val told = mutableListOf<String>()
+        val decisions = HookDecisionListener { hook, _, _ -> told += hook::class.simpleName.orEmpty() }
+        val dispatcher = HookDispatcher(
+            listOf(second, third, first),
+            listener,
+            asyncContext = coroutineContext,
+            decisions = decisions,
+            pluginOf = plugins::get,
+        )
+
+        val result = dispatcher.fire(rewrite, "")
+
+        assertEquals(Interception.Aborted("denied", Denier::class.java.name, null), result)
+        assertEquals(listOf("a"), records.all())
+        assertEquals(listOf("TestInterceptor", "Denier"), told)
+    }
+
+    @Test
     fun `a hook runs only for its own point`() = runTest {
         val other = InterceptorPoint<String>("test.other", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
         val dispatcher = hookDispatcher(listOf(appending("a"), appending("b", point = other)))
@@ -103,7 +126,8 @@ class InterceptTest {
 
     @Test
     fun `abort stops the chain and names the hook`() = runTest {
-        val dispatcher = hookDispatcher(listOf(appending("a"), Denier(rewrite), appending("b", order = 1)), listener)
+        val dispatcher =
+            hookDispatcher(listOf(appending("a", order = -1), Denier(rewrite), appending("b", order = 1)), listener)
 
         val result = dispatcher.fire(rewrite, "x")
 
@@ -121,10 +145,10 @@ class InterceptTest {
         val guard = guardPoint()
         val hooks = listOf(
             TestInterceptor(rewrite) { HookDecision.Continue },
-            Rewriter(rewrite),
-            Denier(rewrite),
-            Rewriter(guard),
-            Denier(guard),
+            Rewriter(rewrite, order = 1),
+            Denier(rewrite, order = 2),
+            Rewriter(guard, order = 1),
+            Denier(guard, order = 2),
         )
         val dispatcher = HookDispatcher(hooks, listener, asyncContext = coroutineContext, decisions = decisions)
 
@@ -254,11 +278,11 @@ class InterceptTest {
         assertEquals(emptyList(), listener.all())
     }
 
-    private class Rewriter(point: InterceptorPoint<String>) :
-        TestInterceptor<String>(point, block = { HookDecision.Replace("rewritten") })
+    private class Rewriter(point: InterceptorPoint<String>, order: Int = 0) :
+        TestInterceptor<String>(point, order, block = { HookDecision.Replace("rewritten") })
 
-    private class Denier(point: InterceptorPoint<String>) :
-        TestInterceptor<String>(point, block = { HookDecision.Abort("denied") })
+    private class Denier(point: InterceptorPoint<String>, order: Int = 0) :
+        TestInterceptor<String>(point, order, block = { HookDecision.Abort("denied") })
 
     private class Crasher(point: InterceptorPoint<String>) :
         TestInterceptor<String>(point, block = { error("crashed") })

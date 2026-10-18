@@ -99,7 +99,7 @@ class UpdateReaderTest {
         unavailable,
     ).joinToString(" ") { "${it ?: "-"}" }
 
-    private fun MediaAttachment.read(): String = runBlocking { content.read(100).decodeToString() }
+    private fun MediaAttachment.read(): String = runBlocking { checkNotNull(content).read(100).decodeToString() }
 
     // Direct chats.
 

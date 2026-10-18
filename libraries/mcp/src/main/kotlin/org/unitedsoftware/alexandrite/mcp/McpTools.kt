@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.mcp
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.client.McpTool
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
@@ -80,14 +81,6 @@ internal object McpDefinitions {
         val title = tool.title?.takeIf { it.isNotBlank() }
         val text = tool.description?.takeIf { it.isNotBlank() }
         val body = listOfNotNull(title, text).joinToString(": ")
-        return cut("[MCP server $server] $body".trimEnd(), MAX_DESCRIPTION)
+        return cutWithEllipsis("[MCP server $server] $body".trimEnd(), MAX_DESCRIPTION)
     }
-}
-
-/** [text] cut to [limit] characters at most, a surrogate pair kept whole, with `…` where it was cut. */
-internal fun cut(text: String, limit: Int): String {
-    if (text.length <= limit) return text
-    var end = limit - 1
-    if (end > 0 && text[end - 1].isHighSurrogate()) end--
-    return text.substring(0, end) + "…"
 }

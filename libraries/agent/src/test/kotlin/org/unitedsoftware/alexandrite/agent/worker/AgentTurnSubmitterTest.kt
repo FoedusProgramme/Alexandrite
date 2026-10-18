@@ -186,4 +186,35 @@ class AgentTurnSubmitterTest {
             assertEquals(listOf("NEW"), handled)
         }
     }
+
+    @Test
+    fun `a claimed command runs only where the channel lets its issuer run it, else the chat is told`() {
+        val handled = CopyOnWriteArrayList<String>()
+        val handler = object : CommandHandler {
+            override val commands = listOf(CommandSpec.builder("mode", "Sets the permission mode.").build())
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
+                handled += invocation.issuer.address.user
+            }
+        }
+
+        agentHarness(config(coder)) {
+            channel(admins = setOf("admin")).model(model(0)).commandHandler(handler)
+        }.execute {
+            val channel = channel()
+            channel.membersMayRun = false
+            val refused = channel.receiveCommand("mode", "bypass")
+            val run = channel.receiveCommand("mode", "bypass", issuer = channel.user("admin"))
+
+            val told = outcome(refused)
+            val notice = channel.sent.single()
+            assertEquals(TurnOutcome.Completed(null, mapOf(channel.chat() to notice.delivery)), told)
+            assertEquals(
+                "You may not run /mode here." to MessageKind.NOTICE,
+                notice.message.text to notice.message.kind,
+            )
+            assertEquals(TurnOutcome.Completed(null), outcome(run))
+            assertEquals(listOf("admin"), handled)
+        }
+    }
 }

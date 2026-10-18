@@ -3,6 +3,8 @@ package org.unitedsoftware.alexandrite.agent.context
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.SUMMARY_HEADER
 import org.unitedsoftware.alexandrite.agent.prompt.lines
+import org.unitedsoftware.alexandrite.internal.text.fittingLength
+import org.unitedsoftware.alexandrite.internal.text.tailStart
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
@@ -137,14 +139,10 @@ private fun texts(parts: List<Part>): String = parts.mapNotNull { part ->
 /** [text], or its start and its end where it is longer than [MAX_SUMMARIZED_RESULT_CHARS]. */
 private fun shortened(text: String): String {
     if (text.length <= MAX_SUMMARIZED_RESULT_CHARS) return text
-    val head = safeEnd(text, SUMMARIZED_RESULT_HEAD_CHARS)
-    val tail = safeStart(text, text.length - (MAX_SUMMARIZED_RESULT_CHARS - SUMMARIZED_RESULT_HEAD_CHARS))
+    val head = fittingLength(text, SUMMARIZED_RESULT_HEAD_CHARS)
+    val tail = tailStart(text, MAX_SUMMARIZED_RESULT_CHARS - SUMMARIZED_RESULT_HEAD_CHARS)
     return "${text.substring(0, head)}\n[… ${tail - head} characters left out …]\n${text.substring(tail)}"
 }
-
-private fun safeEnd(text: String, end: Int): Int = if (text[end - 1].isHighSurrogate()) end - 1 else end
-
-private fun safeStart(text: String, start: Int): Int = if (text[start].isLowSurrogate()) start + 1 else start
 
 /** [text] as lines that each start with `| `, which no label line does. */
 private fun quoted(text: String): String = lines(text).joinToString("\n") { "| $it" }

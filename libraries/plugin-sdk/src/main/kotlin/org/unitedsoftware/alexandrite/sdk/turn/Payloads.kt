@@ -24,7 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.SummaryEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
+import org.unitedsoftware.alexandrite.sdk.transcript.parts
 
 /** A hook payload of one turn. */
 public interface TurnScoped {
@@ -274,14 +274,7 @@ public class ContextCleared @InternalAlexandriteApi constructor(
 }
 
 private fun requireNoInlineMedia(entries: List<TranscriptEntry>) {
-    val index = entries.indexOfFirst { entry ->
-        val parts = when (entry) {
-            is UserEntry -> entry.parts
-            is ToolResultEntry -> entry.content
-            else -> emptyList()
-        }
-        parts.any { it is MediaPart && it.source is InlineMedia }
-    }
+    val index = entries.indexOfFirst { entry -> entry.parts().any { it is MediaPart && it.source is InlineMedia } }
     require(index < 0) { "Entry $index holds inline media, which an observed payload refers to by its stored id." }
 }
 

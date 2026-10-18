@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.testkit.store
 
+import org.unitedsoftware.alexandrite.internal.id.newId
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress

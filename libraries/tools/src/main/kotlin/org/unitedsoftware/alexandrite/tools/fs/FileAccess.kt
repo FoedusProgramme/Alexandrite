@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
@@ -52,15 +53,8 @@ internal suspend fun <T> blocking(block: () -> T): T = runInterruptible(Dispatch
 
 /** [argument] as an absolute path: a relative one resolved against the workspace, a leading `~` as the home directory. */
 internal suspend fun ToolContext.absolute(argument: String): Path {
-    val home = System.getProperty("user.home").orEmpty()
-    val expanded = when {
-        home.isEmpty() -> argument
-        argument == "~" -> home
-        argument.startsWith("~/") -> home + argument.substring(1)
-        else -> argument
-    }
     val path = try {
-        Path.of(expanded)
+        Path.of(expandHome(argument))
     } catch (e: InvalidPathException) {
         throw Refusal("'$argument' is no valid path.")
     }

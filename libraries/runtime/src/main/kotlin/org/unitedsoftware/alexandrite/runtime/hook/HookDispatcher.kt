@@ -27,13 +27,18 @@ import org.unitedsoftware.alexandrite.sdk.hook.ObserverHook
 import org.unitedsoftware.alexandrite.sdk.hook.ObserverPoint
 import kotlin.coroutines.CoroutineContext
 
-/** Each ASYNC observer has its own queue of [asyncCapacity] events, worked off in a child scope of [asyncContext]. */
+/**
+ * Each ASYNC observer has its own queue of [asyncCapacity] events, worked off in a child scope of [asyncContext].
+ *
+ * Hooks run by [Hook.order], then by the id of the plugin that [pluginOf] tells, then by class name.
+ */
 internal class HookDispatcher(
     hooks: List<Hook>,
     private val listener: HookFailureListener,
     private val asyncCapacity: Int = 256,
     asyncContext: CoroutineContext,
     private val decisions: HookDecisionListener = HookDecisionListener { _, _, _ -> },
+    pluginOf: (Hook) -> String? = { null },
 ) : Hooks,
     Lifecycle {
     private val scope by lazy { CoroutineScope(asyncContext + SupervisorJob(asyncContext[Job])) }
@@ -45,7 +50,7 @@ internal class HookDispatcher(
     init {
         require(asyncCapacity > 0) { "asyncCapacity must be positive, was $asyncCapacity." }
         points = subscribedPoints(hooks)
-        val sorted = hooks.sortedBy { it.order }
+        val sorted = hooks.sortedWith(compareBy({ it.order }, { pluginOf(it).orEmpty() }, { it.name }))
         interceptors = sorted.filterIsInstance<InterceptorHook<*>>().groupBy { it.point.id }
         val observers = sorted.filterIsInstance<ObserverHook<*>>().groupBy { it.delivery }
         inlineObservers = observers[ObserverDelivery.INLINE].orEmpty().groupBy { it.point.id }

@@ -19,11 +19,4 @@ public object TranscriptCodec {
 
     /** The entry of [json], in which every type this version does not know decodes to its `Unknown` form. */
     public fun decode(json: String): TranscriptEntry = transcriptJson.decodeFromString(ENTRY, json)
-
-    private fun TranscriptEntry.parts(): List<Part> = when (this) {
-        is UserEntry -> parts
-        is AssistantEntry -> parts
-        is ToolResultEntry -> content
-        else -> emptyList()
-    }
 }

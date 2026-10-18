@@ -2,7 +2,7 @@ package org.unitedsoftware.alexandrite.agent.control
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.agent.config.Agent
-import org.unitedsoftware.alexandrite.agent.config.zoneOrNull
+import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress

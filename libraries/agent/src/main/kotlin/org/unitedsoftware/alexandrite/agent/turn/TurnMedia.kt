@@ -100,11 +100,11 @@ internal class TurnMedia(
         images: Boolean,
         parts: MutableList<UserPart>,
     ): NotedMedia {
-        attachment.unavailable?.let { return notSaved(attachment, it) }
+        val content = attachment.content ?: return notSaved(attachment, checkNotNull(attachment.unavailable))
         val tooLarge = "larger than the $maxBytes bytes a message may carry"
         if ((attachment.size ?: 0) > maxBytes) return notSaved(attachment, tooLarge)
         val bytes = try {
-            attachment.content.read(maxBytes)
+            content.read(maxBytes)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

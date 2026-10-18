@@ -28,6 +28,9 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Target
 import org.unitedsoftware.alexandrite.channel.telegram.reply.targetOf
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
+import org.unitedsoftware.alexandrite.internal.text.cutStartWithEllipsis
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
+import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
@@ -412,18 +415,9 @@ private fun named(user: ChatUser): String =
     shortened(ReviewText.escape(user.displayName) + user.username?.let { " (@${ReviewText.escape(it)})" }.orEmpty())
 
 /** [text], cut at its start to [MAX_SHOWN] characters, so that a rule keeps its program and first word. */
-private fun ending(text: String): String {
-    if (text.length <= MAX_SHOWN) return text
-    val start = text.length - (MAX_SHOWN - 1)
-    return "…" + text.substring(if (text[start].isLowSurrogate()) start + 1 else start)
-}
+private fun ending(text: String): String = cutStartWithEllipsis(text, MAX_SHOWN)
 
-/** [text], cut to [MAX_SHOWN] characters with an ellipsis. */
-private fun shortened(text: String): String {
-    if (text.length <= MAX_SHOWN) return text
-    val end = if (text[MAX_SHOWN - 2].isHighSurrogate()) MAX_SHOWN - 2 else MAX_SHOWN - 1
-    return text.substring(0, end) + "…"
-}
+private fun shortened(text: String): String = cutWithEllipsis(text, MAX_SHOWN)
 
 /** [bytes] in the largest unit that keeps a whole number in front. */
 private fun readable(bytes: Long): String {
@@ -478,7 +472,7 @@ private fun cut(text: String, room: Int): Int {
     if (text.length <= room) return text.length
     val lineBreak = text.lastIndexOf('\n', room)
     if (lineBreak > 0) return lineBreak
-    return if (text[room - 1].isHighSurrogate()) room - 1 else room
+    return fittingLength(text, room)
 }
 
 /** How many messages one request may take. */

@@ -678,6 +678,7 @@ class SubclassOptInTest {
             override suspend fun unendedTurns() = listOfNotNull(turn(TurnId("t")))
             override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant) = false
             override suspend fun taint(conversation: ConversationId) = ConversationTaint(Instant.EPOCH, "a test")
+            override suspend fun clearTaint(conversation: ConversationId): ConversationTaint? = null
 
             private fun info(key: AgentChatKey, kind: ConversationKind) =
                 ConversationInfo.builder(ConversationId("c"), kind, key, ConversationState.ACTIVE, Instant.EPOCH).build()

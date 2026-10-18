@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.automation.heartbeat
 
 import org.unitedsoftware.alexandrite.automation.common.ActiveHours
 import org.unitedsoftware.alexandrite.automation.common.BeatPlan
+import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress

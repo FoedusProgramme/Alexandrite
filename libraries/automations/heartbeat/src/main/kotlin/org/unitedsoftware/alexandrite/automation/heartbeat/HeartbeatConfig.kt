@@ -2,10 +2,9 @@ package org.unitedsoftware.alexandrite.automation.heartbeat
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.automation.common.ActiveHours
+import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
-import java.time.DateTimeException
-import java.time.ZoneId
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -64,13 +63,6 @@ internal fun interval(text: String): Duration? {
 internal fun activeHoursOrNull(text: String): ActiveHours? = try {
     ActiveHours.parse(text)
 } catch (e: IllegalArgumentException) {
-    null
-}
-
-/** The zone [text] names, a region id or an offset, null when it names none. */
-internal fun zoneOrNull(text: String): ZoneId? = try {
-    ZoneId.of(text)
-} catch (e: DateTimeException) {
     null
 }
 

@@ -1,14 +1,8 @@
 package org.unitedsoftware.alexandrite.sdk.chat
 
 import dev.drewhamilton.poko.Poko
-import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.descriptors.PrimitiveKind
-import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
-import kotlinx.serialization.descriptors.SerialDescriptor
-import kotlinx.serialization.encoding.Decoder
-import kotlinx.serialization.encoding.Encoder
+import org.unitedsoftware.alexandrite.sdk.StringFormSerializer
 
 /** A chat as one agent has it, printed `<agent>@<chat address>`. */
 @Serializable(with = AgentChatKeySerializer::class)
@@ -31,16 +25,8 @@ public class AgentChatKey(public val agent: AgentId, public val chat: ChatAddres
     }
 }
 
-internal object AgentChatKeySerializer : KSerializer<AgentChatKey> {
-    override val descriptor: SerialDescriptor =
-        PrimitiveSerialDescriptor("org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey", PrimitiveKind.STRING)
-
-    override fun serialize(encoder: Encoder, value: AgentChatKey) {
-        encoder.encodeString(value.toString())
-    }
-
-    override fun deserialize(decoder: Decoder): AgentChatKey {
-        val text = decoder.decodeString()
-        return AgentChatKey.parseOrNull(text) ?: throw SerializationException("Malformed agent chat key '$text'.")
-    }
-}
+internal object AgentChatKeySerializer : StringFormSerializer<AgentChatKey>(
+    "org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey",
+    "agent chat key",
+    AgentChatKey::parseOrNull,
+)

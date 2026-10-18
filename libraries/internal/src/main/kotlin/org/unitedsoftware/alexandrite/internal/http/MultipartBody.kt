@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.internal.http
 
+import org.unitedsoftware.alexandrite.internal.hash.hex
 import java.io.InputStream
 import java.net.http.HttpRequest
 import java.security.SecureRandom
@@ -50,8 +51,7 @@ public class MultipartBody private constructor(private val parts: List<Part>, pr
         }
 
         public fun build(): MultipartBody {
-            val boundary = "alexandrite-" + ByteArray(BOUNDARY_BYTES).also(RANDOM::nextBytes)
-                .joinToString("") { "%02x".format(it) }
+            val boundary = "alexandrite-" + hex(ByteArray(BOUNDARY_BYTES).also(RANDOM::nextBytes))
             return MultipartBody(parts.map { it.part(boundary) }, boundary)
         }
     }

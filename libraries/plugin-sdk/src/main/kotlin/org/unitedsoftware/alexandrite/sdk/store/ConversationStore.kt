@@ -87,8 +87,7 @@ public interface ConversationStore {
      * Removes the mark of [conversation], so that a later [markTainted] marks it again, and returns the mark it had,
      * null when it had none or the store has no such conversation.
      */
-    public suspend fun clearTaint(conversation: ConversationId): ConversationTaint? =
-        throw UnsupportedOperationException("This store keeps every taint mark.")
+    public suspend fun clearTaint(conversation: ConversationId): ConversationTaint?
 }
 
 /** What [ConversationStore.newConversation] did. */

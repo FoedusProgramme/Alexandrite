@@ -15,6 +15,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
 import org.unitedsoftware.alexandrite.agent.tool.AgentScopedTool
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
@@ -42,7 +43,6 @@ import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
-import java.security.MessageDigest
 
 @Singleton
 @Contribute(Tool::class)
@@ -248,8 +248,7 @@ private fun JsonObjectBuilder.property(name: String, type: String, description: 
     }
 }
 
-private fun sha256(bytes: ByteArray): String =
-    "sha256:" + MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+private fun sha256(bytes: ByteArray): String = "sha256:" + sha256Hex(bytes)
 
 private const val REPLACE = "replace"
 private const val APPEND = "append"

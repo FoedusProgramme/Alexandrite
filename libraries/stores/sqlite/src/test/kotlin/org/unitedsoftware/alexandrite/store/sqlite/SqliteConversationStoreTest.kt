@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.store.sqlite
 
 import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.internal.id.newId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId

@@ -86,8 +86,13 @@ internal fun runtimeBindings(
             "Hooks",
             dependencies = listOf(Dependency(hooks, DependencyKind.ALL, "hooks")),
         ) { r ->
-            val dispatcher =
-                HookDispatcher(r.getAll(hooks), hookFailures, asyncContext = context, decisions = hookDecisions)
+            val dispatcher = HookDispatcher(
+                r.getAll(hooks),
+                hookFailures,
+                asyncContext = context,
+                decisions = hookDecisions,
+                pluginOf = r::pluginOf,
+            )
             if (dispatcher.hasAsyncObservers) dispatcher else object : Hooks by dispatcher {}
         },
         instanceBinding(key<Clock>(), clock, RUNTIME_PLUGIN, "Clock"),

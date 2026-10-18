@@ -4,6 +4,7 @@ plugins {
 
 dependencies {
     implementation(project(":libraries:plugin-sdk"))
+    implementation(project(":libraries:internal"))
     implementation(libs.sqlite.jdbc)
 
     testImplementation(project(":libraries:testkit"))

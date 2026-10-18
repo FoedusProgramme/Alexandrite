@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
+import org.unitedsoftware.alexandrite.internal.text.cut
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
@@ -45,7 +46,7 @@ internal class TurnTaint(
 
     /** Counts the turn as tainted for [reason], for [record] to store. */
     fun note(reason: String) {
-        val line = cut(oneLine(reason))
+        val line = cut(oneLine(reason), MAX_REASON_CHARS)
         first.compareAndSet(null, ConversationTaint(clock.instant(), line))
         tainted = true
         logger.debug("Turn {} of {} is tainted: {}", turn, key, line)
@@ -104,13 +105,6 @@ internal class ConversationTaints(private val store: ConversationStore, private 
         }
         return TurnTaint(turn, key, clock, conversation, store, recorded)
     }
-}
-
-/** [text] up to [MAX_REASON_CHARS] characters, without splitting a surrogate pair. */
-private fun cut(text: String): String {
-    if (text.length <= MAX_REASON_CHARS) return text
-    val end = if (text[MAX_REASON_CHARS - 1].isHighSurrogate()) MAX_REASON_CHARS - 1 else MAX_REASON_CHARS
-    return text.substring(0, end)
 }
 
 /** The characters of a reason that a mark keeps. */

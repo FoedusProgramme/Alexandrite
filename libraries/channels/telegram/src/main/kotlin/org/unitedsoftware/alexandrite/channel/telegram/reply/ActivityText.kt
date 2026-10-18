@@ -5,6 +5,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.unitedsoftware.alexandrite.channel.telegram.format.Span
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -162,12 +163,7 @@ private fun lineCounts(text: String): Pair<Int, Int>? {
     return (added to removed).takeIf { added > 0 || removed > 0 }
 }
 
-/** [text], cut to [MAX_TITLE_CHARS] characters with an ellipsis. */
-private fun shortened(text: String): String {
-    if (text.length <= MAX_TITLE_CHARS) return text
-    val end = if (text[MAX_TITLE_CHARS - 1].isHighSurrogate()) MAX_TITLE_CHARS - 1 else MAX_TITLE_CHARS
-    return text.substring(0, end) + "…"
-}
+private fun shortened(text: String): String = cutWithEllipsis(text, MAX_TITLE_CHARS)
 
 private const val BLOCKQUOTE = "expandable_blockquote"
 

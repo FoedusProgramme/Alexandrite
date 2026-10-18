@@ -1,10 +1,10 @@
 package org.unitedsoftware.alexandrite.app
 
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
-import java.time.DateTimeException
 import java.time.ZoneId
 
 @ConfigSection
@@ -20,12 +20,8 @@ internal class AppConfig(
     val plugins: List<String> = emptyList(),
 ) {
     init {
-        if (zone != null) {
-            try {
-                ZoneId.of(zone)
-            } catch (e: DateTimeException) {
-                throw IllegalArgumentException("zone '$zone' is no time zone: ${e.message}", e)
-            }
+        require(zone == null || zoneOrNull(zone) != null) {
+            "zone '$zone' is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as \"+08:00\""
         }
         try {
             LanguageTag.of(language)
@@ -37,7 +33,7 @@ internal class AppConfig(
         plugins.forEach { require(PluginIds.PATTERN.matches(it)) { "plugins holds '$it', which is no plugin id" } }
     }
 
-    val zoneId: ZoneId get() = zone?.let(ZoneId::of) ?: ZoneId.systemDefault()
+    val zoneId: ZoneId get() = zone?.let(::zoneOrNull) ?: ZoneId.systemDefault()
 
     val languageTag: LanguageTag get() = LanguageTag.of(language)
 }

@@ -12,11 +12,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.McpSettings
 import org.unitedsoftware.alexandrite.mcp.OAuthSpec
 import org.unitedsoftware.alexandrite.mcp.Transport
 import org.unitedsoftware.alexandrite.mcp.client.McpConnectionException
-import org.unitedsoftware.alexandrite.mcp.cut
 import org.unitedsoftware.alexandrite.mcp.isLoopback
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
@@ -173,12 +173,15 @@ internal class McpOAuth(
             }
             val iss = params["iss"]
             if (iss != null && iss != issuer) {
-                throw OAuthException("The answer comes from the issuer '${cut(iss, MAX_QUOTE)}', not $issuer.")
+                val quoted = cutWithEllipsis(iss, MAX_QUOTE)
+                throw OAuthException("The answer comes from the issuer '$quoted', not $issuer.")
             }
             if (iss == null && login.metadata.issParameter) {
                 throw OAuthException("The answer names no issuer, though $issuer promises to.")
             }
-            params["error"]?.let { throw OAuthException("$issuer refused the login: ${cut(it, MAX_QUOTE)}.") }
+            params["error"]?.let {
+                throw OAuthException("$issuer refused the login: ${cutWithEllipsis(it, MAX_QUOTE)}.")
+            }
             val code = params["code"] ?: throw OAuthException("The answer carries no code.")
             val grant = requests.exchange(
                 login.metadata.tokenEndpoint,

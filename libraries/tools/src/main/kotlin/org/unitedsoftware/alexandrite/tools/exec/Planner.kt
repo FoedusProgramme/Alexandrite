@@ -3,6 +3,8 @@ package org.unitedsoftware.alexandrite.tools.exec
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -14,7 +16,6 @@ import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.LinkOption
 import java.nio.file.Path
-import java.security.MessageDigest
 import kotlin.time.Duration
 
 /** Thrown for a call that the floor refuses, with what the model is told. */
@@ -229,19 +230,11 @@ private val URL_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 
 /** [candidate] as a path: a leading `~` as the home directory, relative to [directory]. */
 private fun candidatePath(candidate: String, directory: Path): Path = try {
-    directory.resolve(expandHome(candidate, System.getProperty("user.home"))).normalize()
+    directory.resolve(expandHome(candidate)).normalize()
 } catch (e: InvalidPathException) {
     throw FloorRefusal(
         "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
     )
-}
-
-/** [text] with a leading `~` (alone or before `/`) as [home]. */
-internal fun expandHome(text: String, home: String?): String = when {
-    home.isNullOrEmpty() -> text
-    text == "~" -> home
-    text.startsWith("~/") -> home + text.substring(1)
-    else -> text
 }
 
 /**
@@ -251,7 +244,7 @@ internal fun expandHome(text: String, home: String?): String = when {
 private fun snapshot(executable: Path, system: Boolean, operands: List<String>, directory: Path): String {
     val files = operands.mapNotNull { operand ->
         val path = try {
-            directory.resolve(expandHome(operand, System.getProperty("user.home"))).normalize()
+            directory.resolve(expandHome(operand)).normalize()
         } catch (e: InvalidPathException) {
             return@mapNotNull null
         }
@@ -275,22 +268,12 @@ private fun hash(file: Path): String = try {
     if (Files.size(file) > MAX_HASHED_BYTES) {
         TOO_LARGE
     } else {
-        val digest = MessageDigest.getInstance("SHA-256")
-        Files.newInputStream(file).use { input ->
-            val buffer = ByteArray(BUFFER)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
-            }
-        }
-        digest.digest().joinToString("") { "%02x".format(it) }
+        Files.newInputStream(file).use { sha256Hex(it) }
     }
 } catch (e: IOException) {
     UNREADABLE
 }
 
 private const val MAX_HASHED_BYTES = 64L * 1024 * 1024
-private const val BUFFER = 64 * 1024
 private const val TOO_LARGE = "too-large"
 private const val UNREADABLE = "unreadable"

@@ -29,6 +29,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
@@ -67,6 +68,10 @@ public class RecordingChannel(
     /** The answer of each approval request that no scripted answer is left for. */
     @Volatile
     public var defaultApproval: ApprovalAnswer = NO_APPROVER
+
+    /** Whether a user who is no admin may run every command, which admins alone may when false. */
+    @Volatile
+    public var membersMayRun: Boolean = true
 
     @Volatile
     internal var stopped: Boolean = false
@@ -248,6 +253,13 @@ public class RecordingChannel(
             answer
         }
     }
+
+    override fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =
+        membersMayRun || issuer.isAdmin
+
+    /** Whether [user] is one of the instance's admins. */
+    override suspend fun isAdmin(chat: ChatAddress, user: UserAddress): Boolean =
+        user.instance == instance && user.user in admins
 
     internal fun <T> read(block: () -> T): T = synchronized(lock, block)
 

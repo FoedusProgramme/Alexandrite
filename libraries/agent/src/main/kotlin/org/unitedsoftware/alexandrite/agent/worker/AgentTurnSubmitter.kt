@@ -42,6 +42,7 @@ internal class AgentTurnSubmitter(
         val handler = commands.handler(command.invocation.name)
         val carrier = command.message
         return when {
+            handler != null && !lanes.mayRun(command.invocation) -> lanes.refused(turn, command.invocation)
             handler != null -> lanes.submit(turn, command, handler, now)
             carrier != null -> intakes.dispatch(turn, carrier, command.capacity, now)
             else -> lanes.unknown(turn, command.invocation)

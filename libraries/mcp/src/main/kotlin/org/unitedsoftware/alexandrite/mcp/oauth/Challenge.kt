@@ -1,6 +1,6 @@
 package org.unitedsoftware.alexandrite.mcp.oauth
 
-import java.security.MessageDigest
+import org.unitedsoftware.alexandrite.internal.hash.sha256
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -76,9 +76,7 @@ private fun quotedAt(header: String, start: Int): Pair<String, Int> {
 
 /** The PKCE pair of one login, the challenge of [verifier] made with S256. */
 internal class Pkce(val verifier: String) {
-    val challenge: String = BASE64.encodeToString(
-        MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)),
-    )
+    val challenge: String = BASE64.encodeToString(sha256(verifier.toByteArray(Charsets.US_ASCII)))
 
     companion object {
         fun create(): Pkce = Pkce(randomToken())

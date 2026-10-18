@@ -10,6 +10,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.internal.path.expandHome
+import org.unitedsoftware.alexandrite.internal.path.homeDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -211,7 +213,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     /** [text] as an absolute directory: a relative one resolved against the workspace, as the default cwd is. */
     private suspend fun resolveCwd(text: String, context: ToolContext, running: Boolean): Path {
         val path = try {
-            Path.of(expandHome(text, home()))
+            Path.of(expandHome(text))
         } catch (e: InvalidPathException) {
             throw CallProblem("'cwd' is no valid path.")
         }
@@ -242,10 +244,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val words = when {
             command != null && argv != null -> throw CallProblem("Give either 'command' or 'argv', not both.")
 
-            command != null -> CommandLine.split(command, home())
+            command != null -> CommandLine.split(command, homeDirectory())
 
             // argv has no quoting, so a word's leading '~' always expands.
-            argv != null -> argv.map { expandHome(it, home()) }
+            argv != null -> argv.map { expandHome(it) }
 
             else -> throw CallProblem("Give 'command' (a command line) or 'argv' (the program and its arguments).")
         }
@@ -309,8 +311,6 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 }
 
 private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == JsonNull }
-
-private fun home(): String? = System.getProperty("user.home")?.takeIf { it.isNotEmpty() }
 
 /** The kinds of turn whose admin actor makes them an operator's. */
 private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)

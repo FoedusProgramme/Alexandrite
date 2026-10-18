@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.di.ContributedSpi
 
 /** A channel instance's front end, contributed once by a channel plugin under the plugin's channel type. */
@@ -17,8 +18,8 @@ public interface Channel {
     /** What the channel can do in [chat]. */
     public suspend fun capabilities(chat: ChatAddress): ChannelCapabilities
 
-    /** How many platform messages [text] in [markup] takes in [chat]. */
-    public suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int
+    /** How many platform messages [text] in [markup] takes in [chat], one where the channel splits no text. */
+    public suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int = 1
 
     /** Opens the reply of a turn that delivers to its chat, once the agent dequeues the turn. */
     public suspend fun openReply(request: ReplyRequest): ReplySink
@@ -37,14 +38,24 @@ public interface Channel {
     public suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer =
         ApprovalAnswer.Unavailable("this channel cannot ask for approvals")
 
-    /** Whether [issuer] may run [command] in [chat], bare or with arguments; true where the channel sets no rules. */
-    public fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean = true
+    /**
+     * Whether [issuer] may run [command] in [chat], bare or with arguments, which the agent checks before it runs a
+     * command; an admin alone may where the channel sets no rules.
+     */
+    public fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =
+        issuer.isAdmin
+
+    /**
+     * Whether [user] is an admin of [chat] now, which the agent checks before a turn runs as the operator of a mandate;
+     * false where the channel names no admins, so that a mandate then lets its turns run as nobody.
+     */
+    public suspend fun isAdmin(chat: ChatAddress, user: UserAddress): Boolean = false
 }
 
 /** The reply of one turn, which delivers until the channel instance stops and then takes calls without delivering. */
 public interface ReplySink {
     /** Shows [text], the whole text of [segment] so far, where a higher segment freezes the earlier ones. */
-    public suspend fun preview(segment: Int, text: String)
+    public suspend fun preview(segment: Int, text: String) {}
 
     /** Starts [segment], which freezes the earlier ones, before its first preview if it gets any. */
     public suspend fun startSegment(segment: Int) {}

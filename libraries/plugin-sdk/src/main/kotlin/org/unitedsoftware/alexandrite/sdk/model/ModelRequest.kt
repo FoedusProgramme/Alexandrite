@@ -8,12 +8,10 @@ import org.unitedsoftware.alexandrite.sdk.chat.requireOpaqueId
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.transcript.Part
 import org.unitedsoftware.alexandrite.sdk.transcript.ProviderData
 import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
-import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
+import org.unitedsoftware.alexandrite.sdk.transcript.parts
 
 /** One request to a model. */
 @Poko
@@ -167,10 +165,4 @@ public class RequestIds(
 private fun requireDistinct(names: List<String>, what: String) {
     val repeated = names.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
     require(repeated.isEmpty()) { "The request names ${repeated.joinToString { "$what '$it'" }} more than once." }
-}
-
-private fun TranscriptEntry.parts(): List<Part> = when (this) {
-    is UserEntry -> parts
-    is ToolResultEntry -> content
-    else -> emptyList()
 }

@@ -157,8 +157,22 @@ internal class CommandLanes(
         }
     }
 
+    /** Whether the channel of [command]'s chat lets its issuer run it, false while the channel is closed. */
+    fun mayRun(command: CommandInvocation): Boolean {
+        val channel = channels.channel(command.chat.instance) ?: return false
+        return channel.mayRun(command.chat, command.issuer, command.name, command.arguments.isNotBlank())
+    }
+
+    /** Answers [command], which its issuer may not run, with a notice. */
+    fun refused(turn: TurnId, command: CommandInvocation): Admission {
+        logger.info("{} may not run /{} in {}", command.issuer.address, command.name, command.chat)
+        return answered(turn, command, TextKeys.COMMAND_REFUSED)
+    }
+
     /** Answers [command], which nobody claims and no message carried, with a notice. */
-    fun unknown(turn: TurnId, command: CommandInvocation): Admission {
+    fun unknown(turn: TurnId, command: CommandInvocation): Admission = answered(turn, command, TextKeys.UNKNOWN_COMMAND)
+
+    private fun answered(turn: TurnId, command: CommandInvocation, key: String): Admission {
         when (router.cached(command.chat)) {
             Resolution.Unknown -> return Admission.Refused(RefusalReason.UNKNOWN_CHAT)
             Resolution.NoAgent -> return Admission.Refused(RefusalReason.NO_AGENT)
@@ -166,7 +180,7 @@ internal class CommandLanes(
         }
         val ticket = AgentTicket(turn) { false }
         val answer = scope.launch {
-            ticket.complete(TurnOutcome.Completed(null, mapOf(command.chat to answer(command))))
+            ticket.complete(TurnOutcome.Completed(null, mapOf(command.chat to answer(command, key))))
         }
         answer.invokeOnCompletion { error ->
             when (error) {
@@ -178,13 +192,13 @@ internal class CommandLanes(
         return Admission.Accepted(ticket)
     }
 
-    private suspend fun answer(command: CommandInvocation): Delivery {
+    private suspend fun answer(command: CommandInvocation, key: String): Delivery {
         val chat = command.chat
         val channel = channels.channel(chat.instance)
             ?: return Delivery.NotDelivered(DeliveryFailure.TRANSIENT, "Channel instance ${chat.instance} is closed.")
         val served = router.resolve(chat) as? Resolution.Served
             ?: return Delivery.NotDelivered(DeliveryFailure.UNKNOWN, "No agent serves $chat.")
-        val text = notices.text(served.key, TextKeys.UNKNOWN_COMMAND, "command" to command.name)
+        val text = notices.text(served.key, key, "command" to command.name)
         return delivered { channel.send(chat, notice(text, command.trigger, null)) }
     }
 

@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     implementation(project(":libraries:plugin-sdk"))
+    implementation(project(":libraries:internal"))
     implementation(project(":libraries:automation-common"))
 
     testImplementation(project(":libraries:testkit"))

@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
@@ -108,7 +109,7 @@ private fun load(file: Path, shown: Path, exempt: Boolean): Target {
     }
     val text = Utf8Text.decode(bytes)
         ?: throw Refusal("$shown is no UTF-8 text (it looks binary): the write tools change text files only.")
-    return Target(file, shown, text, sha256(bytes), exempt)
+    return Target(file, shown, text, HASH_PREFIX + sha256Hex(bytes), exempt)
 }
 
 /** Refuses a write of the existing [target] unless [context]'s conversation read it as it is now. */
@@ -162,7 +163,7 @@ internal suspend fun Target.write(text: String, ledger: ReadLedger, context: Too
             throw Refusal("$shown could not be written: $why.")
         }
     }
-    ledger.record(conversation, file, sha256(bytes))
+    ledger.record(conversation, file, HASH_PREFIX + sha256Hex(bytes))
     context.touched(file)
     return diff(text)
 }

@@ -177,13 +177,14 @@ internal class UpdateReader(
         quoted: Boolean,
     ): MediaAttachment {
         val size = media.fileSize?.takeIf { it >= 0 }
-        return MediaAttachment.builder(kind, mediaType, files(media.fileId))
+        val tooLarge = size != null && size > MAX_DOWNLOAD_BYTES
+        return MediaAttachment.builder(kind, mediaType, if (tooLarge) null else files(media.fileId))
             .size(size)
             .width((media.width ?: media.length)?.takeIf { it > 0 })
             .height((media.height ?: media.length)?.takeIf { it > 0 })
             .name(name?.takeIf { it.isNotBlank() })
             .fromQuote(quoted)
-            .unavailable(TOO_LARGE.takeIf { size != null && size > MAX_DOWNLOAD_BYTES })
+            .unavailable(TOO_LARGE.takeIf { tooLarge })
             .build()
     }
 

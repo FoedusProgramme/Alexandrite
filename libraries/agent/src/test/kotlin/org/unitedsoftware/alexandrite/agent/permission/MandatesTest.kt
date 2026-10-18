@@ -55,7 +55,7 @@ class MandatesTest {
         ToolResult("A page.")
     }
 
-    private fun harness(): PluginHarness = agentHarness(
+    private fun harness(admins: Set<String> = setOf("admin")): PluginHarness = agentHarness(
         """
         {
           "previewIntervalMillis": 0,
@@ -69,7 +69,7 @@ class MandatesTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(make).tool(who).tool(fetch) }
+    ) { channel(admins = admins).model(model).tool(make).tool(who).tool(fetch) }
 
     private suspend fun PluginHarness.Running.ask(user: String = "admin") {
         val admission = channel().receive("Set it up.", sender = channel().user(user))
@@ -138,6 +138,24 @@ class MandatesTest {
 
             assertEquals(listOf<ChatUser?>(null, null, null), actors)
             assertEquals(false, "On behalf of" in elsewhere)
+        }
+    }
+
+    @Test
+    fun `a mandate of an operator who is no longer an admin runs as nobody, and the chat is told once`() {
+        model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
+        harness().execute { ask() }
+        val mandate = assertNotNull(granted.single())
+
+        harness(admins = emptySet()).execute {
+            val framing = remind(mandate)
+            remind(mandate)
+
+            assertEquals(listOf<ChatUser?>(null, null), actors)
+            assertEquals(false, "On behalf of" in framing)
+            val told = channel().sent.map { it.message.text }.filter { "no longer an admin" in it }
+            val text = "Admin is no longer an admin, so what plugin ${plugin(make)} runs for them here runs as no one."
+            assertEquals(listOf(text), told)
         }
     }
 

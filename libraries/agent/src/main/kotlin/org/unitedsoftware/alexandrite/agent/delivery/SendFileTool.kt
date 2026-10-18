@@ -15,6 +15,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
@@ -47,7 +49,6 @@ import java.nio.file.LinkOption
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
-import java.security.MessageDigest
 import java.util.Locale
 
 /** Sends a file to the chat of the turn, the root turn's for a sub-agent run, through its channel. */
@@ -96,7 +97,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
         val file = checked(request.path, context)
         val reviewed = context.clearance?.snapshot ?: throw Refused("This call was not reviewed, so it sends nothing.")
         val bytes = runInterruptible(Dispatchers.IO) { read(file) }
-        val sha256 = hex(MessageDigest.getInstance("SHA-256").digest(bytes))
+        val sha256 = sha256Hex(bytes)
         if (reviewed != "$SHA256$sha256") {
             throw Refused("${file.path} changed since this call was reviewed, so it was not sent: repeat the call.")
         }
@@ -214,15 +215,8 @@ private class Refused(override val message: String, val blocked: Boolean = false
 
 /** [argument] as an absolute path, a relative one resolved against the workspace and a leading `~` as the home. */
 private suspend fun absolute(argument: String, context: ToolContext): Path {
-    val home = System.getProperty("user.home").orEmpty()
-    val expanded = when {
-        home.isEmpty() -> argument
-        argument == "~" -> home
-        argument.startsWith("~/") -> home + argument.substring(1)
-        else -> argument
-    }
     val path = try {
-        Path.of(expanded)
+        Path.of(expandHome(argument))
     } catch (e: InvalidPathException) {
         throw Refused("'$argument' is no valid path.")
     }
@@ -236,20 +230,7 @@ private suspend fun absolute(argument: String, context: ToolContext): Path {
 }
 
 /** The SHA-256 of the bytes of [file] in lowercase hex, read without holding them. */
-private fun hashed(file: Path): String {
-    val digest = MessageDigest.getInstance("SHA-256")
-    openRegularFile(file).use { input ->
-        val buffer = ByteArray(BUFFER_BYTES)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-    }
-    return hex(digest.digest())
-}
-
-private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+private fun hashed(file: Path): String = openRegularFile(file).use { sha256Hex(it) }
 
 /** The IANA media type that the file [name] has by its extension. */
 internal fun mediaTypeOf(name: String): String {
@@ -304,7 +285,5 @@ private const val SHA256 = "sha256:"
 
 /** The most bytes a file sent may hold, whatever its channel takes. */
 private const val MAX_FILE_BYTES = 256L * 1024 * 1024
-
-private const val BUFFER_BYTES = 64 * 1024
 
 private val logger = LoggerFactory.getLogger(SendFileTool::class.java)

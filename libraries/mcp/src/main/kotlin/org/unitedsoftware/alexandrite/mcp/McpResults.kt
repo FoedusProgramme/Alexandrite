@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.mcp
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.client.McpCallOutcome
 import org.unitedsoftware.alexandrite.mcp.client.McpContent
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -67,7 +68,7 @@ internal object McpResults {
         val type = content.mimeType?.let { ", of type $it" } ?: ""
         val text = content.text ?: return TextPart("[The resource ${content.uri}$type, its contents left out.]")
         val kept = if (text.length > RESOURCE_TEXT) {
-            cut(text, RESOURCE_TEXT) + "\n[The resource was cut here: it held ${text.length} characters.]"
+            cutWithEllipsis(text, RESOURCE_TEXT) + "\n[The resource was cut here: it held ${text.length} characters.]"
         } else {
             text
         }

@@ -152,7 +152,7 @@ class GrepToolTest {
     }
 
     @Test
-    fun `at most 200 lines are returned, each cut after 300 characters`() {
+    fun `at most 200 lines are returned, each cut to 300 characters`() {
         val many = fs.write("repo/many.txt", (1..300).joinToString("\n") { "match $it" })
         val long = fs.write("repo/long.txt", "match " + "x".repeat(400))
 
@@ -160,7 +160,7 @@ class GrepToolTest {
         assertEquals("  200: match 200", lines[200])
         assertEquals("[The search stopped at 200 lines: give a narrower pattern, 'glob' or 'path'.]", lines[201])
         assertEquals(
-            "$long\n  1: match ${"x".repeat(294)}…\n",
+            "$long\n  1: match ${"x".repeat(293)}…\n",
             tool.call(fs.context(), "pattern" to "match", "path" to long).text,
         )
     }

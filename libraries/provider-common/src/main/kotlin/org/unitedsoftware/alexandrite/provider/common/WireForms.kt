@@ -1,9 +1,8 @@
 package org.unitedsoftware.alexandrite.provider.common
 
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
-import java.security.MessageDigest
-import java.util.HexFormat
 
 /** The form a wire API takes of a stored value: the value where it matches [grammar], else [MAPPED] and its hash. */
 internal class WireForm(private val grammar: Regex) {
@@ -39,9 +38,6 @@ internal fun resultHeading(name: String, failed: Boolean): String =
 /** Starts with an uppercase letter, which no wire form of a tool name of [ToolNames.PATTERN] does. */
 private const val MAPPED = "X"
 
-private fun mapped(value: String): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-    return MAPPED + HexFormat.of().formatHex(digest, 0, HASH_BYTES)
-}
+private fun mapped(value: String): String = MAPPED + sha256Hex(value).take(HASH_DIGITS)
 
-private const val HASH_BYTES = 16
+private const val HASH_DIGITS = 32

@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -158,11 +159,7 @@ internal class Search(private val regex: Regex) {
         return found.toString().ifEmpty { "No line in $path matches.\n" } + notes.joinToString("") { "[$it]\n" }
     }
 
-    private fun shortened(line: String): String {
-        if (line.length <= MAX_MATCH_CHARS) return line
-        val end = if (line[MAX_MATCH_CHARS - 1].isHighSurrogate()) MAX_MATCH_CHARS - 1 else MAX_MATCH_CHARS
-        return line.substring(0, end) + "…"
-    }
+    private fun shortened(line: String): String = cutWithEllipsis(line, MAX_MATCH_CHARS)
 }
 
 /** [text] that ends a match once its thread is interrupted. */

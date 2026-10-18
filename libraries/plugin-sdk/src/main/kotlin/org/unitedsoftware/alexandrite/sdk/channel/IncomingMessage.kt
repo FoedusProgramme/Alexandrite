@@ -82,7 +82,7 @@ public class IncomingMessage private constructor(
             sender: ChatUser,
             chatInfo: ChatInfo,
             receivedAt: Instant,
-            forwarded: ForwardOrigin?,
+            forwarded: ForwardOrigin? = null,
         ): Builder = Builder(ref, sender, chatInfo, receivedAt, forwarded)
     }
 }
@@ -96,7 +96,8 @@ public class MediaAttachment private constructor(
     public val kind: MediaKind,
     /** The IANA media type, such as `image/png`. */
     public val mediaType: String,
-    public val content: MediaContent,
+    /** Loads the bytes, null exactly when the media is [unavailable]. */
+    public val content: MediaContent?,
     /** In bytes, null when unknown. */
     public val size: Long?,
     /** In pixels, null when unknown or not an image or video. */
@@ -113,6 +114,9 @@ public class MediaAttachment private constructor(
     init {
         require(mediaType.isNotBlank()) { "A media type may not be blank." }
         require(unavailable == null || unavailable.isNotBlank()) { "A reason the media is unavailable is not blank." }
+        require((content == null) != (unavailable == null)) {
+            "Media has either content or a reason it is unavailable, was ${if (content == null) "neither" else "both"}."
+        }
         require(size == null || size >= 0) { "A media size is at least 0, was $size." }
         require(width == null || width > 0) { "A media width is positive, was $width." }
         require(height == null || height > 0) { "A media height is positive, was $height." }
@@ -129,7 +133,7 @@ public class MediaAttachment private constructor(
     public class Builder internal constructor(
         private var kind: MediaKind,
         private var mediaType: String,
-        private var content: MediaContent,
+        private var content: MediaContent?,
     ) {
         private var size: Long? = null
         private var width: Int? = null
@@ -142,7 +146,7 @@ public class MediaAttachment private constructor(
 
         public fun mediaType(mediaType: String): Builder = apply { this.mediaType = mediaType }
 
-        public fun content(content: MediaContent): Builder = apply { this.content = content }
+        public fun content(content: MediaContent?): Builder = apply { this.content = content }
 
         public fun size(size: Long?): Builder = apply { this.size = size }
 
@@ -161,7 +165,8 @@ public class MediaAttachment private constructor(
     }
 
     public companion object {
-        public fun builder(kind: MediaKind, mediaType: String, content: MediaContent): Builder =
+        /** A builder of media with [content], or of unavailable media when it is null. */
+        public fun builder(kind: MediaKind, mediaType: String, content: MediaContent?): Builder =
             Builder(kind, mediaType, content)
     }
 }

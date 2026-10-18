@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.config.InstructionFile
 import org.unitedsoftware.alexandrite.agent.config.PersonaConfig
+import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -101,7 +102,7 @@ private class AgentPersona(agent: Agent, private val limits: PersonaConfig, path
         var left = limits.maxTotalChars
         return files.mapIndexed { index, file ->
             val text = file.text?.takeIf { applying[index] } ?: return@mapIndexed null
-            val kept = keptLength(text, minOf(limits.maxFileChars, left))
+            val kept = fittingLength(text, minOf(limits.maxFileChars, left))
             left -= kept
             if (kept == text.length) return@mapIndexed text
             if (logged.add(index to kept)) {
@@ -221,13 +222,6 @@ private data class Stamp(val modified: FileTime, val size: Long, val key: Any?)
 private fun stampOf(path: Path): Stamp {
     val attributes = Files.readAttributes(path, BasicFileAttributes::class.java)
     return Stamp(attributes.lastModifiedTime(), attributes.size(), attributes.fileKey())
-}
-
-/** How much of [text] fits [limit] characters without splitting a surrogate pair. */
-private fun keptLength(text: String, limit: Int): Int = when {
-    text.length <= limit -> text.length
-    limit > 0 && text[limit - 1].isHighSurrogate() -> limit - 1
-    else -> limit
 }
 
 internal fun cutMarker(kept: Int, length: Int): String =

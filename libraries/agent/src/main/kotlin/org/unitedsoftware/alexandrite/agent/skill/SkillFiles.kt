@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.skill
 
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.text.Utf8Text
@@ -8,7 +9,6 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
-import java.security.MessageDigest
 
 /** The file that holds a skill in the skill's directory, as the Agent Skills format names it. */
 internal const val SKILL_FILE: String = "SKILL.md"
@@ -35,7 +35,7 @@ internal fun readSkill(file: Path): SkillText? = try {
 internal fun parseSkill(bytes: ByteArray): SkillText? {
     if (bytes.size > MAX_SKILL_BYTES) return null
     val text = Utf8Text.decode(bytes)?.text?.removePrefix("") ?: return null
-    val sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+    val sha256 = sha256Hex(bytes)
     val lines = text.lines()
     if (lines.firstOrNull()?.trimEnd() != FENCE) return SkillText(null, null, text.trim(), sha256)
     val end = lines.drop(1).indexOfFirst { it.trimEnd() == FENCE }.takeIf { it >= 0 }?.plus(1)

@@ -12,8 +12,9 @@ import java.time.ZoneId
  * - Only CHAT-target turns open a reply (`Channel.openReply`) and fire `response.preview`, and `response.before` fires
  *   for every reply sent to a chat.
  * - `TurnOutcome.replayable` is false once any run the turn delegated has persisted anything.
- * - Authority flows only from a live `ToolContext`, which is valid only during `Tool.execute`; `TurnInitiator` never
- *   creates a turn with a principal.
+ * - Authority flows only from a live `ToolContext`, which is valid only during `Tool.execute`; a turn that
+ *   `TurnInitiator` creates carries a principal only under a `Mandate` that an operator's turn granted, and only while
+ *   that operator is still an admin of the chat.
  * - Cancelling a chat's running turn cancels every run it delegated, background runs of the chat included.
  */
 @Poko

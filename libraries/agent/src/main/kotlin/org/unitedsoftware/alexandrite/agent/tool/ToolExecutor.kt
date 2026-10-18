@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.agent.permission.MandateGrants
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
+import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -308,17 +309,13 @@ internal fun shaped(content: List<ToolOutputPart>): List<ToolOutputPart> {
     val kept = escaped.mapNotNull { part ->
         if (part !is TextPart) return@mapNotNull part
         val text = part.text
-        val end = if (text.length <= left) text.length else cutAt(text, left)
+        val end = fittingLength(text, left)
         left = if (end < text.length) 0 else left - end
         if (end == 0) null else TextPart(text.substring(0, end))
     }
     val note = "\n[The result was cut here: it held $total characters, of which the model reads $MAX_RESULT_CHARS.]"
     return kept + TextPart(note)
 }
-
-/** [limit], or one less where that would split a surrogate pair of [text]. */
-private fun cutAt(text: String, limit: Int): Int =
-    if (limit > 0 && text[limit - 1].isHighSurrogate()) limit - 1 else limit
 
 /** How long a cancelled tool may take to end before it is abandoned. */
 private val ABANDON_AFTER = 5.seconds

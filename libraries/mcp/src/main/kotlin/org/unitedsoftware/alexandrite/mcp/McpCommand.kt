@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.mcp
 
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.oauth.OAuthException
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -124,7 +125,7 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
                     language,
                     "name" to server.spec.name,
                     "state" to state,
-                    "error" to cut(error, MAX_ERROR),
+                    "error" to cutWithEllipsis(error, MAX_ERROR),
                 )
             }
         }

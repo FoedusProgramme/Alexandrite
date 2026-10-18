@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.channel.telegram.format
 
 import org.unitedsoftware.alexandrite.channel.telegram.api.MessageEntity
+import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.Markup
 
 /** A text and its entities, whose offsets and lengths count UTF-16 code units. */
@@ -8,9 +9,7 @@ internal data class FormattedText(val text: String, val entities: List<Span> = e
     /** This text cut to [limit] characters at most: its head and `…`, the entities clipped. */
     fun clipped(limit: Int): FormattedText {
         if (text.length <= limit) return this
-        var cut = limit - ELLIPSIS.length
-        if (cut > 0 && text[cut - 1].isHighSurrogate()) cut--
-        val head = slice(0, cut)
+        val head = slice(0, fittingLength(text, limit - ELLIPSIS.length))
         return FormattedText(head.text + ELLIPSIS, head.entities)
     }
 

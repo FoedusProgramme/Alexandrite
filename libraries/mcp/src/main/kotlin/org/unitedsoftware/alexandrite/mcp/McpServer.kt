@@ -17,6 +17,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.client.McpCallOutcome
 import org.unitedsoftware.alexandrite.mcp.client.McpClient
 import org.unitedsoftware.alexandrite.mcp.client.McpClientOptions
@@ -147,7 +148,8 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
             return error("MCP server ${spec.name} needs a login, so the call did not run. ${loginHint()}")
         } catch (e: McpRpcException) {
             taint(context)
-            return error("MCP server ${spec.name} refused the call: ${cut(e.rpcMessage, MAX_ERROR)} (${e.code}).")
+            val message = cutWithEllipsis(e.rpcMessage, MAX_ERROR)
+            return error("MCP server ${spec.name} refused the call: $message (${e.code}).")
         } catch (e: McpConnectionException) {
             active.broken.complete(e)
             return error("MCP server ${spec.name} went down during the call: ${e.message}")
@@ -264,7 +266,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
                 McpEnvironment.minimal(links.host, transport.env),
                 transport.cwd,
             ),
-            onStderr = { logger.debug("MCP server {} says: {}", spec.name, cut(it, MAX_STDERR)) },
+            onStderr = { logger.debug("MCP server {} says: {}", spec.name, cutWithEllipsis(it, MAX_STDERR)) },
             onInvalid = ::invalid,
             stopGrace = timings.stopGrace,
         )
@@ -307,7 +309,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
 
     private fun failed(failure: Exception, pause: Duration) {
         val state = if (failure is McpUnauthorized) ServerState.NEEDS_LOGIN else ServerState.DOWN
-        val message = cut(failure.message ?: failure.toString(), MAX_ERROR)
+        val message = cutWithEllipsis(failure.message ?: failure.toString(), MAX_ERROR)
         val before = current.value
         current.value = ServerStatus(state, lastError = message)
         if (before.state != state || before.lastError != message) {

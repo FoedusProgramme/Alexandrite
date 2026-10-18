@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.agent.config
 
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
+import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
@@ -13,8 +14,6 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
-import java.time.DateTimeException
-import java.time.ZoneId
 
 /** The ids that an instruction file's `when` may name. */
 internal val CONDITION_IDS: List<String> = ChatKind.entries.map { it.id } + TurnKind.entries.map { it.id }
@@ -172,13 +171,6 @@ private fun checkRules(path: String, entries: List<String>, allow: Boolean) {
         val problem = RuleEntry.problem(entry, allow)
         require(problem == null) { "$path[$index] $problem" }
     }
-}
-
-/** The zone [text] names, a region id or an offset, null when it names none. */
-internal fun zoneOrNull(text: String): ZoneId? = try {
-    ZoneId.of(text)
-} catch (e: DateTimeException) {
-    null
 }
 
 private fun isLanguageTag(text: String): Boolean = try {

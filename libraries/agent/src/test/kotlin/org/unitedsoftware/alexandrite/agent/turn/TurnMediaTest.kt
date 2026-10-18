@@ -167,7 +167,7 @@ class TurnMediaTest {
             media,
             images = true,
             attachment(MediaKind.VIDEO, "video/mp4", size = 9, name = "clip.mp4") { error("Never read.") },
-            MediaAttachment.builder(MediaKind.FILE, "application/zip") { error("Never read.") }
+            MediaAttachment.builder(MediaKind.FILE, "application/zip", null)
                 .size(21_000_000)
                 .unavailable("larger than the 20 MB that a bot may download")
                 .fromQuote(true)

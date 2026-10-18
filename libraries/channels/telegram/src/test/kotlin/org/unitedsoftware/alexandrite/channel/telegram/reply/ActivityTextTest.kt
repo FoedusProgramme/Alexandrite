@@ -145,7 +145,7 @@ class ActivityTextTest {
         val rendered = renderActivity(texts, null, listOf(call))
 
         val title = rendered.text.substringAfter("\n")
-        assertEquals(81, title.length)
+        assertEquals(80, title.length)
         assertEquals(true, title.endsWith("…"))
         assertEquals(false, '‮' in title)
     }

@@ -3,8 +3,8 @@ package org.unitedsoftware.alexandrite.sdk.transcript
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.sdk.ImmutableBytes
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
-import java.security.MessageDigest
 
 /** Where the bytes of a [MediaPart] are. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
@@ -18,21 +18,18 @@ public class StoredMedia(public val id: MediaId) : MediaSource
 /** Media bytes that a request or a tool result carries. */
 @OptIn(InternalAlexandriteApi::class)
 public class InlineMedia(bytes: ByteArray) : MediaSource {
-    private val bytes = bytes.copyOf()
+    private val bytes = ImmutableBytes(bytes)
 
     public val size: Int get() = bytes.size
 
     /** A copy of the bytes. */
-    public fun bytes(): ByteArray = bytes.copyOf()
+    public fun bytes(): ByteArray = bytes.toByteArray()
 
-    override fun equals(other: Any?): Boolean = other is InlineMedia && bytes.contentEquals(other.bytes)
+    override fun equals(other: Any?): Boolean = other is InlineMedia && bytes == other.bytes
 
-    override fun hashCode(): Int = bytes.contentHashCode()
+    override fun hashCode(): Int = bytes.hashCode()
 
-    override fun toString(): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-        return "InlineMedia(size=$size, sha256=${digest.take(8).joinToString("") { "%02x".format(it) }})"
-    }
+    override fun toString(): String = "InlineMedia(size=$size, sha256=${bytes.digestPrefix()})"
 }
 
 /** A media source of a type this version does not know, as stored. */

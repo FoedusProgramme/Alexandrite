@@ -1,6 +1,6 @@
 package org.unitedsoftware.alexandrite.mcp
 
-import java.security.MessageDigest
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import java.util.Locale
 
 /** The names `mcp.<server>.<tool>` under which a server's tools are offered. */
@@ -42,6 +42,5 @@ internal object McpNames {
         return assigned
     }
 
-    private fun hash(text: String): String = MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
-        .joinToString("") { "%02x".format(it) }.take(HASH_LENGTH)
+    private fun hash(text: String): String = sha256Hex(text).take(HASH_LENGTH)
 }

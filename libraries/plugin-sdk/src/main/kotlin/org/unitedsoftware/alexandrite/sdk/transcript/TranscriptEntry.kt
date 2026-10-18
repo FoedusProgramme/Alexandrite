@@ -19,6 +19,14 @@ public interface TranscriptEntry {
     public fun withRecord(record: EntryRecord): TranscriptEntry
 }
 
+/** The parts of this entry, empty for a kind that holds none. */
+internal fun TranscriptEntry.parts(): List<Part> = when (this) {
+    is UserEntry -> parts
+    is AssistantEntry -> parts
+    is ToolResultEntry -> content
+    else -> emptyList()
+}
+
 /** Where and when the store keeps an entry. */
 @Poko
 public class EntryRecord(

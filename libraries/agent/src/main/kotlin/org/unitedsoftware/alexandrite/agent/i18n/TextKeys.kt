@@ -40,6 +40,12 @@ internal object TextKeys {
     /** Takes `{command}`. */
     const val COMMAND_FAILED: String = "notice.command_failed"
 
+    /** Takes `{command}`. */
+    const val COMMAND_REFUSED: String = "notice.command_refused"
+
+    /** Takes `{operator}` and `{plugin}`. */
+    const val MANDATE_LAPSED: String = "notice.mandate_lapsed"
+
     /** Takes `{model}`. */
     const val MODEL_UNKNOWN: String = "notice.model.unknown"
     const val MODEL_AUTHENTICATION: String = "notice.model.authentication"

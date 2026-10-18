@@ -11,6 +11,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
@@ -29,7 +30,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import java.nio.file.Path
-import java.security.MessageDigest
 
 @Singleton
 @Contribute(Tool::class)
@@ -244,10 +244,7 @@ internal fun profileText(profile: AgentProfile): String {
 private fun syntheticPath(id: AgentId): Path = Path.of("profiles", "$id")
 
 /** What an approved edit or removal of [profile] compares again before it runs. */
-private fun hash(profile: AgentProfile): String {
-    val digest = MessageDigest.getInstance("SHA-256").digest(profileText(profile).toByteArray())
-    return "sha256:" + digest.joinToString("") { "%02x".format(it) }
-}
+private fun hash(profile: AgentProfile): String = "sha256:" + sha256Hex(profileText(profile))
 
 private fun changedSinceReviewed(id: AgentId): String =
     "Profile '$id' changed since this call was reviewed: repeat the call if it still applies."

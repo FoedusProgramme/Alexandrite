@@ -5,6 +5,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.GROUP
 import org.unitedsoftware.alexandrite.channel.telegram.menu.candidates
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
+import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
@@ -150,6 +151,19 @@ class TelegramMenuTest {
             assertFalse(channel.mayRun(bobAddress, bob, "audit", false))
             assertTrue(channel.mayRun(group, ada, "audit", true))
             assertTrue(channel.mayRun(group, bob, "start", true))
+        }
+    }
+
+    @Test
+    fun `the channel counts its configured admins as admins of every chat and no one else`() {
+        telegram.run {
+            val channel = checkNotNull(get<ChannelDirectory>().channel(WORK))
+            val group = telegram.address(GROUP)
+            val elsewhere = ChannelInstanceId(WORK.type, "home")
+
+            assertTrue(channel.isAdmin(group, UserAddress(WORK, "$ADA")))
+            assertFalse(channel.isAdmin(group, UserAddress(WORK, "$BOB")))
+            assertFalse(channel.isAdmin(group, UserAddress(elsewhere, "$ADA")))
         }
     }
 

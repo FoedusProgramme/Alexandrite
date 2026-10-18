@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.store.sqlite
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -77,35 +76,6 @@ class SqliteMediaStoreTest {
 
             assertEquals(bytes.toList(), media.read(stored.id)?.toList())
         }
-    }
-
-    @Test
-    fun `a write that fails leaves no file behind`() {
-        val target = directory.resolve("shard").resolve("file")
-
-        assertFailsWith<IOException> {
-            writeAtomically(target) {
-                it.write(bytes)
-                throw IOException("the disk is full")
-            }
-        }
-
-        assertEquals(emptyList(), target.parent.listDirectoryEntries())
-    }
-
-    @Test
-    fun `a write takes the place of its target only once it is complete`() {
-        val target = directory.resolve("file")
-        var seen: Boolean? = null
-
-        writeAtomically(target) {
-            it.write(bytes)
-            seen = Files.exists(target)
-        }
-
-        assertEquals(false, seen)
-        assertEquals(bytes.toList(), Files.readAllBytes(target).toList())
-        assertEquals(listOf("file"), directory.listDirectoryEntries().map { it.name })
     }
 
     @Test

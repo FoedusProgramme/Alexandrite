@@ -1,17 +1,16 @@
 package org.unitedsoftware.alexandrite.testkit.store
 
+import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.sdk.store.MediaInfo
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.testkit.StoreCheck
-import java.security.MessageDigest
 import java.time.Instant
-import java.util.HexFormat
 
 internal val MEDIA_CHECKS: List<StoreCheck> = listOf(
     StoreCheck("media are stored each under an id of its own") {
         val bytes = "a photo".encodeToByteArray()
-        val sha256 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes))
+        val sha256 = sha256Hex(bytes)
         open {
             val before = Instant.now()
             val image = media.put(bytes, MediaKind.IMAGE, "image/png")

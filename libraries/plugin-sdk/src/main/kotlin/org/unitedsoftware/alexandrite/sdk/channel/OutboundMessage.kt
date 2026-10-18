@@ -2,11 +2,10 @@ package org.unitedsoftware.alexandrite.sdk.channel
 
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.sdk.ImmutableBytes
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import java.io.ByteArrayInputStream
 import java.io.InputStream
-import java.security.MessageDigest
 
 /** A message a channel sends to a chat. */
 @Poko
@@ -67,7 +66,7 @@ public class OutboundFile private constructor(
     public val name: String,
     /** The IANA media type, such as `application/pdf`. */
     public val mediaType: String,
-    private val content: ByteArray,
+    private val content: ImmutableBytes,
     /** Whether the chat gets the file to download even where it could show its content, such as an image. */
     public val asFile: Boolean,
 ) {
@@ -80,23 +79,20 @@ public class OutboundFile private constructor(
     public val size: Long get() = content.size.toLong()
 
     /** A copy of the bytes. */
-    public fun bytes(): ByteArray = content.copyOf()
+    public fun bytes(): ByteArray = content.toByteArray()
 
     /** A stream of the bytes, which copies none of them. */
-    public fun inputStream(): InputStream = ByteArrayInputStream(content)
+    public fun inputStream(): InputStream = content.inputStream()
 
-    public fun toBuilder(): Builder = Builder(name, mediaType, content).asFile(asFile)
+    public fun toBuilder(): Builder = Builder(name, mediaType, content.toByteArray()).asFile(asFile)
 
     override fun equals(other: Any?): Boolean = other is OutboundFile && name == other.name &&
-        mediaType == other.mediaType && asFile == other.asFile && content.contentEquals(other.content)
+        mediaType == other.mediaType && asFile == other.asFile && content == other.content
 
-    override fun hashCode(): Int = listOf(name, mediaType, asFile, content.contentHashCode()).hashCode()
+    override fun hashCode(): Int = listOf(name, mediaType, asFile, content).hashCode()
 
-    override fun toString(): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(content)
-        val sha256 = digest.take(SHOWN_DIGEST_BYTES).joinToString("") { "%02x".format(it) }
-        return "OutboundFile(name=$name, mediaType=$mediaType, size=$size, sha256=$sha256, asFile=$asFile)"
-    }
+    override fun toString(): String = "OutboundFile(name=$name, mediaType=$mediaType, size=$size, " +
+        "sha256=${content.digestPrefix()}, asFile=$asFile)"
 
     public class Builder internal constructor(
         private var name: String,
@@ -113,14 +109,12 @@ public class OutboundFile private constructor(
 
         public fun asFile(asFile: Boolean): Builder = apply { this.asFile = asFile }
 
-        public fun build(): OutboundFile = OutboundFile(name, mediaType, content.copyOf(), asFile)
+        public fun build(): OutboundFile = OutboundFile(name, mediaType, ImmutableBytes(content), asFile)
     }
 
     public companion object {
         /** A builder of the file [name] of [mediaType] holding [bytes] as they are when it builds. */
         public fun builder(name: String, mediaType: String, bytes: ByteArray): Builder = Builder(name, mediaType, bytes)
-
-        private const val SHOWN_DIGEST_BYTES = 8
     }
 }
 

@@ -286,7 +286,7 @@ private class MemberSpan(val keyStart: Int, val keyEnd: Int, val key: String, va
 
 /** Finds the spans of valid JSON. */
 private class Parser(private val text: String) {
-    private var index = if (text.startsWith('﻿')) 1 else 0
+    private var index = if (text.startsWith(BYTE_ORDER_MARK)) BYTE_ORDER_MARK.length else 0
 
     fun root(): ObjectSpan = value() as? ObjectSpan ?: throw ConfigPathException("The config file holds no object.")
 
@@ -341,11 +341,7 @@ private class Parser(private val text: String) {
         }
     }
 
-    private fun stringEnd(start: Int): Int {
-        var end = start + 1
-        while (text[end] != '"') end += if (text[end] == '\\') 2 else 1
-        return end + 1
-    }
+    private fun stringEnd(start: Int): Int = jsonStringEnd(text, start)
 
     private fun skipWhitespace() {
         while (index < text.length && text[index] in WHITESPACE) index++

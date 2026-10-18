@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.commands.support.shown
 import org.unitedsoftware.alexandrite.commands.support.spec
 import org.unitedsoftware.alexandrite.commands.support.updateSettings
 import org.unitedsoftware.alexandrite.commands.support.words
+import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -30,7 +31,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import java.time.Clock
-import java.time.DateTimeException
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -350,15 +350,5 @@ internal class SettingCommands(private val control: AgentControl, private val te
         val EFFORTS = ReasoningEffort.entries.joinToString(", ")
         val CLOCK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)
         val logger = LoggerFactory.getLogger(SettingCommands::class.java)
-    }
-}
-
-/** The zone [text] names, a region id in any case or an offset such as `+08:00`, null when it names none. */
-internal fun zoneOrNull(text: String): ZoneId? {
-    val region = ZoneId.getAvailableZoneIds().firstOrNull { it.equals(text, ignoreCase = true) }
-    return try {
-        ZoneId.of(region ?: text.uppercase(Locale.ROOT))
-    } catch (e: DateTimeException) {
-        null
     }
 }

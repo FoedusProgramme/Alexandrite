@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.prompt
 
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.channel.MediaAttachment
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -164,12 +165,7 @@ private fun mediaLine(media: NotedMedia): String = buildString {
     }
 }
 
-/** [name], cut to [MAX_NAME_CHARS] characters with an ellipsis. */
-private fun shortened(name: String): String {
-    if (name.length <= MAX_NAME_CHARS) return name
-    val end = if (name[MAX_NAME_CHARS - 1].isHighSurrogate()) MAX_NAME_CHARS - 1 else MAX_NAME_CHARS
-    return name.substring(0, end) + "…"
-}
+private fun shortened(name: String): String = cutWithEllipsis(name, MAX_NAME_CHARS)
 
 /** [label] on one line, with a backslash in front when it would pass for a framing field, a quote or a header. */
 private fun factLabel(label: String): String {

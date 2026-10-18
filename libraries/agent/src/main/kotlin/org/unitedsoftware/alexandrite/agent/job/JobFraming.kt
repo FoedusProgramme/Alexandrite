@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.JOB_HEADER
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.textResult
+import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
@@ -95,10 +96,7 @@ internal fun callTitle(arguments: JsonObject): String {
     val main = TITLE_ARGUMENTS.firstNotNullOfOrNull { arguments[it]?.title() }
         ?: arguments.values.firstNotNullOfOrNull { it.title() }
         ?: return ""
-    val line = oneLine(main).trim()
-    if (line.length <= MAX_TITLE_CHARS) return line
-    val end = if (line[MAX_TITLE_CHARS - 1].isHighSurrogate()) MAX_TITLE_CHARS - 1 else MAX_TITLE_CHARS
-    return line.substring(0, end) + "…"
+    return cutWithEllipsis(oneLine(main).trim(), MAX_TITLE_CHARS)
 }
 
 /** A string, or the strings of an array joined by spaces, null for anything else or blank text. */

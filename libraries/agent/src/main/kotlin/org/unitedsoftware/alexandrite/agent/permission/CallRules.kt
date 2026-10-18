@@ -11,6 +11,9 @@ import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.internal.hash.hex
+import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
+import org.unitedsoftware.alexandrite.internal.path.homeDirectory
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -31,7 +34,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
-import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 
@@ -65,7 +67,7 @@ internal class AgentCallRules(
     private val grants = records.collection<GrantedRule>(COLLECTION)
 
     private val declared: Map<AgentId, Declared> = directory.agents.associate { agent ->
-        val home = System.getProperty("user.home")?.takeIf { it.isNotEmpty() }
+        val home = homeDirectory()
         val permission = agent.config.permission
         agent.id to Declared(
             permission.allow.map { RuleEntry.parse(it, home) },
@@ -285,12 +287,12 @@ private class GrantedRule(
 
 /** The record key of the rule of [subject] in [conversation]. */
 private fun key(conversation: ConversationId, subject: RuleSubject): String {
-    val digest = MessageDigest.getInstance("SHA-256")
+    val digest = sha256Digest()
     for (part in listOf(subject.tool) + subject.tokens) {
         digest.update(part.toByteArray())
         digest.update(0.toByte())
     }
-    return "$conversation/" + digest.digest().joinToString("") { "%02x".format(it) }
+    return "$conversation/" + hex(digest.digest())
 }
 
 private val logger = LoggerFactory.getLogger(AgentCallRules::class.java)

@@ -6,6 +6,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.unitedsoftware.alexandrite.runtime.config.BYTE_ORDER_MARK
+import org.unitedsoftware.alexandrite.runtime.config.jsonStringEnd
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigLiteral
@@ -19,8 +21,6 @@ import java.nio.file.Path
 /** Reads JSON config files whose string values may insert environment variables as `${env:NAME}`. */
 public object ConfigFile {
     private val NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
-
-    private const val BYTE_ORDER_MARK = "\uFEFF"
 
     /**
      * The config in [file], with each `${env:NAME}` replaced from [environment] and each `$${` by `${`, which a
@@ -138,7 +138,7 @@ public object ConfigFile {
                 }
 
                 '"' -> {
-                    val end = stringEnd(text, index)
+                    val end = jsonStringEnd(text, index)
                     val level = levels.lastOrNull()
                     if (level != null && level.expectsKey) {
                         val key = Json.decodeFromString<String>(text.substring(index, end))
@@ -153,13 +153,6 @@ public object ConfigFile {
             index++
         }
         return null
-    }
-
-    /** The index after the string literal that starts at [start] of [text]. */
-    private fun stringEnd(text: String, start: Int): Int {
-        var index = start + 1
-        while (text[index] != '"') index += if (text[index] == '\\') 2 else 1
-        return index + 1
     }
 
     private fun join(path: String, key: String): String = if (path.isEmpty()) key else "$path.$key"

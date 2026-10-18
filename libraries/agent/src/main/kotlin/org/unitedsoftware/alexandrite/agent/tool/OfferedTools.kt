@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.permission.ArgsCanonicalizer
 import org.unitedsoftware.alexandrite.agent.prompt.TOOLS_HEADER
+import org.unitedsoftware.alexandrite.internal.hash.hex
+import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -17,8 +19,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
-import java.security.MessageDigest
-import java.util.HexFormat
 
 /** The source of the entry that tells the model how its tools changed. */
 internal const val TOOLS_SOURCE: String = "alexandrite.tools"
@@ -115,7 +115,7 @@ internal fun toolsFraming(added: List<String>, removed: List<String>, changed: L
 }
 
 private fun digest(definition: ToolDefinition): String {
-    val digest = MessageDigest.getInstance("SHA-256")
+    val digest = sha256Digest()
     val fields = listOf(
         definition.name,
         definition.description,
@@ -127,7 +127,7 @@ private fun digest(definition: ToolDefinition): String {
         digest.update(field.toByteArray())
         digest.update(0.toByte())
     }
-    return HexFormat.of().formatHex(digest.digest())
+    return hex(digest.digest())
 }
 
 @Serializable

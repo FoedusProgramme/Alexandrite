@@ -97,8 +97,11 @@ class ChannelValuesTest {
         assertFailsWith<IllegalArgumentException> { attachment.size(0).width(0).build() }
         assertFailsWith<IllegalArgumentException> { attachment.width(1).height(-2).build() }
         assertEquals(0L, attachment.height(1).build().size)
-        assertFailsWith<IllegalArgumentException> { attachment.unavailable(" ").build() }
-        assertEquals("too large", attachment.unavailable("too large").build().unavailable)
+        assertFailsWith<IllegalArgumentException> { attachment.unavailable("too large").build() }
+        val unavailable = MediaAttachment.builder(MediaKind.FILE, "application/pdf", null)
+        assertFailsWith<IllegalArgumentException> { unavailable.build() }
+        assertFailsWith<IllegalArgumentException> { unavailable.unavailable(" ").build() }
+        assertEquals("too large", unavailable.unavailable("too large").build().unavailable)
         assertFailsWith<IllegalArgumentException> { DisplayFact(" ", "x") }
         assertFailsWith<IllegalArgumentException> { DisplayFact("Operator: yes", "x") }
         assertFailsWith<IllegalArgumentException> { DisplayFact("Via\u2028bot", "x") }
@@ -227,16 +230,24 @@ class ChannelValuesTest {
     private val bare = object : Channel {
         override suspend fun capabilities(chat: ChatAddress) = ChannelCapabilities.builder().build()
 
-        override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup) = 1
-
         override suspend fun openReply(request: ReplyRequest): ReplySink = error("Not opened.")
 
         override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = error("Not sent.")
     }
 
     @Test
-    fun `a channel that sets no command rules lets anyone run any command, bare or with arguments`() {
-        for (withArguments in listOf(false, true)) assertTrue(bare.mayRun(chat, sender, "new", withArguments))
+    fun `a channel that sets no command rules lets admins alone run commands, bare or with arguments`() {
+        val admin = ChatUser(UserAddress(work, "2"), "Grace", null, isBot = false, isAdmin = true)
+        for (withArguments in listOf(false, true)) {
+            assertFalse(bare.mayRun(chat, sender, "new", withArguments))
+            assertTrue(bare.mayRun(chat, admin, "new", withArguments))
+        }
+    }
+
+    @Test
+    fun `a channel that names no admins counts no one an admin and splits no text`() {
+        assertFalse(runBlocking { bare.isAdmin(chat, UserAddress(work, "2")) })
+        assertEquals(1, runBlocking { bare.partsNeeded(chat, "x".repeat(10_000), Markup.PLAIN) })
     }
 
     @Test

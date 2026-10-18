@@ -98,10 +98,10 @@ public interface AgentControl {
     /**
      * Applies [update] at [chat] and returns the settings then.
      *
-     * The agent, the home and the permission mode change at once, the model, reasoning and language once the turns
-     * queued at the chat's key before the call have ended. An update of the model, reasoning or language throws
-     * [IllegalStateException] when called in a turn or in a change of the chat's key or a hook it fires, changing
-     * nothing, and when the agent stops before it is made, with the agent, home and mode changed.
+     * The agent, the home and the permission mode change at once, the model, reasoning, language and zone once the
+     * turns queued at the chat's key before the call have ended. An update of the model, reasoning, language or zone
+     * throws [IllegalStateException] when called in a turn or in a change of the chat's key or a hook it fires,
+     * changing nothing, and when the agent stops before it is made, with the agent, home and mode changed.
      */
     public suspend fun updateSettings(
         chat: ChatAddress,
