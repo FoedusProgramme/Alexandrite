@@ -25,11 +25,11 @@ class PublicApiTest {
 
     /** A third-party plugin's test that uses every double, compiled without the internal API. */
     private val sample = """
+        import kotlinx.coroutines.flow.MutableStateFlow
         import kotlinx.coroutines.flow.toList
         import kotlinx.serialization.json.JsonObject
         import kotlinx.serialization.json.JsonPrimitive
         import org.foedusprogramme.alexandrite.runtime.TextCatalog
-        import org.foedusprogramme.alexandrite.sdk.web.WebQuery
         import org.foedusprogramme.alexandrite.sdk.agent.*
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
@@ -43,10 +43,13 @@ class PublicApiTest {
         import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
         import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
         import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
+        import org.foedusprogramme.alexandrite.sdk.tool.Tool
         import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
         import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+        import org.foedusprogramme.alexandrite.sdk.tool.ToolSource
         import org.foedusprogramme.alexandrite.sdk.transcript.*
         import org.foedusprogramme.alexandrite.sdk.turn.*
+        import org.foedusprogramme.alexandrite.sdk.web.WebQuery
         import org.foedusprogramme.alexandrite.testkit.*
         import java.nio.file.Path
         import java.time.ZoneOffset
@@ -300,6 +303,12 @@ class PublicApiTest {
             val harness = builder
                 .plugin(other)
                 .tool(recordingTool())
+                .toolSource(
+                    object : ToolSource {
+                        override val namespace = "remote"
+                        override val tools = MutableStateFlow(listOf<Tool>(recordingTool("remote.ping")))
+                    },
+                )
                 .hook(hook)
                 .commandHandler(handler)
                 .config("{}")

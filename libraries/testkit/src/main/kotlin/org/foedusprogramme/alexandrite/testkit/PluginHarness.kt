@@ -31,6 +31,7 @@ import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolSource
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.testkit.plugin.DoublesPlugin
 import org.foedusprogramme.alexandrite.testkit.plugin.RecordingChannelConfig
@@ -262,6 +263,7 @@ public class PluginHarness private constructor(
         private val models = mutableListOf<ScriptedModel>()
         private val watched = mutableListOf<ScriptedModel>()
         private val tools = mutableListOf<Tool>()
+        private val sources = mutableListOf<ToolSource>()
         private val hooks = mutableListOf<Hook>()
         private val handlers = mutableListOf<CommandHandler>()
         private val channels = LinkedHashMap<ChannelType, LinkedHashMap<String, RecordingChannelConfig>>()
@@ -357,6 +359,9 @@ public class PluginHarness private constructor(
         /** Contributes [tool] through the plugin `testkit`. */
         public fun tool(tool: Tool): Builder = apply { tools += tool }
 
+        /** Contributes [source], whose tools come and go while the run lasts, through the plugin `testkit`. */
+        public fun toolSource(source: ToolSource): Builder = apply { sources += source }
+
         /** Contributes [hook] through the plugin `testkit`. */
         public fun hook(hook: Hook): Builder = apply { hooks += hook }
 
@@ -422,6 +427,7 @@ public class PluginHarness private constructor(
             val doubles = DoublesPlugin(
                 models,
                 tools,
+                sources,
                 hooks,
                 handlers,
                 submitter,

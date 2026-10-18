@@ -31,6 +31,7 @@ import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolSource
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.CommandHandler
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
@@ -58,6 +59,7 @@ internal abstract class HarnessPlugin(id: String, name: String) : PluginIndex {
 internal class DoublesPlugin(
     models: List<ScriptedModel>,
     tools: List<Tool>,
+    sources: List<ToolSource>,
     hooks: List<Hook>,
     handlers: List<CommandHandler>,
     submitter: RecordingTurnSubmitter?,
@@ -78,6 +80,9 @@ internal class DoublesPlugin(
             add(instanceBinding(key<ModelProvider>(), provider, ID, "ScriptedModel provider", multi = true))
         }
         tools.forEach { add(instanceBinding(key<Tool>(), it, ID, "Tool ${it.definition.name}", multi = true)) }
+        sources.forEach {
+            add(instanceBinding(key<ToolSource>(), it, ID, "ToolSource ${it.namespace}", multi = true))
+        }
         hooks.forEach { add(instanceBinding(key<Hook>(), it, ID, "Hook ${it.javaClass.name}", multi = true)) }
         handlers.forEach {
             add(instanceBinding(key<CommandHandler>(), it, ID, "CommandHandler ${it.javaClass.name}", multi = true))

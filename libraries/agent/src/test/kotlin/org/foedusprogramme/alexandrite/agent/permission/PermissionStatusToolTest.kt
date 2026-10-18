@@ -61,7 +61,7 @@ class PermissionStatusToolTest {
         val directory = agentDirectory(
             settings("""{"agents": {"main": {"description": "Main.", "permission": {$modeField"allow": $allowed}}}}"""),
         )
-        val registry = ToolRegistry(listOf(exec, deploy), directory, NO_BUILT_INS)
+        val registry = ToolRegistry(listOf(exec, deploy), emptyList(), directory, NO_BUILT_INS)
         val records = TestRecords(store.records).of("alexandrite-agent")
         rules = AgentCallRules(directory, registry, records, store.conversations, states, clock)
         return PermissionStatusTool(states, directory, store.conversations, lazyOf(rules), clock)

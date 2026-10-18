@@ -18,13 +18,10 @@ internal class PromptAssembler(
     private val directory: AgentDirectory,
     private val persona: Persona,
     private val tools: ToolRegistry,
-    workspaces: Workspaces,
+    private val workspaces: Workspaces,
     private val directories: ConversationDirectories,
     private val skills: Skills,
 ) {
-    /** The workspace section of each agent that selects a tool. */
-    private val workspaceSections = workspaces.paths.filterKeys { tools.offered(it).isNotEmpty() }
-        .mapValues { (_, workspace) -> workspaceSection(workspace) }
 
     /** The sections of [turn], a run of [profile] that [delegator] delegated. */
     fun delegated(turn: TurnInfo, profile: AgentProfile, delegator: AgentId): List<PromptSection> = buildList {
@@ -32,7 +29,7 @@ internal class PromptAssembler(
         add(delegationSection(delegator))
         val instructions = profile.instructions.takeIf { it.isNotBlank() }
         instructions?.let { add(PromptSection(instructionsSection(1), it, stable = true)) }
-        workspaceSections[turn.agent]?.let(::add)
+        workspace(turn.agent)?.let(::add)
         addConversationDirectory(turn)
         addSkills(turn)
         turn.language?.let { add(languageSection(it)) }
@@ -44,12 +41,16 @@ internal class PromptAssembler(
         return buildList {
             add(baseSection(agent.name))
             addAll(persona.sections(agent.id, PersonaConditions(chatKind, turn.kind)))
-            workspaceSections[agent.id]?.let(::add)
+            workspace(agent.id)?.let(::add)
             addConversationDirectory(turn)
             addSkills(turn)
             turn.language?.let { add(languageSection(it)) }
         }
     }
+
+    /** The workspace section of [agent], for an agent that selects a tool. */
+    private fun workspace(agent: AgentId): PromptSection? =
+        workspaces.paths[agent]?.takeIf { tools.offered(agent).isNotEmpty() }?.let(::workspaceSection)
 
     /** The skills section of [turn], for an agent offered `skill.load`. */
     private fun MutableList<PromptSection>.addSkills(turn: TurnInfo) {

@@ -82,7 +82,7 @@ internal class AgentCallRules(
     init {
         for ((agent, rules) in declared) {
             for (entry in rules.allow + rules.deny) {
-                if (tools.tool(entry.tool) != null) continue
+                if (tools.tool(entry.tool) != null || tools.isSourced(entry.tool)) continue
                 logger.warn(
                     "The permission rule {} of agent '{}' names a tool that no plugin contributes",
                     entry,

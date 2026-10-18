@@ -77,7 +77,7 @@ class CallRulesTest {
     private inner class Setup(permission: String = "{}") {
         val directory: AgentDirectory =
             agentDirectory(settings("""{"agents": {"main": {"description": "Main.", "permission": $permission}}}"""))
-        val registry = ToolRegistry(listOf(exec, deploy, notes, read), directory, NO_BUILT_INS)
+        val registry = ToolRegistry(listOf(exec, deploy, notes, read), emptyList(), directory, NO_BUILT_INS)
         val rules = AgentCallRules(directory, registry, records, store.conversations, states, clock)
         val approvals = OfferingApprovals(rules)
         val gate =

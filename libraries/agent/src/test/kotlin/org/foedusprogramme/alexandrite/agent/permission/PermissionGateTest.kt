@@ -90,7 +90,7 @@ class PermissionGateTest {
         val origins = object : PluginOrigins {
             override fun isBuiltIn(instance: Any): Boolean = builtIn.any { it === instance }
         }
-        val registry = ToolRegistry(tools, directory, origins)
+        val registry = ToolRegistry(tools, emptyList(), directory, origins)
         return PermissionGate(TurnHooks(hooks), registry, rules, judge, approvals, states, directory, clock)
     }
 
@@ -627,7 +627,7 @@ class PermissionGateTest {
         val origins = object : PluginOrigins {
             override fun isBuiltIn(instance: Any): Boolean = false
         }
-        val registry = ToolRegistry(listOf(write), directory, origins)
+        val registry = ToolRegistry(listOf(write), emptyList(), directory, origins)
         val gate = PermissionGate(
             TurnHooks(hooks),
             registry,
