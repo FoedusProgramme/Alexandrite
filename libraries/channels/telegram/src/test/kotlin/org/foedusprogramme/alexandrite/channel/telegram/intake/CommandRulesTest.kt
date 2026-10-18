@@ -94,6 +94,23 @@ class CommandRulesTest {
     }
 
     @Test
+    fun `anyone lists the scheduled tasks, only admins cancel one`() {
+        val rules = CommandRules(listOf(ClaimedCommands("schedule")), control)
+        val member = testUser("bob")
+        val admin = testUser("ada", isAdmin = true)
+
+        for (kind in kinds) {
+            assertEquals(null, rules.refusal(testCommand("schedule", "", issuer = member), kind))
+            assertEquals(
+                TextKeys.REFUSED_ADMIN,
+                rules.refusal(testCommand("schedule", "cancel t-4k2p", issuer = member), kind),
+            )
+            assertEquals(null, rules.refusal(testCommand("schedule", "cancel t-4k2p", issuer = admin), kind))
+        }
+        assertEquals(true, rules.listed("schedule", admin = false, direct = false))
+    }
+
+    @Test
     fun `names are matched ignoring case, and a command no handler claims reaches the agent from anyone`() {
         assertRow("New", "", direct = null, others = TextKeys.REFUSED_ADMIN_HERE)
         assertRow("MODEL", "x/y", direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)

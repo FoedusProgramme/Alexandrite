@@ -84,6 +84,7 @@ class AppTextsTest {
             setOf(
                 "alexandrite-agent",
                 "alexandrite-automation-heartbeat",
+                "alexandrite-automation-schedule",
                 "alexandrite-channel-telegram",
                 "alexandrite-commands",
             ),
