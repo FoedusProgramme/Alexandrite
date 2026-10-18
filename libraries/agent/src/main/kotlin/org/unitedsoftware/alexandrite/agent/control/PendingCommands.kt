@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.prompt.lines
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
@@ -30,7 +31,10 @@ internal class ReplyRecord(val text: String, val forModel: Boolean)
 
 /** The commands that ran in each conversation since its last turn, not yet shown to the model. */
 @Singleton
-internal class PendingCommands(records: Records, private val conversations: ConversationStore) : Lifecycle {
+@Contribute(ConversationSeals::class)
+internal class PendingCommands(records: Records, private val conversations: ConversationStore) :
+    Lifecycle,
+    ConversationSeals {
     private val pending = records.collection<PendingCommandsRecord>(COLLECTION)
     private val writing = Mutex()
 
@@ -101,7 +105,7 @@ internal class PendingCommands(records: Records, private val conversations: Conv
     }
 
     /** Forgets the commands of [conversation], which was sealed. */
-    suspend fun sealed(conversation: ConversationId) {
+    override suspend fun sealed(conversation: ConversationId) {
         try {
             pending.remove(conversation.value)
         } catch (e: Exception) {

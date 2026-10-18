@@ -1,6 +1,9 @@
 package org.unitedsoftware.alexandrite.provider.common
 
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.model.Warning
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 
@@ -34,6 +37,15 @@ internal fun callText(call: ToolCallPart, name: String): String =
 /** The heading of the text that stands for a result of the tool [name] in a request that offers no tools. */
 internal fun resultHeading(name: String, failed: Boolean): String =
     "[Result of tool $name${if (failed) ", which failed" else ""}]"
+
+/** The image types that the Messages and Responses APIs take. */
+internal val IMAGE_TYPES: Set<String> = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
+
+/** The warning that [info]'s model takes no [effort], so the request asks for none. */
+internal fun unsupportedEffort(effort: ReasoningEffort, info: ModelInfo): Warning = Warning(
+    "unsupported_option",
+    "Model '${info.id}' takes no reasoning effort '$effort', so the request asks for none.",
+)
 
 /** Starts with an uppercase letter, which no wire form of a tool name of [ToolNames.PATTERN] does. */
 private const val MAPPED = "X"

@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import org.unitedsoftware.alexandrite.mcp.client.string
 import java.net.URI
 import java.time.Instant
 import java.util.Base64

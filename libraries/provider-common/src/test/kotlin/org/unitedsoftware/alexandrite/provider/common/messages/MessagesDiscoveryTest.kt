@@ -110,7 +110,11 @@ class MessagesDiscoveryTest {
     fun `a listing without capabilities claims nothing and the operator's facts win`() {
         server.enqueue(fakeResponse { body(page(false, model("vendor-model"))) }, "/v1/models")
         val configured = mapOf(
-            "vendor-model" to ModelConfig(inputMedia = setOf("image"), reasoningEfforts = setOf("none", "high")),
+            "vendor-model" to
+                ModelConfig(
+                    inputMedia = setOf("image"),
+                    reasoningEfforts = setOf(ReasoningEffort.NONE, ReasoningEffort.HIGH),
+                ),
             "extra-model" to ModelConfig(contextWindow = 4096, displayName = "Extra"),
         )
 

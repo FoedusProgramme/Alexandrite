@@ -36,7 +36,7 @@ internal class PermissionStatusTool(
     private val settings: SettingsStates,
     private val directory: AgentDirectory,
     private val conversations: ConversationStore,
-    private val rules: Lazy<AgentCallRules>,
+    private val rules: Lazy<CallRules>,
     private val clock: Clock,
 ) : CompanionTool {
     override val definition: ToolDefinition = ToolDefinition(

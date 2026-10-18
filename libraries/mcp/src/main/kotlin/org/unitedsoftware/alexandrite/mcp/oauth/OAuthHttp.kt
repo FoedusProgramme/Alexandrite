@@ -2,14 +2,12 @@ package org.unitedsoftware.alexandrite.mcp.oauth
 
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import org.unitedsoftware.alexandrite.internal.http.HttpCall
 import org.unitedsoftware.alexandrite.internal.http.HttpException
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.internal.http.printable
+import org.unitedsoftware.alexandrite.mcp.client.string
 import org.unitedsoftware.alexandrite.mcp.isLoopback
 import java.net.URI
 import java.net.URISyntaxException
@@ -100,13 +98,6 @@ internal class OAuthHttp(private val transport: HttpTransport) {
 }
 
 internal fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8)
-
-internal fun JsonObject.string(name: String): String? = (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-internal fun JsonObject.strings(name: String): List<String>? = (this[name] as? JsonArray)
-    ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { primitive -> primitive.isString }?.content }
-
-internal fun JsonObject.flag(name: String): Boolean = (this[name] as? JsonPrimitive)?.booleanOrNull == true
 
 /** [text] as an https URI, or an http one on the loopback interface, else the failure that names it [what]. */
 internal fun secureUri(text: String, what: String): URI {

@@ -1,6 +1,5 @@
 package org.unitedsoftware.alexandrite.mcp
 
-import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.oauth.OAuthException
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -54,7 +53,7 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
         val refusal = when {
             !invocation.issuer.isAdmin -> texts.text(TextKeys.LOGIN_REFUSED_ADMIN, language)
             invocation.chatKind != ChatKind.DIRECT -> texts.text(TextKeys.LOGIN_REFUSED_GROUP, language)
-            server == null -> texts.text(TextKeys.RESTART_UNKNOWN, language, "name" to name)
+            server == null -> texts.text(TextKeys.UNKNOWN_SERVER, language, "name" to name)
             server.spec.transport !is Transport.Http -> texts.text(TextKeys.LOGIN_NOT_HTTP, language, "name" to name)
             else -> null
         }
@@ -125,7 +124,7 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
                     language,
                     "name" to server.spec.name,
                     "state" to state,
-                    "error" to cutWithEllipsis(error, MAX_ERROR),
+                    "error" to error,
                 )
             }
         }
@@ -137,7 +136,7 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
     }
 
     private fun restart(name: String, language: LanguageTag?): String {
-        val server = hub.server(name) ?: return texts.text(TextKeys.RESTART_UNKNOWN, language, "name" to name)
+        val server = hub.server(name) ?: return texts.text(TextKeys.UNKNOWN_SERVER, language, "name" to name)
         if (!server.spec.enabled) return texts.text(TextKeys.RESTART_DISABLED, language, "name" to name)
         server.restart()
         return texts.text(TextKeys.RESTART_DONE, language, "name" to name)
@@ -148,7 +147,6 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
         const val RESTART = "restart"
         const val LOGIN = "login"
         const val LOGOUT = "logout"
-        const val MAX_ERROR = 200
         val WHITESPACE = Regex("\\s+")
     }
 }
@@ -166,7 +164,7 @@ internal object TextKeys {
     const val STATE_NEEDS_LOGIN = "state.needs_login"
     const val STATE_DISABLED = "state.disabled"
     const val RESTART_DONE = "restart.done"
-    const val RESTART_UNKNOWN = "restart.unknown"
+    const val UNKNOWN_SERVER = "server.unknown"
     const val RESTART_DISABLED = "restart.disabled"
     const val REFUSED_ADMIN = "refused.admin"
     const val STATE_WIDER = "state.wider"

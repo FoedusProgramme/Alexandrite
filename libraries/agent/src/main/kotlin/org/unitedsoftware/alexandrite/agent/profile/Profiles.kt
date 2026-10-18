@@ -4,11 +4,16 @@ import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.agent.config.Agent
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.CONFIGURABLE_MODES
+import org.unitedsoftware.alexandrite.agent.config.configurableModeOf
+import org.unitedsoftware.alexandrite.agent.config.invalidGlob
+import org.unitedsoftware.alexandrite.agent.config.isAgentId
+import org.unitedsoftware.alexandrite.agent.config.isOneLine
+import org.unitedsoftware.alexandrite.agent.config.reasoningOf
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
 import org.unitedsoftware.alexandrite.agent.prompt.PersonaConditions
-import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
+import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -18,15 +23,11 @@ import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
-import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
-
-/** Why a profile cannot be shown, created, changed or removed as asked. */
-internal class ProfileProblem(message: String) : Exception(message)
 
 /** A `profile.create` call, its fields not yet validated. */
 internal class ProfileDraft(
@@ -124,7 +125,7 @@ internal class Profiles(
         checkIdGrammar(draft.id)
         val id = AgentId(draft.id)
         checkFree(id)
-        if (created.get(draft.id) != null) throw ProfileProblem(exists(id))
+        if (created.get(draft.id) != null) throw ToolRefusal(exists(id))
         checkName(draft.name)
         checkDescription(draft.description)
         checkInstructions(draft.instructions)
@@ -152,14 +153,14 @@ internal class Profiles(
 
     /** Creates [profile], failing when its id was taken since it was planned. */
     suspend fun persistCreate(profile: AgentProfile, by: ChatUser?) {
-        if (created.get(profile.id.value) != null) throw ProfileProblem(exists(profile.id))
+        if (created.get(profile.id.value) != null) throw ToolRefusal(exists(profile.id))
         created.put(profile.id.value, recordOf(profile, by?.let(::Granter)), by?.address)
     }
 
     /** The profile [id] as it is now and as [changes] would make it, failing when [id] is not the agent's own. */
     suspend fun plannedEdit(id: AgentId, changes: ProfileEdit): Pair<AgentProfile, AgentProfile> {
         checkFree(id)
-        val current = toProfile(id, created.get(id.value)?.value ?: throw ProfileProblem(notFound(id)))
+        val current = toProfile(id, created.get(id.value)?.value ?: throw ToolRefusal(notFound(id)))
         val name = changes.name ?: current.name
         val description = changes.description ?: current.description
         val instructions = changes.instructions ?: current.instructions
@@ -196,20 +197,20 @@ internal class Profiles(
     /** Stores [updated] over its own id, keeping who created it, failing when it is no longer the agent's. */
     suspend fun persistEdit(updated: AgentProfile, by: ChatUser?) {
         checkFree(updated.id)
-        val createdBy = created.get(updated.id.value)?.value?.createdBy ?: throw ProfileProblem(notFound(updated.id))
+        val createdBy = created.get(updated.id.value)?.value?.createdBy ?: throw ToolRefusal(notFound(updated.id))
         created.put(updated.id.value, recordOf(updated, createdBy), by?.address)
     }
 
     /** The profile [id] as it is now, failing when it is not the agent's own. */
     suspend fun plannedRemove(id: AgentId): AgentProfile {
         checkFree(id)
-        return toProfile(id, created.get(id.value)?.value ?: throw ProfileProblem(notFound(id)))
+        return toProfile(id, created.get(id.value)?.value ?: throw ToolRefusal(notFound(id)))
     }
 
     /** Removes the profile [id], failing when it is not the agent's own. */
     suspend fun persistRemove(id: AgentId) {
         checkFree(id)
-        if (!created.remove(id.value)) throw ProfileProblem(notFound(id))
+        if (!created.remove(id.value)) throw ToolRefusal(notFound(id))
     }
 
     /** The profile [id]'s instructions, from its config entry's inline text and instruction files. */
@@ -262,22 +263,22 @@ internal class Profiles(
 
     /** Throws when [id] is declared by the config or a plugin, which the agent may not create or edit. */
     private fun checkFree(id: AgentId) {
-        if (id in config || id in plugins) throw ProfileProblem(declaredElsewhere(id))
+        if (id in config || id in plugins) throw ToolRefusal(declaredElsewhere(id))
     }
 
     private fun parseModel(text: String): ModelRef {
-        val model = ModelRef.parseOrNull(text) ?: throw ProfileProblem(
+        val model = ModelRef.parseOrNull(text) ?: throw ToolRefusal(
             "'model' is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-haiku-5-5\".",
         )
-        if (endpoints.endpoint(model.endpoint) == null) throw ProfileProblem("No model endpoint '${model.endpoint}'.")
+        if (endpoints.endpoint(model.endpoint) == null) throw ToolRefusal("No model endpoint '${model.endpoint}'.")
         return model
     }
 
-    private fun parseReasoning(text: String): ReasoningEffort = ReasoningEffort.entries.firstOrNull { it.id == text }
-        ?: throw ProfileProblem("'reasoning' must be one of ${ReasoningEffort.entries.joinToString()}.")
+    private fun parseReasoning(text: String): ReasoningEffort = reasoningOf(text)
+        ?: throw ToolRefusal("'reasoning' must be one of ${ReasoningEffort.entries.joinToString()}.")
 
-    private fun parseMode(text: String): PermissionMode = CONFIGURABLE_MODES.firstOrNull { it.id == text }
-        ?: throw ProfileProblem("'mode' must be one of ${CONFIGURABLE_MODES.joinToString()}.")
+    private fun parseMode(text: String): PermissionMode = configurableModeOf(text)
+        ?: throw ToolRefusal("'mode' must be one of ${CONFIGURABLE_MODES.joinToString()}.")
 
     private companion object {
         const val COLLECTION = "profiles"
@@ -300,8 +301,8 @@ private fun <T : Any> keptChange(change: SettingChange<T>, current: T?): T? = wh
 }
 
 private fun checkIdGrammar(id: String) {
-    if (!PluginIds.PATTERN.matches(id)) {
-        throw ProfileProblem(
+    if (!isAgentId(id)) {
+        throw ToolRefusal(
             "'$id' is no valid profile id: an id is lowercase words of letters and digits, each starting with a " +
                 "letter, joined by single hyphens, such as \"reviewer\".",
         )
@@ -309,37 +310,37 @@ private fun checkIdGrammar(id: String) {
 }
 
 private fun checkName(name: String) {
-    if (name.isBlank() || name.length > MAX_NAME_CHARS || name.any(Char::isISOControl)) {
-        throw ProfileProblem("'name' must be one line of text, at most $MAX_NAME_CHARS characters.")
+    if (!isOneLine(name) || name.length > MAX_NAME_CHARS) {
+        throw ToolRefusal("'name' must be one line of text, at most $MAX_NAME_CHARS characters.")
     }
 }
 
 private fun checkDescription(description: String) {
-    if (description.isBlank() || description.length > MAX_DESCRIPTION_CHARS || description.any(Char::isISOControl)) {
-        throw ProfileProblem("'description' must be one line of text, at most $MAX_DESCRIPTION_CHARS characters.")
+    if (!isOneLine(description) || description.length > MAX_DESCRIPTION_CHARS) {
+        throw ToolRefusal("'description' must be one line of text, at most $MAX_DESCRIPTION_CHARS characters.")
     }
 }
 
 private fun checkInstructions(instructions: String) {
-    if (instructions.isBlank()) throw ProfileProblem("Give 'instructions'.")
+    if (instructions.isBlank()) throw ToolRefusal("Give 'instructions'.")
     if (instructions.length > MAX_INSTRUCTIONS_CHARS) {
-        throw ProfileProblem("'instructions' is over $MAX_INSTRUCTIONS_CHARS characters.")
+        throw ToolRefusal("'instructions' is over $MAX_INSTRUCTIONS_CHARS characters.")
     }
 }
 
 private fun checkGlobs(globs: List<String>, field: String) {
-    val bad = globs.firstOrNull { !ToolGlob.isValid(it) } ?: return
-    throw ProfileProblem(
+    val bad = invalidGlob(globs) ?: return
+    throw ToolRefusal(
         "'$field' holds '$bad', no valid tool glob: write dotted tool names, with * for any characters.",
     )
 }
 
 private fun checkMaxRounds(maxRounds: Int?) {
-    if (maxRounds != null && maxRounds <= 0) throw ProfileProblem("'maxRounds' must be positive.")
+    if (maxRounds != null && maxRounds <= 0) throw ToolRefusal("'maxRounds' must be positive.")
 }
 
 private fun checkMaxTurnTokens(maxTurnTokens: Long?) {
-    if (maxTurnTokens != null && maxTurnTokens <= 0) throw ProfileProblem("'maxTurnTokens' must be positive.")
+    if (maxTurnTokens != null && maxTurnTokens <= 0) throw ToolRefusal("'maxTurnTokens' must be positive.")
 }
 
 private fun declaredElsewhere(id: AgentId): String =

@@ -1,10 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.context
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.control.effectiveZone
@@ -30,7 +27,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.CompactionReport
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import java.time.Clock
-import kotlin.time.Duration.Companion.seconds
 
 /** Compacts a conversation on request and tells how much of its window it takes. */
 @Singleton
@@ -129,23 +125,8 @@ internal class ContextControl(
     }
 
     /** What its endpoint lists of [model], null when it is unknown or cannot be listed in time. */
-    private suspend fun info(model: ModelRef): ModelInfo? = try {
-        withTimeoutOrNull(LISTING_TIMEOUT) { endpoints.model(model) }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        logger.warn(
-            "Cannot list the models of endpoint '{}' to read the context window of {}: {}",
-            model.endpoint,
-            model,
-            e.toString(),
-        )
-        null
-    }
-
-    private companion object {
-        val LISTING_TIMEOUT = 5.seconds
+    private suspend fun info(model: ModelRef): ModelInfo? {
+        val listed = endpoints.modelsWithin(model.endpoint, "to read the context window of $model")
+        return listed?.firstOrNull { it.id == model.model }
     }
 }
-
-private val logger = LoggerFactory.getLogger(ContextControl::class.java)

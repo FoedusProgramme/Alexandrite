@@ -36,7 +36,7 @@ internal class AgentConfig(
     /** How long a tool call may run in the foreground and the background together, unless its tool declares longer. */
     val toolTimeoutSeconds: Int = 1800,
     /** How long a tool call runs before it moves to the background. */
-    val foregroundSeconds: Int = 300,
+    val foregroundSeconds: Int = DEFAULT_FOREGROUND_SECONDS,
     val tools: ToolSelection = ToolSelection(),
     val permission: PermissionConfig = PermissionConfig(),
     val compaction: CompactionConfig = CompactionConfig(),
@@ -62,7 +62,7 @@ internal class ToolSelection(
     val allow: List<String> = listOf("*"),
     /** Wins over [allow]. */
     val deny: List<String> = emptyList(),
-    /** The tools offered on turns whose principal is no admin. */
+    /** The tools that a turn whose principal is no admin may call. */
     val forMembers: List<String> = emptyList(),
 )
 
@@ -115,3 +115,6 @@ internal object InstructionFileSerializer : KSerializer<InstructionFile> {
         }
     }
 }
+
+/** How long a tool call of an agent that sets nothing runs before it moves to the background. */
+internal const val DEFAULT_FOREGROUND_SECONDS = 300

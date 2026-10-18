@@ -75,14 +75,14 @@ internal class ChannelApprovals(
         val channel = channels.channel(turn.chat.instance)
             ?: return unavailable(request, "the channel of the chat is not open")
         logger.info(
-            "Approval {} of call {} of {} in turn {} of {} is asked for: {}",
+            "Approval {} of call {} of {} in turn {} of {} is asked for",
             request.id,
             gate.call.id,
             request.tool,
             turn.id,
             turn.key,
-            reason,
         )
+        logger.debug("Approval {} is asked for because {}", request.id, reason)
         gate.calls.waitingApproval(gate.call.id)
         record { awaiting.put(turn.id, gate.call.id, request.id) }
         val answer = try {

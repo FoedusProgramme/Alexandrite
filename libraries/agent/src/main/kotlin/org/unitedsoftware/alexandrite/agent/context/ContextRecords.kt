@@ -4,7 +4,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
@@ -17,7 +19,10 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** The last measured prompt of each active conversation and the tool results that its requests leave out. */
 @Singleton
-internal class ContextRecords(records: Records, private val conversations: ConversationStore) : Lifecycle {
+@Contribute(ConversationSeals::class)
+internal class ContextRecords(records: Records, private val conversations: ConversationStore) :
+    Lifecycle,
+    ConversationSeals {
     private val stored = records.collection<ContextRecord>(COLLECTION)
     private val cached = ConcurrentHashMap<ConversationId, ContextRecord>()
 
@@ -59,7 +64,7 @@ internal class ContextRecords(records: Records, private val conversations: Conve
         put(conversation, get(conversation).copy(cleared = cleared.map { it.value }.sorted()))
 
     /** Forgets [conversation], which was sealed. */
-    suspend fun sealed(conversation: ConversationId) {
+    override suspend fun sealed(conversation: ConversationId) {
         cached.remove(conversation)
         try {
             stored.remove(conversation.value)

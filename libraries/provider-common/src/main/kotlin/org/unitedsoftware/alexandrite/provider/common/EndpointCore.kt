@@ -1,11 +1,15 @@
 package org.unitedsoftware.alexandrite.provider.common
 
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.http.HttpException
 import org.unitedsoftware.alexandrite.internal.http.HttpResponseStream
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
+import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 
@@ -17,12 +21,17 @@ internal class EndpointCore(
     dialect: Dialect,
     own: Map<String, String> = emptyMap(),
     /** The header that the wire API carries the API key in. */
-    authHeader: String = "authorization",
+    authHeader: String = EndpointSettings.DEFAULT_AUTH_HEADER,
+    /** Headers that the endpoint sets on some requests itself. */
+    providerHeaders: Set<String> = emptySet(),
 ) : AutoCloseable {
-    private val connection = EndpointConnection(settings, own, authHeader)
+    private val connection = EndpointConnection(settings, own, authHeader, providerHeaders)
     private val catalog = ModelCatalog(id, settings, listing, dialect, connection)
 
-    suspend fun models(): List<ModelInfo> = catalog.models()
+    /** The models, which search the web natively when [nativeSearch] holds. */
+    suspend fun models(nativeSearch: Boolean = false): List<ModelInfo> = catalog.models().let { models ->
+        if (nativeSearch) models.map { it.rebuild { webSearch(true) } } else models
+    }
 
     fun describe(model: String): ModelInfo = catalog.describe(model)
 
@@ -67,6 +76,20 @@ internal class EndpointCore(
     /** The failure of a response in [mediaType], which no endpoint reads. */
     fun unreadable(mediaType: String?, outputStarted: Boolean): ModelException =
         modelException(ModelErrorKind.PROTOCOL, "Endpoint '$id' answered with $mediaType.", outputStarted)
+
+    /** The event [text], which throws a [ModelException] when it holds no JSON object. */
+    fun json(text: String, outputStarted: Boolean): JsonObject {
+        val parsed = try {
+            Json.parseToJsonElement(text) as? JsonObject
+        } catch (e: SerializationException) {
+            null
+        }
+        return parsed ?: throw modelException(
+            ModelErrorKind.PROTOCOL,
+            "Endpoint '$id' sent an event that is no JSON object.",
+            outputStarted,
+        )
+    }
 
     override fun close() {
         connection.close()

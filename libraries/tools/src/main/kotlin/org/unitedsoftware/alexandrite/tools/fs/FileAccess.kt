@@ -33,19 +33,24 @@ import java.nio.file.attribute.BasicFileAttributes
 /** Ends a file tool's call with [message] as its failed result. */
 internal open class Refusal(override val message: String) : Exception(message)
 
-/** What [block] returns, or the failed result that a [Refusal] or a read error makes. */
+/** Ends a file tool's call with [message], refused as a protected place is. */
+internal class Blocked(message: String) : Refusal(message)
+
+/** What [block] returns, or the failed result that a [Refusal] or an I/O error makes. */
 internal suspend fun refusing(block: suspend () -> ToolResult): ToolResult = try {
     block()
 } catch (e: Refusal) {
     ToolResult(e.message, isError = true)
 } catch (e: IOException) {
     currentCoroutineContext().ensureActive()
-    val message = when (e) {
-        is NoSuchFileException -> "Nothing exists at ${e.file}."
-        is AccessDeniedException -> "${e.file} cannot be read: access denied."
-        else -> "A file could not be read: ${e.message ?: e.javaClass.simpleName}"
-    }
-    ToolResult(message, isError = true)
+    ToolResult(failure(e), isError = true)
+}
+
+/** What a file tool says of the I/O error [e]. */
+internal fun failure(e: IOException): String = when (e) {
+    is NoSuchFileException -> "Nothing exists at ${e.file}."
+    is AccessDeniedException -> "${e.file} cannot be read: access denied."
+    else -> "A file could not be read: ${e.message ?: e.javaClass.simpleName}"
 }
 
 /** What [block] returns, run where it may block. */
@@ -87,15 +92,20 @@ internal fun attributes(path: Path): BasicFileAttributes =
 
 /** Refuses [file], shown as [shown], unless it is a regular file with one hard link. */
 internal fun checkReadable(file: Path, shown: Path, attributes: BasicFileAttributes) {
-    when {
-        attributes.isDirectory -> throw Refusal("$shown is a directory: list it with fs.glob.")
-        !attributes.isRegularFile -> throw Refusal("$shown is no regular file, so it is not read.")
-        hardLinks(file) > 1 -> throw Refusal(multiLinked(shown))
-    }
+    if (attributes.isDirectory) throw Refusal("$shown is a directory: list it with fs.glob.")
+    checkRegular(file, shown, attributes, "read")
 }
 
-internal fun multiLinked(file: Path): String =
-    "$file has more than one hard link, so it may be another name of a protected file: it is not read."
+/** Refuses [file], shown as [shown], unless it is a regular file with one hard link, which a file tool then [verb]. */
+internal fun checkRegular(file: Path, shown: Path, attributes: BasicFileAttributes, verb: String) {
+    when {
+        !attributes.isRegularFile -> throw Refusal("$shown is no regular file, so it is not $verb.")
+
+        hardLinks(file) > 1 -> throw Blocked(
+            "$shown has more than one hard link, so it may be another name of a protected file: it is not $verb.",
+        )
+    }
+}
 
 internal fun JsonObject.string(name: String): String? {
     val value = this[name]

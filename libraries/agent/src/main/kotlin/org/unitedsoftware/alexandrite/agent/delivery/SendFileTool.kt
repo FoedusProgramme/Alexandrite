@@ -15,6 +15,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
@@ -85,7 +87,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
             preview = ReviewPreview.OutgoingFile(file.path, file.size, sha256, context.turn.chat, request.caption),
             snapshot = "$SHA256$sha256",
         )
-    } catch (e: Refused) {
+    } catch (e: ToolRefusal) {
         if (e.blocked) CallReview(refusal = e.message) else CallReview(problem = e.message)
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
@@ -95,14 +97,15 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
         val request = requested(arguments, context)
         val file = checked(request.path, context)
-        val reviewed = context.clearance?.snapshot ?: throw Refused("This call was not reviewed, so it sends nothing.")
+        val reviewed =
+            context.clearance?.snapshot ?: throw ToolRefusal("This call was not reviewed, so it sends nothing.")
         val bytes = runInterruptible(Dispatchers.IO) { read(file) }
         val sha256 = sha256Hex(bytes)
         if (reviewed != "$SHA256$sha256") {
-            throw Refused("${file.path} changed since this call was reviewed, so it was not sent: repeat the call.")
+            throw ToolRefusal("${file.path} changed since this call was reviewed, so it was not sent: repeat the call.")
         }
         send(request, file, bytes, sha256, context)
-    } catch (e: Refused) {
+    } catch (e: ToolRefusal) {
         ToolResult(e.message, isError = true)
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
@@ -145,13 +148,13 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     /** What the call asks for. */
     private suspend fun requested(arguments: JsonObject, context: ToolContext): Request {
         val path = arguments.text("path")?.takeIf { it.isNotEmpty() }
-            ?: throw Refused("Give 'path', the file to send.")
+            ?: throw ToolRefusal("Give 'path', the file to send.")
         val caption = arguments.text("caption")?.takeIf { it.isNotBlank() }
         val asFile = when (val value = arguments["asFile"]) {
             null, JsonNull -> false
 
             else -> (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                ?: throw Refused("'asFile' must be true or false.")
+                ?: throw ToolRefusal("'asFile' must be true or false.")
         }
         return Request(absolute(path, context), caption, asFile)
     }
@@ -163,29 +166,29 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
             is FloorCheck.Allowed -> check.canonical
 
             is FloorCheck.Denied ->
-                throw Refused("$path is protected (${check.reason}): no file of it may be sent.", blocked = true)
+                throw ToolRefusal("$path is protected (${check.reason}): no file of it may be sent.", blocked = true)
         }
         val attributes = runInterruptible(Dispatchers.IO) {
             Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
         }
         when {
-            attributes.isDirectory -> throw Refused("$path is a directory: send an archive of it instead.")
+            attributes.isDirectory -> throw ToolRefusal("$path is a directory: send an archive of it instead.")
 
-            !attributes.isRegularFile -> throw Refused("$path is no regular file, so it is not sent.")
+            !attributes.isRegularFile -> throw ToolRefusal("$path is no regular file, so it is not sent.")
 
-            runInterruptible(Dispatchers.IO) { hardLinks(file) } > 1 -> throw Refused(
+            runInterruptible(Dispatchers.IO) { hardLinks(file) } > 1 -> throw ToolRefusal(
                 "$path has more than one hard link, so it may be another name of a protected file: it is not sent.",
                 blocked = true,
             )
         }
         val channel = channels.channel(turn.chat.instance)
-            ?: throw Refused("The channel of this chat is not open, so no file can be sent.")
+            ?: throw ToolRefusal("The channel of this chat is not open, so no file can be sent.")
         val capabilities = channel.capabilities(turn.chat)
-        if (!capabilities.files) throw Refused("This chat's channel cannot send files.")
+        if (!capabilities.files) throw ToolRefusal("This chat's channel cannot send files.")
         val limit = minOf(capabilities.maxFileBytes ?: MAX_FILE_BYTES, MAX_FILE_BYTES)
         val size = attributes.size()
         if (size > limit) {
-            throw Refused("$path holds $size bytes, more than the $limit bytes a file sent to this chat may hold.")
+            throw ToolRefusal("$path holds $size bytes, more than the $limit bytes a file sent to this chat may hold.")
         }
         return CheckedFile(file, size, limit, channel, capabilities)
     }
@@ -194,7 +197,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     private fun read(file: CheckedFile): ByteArray {
         val bytes = openRegularFile(file.path).use { it.readNBytes((file.limit + 1).toInt()) }
         if (bytes.size > file.limit) {
-            throw Refused("${file.path} grew past the ${file.limit} bytes a file sent to this chat may hold.")
+            throw ToolRefusal("${file.path} grew past the ${file.limit} bytes a file sent to this chat may hold.")
         }
         return bytes
     }
@@ -210,19 +213,16 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     )
 }
 
-/** Ends a call of `chat.send_file`, refused without asking anyone when [blocked], else as a problem of the call. */
-private class Refused(override val message: String, val blocked: Boolean = false) : Exception(message)
-
 /** [argument] as an absolute path, a relative one resolved against the workspace and a leading `~` as the home. */
 private suspend fun absolute(argument: String, context: ToolContext): Path {
     val path = try {
         Path.of(expandHome(argument))
     } catch (e: InvalidPathException) {
-        throw Refused("'$argument' is no valid path.")
+        throw ToolRefusal("'$argument' is no valid path.")
     }
     if (path.isAbsolute) return path.normalize()
     if (context.workspace == null) {
-        throw Refused(
+        throw ToolRefusal(
             "'$argument' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
         )
     }
@@ -243,12 +243,6 @@ internal fun mediaTypeOf(name: String): String {
 private fun unreadable(e: IOException): String = when (e) {
     is NoSuchFileException -> "Nothing exists at ${e.file}."
     else -> "The file could not be read: ${e.message ?: e.javaClass.simpleName}"
-}
-
-private fun JsonObject.text(name: String): String? {
-    val value = this[name]
-    if (value == null || value == JsonNull) return null
-    return (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: throw Refused("'$name' must be a string.")
 }
 
 private fun JsonObjectBuilder.property(name: String, type: String, description: String) {

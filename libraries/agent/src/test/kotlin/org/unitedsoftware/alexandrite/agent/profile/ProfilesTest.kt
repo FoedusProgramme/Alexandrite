@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.agent.model.Endpoints
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
 import org.unitedsoftware.alexandrite.agent.provider
 import org.unitedsoftware.alexandrite.agent.settings
+import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
@@ -143,8 +144,8 @@ class ProfilesTest {
         val reviewer = AgentProfile(AgentId("reviewer"), "Plugin's", "Plugin's own.", "Be strict.")
         val catalog = profiles("""{"agents": {"coder": {"description": "Codes."}}}""", listOf(reviewer))
 
-        assertFailsWith<ProfileProblem> { blocking { catalog.create(draft("coder"), admin) } }
-        assertFailsWith<ProfileProblem> { blocking { catalog.create(draft("reviewer"), admin) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("coder"), admin) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("reviewer"), admin) } }
     }
 
     // profile.create.
@@ -167,13 +168,13 @@ class ProfilesTest {
         val catalog = profiles()
         blocking { catalog.create(draft("helper"), admin) }
 
-        assertFailsWith<ProfileProblem> { blocking { catalog.create(draft("helper"), admin) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("helper"), admin) } }
     }
 
     @Test
     fun `validation problems are refused before anything is created`() {
         val catalog = profiles()
-        fun fails(draft: ProfileDraft) = assertFailsWith<ProfileProblem> { blocking { catalog.create(draft, admin) } }
+        fun fails(draft: ProfileDraft) = assertFailsWith<ToolRefusal> { blocking { catalog.create(draft, admin) } }
 
         fails(draft("Not-An-Id"))
         fails(draft("helper", name = " "))
@@ -226,8 +227,8 @@ class ProfilesTest {
         val reviewer = AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews.", "Be strict.")
         val catalog = profiles(contributed = listOf(reviewer))
 
-        assertFailsWith<ProfileProblem> { blocking { catalog.plannedEdit(AgentId("ghost"), ProfileEdit()) } }
-        assertFailsWith<ProfileProblem> { blocking { catalog.plannedEdit(AgentId("reviewer"), ProfileEdit()) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.plannedEdit(AgentId("ghost"), ProfileEdit()) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.plannedEdit(AgentId("reviewer"), ProfileEdit()) } }
     }
 
     // profile.remove.
@@ -242,7 +243,7 @@ class ProfilesTest {
 
         assertEquals("helper", removed.id.value)
         assertNull(blocking { catalog.profile(AgentId("helper")) })
-        assertFailsWith<ProfileProblem> { blocking { catalog.plannedRemove(AgentId("helper")) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.plannedRemove(AgentId("helper")) } }
     }
 
     // Restart.

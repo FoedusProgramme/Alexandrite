@@ -14,6 +14,8 @@ import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.Markup
@@ -75,7 +77,7 @@ internal class ChatTargets(
                 val homes = targets.filter { it.home }
                 homes.firstOrNull { it.chat.instance == turn.chat.instance }?.chat
                     ?: homes.singleOrNull()?.chat
-                    ?: throw ChatProblem(
+                    ?: throw ToolRefusal(
                         if (homes.isEmpty()) {
                             "You have no home chat: name a chat (see chat.list)."
                         } else {
@@ -87,20 +89,11 @@ internal class ChatTargets(
 
             HERE -> turn.chat
 
-            else -> ChatAddress.parseOrNull(to.trim()) ?: throw ChatProblem("'$to' is no chat: see chat.list.")
+            else -> ChatAddress.parseOrNull(to.trim()) ?: throw ToolRefusal("'$to' is no chat: see chat.list.")
         }
-        return targets.firstOrNull { it.chat == chat } ?: throw ChatProblem(
+        return targets.firstOrNull { it.chat == chat } ?: throw ToolRefusal(
             "You cannot send to $chat: send only to a chat you serve, " + listed(targets),
         )
-    }
-
-    /** Whether [chat] takes messages it did not ask for, true when its channel is closed or cannot tell. */
-    suspend fun proactive(chat: ChatAddress): Boolean = try {
-        channels.channel(chat.instance)?.capabilities(chat)?.proactive != false
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        true
     }
 
     private suspend fun title(chat: ChatAddress): String? = try {
@@ -207,7 +200,7 @@ internal class ChatSendTool(
             preview = ReviewPreview.Text("Send to ${request.target.chat}$title:\n\n${request.text}"),
             exempt = untainted && Principal.of(context.turn) != Principal.MEMBER,
         )
-    } catch (e: ChatProblem) {
+    } catch (e: ToolRefusal) {
         CallReview(problem = e.message)
     }
 
@@ -218,11 +211,11 @@ internal class ChatSendTool(
         val root = turn.lineage?.rootTurn ?: turn.id
         synchronized(counts) {
             val count = counts[root] ?: 0
-            if (count >= MAX_SENDS) throw ChatProblem("This turn sent $MAX_SENDS messages already, the most it may.")
+            if (count >= MAX_SENDS) throw ToolRefusal("This turn sent $MAX_SENDS messages already, the most it may.")
             counts[root] = count + 1
         }
         send(turn, chat, request.text)
-    } catch (e: ChatProblem) {
+    } catch (e: ToolRefusal) {
         ToolResult(e.message, isError = true)
     }
 
@@ -259,15 +252,15 @@ internal class ChatSendTool(
 
     /** What the call of [arguments] in [turn] asks to send where, refused where it may not go. */
     private suspend fun requested(arguments: JsonObject, turn: TurnInfo): Request {
-        val to = arguments.text("to") ?: throw ChatProblem("Give 'to': 'home', 'here' or a chat (see chat.list).")
+        val to = arguments.text("to") ?: throw ToolRefusal("Give 'to': 'home', 'here' or a chat (see chat.list).")
         val text = arguments.text("text")?.takeIf { it.isNotBlank() }
-            ?: throw ChatProblem("Give 'text', the message to send.")
+            ?: throw ToolRefusal("Give 'text', the message to send.")
         val target = targets.resolve(turn, to)
         if (target.chat == turn.chat && turn.replyTarget == ReplyTarget.CHAT) {
-            throw ChatProblem("Your reply already reaches ${turn.chat}: say it there instead.")
+            throw ToolRefusal("Your reply already reaches ${turn.chat}: say it there instead.")
         }
-        if (!targets.proactive(target.chat)) {
-            throw ChatProblem("${target.chat} takes no messages it did not ask for.")
+        if (!channels.proactive(target.chat)) {
+            throw ToolRefusal("${target.chat} takes no messages it did not ask for.")
         }
         return Request(target, text)
     }
@@ -285,15 +278,6 @@ internal class ChatSendTool(
         const val MAX_SENDS = 10
         const val KEPT_TURNS = 1024
     }
-}
-
-/** Why a chat tool cannot do what it is asked, told to the model. */
-private class ChatProblem(override val message: String) : Exception(message)
-
-private fun JsonObject.text(name: String): String? {
-    val value = this[name]
-    if (value == null || value == JsonNull) return null
-    return (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: throw ChatProblem("'$name' must be a string.")
 }
 
 private val logger = LoggerFactory.getLogger(ChatSendTool::class.java)

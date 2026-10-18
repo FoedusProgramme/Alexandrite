@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
+import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -43,7 +44,8 @@ class ResponsesResponseTest {
     private val turn = testTurn()
     private val model = ModelRef(EndpointId("test"), "gpt-model")
     private val models = mapOf(
-        "gpt-model" to ModelConfig(nativeTools = true, parallelToolCalls = true, reasoningEfforts = setOf("low")),
+        "gpt-model" to
+            ModelConfig(nativeTools = true, parallelToolCalls = true, reasoningEfforts = setOf(ReasoningEffort.LOW)),
     )
     private val tools = listOf(testToolDefinition("notes.add"), testToolDefinition("files.read"))
 

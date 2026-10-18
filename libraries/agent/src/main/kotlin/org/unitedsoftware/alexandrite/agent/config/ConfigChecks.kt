@@ -8,9 +8,11 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
+import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -31,6 +33,35 @@ internal fun checkAgents(agents: Map<String, AgentConfig>) {
 /** The home chat [home] on the instance [key] names, null when it names none. */
 internal fun homeChat(key: String, home: String): ChatAddress? = ChatAddress.parseOrNull("$key:$home")
 
+/**
+ * [entry] made absolute against the directory of the config file in [paths]; a [ConfigException] at [key] names it
+ * [what] when it is no path, or relative where the host read no config file.
+ */
+internal fun configuredPath(paths: HostPaths, key: String, what: String, entry: String): Path {
+    val path = try {
+        Path.of(entry)
+    } catch (e: InvalidPathException) {
+        throw ConfigException(key, "$what '$entry' is no valid path", e)
+    }
+    if (path.isAbsolute) return path.normalize()
+    val directory = paths.configFile?.parent ?: throw ConfigException(
+        key,
+        "$what '$entry' is relative, but the host read no config file to resolve it against: give an absolute path",
+    )
+    return directory.resolve(path).normalize()
+}
+
+internal fun isAgentId(id: String): Boolean = PluginIds.PATTERN.matches(id)
+
+internal fun isOneLine(text: String): Boolean = text.isNotBlank() && text.none(Char::isISOControl)
+
+internal fun reasoningOf(text: String): ReasoningEffort? = ReasoningEffort.entries.firstOrNull { it.id == text }
+
+internal fun configurableModeOf(text: String): PermissionMode? = CONFIGURABLE_MODES.firstOrNull { it.id == text }
+
+/** The first of [globs] that is no tool glob, null when all are. */
+internal fun invalidGlob(globs: List<String>): String? = globs.firstOrNull { !ToolGlob.isValid(it) }
+
 internal fun isPath(text: String): Boolean = text.isNotBlank() &&
     try {
         Path.of(text)
@@ -40,11 +71,11 @@ internal fun isPath(text: String): Boolean = text.isNotBlank() &&
     }
 
 private fun checkAgent(path: String, id: String, agent: AgentConfig) {
-    require(PluginIds.PATTERN.matches(id)) {
+    require(isAgentId(id)) {
         "$path is no agent id: an id is lowercase words of letters and digits, each starting with a letter, " +
             "joined by single hyphens, such as \"coder\""
     }
-    require(agent.name == null || (agent.name.isNotBlank() && agent.name.none(Char::isISOControl))) {
+    require(agent.name == null || isOneLine(agent.name)) {
         "$path.name must be one line of text"
     }
     require(agent.instructions.none(String::isBlank)) { "$path.instructions holds a blank entry" }
@@ -59,7 +90,7 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.model == null || ModelRef.parseOrNull(agent.model) != null) {
         "$path.model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\""
     }
-    require(agent.reasoning == null || ReasoningEffort.entries.any { it.id == agent.reasoning }) {
+    require(agent.reasoning == null || reasoningOf(agent.reasoning) != null) {
         "$path.reasoning must be one of ${ReasoningEffort.entries.joinToString()}"
     }
     require(agent.language == null || isLanguageTag(agent.language)) {
@@ -69,7 +100,7 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
         "$path.zone is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as \"+08:00\""
     }
     val mode = agent.permission.mode
-    require(mode == null || CONFIGURABLE_MODES.any { it.id == mode }) {
+    require(mode == null || configurableModeOf(mode) != null) {
         "$path.permission.mode must be one of ${CONFIGURABLE_MODES.joinToString()}: a bypass is set per chat, " +
             "for a limited time"
     }
@@ -161,7 +192,7 @@ private fun checkCompaction(path: String, compaction: CompactionConfig) {
 }
 
 private fun checkGlobs(path: String, globs: List<String>) {
-    require(globs.all(ToolGlob::isValid)) {
+    require(invalidGlob(globs) == null) {
         "$path holds a malformed tool glob: write dotted tool names, with * for any characters, such as \"fs.*\""
     }
 }

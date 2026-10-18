@@ -37,6 +37,7 @@ private class FakeStdioServer(private val mode: String) {
 
     fun run() {
         log("started $mode")
+        log("pid ${ProcessHandle.current().pid()}")
         if (mode == "noisy") println("this is no JSON")
         if (mode == "stubborn") {
             val child = ProcessBuilder("/bin/sleep", "300").start()

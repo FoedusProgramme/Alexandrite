@@ -4,14 +4,13 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
 import org.unitedsoftware.alexandrite.provider.common.modelException
+import org.unitedsoftware.alexandrite.provider.common.string
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
@@ -104,7 +103,5 @@ internal suspend fun nativeSearch(
     }
     protocol("Native web search exceeded its continuation limit.")
 }
-
-private fun JsonObject.string(name: String): String? = (this[name] as? JsonPrimitive)?.contentOrNull
 
 private fun protocol(message: String): Nothing = throw modelException(ModelErrorKind.PROTOCOL, message, false)

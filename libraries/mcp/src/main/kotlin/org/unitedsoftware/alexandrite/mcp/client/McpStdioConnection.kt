@@ -7,9 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
@@ -18,9 +16,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.internal.process.destroyTree
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -56,10 +51,7 @@ internal class McpStdioConnection private constructor(
     private val writeLock = Mutex()
     private val ids = AtomicLong()
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonRpcMessage.Response>>()
-    private val incoming = MutableSharedFlow<JsonRpcMessage.Notification>(
-        extraBufferCapacity = NOTIFICATION_BUFFER,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val incoming = ClientSide.notifications()
     private val end = CompletableDeferred<McpException>()
 
     @Volatile
@@ -71,8 +63,6 @@ internal class McpStdioConnection private constructor(
     override val ended: Deferred<McpException> = end
 
     override var protocolVersion: String? = null
-
-    val pid: Long get() = process.pid()
 
     private fun startReaders() {
         thread(isDaemon = true, name = "mcp stdout ${process.pid()}") {
@@ -129,7 +119,7 @@ internal class McpStdioConnection private constructor(
             if (!answer.isCompleted && endReason == null) {
                 withContext(NonCancellable) {
                     try {
-                        notify(CANCELLED, cancelParams(id, reason))
+                        notify(ClientSide.CANCELLED, ClientSide.cancelParams(id, reason))
                     } catch (e: McpException) {
                         // The server is gone, so the request is too.
                     }
@@ -198,13 +188,8 @@ internal class McpStdioConnection private constructor(
     }
 
     private suspend fun answer(request: JsonRpcMessage.Request) {
-        val reply = if (request.method == PING) {
-            JsonRpc.result(request.id, JsonObject(emptyMap()))
-        } else {
-            JsonRpc.error(request.id, JsonRpc.METHOD_NOT_FOUND, "The client offers no ${request.method}.")
-        }
         try {
-            write(reply)
+            write(ClientSide.reply(request))
         } catch (e: McpException) {
             // The server is gone.
         }
@@ -226,10 +211,6 @@ internal class McpStdioConnection private constructor(
         /** The most characters of one stderr line handed on. */
         const val STDERR_LINE: Int = 4096
 
-        const val CANCELLED: String = "notifications/cancelled"
-        const val PING: String = "ping"
-
-        private const val NOTIFICATION_BUFFER = 64
         private const val INVALID_QUOTE = 200
         private val EXIT_WAIT = 1.seconds
         private val POLL = 10.milliseconds
@@ -258,11 +239,6 @@ internal class McpStdioConnection private constructor(
                 throw McpConnectionException("Cannot start ${launch.command}: ${e.message}", e)
             }
             return McpStdioConnection(process, onStderr, onInvalid, stopGrace).also { it.startReaders() }
-        }
-
-        fun cancelParams(id: Long, reason: String): JsonObject = buildJsonObject {
-            put("requestId", JsonPrimitive(id))
-            put("reason", reason)
         }
     }
 }

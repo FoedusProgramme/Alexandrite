@@ -113,7 +113,8 @@ class DeepSeekFlavorTest {
 
     @Test
     fun `an effort the model has no level for is left to the backend with a warning`() {
-        val models = mapOf("chat-model" to ModelConfig(reasoningEfforts = setOf("none", "high")))
+        val models =
+            mapOf("chat-model" to ModelConfig(reasoningEfforts = setOf(ReasoningEffort.NONE, ReasoningEffort.HIGH)))
 
         val (events, body) = send(request { options(reasoning(ReasoningEffort.LOW)) }, models)
 

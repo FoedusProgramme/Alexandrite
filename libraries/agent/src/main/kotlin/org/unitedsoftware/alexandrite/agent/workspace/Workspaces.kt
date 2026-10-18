@@ -3,8 +3,8 @@ package org.unitedsoftware.alexandrite.agent.workspace
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentConfig
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
+import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
@@ -22,11 +22,7 @@ internal class Workspaces(paths: HostPaths, places: AgentPlaces, settings: Agent
     fun open(agent: AgentId): Path? {
         val path = paths[agent] ?: return null
         if (Files.isDirectory(path)) return path
-        if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
-            Files.createDirectories(path, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)))
-        } else {
-            Files.createDirectories(path)
-        }
+        createOwnerOnly(path)
         logger.info("Created the workspace {} of agent '{}'", path, agent)
         return path
     }
@@ -44,16 +40,18 @@ internal fun agentWorkspaces(
 
 private fun workspace(id: String, config: AgentConfig, paths: HostPaths, places: AgentPlaces): Path {
     val configured = config.workspace ?: return places.workspace(AgentId(id)).normalize()
-    val path = Path.of(configured)
-    if (path.isAbsolute) return path.normalize()
-    val directory = paths.configFile?.parent ?: throw ConfigException(
-        "agent.agents.$id.workspace",
-        "the workspace '$configured' is relative, but the host read no config file to resolve it against: give an " +
-            "absolute path",
-    )
-    return directory.resolve(path).normalize()
+    return configuredPath(paths, "agent.agents.$id.workspace", "the workspace", configured)
 }
 
-private const val OWNER = "rwx------"
+/** Creates [directory] and its missing parents owner-only where the file system has POSIX permissions. */
+internal fun createOwnerOnly(directory: Path) {
+    if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
+        Files.createDirectories(directory, OWNER_ONLY)
+    } else {
+        Files.createDirectories(directory)
+    }
+}
+
+private val OWNER_ONLY = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"))
 
 private val logger = LoggerFactory.getLogger(Workspaces::class.java)

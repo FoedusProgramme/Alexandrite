@@ -151,6 +151,30 @@ class ApprovalTurnsTest {
     }
 
     @Test
+    fun `why a person is asked is logged only at debug`() {
+        model.reply { toolCall("fs.write") }.reply { text("Written.") }
+        lateinit var request: ApprovalRequest
+
+        val lines = logged {
+            harness().execute {
+                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+                ask().ticket.outcome()
+                request = channel().approvals.single()
+            }
+        }
+
+        val turn = request.turn
+        assertEquals(
+            listOf(
+                "INFO Approval ${request.id} of call call-${turn.id}-0-0 of fs.write in turn ${turn.id} of " +
+                    "${turn.key} is asked for",
+                "DEBUG Approval ${request.id} is asked for because the chat is in ask mode",
+            ),
+            lines.filter { "is asked for" in it },
+        )
+    }
+
+    @Test
     fun `the request shows the canonical arguments and the preview escaped, and why a person is asked`() {
         val exec = object : ReviewedTool {
             override val definition: ToolDefinition = testToolDefinition("command.exec", ToolRisk.EXEC)

@@ -39,7 +39,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -58,6 +57,10 @@ internal data class ServerStatus(
 )
 
 internal class McpTimings(
+    /**
+     * The first pause before a failed server starts again. [McpClientOptions.reconnectMin] paces a layer below: a
+     * subscription that a live session opens again.
+     */
     val firstPause: Duration = 1.seconds,
     val maxPause: Duration = 5.minutes,
     /** How long a connection must have lasted for the pause to start again from [firstPause]. */
@@ -65,13 +68,13 @@ internal class McpTimings(
     /** The shortest wait between two listings that a server's `ttlMs` asks for. */
     val minTtl: Duration = 5.seconds,
     val stopGrace: Duration = 2.seconds,
-    val client: McpClientOptions = McpClientOptions(),
 )
 
 /** What the servers share: how they are reached, what they are told of the client and their logins. */
-internal class McpLinks(
+internal class McpShared(
     val transport: HttpTransport,
     val client: McpImplementation,
+    val clientOptions: McpClientOptions,
     /** The host's environment, of which a stdio server gets the minimal part. */
     val host: Map<String, String>,
     val timings: McpTimings,
@@ -81,8 +84,12 @@ internal class McpLinks(
 /**
  * One configured server, connected again with a growing pause whenever it fails, whose current tools go to [publish].
  */
-internal class McpServer(val spec: ServerSpec, private val links: McpLinks, private val publish: (List<Tool>) -> Unit) {
-    private val timings = links.timings
+internal class McpServer(
+    val spec: ServerSpec,
+    private val shared: McpShared,
+    private val publish: (List<Tool>) -> Unit,
+) {
+    private val timings = shared.timings
     private val restarts = Channel<Unit>(Channel.CONFLATED)
     private val current =
         MutableStateFlow(ServerStatus(if (spec.enabled) ServerState.CONNECTING else ServerState.DISABLED))
@@ -106,14 +113,14 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
     suspend fun run() {
         var pause = timings.firstPause
         while (true) {
-            val connected = AtomicReference<TimeMark?>()
-            val failure = cycle(connected)
-            if (failure == null) {
+            val ended = cycle()
+            if (ended == null) {
                 logger.info("MCP server {} restarts", spec.name)
                 pause = timings.firstPause
                 continue
             }
-            if (connected.get()?.let { it.elapsedNow() >= timings.steady } == true) pause = timings.firstPause
+            val failure = ended.failure
+            if (ended.connectedAt?.let { it.elapsedNow() >= timings.steady } == true) pause = timings.firstPause
             if (failure is McpUnauthorized) refused(failure)
             failed(failure, pause)
             val early = withTimeoutOrNull(pause) { restarts.receive() } != null
@@ -133,7 +140,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
         } catch (e: McpUnauthorized) {
             val wider = if (e.status == FORBIDDEN) {
                 refused(e)
-                links.oauth.widerScopes(spec.name)
+                shared.oauth.widerScopes(spec.name)
             } else {
                 null
             }
@@ -163,11 +170,11 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
         }
     }
 
-    /** Null when a restart cut the cycle short, else why the server failed. */
-    private suspend fun cycle(connected: AtomicReference<TimeMark?>): Exception? = coroutineScope {
-        val serving = async { serve(connected) }
+    /** Null when a restart cut the cycle short, else how the server failed. */
+    private suspend fun cycle(): Ended? = coroutineScope {
+        val serving = async { serve() }
         val restart = async { restarts.receive() }
-        select<Exception?> {
+        select<Ended?> {
             serving.onAwait { it }
             restart.onAwait { null }
         }.also {
@@ -177,22 +184,23 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
     }
 
     /** Connects and serves until the connection ends, and returns why it did or why it could not connect. */
-    private suspend fun serve(connected: AtomicReference<TimeMark?>): Exception {
+    private suspend fun serve(): Ended {
         current.update { it.copy(state = ServerState.CONNECTING, protocolVersion = null) }
         val client = try {
-            McpClient.connect(open(), links.client, timings.client)
+            McpClient.connect(open(), shared.client, shared.clientOptions)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            return e
+            return Ended(e, null)
         }
         val active = Session(client)
+        var connectedAt: TimeMark? = null
         try {
             val listed = list(client)
             session = active
             offer(listed)
-            connected.set(TimeSource.Monotonic.markNow())
-            links.oauth.connected(spec.name)
+            connectedAt = TimeSource.Monotonic.markNow()
+            shared.oauth.connected(spec.name)
             current.update { it.copy(state = ServerState.CONNECTED, protocolVersion = client.server.protocolVersion) }
             logger.info(
                 "MCP server {} is connected (protocol {}) and offers {} tools",
@@ -200,7 +208,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
                 client.server.protocolVersion,
                 offered.size,
             )
-            return coroutineScope {
+            val failure = coroutineScope {
                 val wake = Channel<Unit>(Channel.CONFLATED)
                 val watching = launch { client.toolsChanged.collect { wake.trySend(Unit) } }
                 val refreshing = launch { refresh(active, wake, listed) }
@@ -212,10 +220,11 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
                     refreshing.cancel()
                 }
             }
+            return Ended(failure, connectedAt)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            return e
+            return Ended(e, connectedAt)
         } finally {
             session = null
             offer(null)
@@ -263,7 +272,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
             StdioLaunch(
                 transport.command,
                 transport.args,
-                McpEnvironment.minimal(links.host, transport.env),
+                McpEnvironment.minimal(shared.host, transport.env),
                 transport.cwd,
             ),
             onStderr = { logger.debug("MCP server {} says: {}", spec.name, cutWithEllipsis(it, MAX_STDERR)) },
@@ -271,8 +280,8 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
             stopGrace = timings.stopGrace,
         )
 
-        is Transport.Http -> McpHttpConnection(transport.url, transport.headers, links.transport) {
-            links.oauth.bearer(spec.name)
+        is Transport.Http -> McpHttpConnection(transport.url, transport.headers, shared.transport) {
+            shared.oauth.bearer(spec.name)
         }
     }
 
@@ -334,7 +343,7 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
     }
 
     private suspend fun refused(e: McpUnauthorized) {
-        links.oauth.refused(spec.name, e.status, e.wwwAuthenticate, e.authorized)
+        shared.oauth.refused(spec.name, e.status, e.wwwAuthenticate, e.authorized)
     }
 
     private fun loginHint(): String =
@@ -360,6 +369,9 @@ internal class McpServer(val spec: ServerSpec, private val links: McpLinks, priv
     private class Session(val client: McpClient) {
         val broken = CompletableDeferred<Exception>()
     }
+
+    /** Why a connection ended, and when it was made, null when it never was. */
+    private class Ended(val failure: Exception, val connectedAt: TimeMark?)
 
     private companion object {
         const val FORBIDDEN = 403

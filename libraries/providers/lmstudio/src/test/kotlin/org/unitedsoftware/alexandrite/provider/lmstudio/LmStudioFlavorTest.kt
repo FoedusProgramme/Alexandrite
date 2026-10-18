@@ -115,7 +115,8 @@ class LmStudioFlavorTest {
     @Test
     fun `the parallel field is never sent and the effort goes out as reasoning effort`() {
         val options = ModelOptions.builder().parallelToolCalls(false).reasoning(ReasoningEffort.MEDIUM).build()
-        val models = mapOf("chat-model" to ModelConfig(reasoningEfforts = setOf("low", "medium", "high")))
+        val efforts = setOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
+        val models = mapOf("chat-model" to ModelConfig(reasoningEfforts = efforts))
 
         val (events, body) = send(request { tools(listOf(testToolDefinition())).options(options) }, models = models)
 

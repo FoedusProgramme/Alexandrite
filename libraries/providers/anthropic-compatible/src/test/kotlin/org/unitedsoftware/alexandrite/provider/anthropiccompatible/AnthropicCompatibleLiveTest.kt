@@ -53,7 +53,7 @@ class AnthropicCompatibleLiveTest {
     /** The live endpoint, its model taken to think at the efforts the standard API names where it lists none. */
     private fun live(listedOnly: Boolean = false): MessagesEndpoint {
         assumeTrue(baseUrl != null && apiKey != null && model != null, "No live endpoint is configured.")
-        val efforts = setOf("none", "low", "medium", "high")
+        val efforts = setOf(ReasoningEffort.NONE, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
         val config = EndpointConfig(
             apiKey = Secret(apiKey!!),
             baseUrl = baseUrl!!,

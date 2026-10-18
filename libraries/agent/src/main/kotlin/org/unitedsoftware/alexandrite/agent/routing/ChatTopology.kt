@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
+import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
@@ -320,13 +321,6 @@ internal class Topology(
 
     fun group(agent: AgentId, chat: ChatAddress): LinkGroup? = groupOf[agent]?.get(chat)
 
-    /** This topology with [chat] as the home of [agent] on [instance], or none there when null. */
-    fun withHome(agent: AgentId, instance: ChannelInstanceId, chat: ChatAddress?): Topology {
-        val byInstance = homes[agent].orEmpty().toMutableMap()
-        if (chat == null) byInstance.remove(instance) else byInstance[instance] = chat
-        return Topology(homes + (agent to byInstance), groups)
-    }
-
     /** This topology with the group [before] of [agent] replaced by [after], which is added when [before] is null. */
     fun withGroup(agent: AgentId, before: LinkGroup?, after: LinkGroup?): Topology {
         val current = groups(agent)
@@ -364,8 +358,6 @@ private class RecordedHome(
 private class RecordedLink(val record: LinkRecord, val grant: Grant) {
     val key: String get() = "${AgentChatKey(record.agent, record.member)}"
 }
-
-private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 
 private const val HOMES = "homes"
 

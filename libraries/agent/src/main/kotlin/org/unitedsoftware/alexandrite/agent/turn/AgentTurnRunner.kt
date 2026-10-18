@@ -363,6 +363,7 @@ internal class AgentTurnRunner(
                     show(sink, message)
                 }
             }
+            if (sink == null) attempt("send its failure notice") { routeNotice(turn, text) }
             return end(failed, TurnEndKind.FAILED)
         }
 
@@ -421,10 +422,15 @@ internal class AgentTurnRunner(
 
         /**
          * The operator whose mandate [input] runs under, null for a turn of nobody: when it is no initiated turn of a
-         * mandate, the mandate is not its plugin's at [key], or the conversation took in something untrusted.
+         * mandate, its prompt is not trusted, the mandate is not its plugin's at [key], or the conversation took in
+         * something untrusted.
          */
         private suspend fun mandated(input: TurnSource, key: AgentChatKey): ChatUser? {
             val mandate = (input as? TurnSource.FromInitiated)?.mandate ?: return null
+            if (input.trust != Trust.TRUSTED) {
+                logger.info("Turn {} of {} runs as nobody: its mandated prompt is not trusted", plan.id, key)
+                return null
+            }
             val actor = mandates.actor(mandate, input.plugin, key) ?: return null
             if (taint.tainted) {
                 logger.info("Turn {} of {} runs as nobody, not as {}: its conversation is tainted", plan.id, key, actor)
@@ -1129,8 +1135,23 @@ internal class AgentTurnRunner(
                 val turn = checkNotNull(turn)
                 append(NoticeEntry(null, text, kind))
                 sink?.let { show(it, notice(text, plan.trigger, turn.conversation)) }
+                if (sink == null && end == TurnEndKind.FAILED) {
+                    attempt("send its failure notice") { routeNotice(turn, text) }
+                }
                 end(outcome, end)
             }
+
+        /** Sends the notice [text] to each destination of the turn's route that it may reach. */
+        private suspend fun routeNotice(turn: TurnInfo, text: String) {
+            for ((chat, refusal) in routes.destinations(turn.agent, plan.route)) {
+                val delivery = refusal ?: channels.channel(chat.instance)?.let { channel ->
+                    delivered { channel.send(chat, notice(text, null, turn.conversation)) }
+                }
+                if (delivery !is Delivery.Delivered) {
+                    logger.warn("Turn {} could not send {} its failure notice: {}", turn.id, chat, delivery)
+                }
+            }
+        }
 
         private suspend fun end(outcome: TurnOutcome, end: TurnEndKind): TurnOutcome {
             val turn = turn

@@ -141,6 +141,16 @@ class AgentSettingsTest {
     private fun Limits.values(): List<Long?> = listOf(trigger, target, clearAt, clearAtLeast)
 
     @Test
+    fun `an answer reserve that lowers the trigger lowers the target in the same proportion`() {
+        val compaction = """{"trigger": 0.6, "target": 0.5}"""
+        val set = settings(agents(""""coder": {"description": "Codes.", "compaction": $compaction}"""))
+            .agents.getValue("coder").compaction
+
+        assertEquals(3072L to 2560L, set.limits(8192, 4096).let { it.trigger to it.target })
+        assertEquals(4915L to 4096L, set.limits(8192, 1024).let { it.trigger to it.target })
+    }
+
+    @Test
     fun `a compaction threshold that is neither a fraction nor tokens, or a target at its trigger, fails the start`() {
         val threshold = "must be a fraction of the context window above 0 and at most 1, such as 0.6, or a whole " +
             "number of tokens"

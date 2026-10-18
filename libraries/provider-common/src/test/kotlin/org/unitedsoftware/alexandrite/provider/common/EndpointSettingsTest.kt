@@ -1,6 +1,10 @@
 package org.unitedsoftware.alexandrite.provider.common
 
+import org.unitedsoftware.alexandrite.provider.common.messages.MessagesEndpoint
+import org.unitedsoftware.alexandrite.provider.common.messages.MessagesFlavor
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -57,10 +61,17 @@ class EndpointSettingsTest {
     }
 
     @Test
+    fun `an endpoint refuses headers that it sets itself although the settings name none`() {
+        val settings = EndpointSettings("https://a.example", headers = mapOf("Anthropic-Beta" to Secret("x")))
+
+        refused("may not set anthropic-beta") { MessagesEndpoint(EndpointId("a"), settings, MessagesFlavor.STANDARD) }
+    }
+
+    @Test
     fun `configured models and their facts are well-formed`() {
         refused("models holds") { EndpointSettings("https://a.example", models = mapOf("" to ModelConfig())) }
         refused("inputMedia holds 'smell'") { ModelConfig(inputMedia = setOf("smell")) }
-        refused("reasoningEfforts holds 'huge'") { ModelConfig(reasoningEfforts = setOf("huge")) }
+        refused("reasoningEfforts holds 'huge'") { ModelConfig(reasoningEfforts = setOf(ReasoningEffort.of("huge"))) }
         refused("contextWindow must be positive") { ModelConfig(contextWindow = 0) }
         refused("every timeout must be positive") { TimeoutConfig(idleSeconds = 0) }
     }

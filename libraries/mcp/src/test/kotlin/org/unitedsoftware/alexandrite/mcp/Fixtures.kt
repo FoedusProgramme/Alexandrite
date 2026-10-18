@@ -32,8 +32,9 @@ internal val QUICK = McpTimings(
     steady = 10.seconds,
     minTtl = 1.seconds,
     stopGrace = 1.seconds,
-    client = McpClientOptions(probeTimeout = 2.seconds, requestTimeout = 10.seconds),
 )
+
+internal val QUICK_CLIENT = McpClientOptions(probeTimeout = 2.seconds, requestTimeout = 10.seconds)
 
 /** A stdio server running the fake server in [mode]. */
 internal fun fake(mode: String = "modern", block: ServerConfigBuilder.() -> Unit = {}): ServerConfig =
@@ -86,6 +87,7 @@ internal fun withHub(
         McpSettings(config),
         scope,
         McpImplementation("alexandrite-test", "0.0.1"),
+        QUICK_CLIENT,
         System.getenv(),
         QUICK,
         records,

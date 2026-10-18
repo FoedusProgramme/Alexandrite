@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.http.HttpTimeouts
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
+import org.unitedsoftware.alexandrite.mcp.client.McpClientOptions
 import org.unitedsoftware.alexandrite.mcp.client.McpImplementation
 import org.unitedsoftware.alexandrite.mcp.oauth.McpOAuth
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -32,6 +33,7 @@ internal class McpHub internal constructor(
     settings: McpSettings,
     private val scope: CoroutineScope,
     client: McpImplementation,
+    clientOptions: McpClientOptions,
     host: Map<String, String>,
     timings: McpTimings,
     records: Records,
@@ -43,6 +45,7 @@ internal class McpHub internal constructor(
         settings,
         scope,
         McpImplementation(CLIENT_NAME, info.version),
+        McpClientOptions(),
         System.getenv(),
         McpTimings(),
         records,
@@ -53,12 +56,12 @@ internal class McpHub internal constructor(
 
     val oauth: McpOAuth = McpOAuth(settings, records, transport, scope, clock) { server(it)?.restart() }
 
-    private val links = McpLinks(transport, client, host, timings, oauth)
+    private val shared = McpShared(transport, client, clientOptions, host, timings, oauth)
     private val published = MutableStateFlow<List<Tool>>(emptyList())
     private val byServer = LinkedHashMap<String, List<Tool>>()
     private val jobs = mutableListOf<Job>()
 
-    val servers: List<McpServer> = settings.servers.map { spec -> McpServer(spec, links) { publish(spec.name, it) } }
+    val servers: List<McpServer> = settings.servers.map { spec -> McpServer(spec, shared) { publish(spec.name, it) } }
 
     override val namespace: String = McpNames.NAMESPACE
 

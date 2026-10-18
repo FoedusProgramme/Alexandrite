@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.provider.common.RESPONSES_CALL_IDS
 import org.unitedsoftware.alexandrite.provider.common.long
 import org.unitedsoftware.alexandrite.provider.common.obj
 import org.unitedsoftware.alexandrite.provider.common.string
+import org.unitedsoftware.alexandrite.provider.common.unsupportedEffort
 import org.unitedsoftware.alexandrite.provider.common.wireToolName
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.model.FinishKind
@@ -62,12 +63,7 @@ public open class ResponsesReasoning {
 
     /** Adds the effort that asks [info]'s model to reason with [effort] to [reasoning], or returns why it adds none. */
     public open fun effort(effort: ReasoningEffort, info: ModelInfo, reasoning: JsonObjectBuilder): Warning? {
-        if (effort !in info.reasoningEfforts) {
-            return Warning(
-                "unsupported_option",
-                "Model '${info.id}' takes no reasoning effort '$effort', so the request asks for none.",
-            )
-        }
+        if (effort !in info.reasoningEfforts) return unsupportedEffort(effort, info)
         reasoning.put("effort", effort.id)
         return null
     }

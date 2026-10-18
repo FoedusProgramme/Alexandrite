@@ -162,23 +162,21 @@ internal class SqliteConversationStore(private val database: StoreDatabase) : Co
             ) == 1
         }
 
-    override suspend fun taint(conversation: ConversationId): ConversationTaint? = database.transaction {
-        queryOne(
-            "SELECT tainted_at, taint_reason FROM conversations WHERE id = ? AND tainted_at IS NOT NULL",
-            conversation.value,
-        ) { ConversationTaint(instant("tainted_at"), getString("taint_reason").orEmpty()) }
-    }
+    override suspend fun taint(conversation: ConversationId): ConversationTaint? =
+        database.transaction { taintOf(conversation) }
 
     override suspend fun clearTaint(conversation: ConversationId): ConversationTaint? = database.transaction {
-        val mark = queryOne(
-            "SELECT tainted_at, taint_reason FROM conversations WHERE id = ? AND tainted_at IS NOT NULL",
-            conversation.value,
-        ) { ConversationTaint(instant("tainted_at"), getString("taint_reason").orEmpty()) }
+        val mark = taintOf(conversation)
         if (mark != null) {
             execute("UPDATE conversations SET tainted_at = NULL, taint_reason = NULL WHERE id = ?", conversation.value)
         }
         mark
     }
+
+    private fun Tx.taintOf(conversation: ConversationId): ConversationTaint? = queryOne(
+        "SELECT tainted_at, taint_reason FROM conversations WHERE id = ? AND tainted_at IS NOT NULL",
+        conversation.value,
+    ) { ConversationTaint(instant("tainted_at"), getString("taint_reason").orEmpty()) }
 
     private fun Tx.currentOf(key: AgentChatKey, kind: ConversationKind): ConversationInfo {
         val chat = chatId(key.chat)

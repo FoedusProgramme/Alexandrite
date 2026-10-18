@@ -19,8 +19,8 @@ import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.cancel.TurnShutdown
-import org.unitedsoftware.alexandrite.agent.config.AgentConfig
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
+import org.unitedsoftware.alexandrite.agent.config.DEFAULT_FOREGROUND_SECONDS
 import org.unitedsoftware.alexandrite.agent.delegation.DELEGATE_TOOL
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CANCELLED_RESULT
@@ -28,6 +28,7 @@ import org.unitedsoftware.alexandrite.agent.tool.failedResult
 import org.unitedsoftware.alexandrite.agent.tool.shaped
 import org.unitedsoftware.alexandrite.agent.tool.textResult
 import org.unitedsoftware.alexandrite.agent.tool.timedOutResult
+import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -142,14 +143,13 @@ internal class Jobs(
     private val lock = Any()
     private val active = LinkedHashMap<RunId, Active>()
     private var open = true
-    private val defaults = AgentConfig()
 
     /** How long a job stopped at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
 
     /** How long a call of [agent] runs before it moves to the background. */
     fun foreground(agent: AgentId): Duration =
-        (settings.agents[agent.value]?.foregroundSeconds ?: defaults.foregroundSeconds).seconds
+        (settings.agents[agent.value]?.foregroundSeconds ?: DEFAULT_FOREGROUND_SECONDS).seconds
 
     /** Moves the call of [detaching] to the background, or says why it stays in the foreground. */
     suspend fun detach(detaching: Detaching): Detached {
@@ -480,8 +480,6 @@ private class Active(
         return true
     }
 }
-
-private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 
 /** How long a stopped tool may take to end before it is abandoned. */
 private val ABANDON_AFTER = 5.seconds

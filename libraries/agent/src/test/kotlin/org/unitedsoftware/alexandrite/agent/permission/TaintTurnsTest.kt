@@ -184,6 +184,7 @@ class TaintTurnsTest {
         val cases = listOf(
             Triple(ForwardOrigin(ForwardKind.USER, "Someone", null, null), null, "a forwarded message"),
             Triple(null, quote(QuoteTrust.UNTRUSTED), unvouched),
+            Triple(null, Quote.builder("Earlier.").build(), unvouched),
             Triple(null, quote(QuoteTrust(live = true, content = false)), unvouched),
             Triple(null, quote(QuoteTrust(live = true, content = true)), null),
         )

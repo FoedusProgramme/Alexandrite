@@ -46,7 +46,10 @@ class MessagesSequenceTest {
     private val turn = testTurn()
     private val next = TurnId("turn-2")
     private val tool = testToolDefinition("notes.add")
-    private val models = mapOf("claude-model" to ModelConfig(reasoningEfforts = setOf("none", "low", "high")))
+    private val models = mapOf(
+        "claude-model" to
+            ModelConfig(reasoningEfforts = setOf(ReasoningEffort.NONE, ReasoningEffort.LOW, ReasoningEffort.HIGH)),
+    )
     private val thinking = ModelOptions.builder().reasoning(ReasoningEffort.HIGH).build()
     private val off = ModelOptions.builder().reasoning(ReasoningEffort.NONE).build()
     private var entryId = 1L

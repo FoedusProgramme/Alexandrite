@@ -482,13 +482,30 @@ class InitiatedTurnsTest {
     }
 
     @Test
-    fun `a failure is stored and returned but sent to no chat`() {
+    fun `a failure is stored, returned and sent as a notice along the route`() {
         model.fail(ModelErrorKind.AUTHENTICATION, "Bad key.")
 
         harness().execute {
-            val outcome = initiate(turn(route = ReplyRoute.ToChat(channel().chat("other")))).outcome()
+            val other = channel().chat("other")
+            val outcome = initiate(turn(route = ReplyRoute.ToChat(other))).outcome()
 
             assertEquals(TurnOutcome.Failed("authentication: Bad key."), outcome)
+            val notice = stored().single() as NoticeEntry
+            assertEquals(NoticeKind.FAILED, notice.kind)
+            val sent = channel().sent.single()
+            assertEquals(other to MessageKind.NOTICE, sent.chat to sent.message.kind)
+            assertEquals(notice.text, sent.message.text)
+            assertTrue(channel().replies.isEmpty())
+        }
+    }
+
+    @Test
+    fun `a failure of a turn with no route is sent to no chat`() {
+        model.fail(ModelErrorKind.AUTHENTICATION, "Bad key.")
+
+        harness().execute {
+            initiate(turn()).outcome()
+
             assertEquals(listOf(NoticeKind.FAILED), stored().map { (it as NoticeEntry).kind })
             assertEquals(emptyList(), channel().events)
         }

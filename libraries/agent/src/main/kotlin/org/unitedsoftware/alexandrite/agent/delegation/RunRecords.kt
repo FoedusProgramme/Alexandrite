@@ -4,15 +4,18 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
 
 /** The sub-agent runs of each active conversation, by run id, which a later run may resume. */
 @Singleton
-internal class RunRecords(records: Records) {
+@Contribute(ConversationSeals::class)
+internal class RunRecords(records: Records) : ConversationSeals {
     private val runs = records.collection<RunRecord>(COLLECTION)
 
     suspend fun put(run: RunId, record: RunRecord) {
@@ -26,13 +29,13 @@ internal class RunRecords(records: Records) {
 
     suspend fun get(run: RunId): RunRecord? = runs.get(run.value)?.value
 
-    /** Forgets the runs of the root conversation [root], which was sealed. */
-    suspend fun sealed(root: ConversationId) {
+    /** Forgets the runs of the root conversation [conversation], which was sealed. */
+    override suspend fun sealed(conversation: ConversationId) {
         try {
-            for (record in runs.list()) if (record.value.root == root) runs.remove(record.key)
+            for (record in runs.list()) if (record.value.root == conversation) runs.remove(record.key)
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            logger.warn("Cannot forget the runs of sealed conversation {}: {}", root, e.toString())
+            logger.warn("Cannot forget the runs of sealed conversation {}: {}", conversation, e.toString())
         }
     }
 
@@ -41,13 +44,8 @@ internal class RunRecords(records: Records) {
     }
 }
 
-/** A run of [profile] in [conversation], below the root conversation [root], resuming [resumes] unless null. */
+/** A run of [profile] in [conversation], below the root conversation [root]. */
 @Serializable
-internal class RunRecord(
-    val conversation: ConversationId,
-    val root: ConversationId,
-    val profile: String,
-    val resumes: RunId? = null,
-)
+internal class RunRecord(val conversation: ConversationId, val root: ConversationId, val profile: String)
 
 private val logger = LoggerFactory.getLogger(RunRecords::class.java)

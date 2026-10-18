@@ -1,9 +1,16 @@
 package org.unitedsoftware.alexandrite.agent.permission
 
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.control.SettingsStates
+import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import java.time.Clock
 
 /** Whose authority a turn carries. */
 internal enum class Principal {
@@ -43,6 +50,29 @@ internal fun effectiveRisk(declared: ToolRisk, reported: ToolRisk?, builtIn: Boo
     else -> declared
 }
 
+/**
+ * The permission mode of [call], the strictest of the mode at its key and those of its chain, and whether its chain
+ * tightened it; [unread] stands for the mode at the key when that cannot be read.
+ */
+internal suspend fun SettingsStates.callMode(
+    call: GateCall,
+    directory: AgentDirectory,
+    clock: Clock,
+    unread: PermissionMode,
+): Pair<PermissionMode, Boolean> {
+    val turn = call.turn
+    val chat = try {
+        mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
+    } catch (e: Throwable) {
+        if (e is VirtualMachineError) throw e
+        currentCoroutineContext().ensureActive()
+        logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
+        unread
+    }
+    val mode = strictest(listOf(chat) + call.calls.chain?.modes.orEmpty())
+    return mode to (mode != chat)
+}
+
 /** The strictest of [modes], ordered `plan` < `manual` < `ask` < `allowedit` < `auto` < `bypass`. */
 internal fun strictest(modes: List<PermissionMode>): PermissionMode =
     STRICTNESS[modes.minOfOrNull { STRICTNESS.indexOf(it).coerceAtLeast(0) } ?: STRICTNESS.indexOf(PermissionMode.ASK)]
@@ -61,3 +91,5 @@ private val STRICTNESS = listOf(
     PermissionMode.AUTO,
     PermissionMode.BYPASS,
 )
+
+private val logger = LoggerFactory.getLogger("org.unitedsoftware.alexandrite.agent.permission.Gating")

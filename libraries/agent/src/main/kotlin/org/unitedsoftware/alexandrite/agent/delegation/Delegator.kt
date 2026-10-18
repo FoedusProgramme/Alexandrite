@@ -140,7 +140,7 @@ internal class Delegator(
             val created = conversations.createDelegated(turn.key, lineage, from)
             if (context.taint.tainted) inherit(created.id, run, turn, context.taint)
             if (earlier != null) carryTaint(checkNotNull(resume), earlier.conversation, created.id, run)
-            runRecords.put(run, RunRecord(created.id, root, profile.id.value, resume))
+            runRecords.put(run, RunRecord(created.id, root, profile.id.value))
             created
         }
         val detachedParent = if (background) {

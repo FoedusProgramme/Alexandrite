@@ -77,10 +77,14 @@ class MandatesTest {
     }
 
     /** Runs a reminder of [plugin] under [mandate] that calls `tasks.who`, and returns its opening's framing. */
-    private suspend fun PluginHarness.Running.remind(mandate: Mandate?, plugin: String = plugin(make)): String {
+    private suspend fun PluginHarness.Running.remind(
+        mandate: Mandate?,
+        plugin: String = plugin(make),
+        trust: Trust = Trust.TRUSTED,
+    ): String {
         model.reply { toolCall("tasks.who", "{}") }.reply { text("Done.") }
         val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Check the build.")
-            .trust(Trust.TRUSTED)
+            .trust(trust)
             .mandate(mandate)
             .build()
         val admission = get<TurnInitiation>().initiate(plugin, turn)
@@ -138,6 +142,19 @@ class MandatesTest {
 
             assertEquals(listOf<ChatUser?>(null, null, null), actors)
             assertEquals(false, "On behalf of" in elsewhere)
+        }
+    }
+
+    @Test
+    fun `an untrusted prompt under a mandate runs as nobody`() {
+        model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
+
+        harness().execute {
+            ask()
+            val framing = remind(assertNotNull(granted.single()), trust = Trust.UNTRUSTED)
+
+            assertNull(actors.single())
+            assertEquals(false, "On behalf of" in framing)
         }
     }
 

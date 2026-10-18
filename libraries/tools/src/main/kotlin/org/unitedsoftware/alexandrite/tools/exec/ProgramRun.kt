@@ -57,7 +57,11 @@ internal suspend fun runProgram(
     }
 }
 
-/** The variables of [parent] that a program gets: the usual ones and those named in [extra]. */
+/**
+ * The variables of [parent] that a program gets: the usual ones and those named in [extra]. They include `TERM` and
+ * every `LC_*` on purpose, which an MCP server's minimal environment leaves out, since a command's output is read like
+ * a terminal's.
+ */
 internal fun childEnvironment(parent: Map<String, String>, extra: List<String>): Map<String, String> {
     val passed = parent.filterKeys { it in PASSED || it.startsWith("LC_") || it in extra }
     if ("PATH" in passed) return passed

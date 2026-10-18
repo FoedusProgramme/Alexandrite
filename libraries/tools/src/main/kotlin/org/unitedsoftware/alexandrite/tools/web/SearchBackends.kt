@@ -40,7 +40,7 @@ internal class SearchHttp(private val config: WebConfig) : Lifecycle {
 @Singleton
 @Contribute(WebSearchBackend::class)
 internal class BraveSearch(private val config: WebConfig, private val http: SearchHttp) : WebSearchBackend {
-    override val id: String = "brave"
+    override val id: String = ID
 
     override suspend fun search(query: WebQuery): List<WebSearchResult> {
         val key = requireNotNull(config.braveApiKey) {
@@ -48,18 +48,26 @@ internal class BraveSearch(private val config: WebConfig, private val http: Sear
         }.reveal()
         return braveResults(http.send(braveCall(query.text, query.limit, key)), query.limit)
     }
+
+    companion object {
+        const val ID: String = "brave"
+    }
 }
 
 @Singleton
 @Contribute(WebSearchBackend::class)
 internal class TavilySearch(private val config: WebConfig, private val http: SearchHttp) : WebSearchBackend {
-    override val id: String = "tavily"
+    override val id: String = ID
 
     override suspend fun search(query: WebQuery): List<WebSearchResult> {
         val key = requireNotNull(config.tavilyApiKey) {
             "Configure web.tavilyApiKey with an environment reference."
         }.reveal()
         return tavilyResults(http.send(tavilyCall(query.text, query.limit, key)), query.limit)
+    }
+
+    companion object {
+        const val ID: String = "tavily"
     }
 }
 

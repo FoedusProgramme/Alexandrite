@@ -4,58 +4,12 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
-import org.unitedsoftware.alexandrite.internal.http.HttpCall
 import org.unitedsoftware.alexandrite.internal.http.HttpException
 import org.unitedsoftware.alexandrite.internal.http.HttpFailureKind
-import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import java.net.URI
-
-/**
- * The HTTP side of one endpoint, which sends the API key of [settings] in its [EndpointSettings.authHeader], else in
- * [authHeader], and the headers [own] with every request.
- */
-internal class EndpointConnection(
-    settings: EndpointSettings,
-    own: Map<String, String> = emptyMap(),
-    authHeader: String = "authorization",
-) : AutoCloseable {
-    val base: String = settings.baseUrl.trimEnd('/')
-    val transport: HttpTransport = HttpTransport(settings.timeouts.timeouts())
-    private val own = auth(settings, settings.authHeader ?: authHeader) + own
-    private val headers = settings.headers.entries.associate { it.key.lowercase() to it.value.reveal() }
-    private val secrets = listOfNotNull(settings.apiKey?.reveal()) + headers.values
-
-    fun call(
-        method: String,
-        url: String,
-        accept: String,
-        body: String? = null,
-        extra: Map<String, String> = emptyMap(),
-    ): HttpCall {
-        val all = buildMap {
-            putAll(headers)
-            put("accept", accept)
-            put("content-type", "application/json")
-            putAll(own)
-            putAll(extra)
-        }
-        return HttpCall(method, URI(url), all, body, secrets)
-    }
-
-    override fun close() {
-        transport.close()
-    }
-}
-
-/** The API key of [settings] in [header], after `Bearer` in `authorization`. */
-private fun auth(settings: EndpointSettings, header: String): Map<String, String> {
-    val key = settings.apiKey?.reveal() ?: return emptyMap()
-    val name = header.lowercase()
-    return mapOf(name to if (name == "authorization") "Bearer $key" else key)
-}
 
 /** The models of the endpoint [id], each described by the config, the last listing [models] read and [listing]. */
 internal class ModelCatalog(

@@ -73,7 +73,7 @@ internal class MessageBudget(val rootTurn: TurnId? = null) :
     fun take(): Boolean {
         while (true) {
             val previous = used.get()
-            if (previous >= 3) return false
+            if (previous >= MAX_ROUND_TRIPS) return false
             if (used.compareAndSet(previous, previous + 1)) return true
         }
     }
@@ -120,7 +120,7 @@ internal class AgentMessages(
                 ?: return InTurnResult("agent.send runs only in an agent turn.", ToolOutcome.Failed)
         if (!budget.take()) {
             return InTurnResult(
-                "The root turn has reached its limit of 3 agent-message round trips.",
+                "The root turn has reached its limit of $MAX_ROUND_TRIPS agent-message round trips.",
                 ToolOutcome.Failed,
             )
         }
@@ -236,6 +236,9 @@ internal class AgentMessages(
         return workers.value.submit(key, WorkerJob.Turn(plan, ticket, capacity))
     }
 }
+
+/** The agent messages that one root turn may send. */
+internal const val MAX_ROUND_TRIPS = 3
 
 private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
 

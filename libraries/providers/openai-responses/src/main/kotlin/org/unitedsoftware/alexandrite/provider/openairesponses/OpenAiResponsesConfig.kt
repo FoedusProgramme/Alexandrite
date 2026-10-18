@@ -6,6 +6,7 @@ import org.unitedsoftware.alexandrite.provider.common.ModelConfig
 import org.unitedsoftware.alexandrite.provider.common.TimeoutConfig
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
 import org.unitedsoftware.alexandrite.provider.common.requireEndpointIds
+import org.unitedsoftware.alexandrite.provider.common.responses.ReasoningSummary
 import org.unitedsoftware.alexandrite.provider.common.responses.ResponsesSettings
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.config.Secret
@@ -35,7 +36,7 @@ internal class EndpointConfig(
     /** Whether requests carry the agent's cache key as `prompt_cache_key`. */
     val promptCacheKey: Boolean = true,
     /** The reasoning summary that requests to reasoning models ask for: `auto`, `concise`, `detailed` or null. */
-    val reasoningSummary: String? = "auto",
+    val reasoningSummary: ReasoningSummary? = ReasoningSummary.AUTO,
     /** Enables the backend's server-side web search tool. */
     val nativeSearch: Boolean = false,
     val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,

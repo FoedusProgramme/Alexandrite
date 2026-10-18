@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.provider.common.CHAT_CALL_IDS
 import org.unitedsoftware.alexandrite.provider.common.ModelListing
 import org.unitedsoftware.alexandrite.provider.common.long
 import org.unitedsoftware.alexandrite.provider.common.obj
+import org.unitedsoftware.alexandrite.provider.common.unsupportedEffort
 import org.unitedsoftware.alexandrite.provider.common.wireToolName
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.model.FinishKind
@@ -67,10 +68,7 @@ public open class ChatReasoning {
     public open fun reader(origin: ModelRef): ChatReasoningReader = ChatReasoningReader()
 
     /** The warning that [info]'s model takes no [effort], so the request asks for none. */
-    protected fun unsupported(effort: ReasoningEffort, info: ModelInfo): Warning = Warning(
-        "unsupported_option",
-        "Model '${info.id}' takes no reasoning effort '$effort', so the request asks for none.",
-    )
+    protected fun unsupported(effort: ReasoningEffort, info: ModelInfo): Warning = unsupportedEffort(effort, info)
 }
 
 /**

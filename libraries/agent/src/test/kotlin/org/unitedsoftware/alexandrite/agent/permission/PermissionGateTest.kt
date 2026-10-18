@@ -20,10 +20,12 @@ import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatState
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -47,6 +49,8 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
+import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
+import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.sdk.turn.ToolCallCheck
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
@@ -796,4 +800,9 @@ private class ScriptedRules : CallRules {
     override suspend fun grantable(call: CheckedCall): RuleSubject? = null
 
     override suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser) = error("Nothing is granted.")
+
+    override fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule> = emptyList()
+
+    override suspend fun revoke(agent: AgentId, conversation: ConversationId, number: Int, by: ChatUser?) =
+        Revocation(removed = false, declared = false)
 }

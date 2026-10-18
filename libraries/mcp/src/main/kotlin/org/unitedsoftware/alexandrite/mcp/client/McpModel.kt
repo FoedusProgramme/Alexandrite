@@ -109,10 +109,6 @@ internal sealed class McpCallOutcome {
     data class NeedsInput(val inputRequests: JsonObject?, val requestState: String?) : McpCallOutcome()
 }
 
-internal fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-internal fun JsonObject.boolean(key: String): Boolean? = (this[key] as? JsonPrimitive)?.booleanOrNull
-
 internal fun parseTool(json: JsonObject): McpTool? {
     val name = json.string("name") ?: return null
     val annotations = (json["annotations"] as? JsonObject)?.let {

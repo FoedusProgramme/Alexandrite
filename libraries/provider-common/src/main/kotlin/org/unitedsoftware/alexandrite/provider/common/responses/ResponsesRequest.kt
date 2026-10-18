@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import org.unitedsoftware.alexandrite.provider.common.IMAGE_TYPES
 import org.unitedsoftware.alexandrite.provider.common.callText
 import org.unitedsoftware.alexandrite.provider.common.resultHeading
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
@@ -103,7 +104,7 @@ internal class ResponsesRequest(
         val reasoning = flavor.reasoning
         val fields = buildJsonObject {
             request.options.reasoning?.let { reasoning.effort(it, info, this)?.let(warnings::add) }
-            settings.reasoningSummary?.takeIf { reasoning.thinks(effort, info) }?.let { put("summary", it) }
+            settings.reasoningSummary?.takeIf { reasoning.thinks(effort, info) }?.let { put("summary", it.id) }
         }
         if (!reasoning.reasons(info)) return
         if (fields.isNotEmpty()) put("reasoning", fields)
@@ -287,6 +288,5 @@ internal class ResponsesRequest(
         const val MIN_OUTPUT_TOKENS = 16
         const val PDF = "application/pdf"
         val INPUT_TEXT = JsonPrimitive("input_text")
-        val IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
     }
 }

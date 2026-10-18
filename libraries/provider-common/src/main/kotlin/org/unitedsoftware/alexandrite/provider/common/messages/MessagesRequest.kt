@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.provider.common.IMAGE_TYPES
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
 import org.unitedsoftware.alexandrite.provider.common.callText
 import org.unitedsoftware.alexandrite.provider.common.obj
@@ -361,6 +362,5 @@ internal class MessagesRequest(
         const val DEFAULT_MAX_TOKENS = 4096
         const val MIN_THINKING_TOP_P = 0.95
         val CACHEABLE = setOf("text", "image", "document", "tool_use", "tool_result")
-        val IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
     }
 }

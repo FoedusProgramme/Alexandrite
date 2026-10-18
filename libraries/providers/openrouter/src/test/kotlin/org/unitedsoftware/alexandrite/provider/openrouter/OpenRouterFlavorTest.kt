@@ -54,7 +54,8 @@ class OpenRouterFlavorTest {
     private val server = FakeModelServer()
     private val turn = testTurn()
     private val model = ModelRef(EndpointId("test"), "chat-model")
-    private val reasoner = mapOf("chat-model" to ModelConfig(reasoningEfforts = setOf("high", "max")))
+    private val reasoner =
+        mapOf("chat-model" to ModelConfig(reasoningEfforts = setOf(ReasoningEffort.HIGH, ReasoningEffort.MAX)))
 
     @AfterTest
     fun close() {

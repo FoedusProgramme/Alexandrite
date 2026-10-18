@@ -37,7 +37,7 @@ internal class WriteTool(private val floor: HardFloor, private val ledger: ReadL
         target.review(written(target, content, context))
     }
 
-    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = writing {
+    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val content = content(arguments)
         val target = floor.target(arguments.requiredString("path"), context)
         target.checkReviewed(context)

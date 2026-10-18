@@ -56,7 +56,7 @@ internal class EditTool(private val floor: HardFloor, private val ledger: ReadLe
         target.review(edited(target, edits, context))
     }
 
-    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = writing {
+    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val edits = edits(arguments)
         val target = floor.target(arguments.requiredString("path"), context)
         target.checkReviewed(context)

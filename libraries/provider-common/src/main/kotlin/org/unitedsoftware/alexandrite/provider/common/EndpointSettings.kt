@@ -58,15 +58,18 @@ public class EndpointSettings(
         }
     }
 
-    private companion object {
-        val RESERVED_HEADERS =
+    internal companion object {
+        /** The header that carries the API key unless the wire API names another. */
+        const val DEFAULT_AUTH_HEADER = "authorization"
+
+        private val RESERVED_HEADERS =
             setOf("accept", "connection", "content-length", "content-type", "expect", "host", "upgrade")
 
         /** The headers that the wire APIs carry the API key in. */
-        val WIRE_AUTH_HEADERS = listOf("authorization", "x-api-key")
-        val TOKEN = ('a'..'z') + ('A'..'Z') + ('0'..'9') + "!#$%&'*+-.^_`|~".toList()
+        private val WIRE_AUTH_HEADERS = listOf(DEFAULT_AUTH_HEADER, "x-api-key")
+        private val TOKEN = ('a'..'z') + ('A'..'Z') + ('0'..'9') + "!#$%&'*+-.^_`|~".toList()
 
-        fun isHttpUrl(text: String): Boolean = try {
+        private fun isHttpUrl(text: String): Boolean = try {
             val uri = URI(text)
             uri.scheme in setOf("http", "https") && uri.host != null && uri.rawUserInfo == null &&
                 uri.rawQuery == null && uri.rawFragment == null
@@ -116,8 +119,7 @@ public class ModelConfig(
     public val parallelToolCalls: Boolean? = null,
     /** Media kinds such as `image`. */
     public val inputMedia: Set<String>? = null,
-    /** Efforts such as `low` or `high`. */
-    public val reasoningEfforts: Set<String>? = null,
+    public val reasoningEfforts: Set<ReasoningEffort>? = null,
 ) {
     init {
         require(contextWindow == null || contextWindow > 0) { "contextWindow must be positive" }
@@ -128,7 +130,7 @@ public class ModelConfig(
             }
         }
         reasoningEfforts?.forEach { effort ->
-            require(ReasoningEffort.entries.any { it.id == effort }) {
+            require(effort in ReasoningEffort.entries) {
                 "reasoningEfforts holds '$effort', which is none of ${ReasoningEffort.entries.joinToString()}"
             }
         }
@@ -142,7 +144,7 @@ public class ModelConfig(
         nativeTools = nativeTools,
         parallelToolCalls = parallelToolCalls,
         inputMedia = inputMedia?.mapTo(mutableSetOf(), MediaKind::of),
-        reasoningEfforts = reasoningEfforts?.mapTo(mutableSetOf(), ReasoningEffort::of),
+        reasoningEfforts = reasoningEfforts,
     )
 }
 

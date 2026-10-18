@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.tools.fs
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
-import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
@@ -14,15 +13,11 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
-import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import java.io.IOException
 import java.nio.file.AccessDeniedException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-
-/** Ends a write tool's call with [message], refused as a protected place is. */
-internal class Blocked(message: String) : Refusal(message)
 
 /** The file at [file], the canonical path of what a call names as [shown], as a write tool found it. */
 internal class Target(
@@ -51,17 +46,7 @@ internal suspend fun reviewing(block: suspend () -> CallReview): CallReview = tr
     CallReview(problem = e.message)
 } catch (e: IOException) {
     currentCoroutineContext().ensureActive()
-    CallReview(problem = readFailure(e))
-}
-
-/** What [block] returns, or the failed result that a [Refusal] or an I/O error makes. */
-internal suspend fun writing(block: suspend () -> ToolResult): ToolResult = try {
-    block()
-} catch (e: Refusal) {
-    ToolResult(e.message, isError = true)
-} catch (e: IOException) {
-    currentCoroutineContext().ensureActive()
-    ToolResult(readFailure(e), isError = true)
+    CallReview(problem = failure(e))
 }
 
 /** The file that [argument] names for a write by the call of [context], once the floor allows it. */
@@ -94,15 +79,8 @@ private fun load(file: Path, shown: Path, exempt: Boolean): Target {
         }
         return Target(file, shown, null, ABSENT, exempt)
     }
-    when {
-        attributes.isDirectory -> throw Refusal("$shown is a directory.")
-
-        !attributes.isRegularFile -> throw Refusal("$shown is no regular file, so it is not written.")
-
-        hardLinks(file) > 1 -> throw Blocked(
-            "$shown has more than one hard link, so it may be another name of a protected file: it is not written.",
-        )
-    }
+    if (attributes.isDirectory) throw Refusal("$shown is a directory.")
+    checkRegular(file, shown, attributes, "written")
     val bytes = openRegularFile(file).use { it.readNBytes(MAX_WRITE_BYTES.toInt() + 1) }
     if (bytes.size > MAX_WRITE_BYTES) {
         throw Refusal("$shown is over ${MAX_WRITE_BYTES / MIB} MiB, more than the write tools change.")
@@ -170,9 +148,3 @@ internal suspend fun Target.write(text: String, ledger: ReadLedger, context: Too
 
 /** `+added -removed lines` of [diff]. */
 internal fun changed(diff: UnifiedDiff): String = "+${diff.added} -${diff.removed} lines"
-
-private fun readFailure(e: IOException): String = when (e) {
-    is NoSuchFileException -> "Nothing exists at ${e.file}."
-    is AccessDeniedException -> "${e.file} cannot be read: access denied."
-    else -> "A file could not be read: ${e.message ?: e.javaClass.simpleName}"
-}

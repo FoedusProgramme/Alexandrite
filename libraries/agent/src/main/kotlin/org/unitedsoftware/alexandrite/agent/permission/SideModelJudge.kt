@@ -11,8 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
-import org.unitedsoftware.alexandrite.agent.model.collectResponse
-import org.unitedsoftware.alexandrite.agent.model.leastReasoning
+import org.unitedsoftware.alexandrite.agent.model.ask
 import org.unitedsoftware.alexandrite.agent.model.select
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
@@ -22,15 +21,10 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
-import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
-import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
-import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -56,14 +50,14 @@ internal class SideModelJudge(private val endpoints: Endpoints, private val dire
             ruling.verdict !is Verdict.Ask -> asks.remove(streak)
         }
         logger.info(
-            "Judge on call {} of {} in turn {} of {}: {} ({})",
+            "Judge on call {} of {} in turn {} of {}: {}",
             gate.call.id,
             tool,
             gate.turn.id,
             gate.turn.key,
             ruling.word,
-            ruling.reason,
         )
+        logger.debug("Judge on call {} gave its {} because {}", gate.call.id, ruling.word, ruling.reason)
         return ruling.verdict
     }
 
@@ -118,18 +112,9 @@ internal class SideModelJudge(private val endpoints: Endpoints, private val dire
                 .retryable(false)
                 .build(),
         )
-        val options = ModelOptions.builder()
-            .maxOutputTokens(minOf(MAX_OUTPUT_TOKENS, selected.info.maxOutputTokens ?: MAX_OUTPUT_TOKENS))
-            .reasoning(leastReasoning(selected.info))
-            .temperature(0.0)
-            .build()
-        val history = listOf(UserEntry(null, listOf(TextPart(prompt)), UserOrigin.SystemWritten(SOURCE)))
-        val request = ModelRequest.builder(model, history, 0, RequestIds(turn.conversation, turn.id, 0))
-            .instructions(listOf(PromptSection(SOURCE, RUBRIC, stable = true)))
-            .options(options)
-            .build()
-        val response = collectResponse(selected.endpoint, request)
-        return response.message.parts.filterIsInstance<TextPart>().joinToString("") { it.text }
+        val ids = RequestIds(turn.conversation, turn.id, 0)
+        val instructions = listOf(PromptSection(SOURCE, RUBRIC, stable = true))
+        return selected.ask(ids, SOURCE, prompt, instructions, MAX_OUTPUT_TOKENS, temperature = 0.0).text
     }
 }
 

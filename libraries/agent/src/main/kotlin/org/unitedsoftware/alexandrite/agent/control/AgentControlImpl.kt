@@ -4,30 +4,25 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.context.ContextControl
-import org.unitedsoftware.alexandrite.agent.context.ContextRecords
 import org.unitedsoftware.alexandrite.agent.delegation.DelegatedRuns
-import org.unitedsoftware.alexandrite.agent.delegation.RunRecords
 import org.unitedsoftware.alexandrite.agent.delivery.Notices
-import org.unitedsoftware.alexandrite.agent.delivery.SentMessages
 import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
-import org.unitedsoftware.alexandrite.agent.job.InterruptedJobs
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
-import org.unitedsoftware.alexandrite.agent.permission.AgentCallRules
+import org.unitedsoftware.alexandrite.agent.permission.CallRules
 import org.unitedsoftware.alexandrite.agent.profile.Profiles
 import org.unitedsoftware.alexandrite.agent.project.FolderTrust
 import org.unitedsoftware.alexandrite.agent.routing.ChatRouter
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.routing.LinkGroup
 import org.unitedsoftware.alexandrite.agent.routing.Resolution
-import org.unitedsoftware.alexandrite.agent.tool.OfferedTools
+import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.agent.worker.AgentTurnInitiation
 import org.unitedsoftware.alexandrite.agent.worker.ChatIntakes
 import org.unitedsoftware.alexandrite.agent.worker.RunningControl
@@ -78,7 +73,6 @@ import java.time.Clock
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
-import kotlin.time.Duration.Companion.seconds
 
 /** The agent's control port and the chat settings it shows other plugins. */
 @Singleton
@@ -96,14 +90,9 @@ internal class AgentControlImpl(
     private val conversations: ConversationStore,
     private val endpoints: Endpoints,
     private val trust: FolderTrust,
-    private val rules: AgentCallRules,
-    private val offeredTools: OfferedTools,
-    private val pendingCommands: PendingCommands,
-    private val interruptedJobs: InterruptedJobs,
-    private val sentMessages: SentMessages,
-    private val runRecords: RunRecords,
+    private val rules: CallRules,
+    private val seals: List<ConversationSeals>,
     private val contexts: ContextControl,
-    private val contextRecords: ContextRecords,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val profileCatalog: Profiles,
@@ -368,14 +357,8 @@ internal class AgentControlImpl(
     }
 
     /** The models of the endpoint of [model], listed anew when [fresh], null when they cannot be listed in time. */
-    private suspend fun listing(model: ModelRef, fresh: Boolean): List<ModelInfo>? = try {
-        withTimeoutOrNull(LISTING_TIMEOUT) { endpoints.models(model.endpoint, fresh) }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        logger.warn("Cannot list the models of endpoint '{}' to check {}: {}", model.endpoint, model, e.toString())
-        null
-    }
+    private suspend fun listing(model: ModelRef, fresh: Boolean): List<ModelInfo>? =
+        endpoints.modelsWithin(model.endpoint, "to check $model", fresh)
 
     private fun checkReasoning(change: SettingChange<ReasoningEffort>) {
         val effort = (change as? SettingChange.SetTo)?.value ?: return
@@ -431,13 +414,7 @@ internal class AgentControlImpl(
         rotation: Rotation,
     ) {
         val sealed = rotation.sealed?.id ?: return
-        rules.sealed(sealed)
-        offeredTools.sealed(sealed)
-        pendingCommands.sealed(sealed)
-        interruptedJobs.sealed(sealed)
-        sentMessages.sealed(sealed)
-        runRecords.sealed(sealed)
-        contextRecords.sealed(sealed)
+        for (seal in seals) seal.sealed(sealed)
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)
@@ -492,7 +469,6 @@ internal class AgentControlImpl(
     }
 
     private companion object {
-        val LISTING_TIMEOUT = 5.seconds
         val DEFAULT_BYPASS: Duration = Duration.ofHours(1)
         val MAX_BYPASS: Duration = Duration.ofHours(24)
     }
@@ -507,7 +483,5 @@ private fun settingChanges(update: ChatSettingsUpdate): String = listOf(
 )
     .filter { it.second != SettingChange.Keep }
     .joinToString { (name, change) -> "$name ${(change as? SettingChange.SetTo)?.value ?: "reset"}" }
-
-private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 
 private val logger = LoggerFactory.getLogger(AgentControlImpl::class.java)

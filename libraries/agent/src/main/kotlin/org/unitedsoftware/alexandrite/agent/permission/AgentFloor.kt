@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.agent.permission
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.config.FloorConfig
+import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.floor.DenyRoot
@@ -247,19 +248,8 @@ internal fun operatorPlaces(paths: HostPaths, configured: List<String>, home: Pa
             )
             return@map base.resolve(entry.removePrefix("~").removePrefix("/")).normalize()
         }
-        relativeOrAbsolute(paths, entry)
+        configuredPath(paths, "agent.floor.deny", "the protected path", entry)
     }
-
-private fun relativeOrAbsolute(paths: HostPaths, entry: String): Path {
-    val path = Path.of(entry)
-    if (path.isAbsolute) return path.normalize()
-    val directory = paths.configFile?.parent ?: throw ConfigException(
-        "agent.floor.deny",
-        "the protected path '$entry' is relative, but the host read no config file to resolve it against: give an " +
-            "absolute path",
-    )
-    return directory.resolve(path).normalize()
-}
 
 private fun collision(workspace: Path, overlap: Overlap): String {
     val relation = when (overlap.placement) {

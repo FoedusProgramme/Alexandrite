@@ -5,9 +5,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
+import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
+import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -147,11 +149,7 @@ private fun grantedPath(key: String): Path? = try {
  * Throws a [ConfigException] for a folder that [floor] refuses.
  */
 private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor): List<Path> = entries.map { entry ->
-    val path = absolute(entry, paths) ?: throw ConfigException(
-        "agent.$KEY",
-        "the trusted folder '$entry' is relative, but the host read no config file to resolve it against: " +
-            "give an absolute path",
-    )
+    val path = configuredPath(paths, "agent.$KEY", "the trusted folder", entry)
     when (val check = floor.checkRead(path)) {
         is FloorCheck.Allowed -> check.canonical
 
@@ -165,18 +163,6 @@ private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor
 /** Whether [folder] is [trusted] or lies in it outside every repository nested in it. */
 private fun covers(trusted: Path, folder: Path): Boolean = folder.startsWith(trusted) &&
     generateSequence(folder) { it.parent }.takeWhile { it != trusted }.none(::isRepository)
-
-/** [entry] made absolute against the directory of the config file in [paths], null when it cannot be. */
-private fun absolute(entry: String, paths: HostPaths): Path? {
-    val given = try {
-        Path.of(entry)
-    } catch (e: InvalidPathException) {
-        return null
-    }
-    return (if (given.isAbsolute) given else paths.configFile?.parent?.resolve(given))?.normalize()
-}
-
-private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 
 private const val KEY = "trustedFolders"
 

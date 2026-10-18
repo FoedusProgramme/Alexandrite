@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
+import org.unitedsoftware.alexandrite.agent.workspace.createOwnerOnly
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -13,7 +14,6 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Where each conversation keeps its own files, in the directory named by its id within the directory that the host's
@@ -41,14 +41,7 @@ internal class ConversationDirectories(private val places: AgentPlaces, private 
     fun open(agent: AgentId, conversation: ConversationId): Path {
         val directory = path(agent, conversation)
         if (Files.isDirectory(directory)) return directory
-        if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
-            Files.createDirectories(
-                directory,
-                PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)),
-            )
-        } else {
-            Files.createDirectories(directory)
-        }
+        createOwnerOnly(directory)
         logger.info("Created the conversation directory {}", directory)
         return directory
     }
@@ -76,7 +69,5 @@ internal class ConversationDirectories(private val places: AgentPlaces, private 
         }
     }
 }
-
-private const val OWNER = "rwx------"
 
 private val logger = LoggerFactory.getLogger(ConversationDirectories::class.java)

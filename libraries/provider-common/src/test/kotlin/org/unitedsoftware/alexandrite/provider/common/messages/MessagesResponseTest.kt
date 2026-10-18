@@ -43,7 +43,11 @@ class MessagesResponseTest {
     private val server = FakeModelServer()
     private val turn = testTurn()
     private val models = mapOf(
-        "claude-model" to ModelConfig(reasoningEfforts = setOf("none", "low", "high"), maxOutputTokens = 8000),
+        "claude-model" to
+            ModelConfig(
+                reasoningEfforts = setOf(ReasoningEffort.NONE, ReasoningEffort.LOW, ReasoningEffort.HIGH),
+                maxOutputTokens = 8000,
+            ),
     )
 
     @AfterTest

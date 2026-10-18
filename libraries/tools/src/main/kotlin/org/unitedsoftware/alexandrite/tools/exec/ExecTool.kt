@@ -269,7 +269,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         return ParsedRequest(words, cwd, seconds.seconds)
     }
 
-    /** Whether the call asks to start as a background job, with `background` or a `monitor`; checked by [request]. */
+    /**
+     * Whether the call asks to start as a background job, with `background` (checked by [request]) or a `monitor`
+     * (checked by [monitorOptions]).
+     */
     private fun startsInBackground(arguments: JsonObject): Boolean =
         (arguments["background"] as? JsonPrimitive)?.booleanOrNull == true || arguments["monitor"] is JsonObject
 

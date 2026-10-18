@@ -4,15 +4,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.http.HttpResponseStream
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
-import org.unitedsoftware.alexandrite.provider.common.modelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
@@ -21,7 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
-import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
@@ -48,8 +43,7 @@ public class MessagesSettings(
 
 /**
  * An endpoint that speaks the Messages API in [flavor] at `{baseUrl}/v1/messages`, which describes each model by the
- * last listing it read. Settings that name [PROVIDER_HEADERS] in [EndpointSettings.providerHeaders] keep the operator
- * from setting them.
+ * last listing it read. It refuses settings whose headers set one of [PROVIDER_HEADERS].
  */
 public class MessagesEndpoint(
     override val id: EndpointId,
@@ -65,6 +59,7 @@ public class MessagesEndpoint(
         flavor.dialect,
         mapOf("anthropic-version" to flavor.version),
         AUTH_HEADER,
+        PROVIDER_HEADERS,
     )
 
     override suspend fun webSearch(model: String, query: WebQuery): List<WebSearchResult> {
@@ -72,9 +67,7 @@ public class MessagesEndpoint(
         return nativeSearch(core, model, query, messages.betas, ::classify)
     }
 
-    override suspend fun models(): List<ModelInfo> = core.models().let { models ->
-        if (messages.nativeSearch) models.map { it.rebuild { webSearch(true) } } else models
-    }
+    override suspend fun models(): List<ModelInfo> = core.models(messages.nativeSearch)
 
     override fun stream(request: ModelRequest): Flow<ModelEvent> = flow {
         val info = core.admit(request)
@@ -113,31 +106,18 @@ public class MessagesEndpoint(
                 !response.done
             }.collect { event ->
                 if (event.data.isNotBlank()) {
-                    val data = json(event.data, response.started)
+                    val data = core.json(event.data, response.started)
                     response.event(data, event.type, ::classify).forEach { emit(it) }
                 }
             }
 
             "application/json", null -> {
-                val message = json(stream.text(HttpTransport.DEFAULT_LIMIT), false)
+                val message = core.json(stream.text(HttpTransport.DEFAULT_LIMIT), false)
                 response.message(message, ::classify).forEach { emit(it) }
             }
 
             else -> throw core.unreadable(stream.mediaType, response.started)
         }
-    }
-
-    private fun json(text: String, outputStarted: Boolean): JsonObject {
-        val parsed = try {
-            Json.parseToJsonElement(text) as? JsonObject
-        } catch (e: SerializationException) {
-            null
-        }
-        return parsed ?: throw modelException(
-            ModelErrorKind.PROTOCOL,
-            "Endpoint '$id' sent an event that is no JSON object.",
-            outputStarted,
-        )
     }
 
     public companion object {

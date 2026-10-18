@@ -4,16 +4,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import org.unitedsoftware.alexandrite.internal.http.HttpResponseStream
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
-import org.unitedsoftware.alexandrite.provider.common.modelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
@@ -22,7 +25,6 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
-import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
@@ -32,18 +34,34 @@ public class ResponsesSettings(
     /** Whether requests carry the agent's cache key. */
     public val promptCacheKey: Boolean = true,
     /** The `reasoning.summary` that requests to reasoning models ask for, null for none. */
-    public val reasoningSummary: String? = "auto",
+    public val reasoningSummary: ReasoningSummary? = ReasoningSummary.AUTO,
     /** Whether the endpoint's models search the web with the backend's `web_search` tool. */
     public val nativeSearch: Boolean = false,
-) {
-    init {
-        require(reasoningSummary == null || reasoningSummary in SUMMARIES) {
-            "reasoningSummary must be one of ${SUMMARIES.joinToString { "\"$it\"" }} or null"
-        }
+)
+
+/** How much of its reasoning a model of the Responses API sums up. */
+@Serializable(with = ReasoningSummarySerializer::class)
+public enum class ReasoningSummary(internal val id: String) {
+    AUTO("auto"),
+    CONCISE("concise"),
+    DETAILED("detailed"),
+}
+
+internal object ReasoningSummarySerializer : KSerializer<ReasoningSummary> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor(
+        "org.unitedsoftware.alexandrite.provider.common.responses.ReasoningSummary",
+        PrimitiveKind.STRING,
+    )
+
+    override fun serialize(encoder: Encoder, value: ReasoningSummary) {
+        encoder.encodeString(value.id)
     }
 
-    private companion object {
-        val SUMMARIES = listOf("auto", "concise", "detailed")
+    override fun deserialize(decoder: Decoder): ReasoningSummary {
+        val id = decoder.decodeString()
+        return requireNotNull(ReasoningSummary.entries.firstOrNull { it.id == id }) {
+            "reasoningSummary must be one of ${ReasoningSummary.entries.joinToString { "\"${it.id}\"" }} or null"
+        }
     }
 }
 
@@ -65,9 +83,7 @@ public class ResponsesEndpoint(
         return nativeSearch(core, model, query, ::classify)
     }
 
-    override suspend fun models(): List<ModelInfo> = core.models().let { models ->
-        if (responses.nativeSearch) models.map { it.rebuild { webSearch(true) } } else models
-    }
+    override suspend fun models(): List<ModelInfo> = core.models(responses.nativeSearch)
 
     override fun stream(request: ModelRequest): Flow<ModelEvent> = flow {
         val info = core.admit(request)
@@ -102,30 +118,18 @@ public class ResponsesEndpoint(
                 !response.done
             }.collect { event ->
                 if (event.data.isNotBlank() && event.data != DONE) {
-                    response.event(json(event.data, response.started), event.type, ::classify).forEach { emit(it) }
+                    val data = core.json(event.data, response.started)
+                    response.event(data, event.type, ::classify).forEach { emit(it) }
                 }
             }
 
             "application/json", null -> {
-                val whole = json(stream.text(HttpTransport.DEFAULT_LIMIT), false)
+                val whole = core.json(stream.text(HttpTransport.DEFAULT_LIMIT), false)
                 response.response(whole, ::classify).forEach { emit(it) }
             }
 
             else -> throw core.unreadable(stream.mediaType, response.started)
         }
-    }
-
-    private fun json(text: String, outputStarted: Boolean): JsonObject {
-        val parsed = try {
-            Json.parseToJsonElement(text) as? JsonObject
-        } catch (e: SerializationException) {
-            null
-        }
-        return parsed ?: throw modelException(
-            ModelErrorKind.PROTOCOL,
-            "Endpoint '$id' sent an event that is no JSON object.",
-            outputStarted,
-        )
     }
 
     private companion object {

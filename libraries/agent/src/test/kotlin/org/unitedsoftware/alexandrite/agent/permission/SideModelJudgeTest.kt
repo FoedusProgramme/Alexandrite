@@ -545,7 +545,7 @@ class SideModelJudgeTest {
     // Logging.
 
     @Test
-    fun `each verdict is logged with the tool and the reason, never the arguments`() = runTest {
+    fun `each verdict is logged with the tool, its reason only at debug, never the arguments`() = runTest {
         answers("""{"verdict":"deny","reason":"it deletes notes.md"}""")
         val judge = judge()
 
@@ -559,13 +559,15 @@ class SideModelJudgeTest {
 
         assertEquals(
             listOf(
-                "INFO Judge on call call-1 of fs.write in turn test-turn of main@test:main:chat: deny (the judge " +
-                    "refused it: it deletes notes.md)",
-                "INFO Judge on call call-1 of fs.write in turn test-turn of main@test:main:chat: ask (the operator " +
-                    "typed nothing in this turn for the judge to go by)",
+                "INFO Judge on call call-1 of fs.write in turn test-turn of main@test:main:chat: deny",
+                "DEBUG Judge on call call-1 gave its deny because the judge refused it: it deletes notes.md",
+                "INFO Judge on call call-1 of fs.write in turn test-turn of main@test:main:chat: ask",
+                "DEBUG Judge on call call-1 gave its ask because the operator typed nothing in this turn for the " +
+                    "judge to go by",
             ),
-            lines.filter { it.startsWith("INFO Judge") },
+            lines.filter { "Judge on call" in it },
         )
+        assertFalse(lines.any { !it.startsWith("DEBUG") && "notes.md" in it })
         assertFalse(lines.any { "hello" in it })
     }
 

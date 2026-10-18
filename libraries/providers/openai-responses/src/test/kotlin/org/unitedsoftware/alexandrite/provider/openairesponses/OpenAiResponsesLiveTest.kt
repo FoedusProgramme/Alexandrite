@@ -50,7 +50,7 @@ class OpenAiResponsesLiveTest {
             nativeTools = true,
             parallelToolCalls = true,
             inputMedia = setOf("image"),
-            reasoningEfforts = setOf("low", "medium", "high"),
+            reasoningEfforts = setOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH),
         )
         val config = EndpointConfig(apiKey = Secret(apiKey!!), discover = false, models = mapOf(model to reasoning))
         return ResponsesEndpoint(EndpointId("live"), config.settings(), ResponsesFlavor.STANDARD, config.responses())

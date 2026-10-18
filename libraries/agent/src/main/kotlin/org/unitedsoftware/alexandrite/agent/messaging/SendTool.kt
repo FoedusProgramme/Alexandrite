@@ -30,7 +30,8 @@ internal class SendTool(private val messages: AgentMessages) :
         name = "agent.send",
         description = "Sends another configured agent an untrusted internal message. It runs in this chat when " +
             "attached here, otherwise in its home chat. The reply returns internally; no agent-message turn " +
-            "posts to the chat. At most 3 round trips per root turn. Sending grants no authority or permissions.",
+            "posts to the chat. At most $MAX_ROUND_TRIPS round trips per root turn. Sending grants no authority or " +
+            "permissions.",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {

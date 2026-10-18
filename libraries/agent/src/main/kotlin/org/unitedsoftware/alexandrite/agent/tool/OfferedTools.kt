@@ -4,11 +4,13 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.agent.permission.ArgsCanonicalizer
 import org.unitedsoftware.alexandrite.agent.prompt.TOOLS_HEADER
 import org.unitedsoftware.alexandrite.internal.hash.hex
 import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
@@ -25,7 +27,10 @@ internal const val TOOLS_SOURCE: String = "alexandrite.tools"
 
 /** The tools that the last turn of each active conversation offered, by name with the SHA-256 of each definition. */
 @Singleton
-internal class OfferedTools(records: Records, private val conversations: ConversationStore) : Lifecycle {
+@Contribute(ConversationSeals::class)
+internal class OfferedTools(records: Records, private val conversations: ConversationStore) :
+    Lifecycle,
+    ConversationSeals {
     private val offered = records.collection<Fingerprint>(COLLECTION)
 
     override suspend fun onStart() {
@@ -59,7 +64,7 @@ internal class OfferedTools(records: Records, private val conversations: Convers
     }
 
     /** Forgets the tools of [conversation], which was sealed. */
-    suspend fun sealed(conversation: ConversationId) {
+    override suspend fun sealed(conversation: ConversationId) {
         try {
             offered.remove(conversation.value)
         } catch (e: Exception) {

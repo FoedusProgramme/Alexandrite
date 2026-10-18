@@ -10,6 +10,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.profile.Profiles
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
@@ -32,11 +33,16 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 
 @Singleton
 @Contribute(Tool::class)
-internal class DelegateTool(private val delegator: Delegator, private val profiles: Profiles) :
-    CompanionTool,
+internal class DelegateTool(
+    private val delegator: Delegator,
+    private val profiles: Profiles,
+    settings: AgentSettings,
+) : CompanionTool,
     RenderedTool,
     InTurnTool {
-    override val definition: ToolDefinition = definition(DESCRIPTION)
+    private val description = description(settings.maxBackgroundRunsPerChat)
+
+    override val definition: ToolDefinition = definition(description)
 
     override suspend fun definitionFor(turn: TurnInfo): ToolDefinition {
         val listed = try {
@@ -54,7 +60,7 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
                 "- ${profile.id} (${oneLine(profile.name)}): ${oneLine(profile.description)}"
             }
         }
-        return definition("$DESCRIPTION\n\n$lines")
+        return definition("$description\n\n$lines")
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
@@ -140,13 +146,15 @@ internal class DelegateTool(private val delegator: Delegator, private val profil
         const val NAME = DELEGATE_TOOL
         const val FRESH = "fresh"
         const val FORK = "fork"
-        const val DESCRIPTION = "Delegates one task to a sub-agent: a profile with instructions, a model and tools " +
-            "of its own, which runs it in a new conversation and returns only its final reply. Each of its tool " +
-            "calls needs the same permissions as yours, and it has no tool that you may not call. Use it for work " +
-            "that a fresh context does better, such as a review or a self-contained change, and give it the whole " +
-            "brief. By default this call waits, and multiple synchronous calls run serially. Set background to true " +
-            "to start independent runs that report later; at most four may run per root chat. A run's result ends " +
-            "with its id, which resume takes to give the same sub-agent a follow-up task with what it already knows."
+
+        fun description(runs: Int): String = "Delegates one task to a sub-agent: a profile with instructions, a " +
+            "model and tools of its own, which runs it in a new conversation and returns only its final reply. Each " +
+            "of its tool calls needs the same permissions as yours, and it has no tool that you may not call. Use it " +
+            "for work that a fresh context does better, such as a review or a self-contained change, and give it " +
+            "the whole brief. By default this call waits, and multiple synchronous calls run serially. Set " +
+            "background to true to start independent runs that report later; at most $runs may run per chat. A " +
+            "run's result ends with its id, which resume takes to give the same sub-agent a follow-up task with " +
+            "what it already knows."
     }
 }
 

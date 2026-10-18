@@ -280,9 +280,10 @@ class StdioClientTest {
     fun `close closes the server's input and it exits`() = realTime {
         val connection = McpStdioConnection.start(fakeLaunch("modern"), stderr::add)
         val client = McpClient.connect(connection, CLIENT, FAST)
+        val pid = stderr.await { it.startsWith("pid ") }.removePrefix("pid ").toLong()
         client.close()
         stderr.await { it == "stdin closed" }
-        assertFalse(ProcessHandle.of(connection.pid).map { it.isAlive }.orElse(false))
+        assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
         assertFailsWith<McpConnectionException> { client.listTools() }
     }
 
@@ -290,10 +291,11 @@ class StdioClientTest {
     fun `close ends a server that ignores its closed input, with the processes it started`() = realTime {
         val connection = McpStdioConnection.start(fakeLaunch("stubborn"), stderr::add, stopGrace = 500.milliseconds)
         val client = McpClient.connect(connection, CLIENT, FAST)
+        val pid = stderr.await { it.startsWith("pid ") }.removePrefix("pid ").toLong()
         val child = stderr.await { it.startsWith("child ") }.removePrefix("child ").toLong()
         assertTrue(ProcessHandle.of(child).map { it.isAlive }.orElse(false))
         client.close()
-        assertFalse(ProcessHandle.of(connection.pid).map { it.isAlive }.orElse(false))
+        assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
         assertFalse(ProcessHandle.of(child).map { it.isAlive }.orElse(false))
     }
 

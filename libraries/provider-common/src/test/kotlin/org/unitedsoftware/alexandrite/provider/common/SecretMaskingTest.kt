@@ -112,7 +112,6 @@ class SecretMaskingTest {
         fun plain(baseUrl: String) = EndpointSettings(
             baseUrl = baseUrl,
             apiKey = Secret(FIXTURE_API_KEY),
-            headers = mapOf("Anthropic-Version" to Secret("1999-01-01")),
             models = mapOf("m" to ModelConfig()),
             discover = false,
             timeouts = FIXTURE_TIMEOUTS,

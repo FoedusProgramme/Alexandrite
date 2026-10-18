@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.agent.model
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -15,6 +16,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import kotlin.time.Duration.Companion.seconds
 
 /** The model endpoints that the model providers contribute, with their listings cached. */
 @Singleton
@@ -57,6 +59,16 @@ internal class Endpoints(providers: List<ModelProvider>, settings: AgentSettings
     /** The model [ref] names, null when its endpoint does not list it. */
     suspend fun model(ref: ModelRef): ModelInfo? = models(ref.endpoint).firstOrNull { it.id == ref.model }
 
+    /** The [models] of the endpoint [id] listed in time [why], null when they cannot be. */
+    suspend fun modelsWithin(id: EndpointId, why: String, fresh: Boolean = false): List<ModelInfo>? = try {
+        withTimeoutOrNull(LISTING_TIMEOUT) { models(id, fresh) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.warn("Cannot list the models of endpoint '{}' {}: {}", id, why, e.toString())
+        null
+    }
+
     private inner class Listing(val endpoint: ModelEndpoint) {
         val lock = Mutex()
         private var models: List<ModelInfo>? = null
@@ -89,5 +101,7 @@ internal class Endpoints(providers: List<ModelProvider>, settings: AgentSettings
         }
     }
 }
+
+private val LISTING_TIMEOUT = 5.seconds
 
 private val logger = LoggerFactory.getLogger(Endpoints::class.java)

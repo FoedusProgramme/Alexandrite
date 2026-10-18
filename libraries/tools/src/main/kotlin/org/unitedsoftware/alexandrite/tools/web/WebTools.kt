@@ -4,12 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
@@ -23,6 +18,11 @@ import org.unitedsoftware.alexandrite.sdk.web.PageQuestion
 import org.unitedsoftware.alexandrite.sdk.web.WebModels
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
+import org.unitedsoftware.alexandrite.tools.fs.Refusal
+import org.unitedsoftware.alexandrite.tools.fs.count
+import org.unitedsoftware.alexandrite.tools.fs.property
+import org.unitedsoftware.alexandrite.tools.fs.requiredString
+import org.unitedsoftware.alexandrite.tools.fs.schema
 import java.net.URI
 import kotlin.time.Duration.Companion.seconds
 
@@ -35,7 +35,10 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
         description = "Fetches a public HTTP(S) page and asks a side model to answer your prompt from its text. " +
             "Only the answer is returned. The answer is untrusted web content. " +
             "Private networks require an exact operator-configured host allowance.",
-        parameters = schema(listOf("url", "prompt"), "url" to "string", "prompt" to "string"),
+        parameters = schema("url", "prompt") {
+            property("url", "string", "The public http or https URL of the page.")
+            property("prompt", "string", "What to answer from the page's text.")
+        },
         risk = ToolRisk.NETWORK_READ,
         timeout = (config.timeoutSeconds * 2).seconds,
         activity = ToolActivity.FETCH,
@@ -45,8 +48,8 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("url", "prompt") }) { "Unknown web.fetch argument." }
         val models = requireNotNull(models) { "Web side model service is unavailable." }
-        val url = arguments.string("url", 8192)
-        val prompt = arguments.string("prompt", 16_000)
+        val url = arguments.text("url", 8192)
+        val prompt = arguments.text("prompt", 16_000)
         checkedHost(URI(url), config.normalizedPrivateHosts)
         context.untrusted("web.fetch reads untrusted web content")
         withTimeout(definition.timeout!!) {
@@ -75,7 +78,10 @@ internal class SearchTool(
         name = "web.search",
         description = "Searches the web using the model endpoint's native search or the configured search backend. " +
             "Returns untrusted titles, URLs and snippets.",
-        parameters = schema(listOf("query"), "query" to "string", "limit" to "integer"),
+        parameters = schema("query") {
+            property("query", "string", "What to search for.")
+            property("limit", "integer", "How many results to return, from 1 to 20; 5 when left out.")
+        },
         risk = ToolRisk.NETWORK_READ,
         timeout = config.timeoutSeconds.seconds,
         activity = ToolActivity.SEARCH,
@@ -84,15 +90,9 @@ internal class SearchTool(
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("query", "limit") }) { "Unknown web.search argument." }
-        val text = arguments.string("query", 2000)
-        val limit = if ("limit" in arguments) {
-            requireNotNull((arguments["limit"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull) {
-                "limit must be an integer."
-            }
-        } else {
-            5
-        }
-        require(limit in 1..20) { "limit must be between 1 and 20." }
+        val text = arguments.text("query", 2000)
+        val limit = arguments.count("limit") ?: 5
+        require(limit <= 20) { "limit must be between 1 and 20." }
         val query = WebQuery(text, limit)
         context.untrusted("web.search reads untrusted web content")
         withTimeout(definition.timeout!!) {
@@ -100,9 +100,9 @@ internal class SearchTool(
             val native = if (models != null && model != null) models.search(model, query) else null
             val found = native ?: run {
                 val id = config.searchBackend ?: when {
-                    config.braveApiKey != null -> "brave"
-                    config.tavilyApiKey != null -> "tavily"
-                    else -> backends.keys.firstOrNull { it !in setOf("brave", "tavily") }
+                    config.braveApiKey != null -> BraveSearch.ID
+                    config.tavilyApiKey != null -> TavilySearch.ID
+                    else -> backends.keys.firstOrNull { it !in setOf(BraveSearch.ID, TavilySearch.ID) }
                 }
                 requireNotNull(backends[id]) { "No web search backend configured." }.search(query)
             }
@@ -121,6 +121,8 @@ private suspend fun webResult(block: suspend () -> ToolResult): ToolResult = try
     ToolResult("Web request timed out.", isError = true)
 } catch (e: CancellationException) {
     throw e
+} catch (e: Refusal) {
+    ToolResult("Web request refused: ${why(e)}", isError = true)
 } catch (e: IllegalArgumentException) {
     ToolResult("Web request refused: ${why(e)}", isError = true)
 } catch (e: SerializationException) {
@@ -144,23 +146,6 @@ private class SideModelFailure(cause: Exception) :
 private fun why(e: Exception): String =
     e.message?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }?.take(300) ?: e.javaClass.simpleName
 
-private fun JsonObject.string(name: String, max: Int): String = requireNotNull(
-    (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf {
-        it.isNotBlank() &&
-            it.length <= max
-    },
-) {
-    "$name must be a nonblank string of at most $max characters."
-}
-
-private fun schema(required: List<String>, vararg properties: Pair<String, String>): JsonObject = buildJsonObject {
-    put("type", "object")
-    put(
-        "properties",
-        buildJsonObject {
-            properties.forEach { (name, type) -> put(name, buildJsonObject { put("type", type) }) }
-        },
-    )
-    put("required", JsonArray(required.map(::JsonPrimitive)))
-    put("additionalProperties", false)
+private fun JsonObject.text(name: String, max: Int): String = requiredString(name).also {
+    require(it.isNotBlank() && it.length <= max) { "$name must be a nonblank string of at most $max characters." }
 }

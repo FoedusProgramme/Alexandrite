@@ -54,25 +54,25 @@ internal class Routes(
     private suspend fun refusal(agent: AgentId, chat: ChatAddress): Delivery.NotDelivered? {
         val detail = when {
             chat.instance !in instances(agent, null) -> "Agent '$agent' is not attached to ${chat.instance}."
-            !proactive(chat) -> "Chat $chat takes no messages it did not ask for."
+            !channels.proactive(chat) -> "Chat $chat takes no messages it did not ask for."
             else -> return null
         }
         logger.warn("A routed reply of agent '{}' is not sent to {}: {}", agent, chat, detail)
         return Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, detail)
     }
 
-    /** Whether [chat] takes proactive messages, true when its channel is closed or cannot tell. */
-    private suspend fun proactive(chat: ChatAddress): Boolean = try {
-        channels.channel(chat.instance)?.capabilities(chat)?.proactive != false
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        true
-    }
-
     /** The instances of [channels] that [agent] serves, all it serves when [channels] is null. */
     private fun instances(agent: AgentId, channels: Set<ChannelInstanceId>?): List<ChannelInstanceId> =
         directory.agent(agent)?.attachments.orEmpty().map { it.instance }.filter { channels == null || it in channels }
+}
+
+/** Whether [chat] takes messages it did not ask for, true when its channel is closed or cannot tell. */
+internal suspend fun ChannelDirectory.proactive(chat: ChatAddress): Boolean = try {
+    channel(chat.instance)?.capabilities(chat)?.proactive != false
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    true
 }
 
 private val logger = LoggerFactory.getLogger(Routes::class.java)

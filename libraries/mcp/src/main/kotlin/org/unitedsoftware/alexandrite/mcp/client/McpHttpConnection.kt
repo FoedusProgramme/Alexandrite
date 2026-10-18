@@ -8,9 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -44,10 +42,7 @@ internal class McpHttpConnection(
 ) : McpConnection {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val ids = AtomicLong()
-    private val incoming = MutableSharedFlow<JsonRpcMessage.Notification>(
-        extraBufferCapacity = NOTIFICATION_BUFFER,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val incoming = ClientSide.notifications()
     private val end = CompletableDeferred<McpException>()
     private val closed = AtomicBoolean()
     private val secrets = headers.values.toList()
@@ -111,7 +106,7 @@ internal class McpHttpConnection(
                 val reason = "The client abandoned the request."
                 scope.launch {
                     try {
-                        notify(McpStdioConnection.CANCELLED, McpStdioConnection.cancelParams(id, reason))
+                        notify(ClientSide.CANCELLED, ClientSide.cancelParams(id, reason))
                     } catch (e: McpException) {
                         // The cancellation is advisory.
                     }
@@ -278,13 +273,8 @@ internal class McpHttpConnection(
     }
 
     private suspend fun reply(request: JsonRpcMessage.Request) {
-        val message = if (request.method == McpStdioConnection.PING) {
-            JsonRpc.result(request.id, JsonObject(emptyMap()))
-        } else {
-            JsonRpc.error(request.id, JsonRpc.METHOD_NOT_FOUND, "The client offers no ${request.method}.")
-        }
         try {
-            send(message, emptyMap(), "the answer to ${request.method}")
+            send(ClientSide.reply(request), emptyMap(), "the answer to ${request.method}")
         } catch (e: McpException) {
             // The server asks again or gives up.
         } catch (e: CancellationException) {
@@ -336,7 +326,6 @@ internal class McpHttpConnection(
         private const val FORBIDDEN = 403
         private const val NOT_FOUND = 404
         private const val METHOD_NOT_ALLOWED = 405
-        private const val NOTIFICATION_BUFFER = 64
         private const val RESUME_ATTEMPTS = 5
         private val DEFAULT_RETRY = 1.seconds
         private val CLOSE_WAIT = 5.seconds

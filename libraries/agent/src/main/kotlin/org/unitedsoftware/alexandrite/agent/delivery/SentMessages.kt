@@ -6,11 +6,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.SENT_HEADER
 import org.unitedsoftware.alexandrite.agent.prompt.lines
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
@@ -34,7 +36,10 @@ internal const val SENT_SOURCE: String = "alexandrite.sent"
  * conversation's last turn, not yet shown to the model there.
  */
 @Singleton
-internal class SentMessages(records: Records, private val conversations: ConversationStore) : Lifecycle {
+@Contribute(ConversationSeals::class)
+internal class SentMessages(records: Records, private val conversations: ConversationStore) :
+    Lifecycle,
+    ConversationSeals {
     private val pending = records.collection<SentRecord>(COLLECTION)
     private val writing = Mutex()
 
@@ -90,7 +95,7 @@ internal class SentMessages(records: Records, private val conversations: Convers
     }
 
     /** Forgets the messages sent to [conversation], which was sealed. */
-    suspend fun sealed(conversation: ConversationId) {
+    override suspend fun sealed(conversation: ConversationId) {
         try {
             pending.remove(conversation.value)
         } catch (e: Exception) {

@@ -11,6 +11,8 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
@@ -100,7 +102,7 @@ internal class ProfileCreateTool(private val profiles: Profiles) :
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val profile = profiles.plannedCreate(draft(arguments))
         CallReview(preview = ReviewPreview.Text(profileText(profile)))
-    } catch (e: ProfileProblem) {
+    } catch (e: ToolRefusal) {
         CallReview(problem = e.message)
     }
 
@@ -108,8 +110,8 @@ internal class ProfileCreateTool(private val profiles: Profiles) :
         val profile = profiles.plannedCreate(draft(arguments))
         profiles.persistCreate(profile, context.turn.actor)
         ToolResult("Created profile ${profile.id} (${profile.name}).")
-    } catch (e: ProfileProblem) {
-        ToolResult(e.message ?: "The profile could not be created.", isError = true)
+    } catch (e: ToolRefusal) {
+        ToolResult(e.message, isError = true)
     }
 
     private fun draft(arguments: JsonObject): ProfileDraft = ProfileDraft(
@@ -147,10 +149,10 @@ internal class ProfileEditTool(private val profiles: Profiles) :
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val id = id(arguments)
         val (current, updated) = profiles.plannedEdit(id, edit(arguments))
-        if (current == updated) throw ProfileProblem("The edit changes nothing in profile '$id'.")
+        if (current == updated) throw ToolRefusal("The edit changes nothing in profile '$id'.")
         val preview = ReviewPreview.Diff(syntheticPath(id), diff(current, updated).text)
         CallReview(preview = preview, snapshot = hash(current))
-    } catch (e: ProfileProblem) {
+    } catch (e: ToolRefusal) {
         CallReview(problem = e.message)
     }
 
@@ -158,11 +160,11 @@ internal class ProfileEditTool(private val profiles: Profiles) :
         val id = id(arguments)
         val (current, updated) = profiles.plannedEdit(id, edit(arguments))
         val reviewed = context.clearance?.snapshot
-        if (reviewed != null && reviewed != hash(current)) throw ProfileProblem(changedSinceReviewed(id))
+        if (reviewed != null && reviewed != hash(current)) throw ToolRefusal(changedSinceReviewed(id))
         profiles.persistEdit(updated, context.turn.actor)
         ToolResult("Edited profile $id.")
-    } catch (e: ProfileProblem) {
-        ToolResult(e.message ?: "The profile could not be edited.", isError = true)
+    } catch (e: ToolRefusal) {
+        ToolResult(e.message, isError = true)
     }
 
     private fun id(arguments: JsonObject): AgentId = AgentId(arguments.requiredText("id"))
@@ -207,7 +209,7 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
         val profile = profiles.plannedRemove(id)
         val preview = ReviewPreview.Text("Removing profile $id:\n\n${profileText(profile)}")
         CallReview(preview = preview, snapshot = hash(profile))
-    } catch (e: ProfileProblem) {
+    } catch (e: ToolRefusal) {
         CallReview(problem = e.message)
     }
 
@@ -215,11 +217,11 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
         val id = AgentId(arguments.requiredText("id"))
         val profile = profiles.plannedRemove(id)
         val reviewed = context.clearance?.snapshot
-        if (reviewed != null && reviewed != hash(profile)) throw ProfileProblem(changedSinceReviewed(id))
+        if (reviewed != null && reviewed != hash(profile)) throw ToolRefusal(changedSinceReviewed(id))
         profiles.persistRemove(id)
         ToolResult("Removed profile $id.")
-    } catch (e: ProfileProblem) {
-        ToolResult(e.message ?: "The profile could not be removed.", isError = true)
+    } catch (e: ToolRefusal) {
+        ToolResult(e.message, isError = true)
     }
 }
 
@@ -317,53 +319,46 @@ private fun JsonObjectBuilder.stringArrayProperty(name: String, description: Str
     }
 }
 
-private fun JsonObject.text(name: String): String? {
-    val value = this[name] ?: return null
-    if (value == JsonNull) return null
-    return (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-        ?: throw ProfileProblem("'$name' must be a string.")
-}
-
 private fun JsonObject.requiredText(name: String): String =
-    text(name)?.takeIf { it.isNotEmpty() } ?: throw ProfileProblem("Give '$name' as a non-empty string.")
+    text(name)?.takeIf { it.isNotEmpty() } ?: throw ToolRefusal("Give '$name' as a non-empty string.")
 
 private fun JsonObject.strings(name: String): List<String>? {
     val value = this[name] ?: return null
     if (value == JsonNull) return null
-    val array = value as? JsonArray ?: throw ProfileProblem("'$name' must be an array.")
+    val array = value as? JsonArray ?: throw ToolRefusal("'$name' must be an array.")
     return array.map { entry ->
         (entry as? JsonPrimitive)?.takeIf { it.isString }?.content
-            ?: throw ProfileProblem("'$name' must be an array of strings.")
+            ?: throw ToolRefusal("'$name' must be an array of strings.")
     }
 }
 
 private fun JsonObject.int(name: String): Int? {
     val value = this[name] ?: return null
     if (value == JsonNull) return null
-    return (value as? JsonPrimitive)?.intOrNull ?: throw ProfileProblem("'$name' must be a whole number.")
+    return (value as? JsonPrimitive)?.intOrNull ?: throw ToolRefusal("'$name' must be a whole number.")
 }
 
 private fun JsonObject.long(name: String): Long? {
     val value = this[name] ?: return null
     if (value == JsonNull) return null
-    return (value as? JsonPrimitive)?.longOrNull ?: throw ProfileProblem("'$name' must be a whole number.")
+    return (value as? JsonPrimitive)?.longOrNull ?: throw ToolRefusal("'$name' must be a whole number.")
 }
 
 /** [name] as a [SettingChange]: absent keeps it, null clears it, a string sets it. */
 private fun JsonObject.change(name: String): SettingChange<String> = when {
     name !in this -> SettingChange.Keep
     this[name] == JsonNull -> SettingChange.Reset
-    else -> SettingChange.SetTo(text(name) ?: throw ProfileProblem("'$name' must be a string."))
+    else -> SettingChange.SetTo(text(name) ?: throw ToolRefusal("'$name' must be a string."))
 }
 
 private fun JsonObject.intChange(name: String): SettingChange<Int> = when {
     name !in this -> SettingChange.Keep
     this[name] == JsonNull -> SettingChange.Reset
-    else -> SettingChange.SetTo(int(name) ?: throw ProfileProblem("'$name' must be a whole number."))
+    else -> SettingChange.SetTo(int(name) ?: throw ToolRefusal("'$name' must be a whole number."))
 }
 
 private fun JsonObject.longChange(name: String): SettingChange<Long> = when {
     name !in this -> SettingChange.Keep
     this[name] == JsonNull -> SettingChange.Reset
-    else -> SettingChange.SetTo(long(name) ?: throw ProfileProblem("'$name' must be a whole number."))
+    else -> SettingChange.SetTo(long(name) ?: throw ToolRefusal("'$name' must be a whole number."))
 }

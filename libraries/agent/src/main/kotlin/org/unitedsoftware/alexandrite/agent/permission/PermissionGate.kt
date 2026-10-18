@@ -133,19 +133,8 @@ internal class PermissionGate(
     }
 
     /** The permission mode of [call] and whether a profile of its chain tightened it, `ask` for an unread mode. */
-    private suspend fun mode(call: GateCall): Pair<PermissionMode, Boolean> {
-        val turn = call.turn
-        val chat = try {
-            settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
-        } catch (e: Throwable) {
-            if (e is VirtualMachineError) throw e
-            currentCoroutineContext().ensureActive()
-            logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
-            PermissionMode.ASK
-        }
-        val mode = strictest(listOf(chat) + call.calls.chain?.modes.orEmpty())
-        return mode to (mode != chat)
-    }
+    private suspend fun mode(call: GateCall): Pair<PermissionMode, Boolean> =
+        settings.callMode(call, directory, clock, unread = PermissionMode.ASK)
 
     private suspend fun ask(call: CheckedCall, reason: String): GateResult {
         val result = running(call, approvals.ask(call, reason))

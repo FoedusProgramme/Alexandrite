@@ -343,12 +343,13 @@ internal class Limits(val trigger: Long, val target: Long, val clearAt: Long?, v
 
 /**
  * The thresholds of a [window] whose requests leave [reserve] tokens for the answer: the trigger at the latest where
- * the prompt and the reserve would no longer fit.
+ * the prompt and the reserve would no longer fit, and the target lowered in the same proportion.
  */
 internal fun CompactionConfig.limits(window: Int, reserve: Int? = null): Limits {
     val room = reserve?.let { window.toLong() - it - margin(window) } ?: window.toLong()
-    val trigger = minOf(checkNotNull(trigger.tokens(window)), room).coerceIn(1, window.toLong())
-    val target = checkNotNull(target.tokens(window)).coerceIn(0, trigger - 1)
+    val configured = checkNotNull(trigger.tokens(window)).coerceIn(1, window.toLong())
+    val trigger = minOf(configured, room).coerceIn(1, window.toLong())
+    val target = (checkNotNull(target.tokens(window)) * trigger / configured).coerceIn(0, trigger - 1)
     return Limits(trigger, target, clearAt.tokens(window), checkNotNull(clearAtLeast.tokens(window)))
 }
 

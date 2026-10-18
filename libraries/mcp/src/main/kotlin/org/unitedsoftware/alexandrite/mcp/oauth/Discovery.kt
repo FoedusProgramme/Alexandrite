@@ -1,6 +1,9 @@
 package org.unitedsoftware.alexandrite.mcp.oauth
 
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.mcp.client.boolean
+import org.unitedsoftware.alexandrite.mcp.client.string
+import org.unitedsoftware.alexandrite.mcp.client.strings
 import java.net.URI
 
 /** What a protected MCP server says of itself (RFC 9728). */
@@ -81,8 +84,8 @@ internal class Discovery(private val http: OAuthHttp) {
             endpoint("token_endpoint") ?: throw OAuthException("Authorization server $issuer names no token endpoint."),
             endpoint("registration_endpoint"),
             json.strings("scopes_supported"),
-            json.flag("authorization_response_iss_parameter_supported"),
-            json.flag("client_id_metadata_document_supported"),
+            json.boolean("authorization_response_iss_parameter_supported") == true,
+            json.boolean("client_id_metadata_document_supported") == true,
             json.strings("token_endpoint_auth_methods_supported"),
         )
     }

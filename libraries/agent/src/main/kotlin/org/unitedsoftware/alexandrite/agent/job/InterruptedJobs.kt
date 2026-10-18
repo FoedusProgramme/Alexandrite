@@ -6,8 +6,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
@@ -18,7 +20,10 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 
 /** The jobs of each active conversation that a restart interrupted, not yet shown to the model. */
 @Singleton
-internal class InterruptedJobs(records: Records, private val conversations: ConversationStore) : Lifecycle {
+@Contribute(ConversationSeals::class)
+internal class InterruptedJobs(records: Records, private val conversations: ConversationStore) :
+    Lifecycle,
+    ConversationSeals {
     private val pending = records.collection<InterruptedRecord>(COLLECTION)
     private val writing = Mutex()
 
@@ -72,7 +77,7 @@ internal class InterruptedJobs(records: Records, private val conversations: Conv
     }
 
     /** Forgets the interrupted jobs of [conversation], which was sealed. */
-    suspend fun sealed(conversation: ConversationId) {
+    override suspend fun sealed(conversation: ConversationId) {
         try {
             pending.remove(conversation.value)
         } catch (e: Exception) {

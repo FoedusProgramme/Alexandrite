@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
@@ -21,6 +22,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Binds
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -50,11 +52,18 @@ internal interface CallRules {
 
     /** Lets the calls that [subject] covers run in the session of [call], as [by] allowed. */
     suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser)
+
+    /** The allow rules in force for [agent] in [conversation], the declared ones first. */
+    fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule>
+
+    /** Revokes the rule numbered [number] in [inForce] of [agent] in [conversation] for [by] when it was granted. */
+    suspend fun revoke(agent: AgentId, conversation: ConversationId, number: Int, by: ChatUser?): Revocation
 }
 
 /** The rules that the config declares for each agent, and the allow rules granted in each conversation. */
 @Singleton
 @Binds(CallRules::class)
+@Contribute(ConversationSeals::class)
 internal class AgentCallRules(
     private val directory: AgentDirectory,
     tools: ToolRegistry,
@@ -63,6 +72,7 @@ internal class AgentCallRules(
     private val settings: SettingsStates,
     private val clock: Clock,
 ) : CallRules,
+    ConversationSeals,
     Lifecycle {
     private val grants = records.collection<GrantedRule>(COLLECTION)
 
@@ -167,8 +177,7 @@ internal class AgentCallRules(
         )
     }
 
-    /** The allow rules in force for [agent] in [conversation], the declared ones first. */
-    fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule> {
+    override fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule> {
         val declaredRules = declared[agent]?.allow.orEmpty().map { Listed(it.subject, true, null, null) }
         val grantedRules = granted.filter { it.conversation == conversation }
             .map { Listed(it.subject, false, it.at, it.by) }
@@ -179,8 +188,7 @@ internal class AgentCallRules(
         }
     }
 
-    /** Revokes the rule numbered [number] in [inForce] of [agent] in [conversation] for [by] when it was granted. */
-    suspend fun revoke(agent: AgentId, conversation: ConversationId, number: Int, by: ChatUser?): Revocation {
+    override suspend fun revoke(agent: AgentId, conversation: ConversationId, number: Int, by: ChatUser?): Revocation {
         val allow = declared[agent]?.allow.orEmpty()
         if (number in 1..allow.size) return Revocation(removed = false, declared = true)
         val rule = writing.withLock {
@@ -203,7 +211,7 @@ internal class AgentCallRules(
     }
 
     /** Ends the rules granted in [conversation], which was sealed. */
-    suspend fun sealed(conversation: ConversationId) {
+    override suspend fun sealed(conversation: ConversationId) {
         val ended = writing.withLock {
             val ended = granted.filter { it.conversation == conversation }
             granted = granted - ended.toSet()
@@ -232,18 +240,8 @@ internal class AgentCallRules(
     }
 
     /** The mode of [call] as the gate takes it, `manual` when the mode at its key cannot be read. */
-    private suspend fun mode(call: GateCall): PermissionMode {
-        val turn = call.turn
-        val chat = try {
-            settings.mode(turn.key, clock.instant())?.mode ?: directory.agent(turn.agent)?.mode ?: PermissionMode.ASK
-        } catch (e: Throwable) {
-            if (e is VirtualMachineError) throw e
-            currentCoroutineContext().ensureActive()
-            logger.warn("The permission mode of {} could not be read: {}", turn.key, e.toString())
-            PermissionMode.MANUAL
-        }
-        return strictest(listOf(chat) + call.calls.chain?.modes.orEmpty())
-    }
+    private suspend fun mode(call: GateCall): PermissionMode =
+        settings.callMode(call, directory, clock, unread = PermissionMode.MANUAL).first
 
     /** The rule of [record], null when it cannot be read. */
     private fun granted(record: StoredRecord<GrantedRule>): Granted? {
