@@ -270,6 +270,7 @@ public class HttpResponseStream internal constructor(
             retryAfter = retryAfter(headers, clock.instant()),
             requestId = requestId(headers),
             body = text,
+            headers = headers,
         )
     }
 

@@ -138,6 +138,7 @@ object AlexandriteLayout {
         Location.Slot("libraries/runtime", Layer.RUNTIME),
         Location.Slot("libraries/agent", Layer.AGENT, configRoot = "agent", packageName = "$PACKAGE.agent"),
         Location.Slot("libraries/tools", Layer.TOOLS, configRoot = "tools", packageName = "$PACKAGE.tools"),
+        Location.Slot("libraries/mcp", Layer.TOOLS, configRoot = "mcp", packageName = "$PACKAGE.mcp"),
         Location.Slot("libraries/commands", Layer.COMMANDS, configRoot = "commands", packageName = "$PACKAGE.commands"),
         Location.Family(
             "libraries/channels",

@@ -8,6 +8,7 @@ dependencies {
     implementation(project(":libraries:runtime"))
     implementation(project(":libraries:agent"))
     implementation(project(":libraries:tools"))
+    implementation(project(":libraries:mcp"))
     implementation(project(":libraries:commands"))
     implementation(project(":libraries:channels:telegram"))
     implementation(project(":libraries:channel-common"))

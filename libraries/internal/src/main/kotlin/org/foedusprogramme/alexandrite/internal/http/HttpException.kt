@@ -26,6 +26,8 @@ public class HttpException(
     /** Whether the response's body had started when the call failed. */
     public val afterResponse: Boolean = false,
     cause: Throwable? = null,
+    /** The response's headers, null when no response came. */
+    public val headers: HttpHeaders? = null,
 ) : IOException(message, cause)
 
 /** What kind of failure an [HttpException] is, and whether the same request may succeed when sent again. */

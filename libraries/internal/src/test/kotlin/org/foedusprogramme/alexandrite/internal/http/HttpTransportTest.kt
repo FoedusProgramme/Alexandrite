@@ -77,7 +77,7 @@ class HttpTransportTest {
     }
 
     @Test
-    fun `a status error carries its kind, retry delay, request id and a masked body`() = runBlocking {
+    fun `a status error carries its kind, retry delay, request id, headers and a masked body`() = runBlocking {
         server.handle {
             it.status(429).header("retry-after", "7").header("x-request-id", "req-1")
                 .chunk("""{"error":{"message":"slow down, key sk-test-secret"}}""").end()
@@ -89,6 +89,7 @@ class HttpTransportTest {
         assertEquals(429, error.status)
         assertEquals(7.seconds, error.retryAfter)
         assertEquals("req-1", error.requestId)
+        assertEquals("7", error.headers?.firstValue("retry-after")?.orElse(null))
         assertFalse(error.afterResponse)
         assertFalse("sk-test-secret" in error.message.orEmpty(), error.message)
         assertFalse("sk-test-secret" in error.body.orEmpty(), error.body)

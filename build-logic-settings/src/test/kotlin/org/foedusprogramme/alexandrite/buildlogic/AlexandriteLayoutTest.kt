@@ -18,6 +18,7 @@ class AlexandriteLayoutTest {
     private val runtime = ":libraries:runtime"
     private val agent = ":libraries:agent"
     private val tools = ":libraries:tools"
+    private val mcp = ":libraries:mcp"
     private val commands = ":libraries:commands"
     private val telegram = ":libraries:channels:telegram"
     private val channelCommon = ":libraries:channel-common"
@@ -37,12 +38,14 @@ class AlexandriteLayoutTest {
     private val echo = ":examples:echo"
     private val vendors = listOf(deepSeek, lmStudio, openRouter)
     private val libraries =
-        listOf(sdk, internals, runtime, agent, tools, commands, telegram, channelCommon, openAi, anthropic) + vendors +
+        listOf(sdk, internals, runtime, agent, tools, mcp, commands, telegram, channelCommon, openAi, anthropic) +
+            vendors +
             listOf(providerCommon, sqlite, automationCommon, testkit)
     private val builtIn = libraries + ksp + app
     private val all = builtIn + notes
-    private val indexed = listOf(agent, tools, commands, telegram, openAi, anthropic) + vendors + listOf(sqlite, app)
-    private val plugins = listOf(agent, tools, commands, telegram, openAi, anthropic) + vendors + sqlite
+    private val indexed =
+        listOf(agent, tools, mcp, commands, telegram, openAi, anthropic) + vendors + listOf(sqlite, app)
+    private val plugins = listOf(agent, tools, mcp, commands, telegram, openAi, anthropic) + vendors + sqlite
 
     private val today = all.map { it.removePrefix(":").replace(':', '/') }
 
@@ -82,6 +85,7 @@ class AlexandriteLayoutTest {
             runtime to Layer.RUNTIME,
             agent to Layer.AGENT,
             tools to Layer.TOOLS,
+            mcp to Layer.TOOLS,
             commands to Layer.COMMANDS,
             telegram to Layer.CHANNEL,
             channelCommon to Layer.CHANNEL_COMMON,
@@ -127,6 +131,7 @@ class AlexandriteLayoutTest {
             runtime to "alexandrite-runtime",
             agent to "alexandrite-agent",
             tools to "alexandrite-tools",
+            mcp to "alexandrite-mcp",
             commands to "alexandrite-commands",
             telegram to "alexandrite-channel-telegram",
             channelCommon to "alexandrite-channel-common",
@@ -163,6 +168,7 @@ class AlexandriteLayoutTest {
             runtime to null,
             agent to "agent",
             tools to "tools",
+            mcp to "mcp",
             commands to "commands",
             telegram to "channels.telegram",
             channelCommon to null,
@@ -206,6 +212,7 @@ class AlexandriteLayoutTest {
         val expected = mapOf(
             agent to "alexandrite-agent",
             tools to "alexandrite-tools",
+            mcp to "alexandrite-mcp",
             commands to "alexandrite-commands",
             telegram to "alexandrite-channel-telegram",
             openAi to "alexandrite-provider-openai-compatible",
@@ -225,6 +232,7 @@ class AlexandriteLayoutTest {
         val expected = mapOf(
             agent to "org.foedusprogramme.alexandrite.agent",
             tools to "org.foedusprogramme.alexandrite.tools",
+            mcp to "org.foedusprogramme.alexandrite.mcp",
             commands to "org.foedusprogramme.alexandrite.commands",
             telegram to "org.foedusprogramme.alexandrite.channel.telegram",
             openAi to "org.foedusprogramme.alexandrite.provider.openaicompatible",
@@ -334,7 +342,7 @@ class AlexandriteLayoutTest {
     // Discovery.
 
     @Test
-    fun `today's tree yields today's twenty modules in path order`() {
+    fun `today's tree yields today's twenty-one modules in path order`() {
         val discovery = AlexandriteLayout.discover(today)
         assertNull(discovery.failure)
         assertEquals(all.sorted(), discovery.modules.map { it.path })
@@ -347,7 +355,7 @@ class AlexandriteLayoutTest {
         val shuffled = (today + added).shuffled(Random(7))
         val paths = AlexandriteLayout.discover(shuffled).modules.map { it.path }
         assertEquals(paths.sorted(), paths)
-        assertEquals(23, paths.size)
+        assertEquals(24, paths.size)
     }
 
     @Test
@@ -518,8 +526,8 @@ class AlexandriteLayoutTest {
 
         assertEquals(
             listOf(
-                app, agent, schedule, ":libraries:channels:discord", telegram, commands, anthropic, deepSeek, lmStudio,
-                openAi, openRouter, sqlite, tools,
+                app, agent, schedule, ":libraries:channels:discord", telegram, commands, mcp, anthropic, deepSeek,
+                lmStudio, openAi, openRouter, sqlite, tools,
             ),
             BuiltInList.modules(discovery).map { it.path },
         )
