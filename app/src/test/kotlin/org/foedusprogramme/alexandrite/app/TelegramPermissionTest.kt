@@ -121,6 +121,7 @@ class TelegramPermissionTest {
         app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
             .reply { text("It ran.") }
             .reply { text("It did.") }
+        lateinit var noted: FakeBotMessage
         lateinit var asked: FakeBotMessage
         var afterRequest: ConversationTaint? = null
         var afterAnswer: ConversationTaint? = null
@@ -129,7 +130,7 @@ class TelegramPermissionTest {
             app.send(app.ada, app.adaChat, "Note that I need milk.")
             asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             app.fake.press(app.ada, asked, "Allow")
-            val noted = app.message(app.adaChat, "Noted.")
+            noted = app.message(app.adaChat, "Noted.")
             idle()
             val conversation = get<ConversationStore>().current(app.key(app.adaChat)).id
             app.fake.send(app.ada, app.adaChat, "Did it run?", replyTo = asked.id)
@@ -145,11 +146,11 @@ class TelegramPermissionTest {
         val id = Regex("#([a-z0-9]+)").find(asked.text)!!.groupValues[1]
         assertContains(
             framing("Did it run?"),
-            "\nQuoting: Alexandrite Test Bot (verified)\n" +
+            "\nQuoting: Alexandrite Test Bot (verified) [id ${asked.id}]\n" +
                 "> Alexandrite's approval request $id for notes.write (allowed by Ada Lovelace (@ada_test))\n",
         )
         assertNull(afterRequest)
-        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (verified)\n> Noted.\n")
+        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (verified) [id ${noted.id}]\n> Noted.\n")
         assertNull(afterAnswer)
     }
 

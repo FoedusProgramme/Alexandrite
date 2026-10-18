@@ -5,5 +5,37 @@
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
     "plugins": []
+  },
+  "channels": {
+    "onebot": {
+      "enabled": false,
+      "settings": {
+        "eventQueueCapacity": 1024,
+        "rateLimitIntervalMillis": 500
+      },
+      "instances": {
+        "main": {
+          "transport": "ws_reverse",
+          "listenHost": "127.0.0.1",
+          "listenPort": 8080,
+          "admins": [],
+          "approvalMinutes": 10
+        }
+      }
+    },
+    "qqbot": {
+      "enabled": false,
+      "instances": {
+        "main": {
+          "appId": "10000",
+          "appSecret": "replace-with-the-app-secret",
+          "apiBase": "https://api.bot.qq.com",
+          "intents": 33554432,
+          "streaming": true,
+          "approvalMinutes": 10,
+          "admins": []
+        }
+      }
+    }
   }
 }
