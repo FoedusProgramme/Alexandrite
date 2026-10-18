@@ -21,6 +21,7 @@ import org.foedusprogramme.alexandrite.sdk.di.key
 import org.foedusprogramme.alexandrite.sdk.store.ChatStateStore
 import org.foedusprogramme.alexandrite.sdk.store.ConversationState
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.RecordStore
 import org.foedusprogramme.alexandrite.sdk.store.Rotation
@@ -49,6 +50,7 @@ internal enum class StoreFlaw(val check: String) {
     OVERWRITES_TAINT("a conversation's taint is written once, and the first mark is kept"),
     FORGETS_TAINT("a taint outlives the store"),
     INHERITS_TAINT("a new conversation starts untainted, and the ones it keeps or seals keep their marks"),
+    KEEPS_CLEARED_TAINT("a cleared taint is returned once and gone, and the conversation takes a new mark"),
     LOSES_ENTRIES("every entry is read back as it was stored, with its record"),
     REORDERS_TAIL("a tail holds the last entries in order"),
     IGNORES_SEALING("a sealed conversation takes no entries"),
@@ -91,6 +93,12 @@ private class FlawedStore(private val flaw: StoreFlaw?, private val pretty: Bool
         override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean {
             if (flaw == StoreFlaw.OVERWRITES_TAINT) data.locked { taints.remove(conversation) }
             return delegate.markTainted(conversation, reason, at)
+        }
+
+        override suspend fun clearTaint(conversation: ConversationId): ConversationTaint? {
+            val cleared = delegate.clearTaint(conversation)
+            if (flaw == StoreFlaw.KEEPS_CLEARED_TAINT && cleared != null) data.locked { taints[conversation] = cleared }
+            return cleared
         }
 
         override suspend fun newConversation(key: AgentChatKey): Rotation {

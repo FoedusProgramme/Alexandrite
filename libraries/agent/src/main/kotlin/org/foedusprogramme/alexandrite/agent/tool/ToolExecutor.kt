@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.tool
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -10,12 +11,17 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
 import org.foedusprogramme.alexandrite.agent.cancel.turnCause
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
+import org.foedusprogramme.alexandrite.agent.job.Detached
 import org.foedusprogramme.alexandrite.agent.job.Detaching
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.job.backgroundResult
+import org.foedusprogramme.alexandrite.agent.permission.MandateGrants
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
@@ -32,6 +38,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutcome
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolResultEntry
+import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import kotlin.time.Duration
@@ -51,6 +58,8 @@ internal class ToolCallEnd(
     val notice: String?,
     /** The paths that the call reported as touched. */
     val touched: List<Path> = emptyList(),
+    /** The trusted instructions that the call loads after its round. */
+    val loads: List<UserEntry> = emptyList(),
 )
 
 /** Runs the tool calls of a turn's responses. */
@@ -59,7 +68,9 @@ internal class ToolExecutor(
     private val gate: ToolGate,
     settings: AgentSettings,
     private val workspaces: Workspaces,
+    private val directories: ConversationDirectories,
     private val jobs: Jobs,
+    private val grants: MandateGrants,
 ) {
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
@@ -86,7 +97,7 @@ internal class ToolExecutor(
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS, calls)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
-        val reviewing = AgentToolContext(turn, call.id, workspaces, null, taint)
+        val reviewing = AgentToolContext(turn, call.id, workspaces, directories, null, taint)
         val admission = try {
             gate.admit(GateCall(turn, call, tool, arguments, limit, taint, reviewing, calls))
         } finally {
@@ -102,15 +113,25 @@ internal class ToolExecutor(
                 calls.starting(call.id)
                 calls.running(call.id)
                 val delegating = calls as? DelegatingTurn
-                val context = AgentToolContext(turn, call.id, workspaces, admission.clearance, taint, delegating)
+                val context = AgentToolContext(
+                    turn,
+                    call.id,
+                    workspaces,
+                    directories,
+                    admission.clearance,
+                    taint,
+                    delegating,
+                    startsInBackground = admission.background && tool !is InTurnTool,
+                    granting = { grants.grant(turn, tool) },
+                )
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {
                     runTool(turn, call, tool, arguments, limit, context)
                 }
-                val content = contentOf(tool.definition.activity, admission.preview, result)
+                val content = contentOf(tool.definition.activity, admission.preview, result, admission.scratch)
                 calls.ended(call.id, statusOf(result.outcome), content)
-                ToolCallEnd(result, null, context.touchedPaths)
+                ToolCallEnd(result, null, context.touchedPaths, context.loads)
             }
         }
     }
@@ -124,17 +145,33 @@ internal class ToolExecutor(
         context: AgentToolContext,
     ): ToolResultEntry {
         var detached = false
+        val explicit = context.startsInBackground
         try {
-            val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async {
-                tool.execute(arguments, context)
-            }
+            val running = CoroutineScope(currentCoroutineContext().minusKey(Job)).async(
+                start = if (explicit) CoroutineStart.LAZY else CoroutineStart.DEFAULT,
+            ) { tool.execute(arguments, context) }
             val returned = try {
-                val foreground = if (turn.lineage == null) minOf(jobs.foreground(turn.agent), timeout) else timeout
-                withTimeoutOrNull(foreground) { running.await() } ?: run {
+                val foreground = if (explicit) {
+                    Duration.ZERO
+                } else if (turn.lineage == null) {
+                    minOf(jobs.foreground(turn.agent), timeout)
+                } else {
+                    timeout
+                }
+                (if (explicit) null else withTimeoutOrNull(foreground) { running.await() }) ?: run {
                     val job = jobs.detach(Detaching(turn, call, arguments, running, context, foreground, timeout))
-                    if (job != null) {
+                    if (job is Detached.Started) {
                         detached = true
-                        return backgroundResult(call, job)
+                        return backgroundResult(call, job.id)
+                    }
+                    if (explicit) {
+                        job as Detached.Kept
+                        stop(running, turn, call, ABANDON_AFTER)
+                        return textResult(
+                            call,
+                            "The command was not started: ${job.why}.",
+                            ToolOutcome.NotRun(job.reason),
+                        )
                     }
                     withTimeoutOrNull(timeout - foreground) { running.await() }
                 }
@@ -167,8 +204,10 @@ internal class ToolExecutor(
         arguments: JsonObject,
         context: AgentToolContext,
     ): ToolResultEntry {
+        var detached = false
         try {
             val result = tool.call(arguments, context)
+            detached = result.outcome is ToolOutcome.Detached
             return ToolResultEntry(null, call.id, call.name, result.content, result.outcome)
         } catch (e: CancellationException) {
             if (currentCoroutineContext().isActive) return textResult(call, CANCELLED_RESULT, ToolOutcome.Cancelled)
@@ -178,7 +217,7 @@ internal class ToolExecutor(
             logger.warn("Tool {} failed in turn {}: {}", call.name, turn.id, e.toString())
             return failedResult(call, e)
         } finally {
-            context.close()
+            if (!detached) context.close()
         }
     }
 
@@ -226,18 +265,26 @@ private fun statusOf(outcome: ToolOutcome): ToolCallStatus = when (outcome) {
     else -> ToolCallStatus.FAILED
 }
 
-/** What a finished call of [activity] is shown with: the review's [preview] for an edit, [result]'s tail for a run. */
-private fun contentOf(activity: ToolActivity, preview: ReviewPreview?, result: ToolResultEntry): TurnEvent.Content? =
-    when (activity) {
-        ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
-            ?.takeIf { result.outcome == ToolOutcome.Succeeded }
-            ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
+/**
+ * What a finished call of [activity] is shown with: the review's [preview] for an edit, [result]'s tail for a run.
+ *
+ * A [scratch] edit shows no diff, as its target lies in the turn's own conversation directory.
+ */
+private fun contentOf(
+    activity: ToolActivity,
+    preview: ReviewPreview?,
+    result: ToolResultEntry,
+    scratch: Boolean,
+): TurnEvent.Content? = when (activity) {
+    ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
+        ?.takeIf { result.outcome == ToolOutcome.Succeeded && !scratch }
+        ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
 
-        ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
-            ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }
+    ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
+        ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }
 
-        else -> null
-    }
+    else -> null
+}
 
 /** The text of [parts], its other kinds left out. */
 private fun textOf(parts: List<ToolOutputPart>): String =

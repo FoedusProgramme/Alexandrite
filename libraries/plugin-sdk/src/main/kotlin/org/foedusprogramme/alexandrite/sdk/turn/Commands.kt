@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 
@@ -78,6 +79,10 @@ public inline fun CommandInvocation.rebuild(block: CommandInvocation.Builder.() 
 public interface CommandHandler {
     /** The commands it claims, whose names no other handler of the runtime declares. */
     public val commands: List<CommandSpec>
+
+    /** [command]'s description in [language], or in the handler's default language when it has none for it. */
+    public fun description(command: String, language: LanguageTag?): String =
+        commands.first { it.name == command }.description
 
     public suspend fun handle(invocation: CommandInvocation, context: CommandContext)
 }

@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.turn
 
 import org.foedusprogramme.alexandrite.agent.delegation.Delegation
 import org.foedusprogramme.alexandrite.agent.job.EndedJob
+import org.foedusprogramme.alexandrite.agent.messaging.AgentMessage
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
@@ -11,6 +12,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.model.Trust
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
 import org.foedusprogramme.alexandrite.sdk.turn.ReplyRoute
 import java.time.Instant
 
@@ -33,10 +35,13 @@ internal class TurnPlan(
 
 /** What a turn answers. */
 internal sealed interface TurnSource {
+    class FromAgentMessage(val message: AgentMessage) : TurnSource
+
     class FromMessage(val message: IncomingMessage) : TurnSource
 
-    /** The [prompt] that the plugin [plugin] started the turn with. */
-    class FromInitiated(val plugin: String, val prompt: String, val trust: Trust) : TurnSource
+    /** The [prompt] that the plugin [plugin] started the turn with, under its [mandate] when it has one. */
+    class FromInitiated(val plugin: String, val prompt: String, val trust: Trust, val mandate: Mandate? = null) :
+        TurnSource
 
     /** The result of [job], which ended in the background. */
     class FromJob(val job: EndedJob) : TurnSource

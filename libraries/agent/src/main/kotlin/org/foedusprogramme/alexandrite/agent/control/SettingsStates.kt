@@ -1,6 +1,8 @@
 package org.foedusprogramme.alexandrite.agent.control
 
 import kotlinx.serialization.Serializable
+import org.foedusprogramme.alexandrite.agent.config.Agent
+import org.foedusprogramme.alexandrite.agent.config.zoneOrNull
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -15,7 +17,9 @@ import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.foedusprogramme.alexandrite.sdk.turn.SettingChange
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 
 /** The chat settings the agent stores, where null is the default of the agent that serves the chat. */
@@ -26,6 +30,9 @@ internal class SettingsStates(states: ChatStates) {
     private val reasoning: ChatState<AgentChatKey, Choice<ReasoningEffort>> = states.agentState(REASONING, Choice())
     private val language: ChatState<AgentChatKey, Choice<LanguageTag>> = states.agentState(LANGUAGE, Choice())
     private val mode: ChatState<AgentChatKey, ModeChoice> = states.agentState(MODE, ModeChoice())
+
+    /** The zone's id, kept as text so that a zone a later JDK drops reads as none. */
+    private val zone: ChatState<AgentChatKey, Choice<String>> = states.agentState(ZONE, Choice())
 
     /** The agents that the [CAPACITY] chats read last switched to. */
     private val selections = object : LinkedHashMap<ChatAddress, Choice<AgentId>>(16, 0.75f, true) {
@@ -62,6 +69,8 @@ internal class SettingsStates(states: ChatStates) {
 
     suspend fun language(key: AgentChatKey): LanguageTag? = language.get(key).value
 
+    suspend fun zone(key: AgentChatKey): ZoneId? = zone.get(key).value?.let(::zoneOrNull)
+
     /** The permission mode stored at [key] that holds at [now], null when none does. */
     suspend fun mode(key: AgentChatKey, now: Instant): StoredMode? {
         val stored = mode.get(key)
@@ -80,11 +89,16 @@ internal class SettingsStates(states: ChatStates) {
         }
     }
 
-    /** Stores the changes of [update] to the model, reasoning and language at [key]. */
+    /** Stores the changes of [update] to the model, reasoning, language and zone at [key]. */
     suspend fun update(key: AgentChatKey, update: ChatSettingsUpdate) {
         model.change(key, update.model)
         reasoning.change(key, update.reasoning)
         language.change(key, update.language)
+        when (val change = update.zone) {
+            is SettingChange.SetTo -> zone.set(key, Choice(change.value.id))
+            SettingChange.Reset -> zone.reset(key)
+            else -> Unit
+        }
     }
 
     companion object {
@@ -93,6 +107,7 @@ internal class SettingsStates(states: ChatStates) {
         const val REASONING: String = "settings.reasoning"
         const val LANGUAGE: String = "settings.language"
         const val MODE: String = "settings.mode"
+        const val ZONE: String = "settings.zone"
 
         const val CAPACITY: Int = 4096
     }
@@ -111,6 +126,10 @@ private fun instantOrNull(text: String): Instant? = try {
 } catch (e: DateTimeParseException) {
     null
 }
+
+/** The zone that [agent]'s times at [key] are told in: the chat's, else the agent's, else the host's of [clock]. */
+internal suspend fun SettingsStates.effectiveZone(key: AgentChatKey, agent: Agent?, clock: Clock): ZoneId =
+    zone(key) ?: agent?.zone ?: clock.zone
 
 internal class StoredMode(val mode: PermissionMode, val until: Instant?)
 

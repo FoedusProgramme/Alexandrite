@@ -69,6 +69,35 @@ class WriteToolTest {
     }
 
     @Test
+    fun `a write inside the conversation directory is exempt from gating, a symlink out of it is not`() {
+        fs.repository.createDirectories()
+        val inside = fs.conversation.resolve("notes.md")
+        val escaped = fs.link("conversation/escape.md", fs.repository.resolve("notes.md"))
+
+        val reviews = listOf(inside, escaped).map {
+            runBlocking { tool.review(arguments("path" to it, "content" to "Hi.\n"), fs.context()) }
+        }
+
+        assertEquals(listOf(true, false), reviews.map { it.exempt })
+    }
+
+    @Test
+    fun `a write in the conversation directory creates it and the subdirectories it needs`() {
+        val directory = fs.root.resolve("later")
+        val file = directory.resolve("games/answer.txt")
+        val arguments = arguments("path" to file, "content" to "Apple.\n")
+
+        val review = runBlocking { tool.review(arguments, fs.context(conversationDirectory = directory)) }
+        val cleared = fs.context(
+            conversationDirectory = directory,
+            clearance = Clearance(ClearanceKind.NONE, null, review.snapshot),
+        )
+        val result = runBlocking { tool.execute(arguments, cleared) }
+
+        assertEquals(Triple(true, false, "Apple.\n"), Triple(review.exempt, result.isError, file.readText()))
+    }
+
+    @Test
     fun `a new file goes only into an existing directory, and a relative path into the workspace`() {
         val missing = fs.workspace.resolve("notes/todo.md")
 

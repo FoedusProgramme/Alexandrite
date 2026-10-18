@@ -12,16 +12,20 @@ dependencies {
     implementation(project(":libraries:channels:telegram"))
     implementation(project(":libraries:channel-common"))
     implementation(project(":libraries:providers:openai-compatible"))
+    implementation(project(":libraries:providers:openai-responses"))
     implementation(project(":libraries:providers:deepseek"))
     implementation(project(":libraries:providers:openrouter"))
     implementation(project(":libraries:providers:lmstudio"))
     implementation(project(":libraries:providers:anthropic-compatible"))
     implementation(project(":libraries:stores:sqlite"))
+    implementation(project(":libraries:automations:heartbeat"))
+    implementation(project(":libraries:automations:schedule"))
     runtimeOnly(libs.logback.classic)
 
     testImplementation(project(":libraries:testkit"))
     testImplementation(project(":examples:notes"))
     testImplementation(testFixtures(project(":libraries:channels:telegram")))
+    testImplementation(project(":libraries:automation-common"))
     testImplementation(libs.logback.classic)
 }
 

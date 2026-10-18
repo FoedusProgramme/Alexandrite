@@ -20,6 +20,9 @@ public interface TurnInitiator {
      * Throws [IllegalArgumentException] for a turn of a kind in [TurnKind.agentStarted].
      */
     public fun initiate(turn: InitiatedTurn): Admission
+
+    /** Ends [mandate], one of this plugin's, so that no later turn runs as its operator. */
+    public suspend fun revoke(mandate: Mandate) {}
 }
 
 /** Throws the [IllegalArgumentException] of [TurnInitiator.initiate] when [plugin] may not initiate [turn]. */
@@ -36,6 +39,9 @@ public fun requireInitiable(plugin: String, turn: InitiatedTurn) {
 public interface TurnInitiation {
     /** Queues [turn] for [plugin], whose id its origin records, with the refusals of [TurnInitiator.initiate]. */
     public fun initiate(plugin: String, turn: InitiatedTurn): Admission
+
+    /** Ends [mandate] when [plugin] holds it. */
+    public suspend fun revoke(plugin: String, mandate: Mandate) {}
 }
 
 /** A turn that a plugin starts, answering its initiator and sending its final reply along [route]. */
@@ -50,6 +56,11 @@ public class InitiatedTurn private constructor(
     public val prompt: String,
     public val trust: Trust,
     public val route: ReplyRoute,
+    /**
+     * The operator's leave that the turn runs as them under, null for a turn of nobody; it must be the initiating
+     * plugin's, for the turn's agent and chat, else the turn runs as nobody.
+     */
+    public val mandate: Mandate?,
 ) {
     init {
         require(kind != TurnKind.MESSAGE && kind != TurnKind.COMMAND && kind != TurnKind.DELEGATED) {
@@ -57,11 +68,15 @@ public class InitiatedTurn private constructor(
                 "from a delegation."
         }
         require(prompt.isNotBlank()) { "The prompt of an initiated turn may not be blank." }
+        require(chat.instance != ChatAddress.AGENTS || (kind == TurnKind.HEARTBEAT && agent?.value == chat.chat)) {
+            "Only a heartbeat of its agent belongs to no chat, was $kind of ${agent ?: "the serving agent"} at $chat."
+        }
     }
 
     public fun toBuilder(): Builder = Builder(chat, agent, kind, prompt)
         .trust(trust)
         .route(route)
+        .mandate(mandate)
 
     public class Builder internal constructor(
         private var chat: ChatAddress,
@@ -71,6 +86,7 @@ public class InitiatedTurn private constructor(
     ) {
         private var trust: Trust = Trust.UNTRUSTED
         private var route: ReplyRoute = ReplyRoute.None
+        private var mandate: Mandate? = null
 
         public fun chat(chat: ChatAddress): Builder = apply { this.chat = chat }
 
@@ -84,7 +100,9 @@ public class InitiatedTurn private constructor(
 
         public fun route(route: ReplyRoute): Builder = apply { this.route = route }
 
-        public fun build(): InitiatedTurn = InitiatedTurn(chat, agent, kind, prompt, trust, route)
+        public fun mandate(mandate: Mandate?): Builder = apply { this.mandate = mandate }
+
+        public fun build(): InitiatedTurn = InitiatedTurn(chat, agent, kind, prompt, trust, route, mandate)
     }
 
     public companion object {
@@ -95,6 +113,10 @@ public class InitiatedTurn private constructor(
         /** A turn at the chat of [key], run as its agent. */
         public fun builder(key: AgentChatKey, kind: TurnKind, prompt: String): Builder =
             Builder(key.chat, key.agent, kind, prompt)
+
+        /** A heartbeat of [agent] that belongs to no chat, at [ChatAddress.ofAgent]; its reply goes nowhere. */
+        public fun heartbeat(agent: AgentId, prompt: String): Builder =
+            Builder(ChatAddress.ofAgent(agent), agent, TurnKind.HEARTBEAT, prompt)
     }
 }
 

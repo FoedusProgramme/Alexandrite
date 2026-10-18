@@ -1,12 +1,14 @@
 package org.foedusprogramme.alexandrite.agent.job
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
+import org.foedusprogramme.alexandrite.agent.startingInBackground
 import org.foedusprogramme.alexandrite.agent.turn.withoutRecord
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
@@ -14,6 +16,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverHook
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.store.TurnEndKind
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
@@ -30,7 +34,9 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.UserOrigin
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
+import org.foedusprogramme.alexandrite.sdk.turn.JobLifecycle
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
+import org.foedusprogramme.alexandrite.sdk.turn.TurnPoints
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordedReply
@@ -38,6 +44,7 @@ import org.foedusprogramme.alexandrite.testkit.RecordingChannel.Event
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.TestRecords
 import org.foedusprogramme.alexandrite.testkit.recordingTool
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -108,6 +115,34 @@ class JobTurnsTest {
     }
 
     // Moving to the background.
+
+    @Test
+    fun `only a call that moved to the background after its foreground time fires tool backgrounded`() {
+        val points = CopyOnWriteArrayList<String>()
+        val started = recordingTool("test.watch") { _, _ -> awaitCancellation() }
+        model.reply { toolCall("fs.slow") }.reply { toolCall("test.watch") }.reply { text("Both run.") }
+
+        harness {
+            tool(startingInBackground(started))
+            for (point in listOf(TurnPoints.JOB_STARTED, TurnPoints.TOOL_BACKGROUNDED)) {
+                hook(object : ObserverHook<JobLifecycle> {
+                    override val point: ObserverPoint<JobLifecycle> = point
+                    override suspend fun observe(payload: JobLifecycle) {
+                        points += "${point.id}:${payload.call.name}"
+                    }
+                })
+            }
+        }.execute {
+            assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
+            assertEquals(
+                listOf("job.started:fs.slow", "tool.backgrounded:fs.slow", "job.started:test.watch"),
+                points.toList(),
+            )
+            get<AgentControl>().jobs(channel().chat()).forEach {
+                get<AgentControl>().stopJob(channel().chat(), it.id, null)
+            }
+        }
+    }
 
     @Test
     fun `a call that runs past the foreground time goes on as a job, whose result a job turn answers the chat with`() {
@@ -220,7 +255,13 @@ class JobTurnsTest {
             }
         }
 
-        assertEquals(1, lines.count { it.startsWith("INFO Call ") && it.endsWith("runs 1 jobs already") })
+        assertEquals(
+            1,
+            lines.count {
+                it.startsWith("INFO Call ") &&
+                    it.endsWith("stays in the foreground: the chat already runs 1 background jobs")
+            },
+        )
     }
 
     // Stopping.
@@ -364,6 +405,47 @@ class JobTurnsTest {
         }
 
         assertEquals(1, lines.count { it.startsWith("INFO The result of job ") && it.endsWith("was sealed") })
+    }
+
+    @Test
+    fun `stopping a monitor discards its queued wake without starting a model turn`() {
+        val blocked = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val emit = CompletableDeferred<Unit>()
+        val emitted = CompletableDeferred<Unit>()
+        val monitor = recordingTool("test.monitor") { _, context ->
+            val job = checkNotNull(context.background())
+            emit.await()
+            repeat(100) { job.update(ToolResult("MATCH $it")) }
+            emitted.complete(Unit)
+            awaitCancellation()
+        }
+        model.reply { toolCall("test.monitor") }.reply {
+            pause {
+                blocked.complete(Unit)
+                release.await()
+            }
+            text("Parent done.")
+        }
+        harness { tool(startingInBackground(monitor)) }.execute {
+            val ticket = ask().ticket
+            withTimeout(5.seconds) { blocked.await() }
+            val control = get<AgentControl>()
+            val id = control.jobs(channel().chat()).single().id
+            emit.complete(Unit)
+            withTimeout(5.seconds) { emitted.await() }
+            assertTrue(control.stopJob(channel().chat(), id, channel().user("admin")))
+            release.complete(Unit)
+            assertIs<TurnOutcome.Completed>(ticket.outcome())
+            until { control.turns(channel().chat()).isEmpty() && recorded().isEmpty() }
+            assertEquals(2, model.requests.size)
+            assertEquals(1, channel().replies.size)
+            assertFalse(
+                stored().filterIsInstance<UserEntry>().any {
+                    it.origin == UserOrigin.SystemWritten("alexandrite.job")
+                },
+            )
+        }
     }
 
     // Taint.

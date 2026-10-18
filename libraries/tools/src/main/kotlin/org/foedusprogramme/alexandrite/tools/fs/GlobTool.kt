@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.sdk.chat.rootConversation
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
@@ -49,7 +50,7 @@ internal class GlobTool(private val floor: HardFloor) : Tool {
         val root = floor.allowed(path, context)
         if (!attributes(root).isDirectory) throw Refusal("$path is no directory: give a directory as 'path'.")
         context.touched(root)
-        val walk = TreeWalk(floor, context.turn.agent)
+        val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation)
         val matches = mutableListOf<String>()
         var more = false
         walk.walk(root) { entry ->

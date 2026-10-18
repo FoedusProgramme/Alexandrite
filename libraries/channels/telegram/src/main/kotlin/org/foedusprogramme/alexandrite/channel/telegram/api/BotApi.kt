@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.telegram.api
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import java.io.IOException
 import kotlin.time.Duration
 
@@ -14,6 +16,15 @@ internal interface BotApi {
 
     suspend fun sendMessage(request: SendMessage): Message
 
+    suspend fun sendPhoto(request: SendFile): Message
+
+    suspend fun sendDocument(request: SendFile): Message
+
+    suspend fun getFile(fileId: String): TelegramFile
+
+    /** The bytes of the file at [path] of a [TelegramFile], failing as [BotApiFailure.TOO_LONG] past [maxBytes]. */
+    suspend fun download(path: String, maxBytes: Long): ByteArray
+
     suspend fun editMessageText(request: EditMessageText): Message
 
     suspend fun editMessageReplyMarkup(request: EditMessageReplyMarkup)
@@ -24,6 +35,13 @@ internal interface BotApi {
 
     /** Shows that the bot is typing in [chat], or in its topic [thread]. */
     suspend fun sendChatAction(chat: Long, thread: Long?)
+
+    suspend fun setMyCommands(request: SetMyCommands)
+
+    suspend fun deleteMyCommands(request: DeleteMyCommands)
+
+    /** Calls [method] with [params], one of the chat actions the agent's tools take, and returns its result. */
+    suspend fun act(method: String, params: JsonObject): JsonElement
 }
 
 /** A Bot API call that failed. */
@@ -51,7 +69,7 @@ internal enum class BotApiFailure {
     /** Entities that Telegram cannot apply to the text. */
     ENTITIES_REJECTED,
 
-    /** A text longer than one message. */
+    /** A text longer than one message, or a file larger than Telegram takes. */
     TOO_LONG,
 
     /** A chat or topic that is gone or migrated. */

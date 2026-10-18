@@ -1,13 +1,21 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
+import org.foedusprogramme.alexandrite.channel.telegram.api.MessageFiles
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageOrigin
+import org.foedusprogramme.alexandrite.channel.telegram.api.TelegramMedia
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.sdk.channel.DisplayFact
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
+import org.foedusprogramme.alexandrite.sdk.channel.MediaAttachment
+import org.foedusprogramme.alexandrite.sdk.channel.MediaContent
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -19,8 +27,10 @@ import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
 import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import java.time.Instant
+import java.util.Locale
 
 /** The bot as Telegram knows it. */
 internal class BotIdentity(val id: Long, val username: String)
@@ -37,12 +47,19 @@ internal sealed interface Inbound {
     class Ignored(val why: String) : Inbound
 }
 
-/** Reads the messages that the bot [bot] of [instance] receives, whose operators are [admins]. */
+/**
+ * Reads the messages that the bot [bot] of [instance] receives, whose operators are [admins], with the content of each
+ * file from [files]; [answeredAdmin] tells which of the bot's messages answered an admin.
+ */
 internal class UpdateReader(
     private val instance: ChannelInstanceId,
     private val admins: Set<Long>,
     private val bot: BotIdentity,
     private val approvals: ApprovalMessages,
+    private val answeredAdmin: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
+    /** Whether every message of a group is meant for the bot, not only those that name it. */
+    private val everyGroupMessage: Boolean = false,
+    private val files: (fileId: String) -> MediaContent,
 ) {
     /** The chat of [message], its forum topic as the thread. */
     fun chatOf(message: Message): ChatAddress {
@@ -66,25 +83,40 @@ internal class UpdateReader(
         isAdmin = user.id in admins && senderChat == null,
     )
 
-    /** Whether [message] is meant for the bot: any message with content in a direct chat, else one that names it. */
-    fun addressed(message: Message): Boolean = if (kindOf(message.chat) == ChatKind.DIRECT) {
+    /**
+     * Whether [message] is meant for the bot: one that [names] it, or in a group any message but a command for another
+     * bot when the bot takes [everyGroupMessage].
+     */
+    fun addressed(message: Message): Boolean =
+        names(message) || (everyGroupMessage && kindOf(message.chat) != ChatKind.DIRECT && command(message) == null)
+
+    /** Whether [message] names the bot: any message with content in a direct chat, else a command, mention or reply. */
+    fun names(message: Message): Boolean = if (kindOf(message.chat) == ChatKind.DIRECT) {
         message.text != null || message.caption != null || hasContent(message)
     } else {
         val command = command(message)
         if (command != null) command.forBot else mentionsBot(message) || repliesToBot(message)
     }
 
-    fun read(message: Message): Inbound {
+    fun read(message: Message): Inbound = read(listOf(message))
+
+    /** What [parts] are to the channel: one message, or the messages of one album in order, as one message. */
+    fun read(parts: List<Message>): Inbound {
+        val message = parts.first()
         val from = message.from ?: return Inbound.Ignored("it has no sender")
         val chat = chatOf(message)
         val ref = ChannelMessageRef(chat, "${message.messageId}")
         val command = command(message)
         if (command != null && !command.forBot) return Inbound.Ignored("it is a command for @${command.target}")
-        if (!addressed(message)) return Inbound.Ignored("it is not addressed to the bot")
-        val body = message.text ?: message.caption
-            ?: return if (hasContent(message)) Inbound.Unsupported(chat, ref) else Inbound.Ignored("it is a notice")
-        val facts = facts(message)
+        if (parts.none(::addressed)) return Inbound.Ignored("it is not addressed to the bot")
+        val media = parts.flatMap { media(it, quoted = false) }
+        if (parts.all { it.text == null && it.caption == null } && media.isEmpty()) {
+            return if (parts.any(::hasContent)) unsupported(parts, chat, ref) else Inbound.Ignored("it is a notice")
+        }
+        val facts = parts.flatMap(::facts).distinct()
         val quote = quote(message, chat)
+        val quoted = (message.replyToMessage?.takeUnless { isTopicRoot(message) } ?: message.externalReply)
+            ?.let { media(it, quoted = true) }
         val builder = IncomingMessage.builder(
             ref,
             user(from, message.senderChat),
@@ -94,6 +126,7 @@ internal class UpdateReader(
         )
             .quote(quote)
             .facts(facts)
+            .media(media + quoted.orEmpty())
         if (command != null) {
             val text = "/${command.name}" + if (command.arguments.isBlank()) "" else " ${command.arguments}"
             val incoming = builder.text(text).build()
@@ -103,12 +136,54 @@ internal class UpdateReader(
                 .build()
             return Inbound.Command(invocation, incoming)
         }
-        val entities = (if (message.text != null) message.entities else message.captionEntities).orEmpty()
-        val text = withoutMentions(body, entities).trim()
-        if (text.isEmpty() && quote == null) {
-            return if (facts.isEmpty()) Inbound.Ignored("it only mentions the bot") else Inbound.Unsupported(chat, ref)
+        val text = parts.mapNotNull { part ->
+            val body = part.text ?: part.caption ?: return@mapNotNull null
+            val entities = (if (part.text != null) part.entities else part.captionEntities).orEmpty()
+            withoutMentions(body, entities).trim().takeIf { it.isNotEmpty() }
+        }.joinToString("\n\n")
+        if (text.isEmpty() && quote == null && media.isEmpty()) {
+            if (facts.isNotEmpty()) return unsupported(parts, chat, ref)
+            // A bare mention reaches the model as it was written, which tells it all there is to tell.
+            val mention = parts.mapNotNull { it.text ?: it.caption }.joinToString("\n\n").trim()
+            return Inbound.Message(builder.text(mention).build())
         }
         return Inbound.Message(builder.text(text).build())
+    }
+
+    /** [parts], which hold nothing the bot reads, told as such only when they name the bot. */
+    private fun unsupported(parts: List<Message>, chat: ChatAddress, ref: ChannelMessageRef): Inbound =
+        if (parts.any(::names)) Inbound.Unsupported(chat, ref) else Inbound.Ignored("it holds nothing the bot reads")
+
+    /** The files of [message], each as an attachment of the quoted message when [quoted]. */
+    private fun media(message: MessageFiles, quoted: Boolean): List<MediaAttachment> = buildList {
+        fun file(kind: MediaKind, mediaType: String, media: TelegramMedia, name: String? = media.fileName) {
+            add(attachment(kind, mediaType, media, name, quoted))
+        }
+        message.photo?.let(::largest)?.let { file(MediaKind.IMAGE, "image/jpeg", it, null) }
+        message.document?.takeIf { message.animation == null }?.let { file(documentKind(it), typeOf(it, OCTETS), it) }
+        message.audio?.let { file(MediaKind.AUDIO, typeOf(it, "audio/mpeg"), it) }
+        message.voice?.let { file(MediaKind.AUDIO, typeOf(it, "audio/ogg"), it, null) }
+        message.video?.let { file(MediaKind.VIDEO, typeOf(it, "video/mp4"), it) }
+        message.videoNote?.let { file(MediaKind.VIDEO, "video/mp4", it, null) }
+        message.animation?.let { file(MediaKind.VIDEO, typeOf(it, "video/mp4"), it) }
+    }
+
+    private fun attachment(
+        kind: MediaKind,
+        mediaType: String,
+        media: TelegramMedia,
+        name: String?,
+        quoted: Boolean,
+    ): MediaAttachment {
+        val size = media.fileSize?.takeIf { it >= 0 }
+        return MediaAttachment.builder(kind, mediaType, files(media.fileId))
+            .size(size)
+            .width((media.width ?: media.length)?.takeIf { it > 0 })
+            .height((media.height ?: media.length)?.takeIf { it > 0 })
+            .name(name?.takeIf { it.isNotBlank() })
+            .fromQuote(quoted)
+            .unavailable(TOO_LARGE.takeIf { size != null && size > MAX_DOWNLOAD_BYTES })
+            .build()
     }
 
     /** The command that [message]'s text starts with, null when it starts with none. */
@@ -166,8 +241,8 @@ internal class UpdateReader(
     private fun quote(message: Message, chat: ChatAddress): Quote? {
         val replied = message.replyToMessage?.takeUnless { isTopicRoot(message) }
         if (replied != null) {
-            val approval = approvals.quoted(message.chat.id, replied.messageId)
-                ?.takeIf { replied.from?.id == bot.id && replied.senderChat == null }
+            val byBot = replied.from?.id == bot.id && replied.senderChat == null
+            val approval = approvals.quoted(message.chat.id, replied.messageId)?.takeIf { byBot }
             val text = approval ?: message.quote?.text ?: replied.text ?: replied.caption ?: ""
             val author = replied.senderChat?.let { Author(it.title, null, null) }
                 ?: replied.from?.let { Author(nameOf(it), UserAddress(instance, "${it.id}"), it.isBot) }
@@ -176,7 +251,7 @@ internal class UpdateReader(
                 .sender(author?.address)
                 .senderIsBot(author?.isBot)
                 .target(ChannelMessageRef(chat, "${replied.messageId}"))
-                .trust(if (approval == null) QuoteTrust.UNTRUSTED else VOUCHED)
+                .trust(if (approval != null) VOUCHED else trustOf(replied, byBot))
                 .build()
         }
         val external = message.externalReply ?: return null
@@ -187,6 +262,17 @@ internal class UpdateReader(
             .senderIsBot(author.isBot)
             .external(true)
             .build()
+    }
+
+    /**
+     * How far a quote of [replied], from this chat, is trusted: its content when an admin wrote it themselves or it is
+     * the bot's answer to an admin, which [byBot] sent; its author whenever Telegram names the user who sent it.
+     */
+    private fun trustOf(replied: Message, byBot: Boolean): QuoteTrust {
+        val author = replied.from?.takeIf { replied.senderChat == null } ?: return QuoteTrust.UNTRUSTED
+        val own = replied.forwardOrigin == null && replied.viaBot == null
+        val vouched = own && if (byBot) answeredAdmin(replied.chat.id, replied.messageId) else author.id in admins
+        return if (vouched) VOUCHED else AUTHOR_KNOWN
     }
 
     private fun forwarded(origin: MessageOrigin?): ForwardOrigin? {
@@ -217,27 +303,62 @@ private fun nameOf(user: User): String = listOfNotNull(user.firstName, user.last
 
 private val VOUCHED = QuoteTrust(live = true, content = true)
 
+private val AUTHOR_KNOWN = QuoteTrust(live = true, content = false)
+
 /** Model-facing facts of the media that [message] holds, which the channel does not pass on. */
-private fun facts(message: Message): List<DisplayFact> = MEDIA
-    .filter { (kind, present) -> present(message) && !(kind == "document" && message.animation != null) }
-    .map { (kind, _) -> DisplayFact("attachment", "$kind, not passed on by this channel") }
+private fun facts(message: Message): List<DisplayFact> = listOfNotNull(stickerFact(message.sticker))
+
+/** A sticker as its emoji and the id that `telegram.sticker` sends it again by, the image not passed on. */
+private fun stickerFact(sticker: JsonElement?): DisplayFact? {
+    sticker ?: return null
+    val fields = sticker as? JsonObject
+    val emoji = (fields?.get("emoji") as? JsonPrimitive)?.contentOrNull?.let { " $it" }.orEmpty()
+    val id = (fields?.get("file_id") as? JsonPrimitive)?.contentOrNull?.takeIf { STICKER_ID.matches(it) }
+    val named = id?.let { ", id $it" }.orEmpty()
+    return DisplayFact("attachment", "sticker$emoji (not passed on by this channel$named)")
+}
+
+/** A Telegram file id, which holds nothing that could pass for a framing field. */
+private val STICKER_ID = Regex("[A-Za-z0-9_-]{1,256}")
+
+/** The largest of a photo's [sizes]. */
+private fun largest(sizes: List<TelegramMedia>): TelegramMedia? =
+    sizes.maxWithOrNull(compareBy<TelegramMedia>({ (it.width ?: 0).toLong() * (it.height ?: 0) }, { it.fileSize ?: 0 }))
+
+/** The kind of the file a document holds, by its media type. */
+private fun documentKind(document: TelegramMedia): MediaKind {
+    val type = document.mimeType.orEmpty().lowercase(Locale.ROOT)
+    return when {
+        type in IMAGE_TYPES -> MediaKind.IMAGE
+        type.startsWith("video/") -> MediaKind.VIDEO
+        type.startsWith("audio/") -> MediaKind.AUDIO
+        else -> MediaKind.FILE
+    }
+}
+
+/** The media type of [media], [default] when Telegram gives none. */
+private fun typeOf(media: TelegramMedia, default: String): String =
+    media.mimeType?.takeIf { it.isNotBlank() && it.none(Char::isISOControl) } ?: default
+
+private const val OCTETS = "application/octet-stream"
+
+/** The image types that a document may hold as a picture. */
+private val IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
+
+private const val TOO_LARGE = "larger than the 20 MB that a bot may download from Telegram"
 
 /** Whether [message] holds media or other content than text. */
-private fun hasContent(message: Message): Boolean =
-    MEDIA.any { (_, present) -> present(message) } || CONTENT.any { it(message) }
-
-private val MEDIA: List<Pair<String, (Message) -> Boolean>> = listOf(
-    "photo" to { it.photo != null },
-    "video" to { it.video != null },
-    "document" to { it.document != null },
-    "audio" to { it.audio != null },
-    "voice" to { it.voice != null },
-    "video note" to { it.videoNote != null },
-    "sticker" to { it.sticker != null },
-    "animation" to { it.animation != null },
-)
+private fun hasContent(message: Message): Boolean = CONTENT.any { it(message) }
 
 private val CONTENT: List<(Message) -> Boolean> = listOf(
+    { it.photo != null },
+    { it.video != null },
+    { it.document != null },
+    { it.audio != null },
+    { it.voice != null },
+    { it.videoNote != null },
+    { it.sticker != null },
+    { it.animation != null },
     { it.contact != null },
     { it.dice != null },
     { it.game != null },

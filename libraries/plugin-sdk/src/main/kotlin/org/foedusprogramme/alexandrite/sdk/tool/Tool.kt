@@ -7,8 +7,11 @@ import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.ContributedSpi
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
+import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
 import java.nio.file.Path
 import kotlin.time.Duration
 
@@ -35,7 +38,7 @@ public class ToolDefinition(
     public val timeout: Duration? = null,
     /** What kind of effect a call has, for a channel to show as it runs. */
     public val activity: ToolActivity = ToolActivity.OTHER,
-    /** The arguments that title a call, the first one present wins, an array joined with spaces. */
+    /** The arguments that title a call: every one present, in order, joined with a space, an array with spaces too. */
     public val titleArguments: List<String> = emptyList(),
 ) {
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
@@ -61,6 +64,9 @@ public interface ToolContext {
     public val turn: TurnInfo
     public val call: ToolCallId
 
+    /** The model executing this call, null outside a model turn. */
+    public val model: ModelRef? get() = null
+
     /** The directory where the turn's agent keeps its own files, which may not exist yet, null when it has none. */
     public val workspace: Path?
 
@@ -72,6 +78,22 @@ public interface ToolContext {
      */
     public suspend fun openWorkspace(): Path
 
+    /** The directory where the turn's own conversation keeps its own files, which may not exist yet. */
+    public val conversationDirectory: Path
+
+    /** [conversationDirectory], created when it does not exist yet. Throws an [java.io.IOException] when it cannot be. */
+    public suspend fun openConversationDirectory(): Path
+
+    /** Null when adding [bytes] to [conversationDirectory] through [path] keeps it at or under its quota. */
+    public suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String?
+
+    /**
+     * The background job that this call runs as, null unless its review asked for one ([CallReview.background]).
+     *
+     * Waits until the job is set up, which follows the call's start closely.
+     */
+    public suspend fun background(): BackgroundCall? = null
+
     /** Reports that the call read or listed [path]. */
     public fun touched(path: Path)
 
@@ -80,6 +102,23 @@ public interface ToolContext {
 
     /** Reports that the call brought untrusted content into the conversation, for [reason]. */
     public fun untrusted(reason: String)
+
+    /**
+     * A [Mandate] for turns that the tool's plugin initiates later at this turn's chat to run as the turn's operator,
+     * null unless this is an operator's own turn in a conversation that took in nothing untrusted. The agent keeps it
+     * until the plugin revokes it ([TurnInitiator.revoke]).
+     */
+    public suspend fun mandate(): Mandate? = null
+}
+
+/** A tool call that runs as a background job from its start, whose results come in later turns. */
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface BackgroundCall {
+    /**
+     * Wakes the agent with an intermediate [result] of the call, and returns false when it is not taken because the
+     * agent has not yet taken the previous one or the job is being stopped; the call may send it again later.
+     */
+    public suspend fun update(result: ToolResult): Boolean
 }
 
 /** What a tool call returns to the model. */

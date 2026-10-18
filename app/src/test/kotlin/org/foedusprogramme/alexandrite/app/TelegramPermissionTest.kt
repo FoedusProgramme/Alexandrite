@@ -117,7 +117,7 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `a reply to an approval request quotes the bot's own line about it and leaves the conversation untainted`() {
+    fun `a reply to an approval request or to the bot's answer to an admin leaves the conversation untainted`() {
         app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
             .reply { text("It ran.") }
             .reply { text("It did.") }
@@ -149,8 +149,8 @@ class TelegramPermissionTest {
                 "> Alexandrite's approval request $id for notes.write (allowed by Ada Lovelace (@ada_test))\n",
         )
         assertNull(afterRequest)
-        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (unverified)\n> Noted.\n")
-        assertEquals("a quote that its channel does not vouch for", afterAnswer?.reason)
+        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (verified)\n> Noted.\n")
+        assertNull(afterAnswer)
     }
 
     /** The framing of the message [text] as the model read it. */
@@ -251,6 +251,18 @@ class TelegramPermissionTest {
     }
 
     @Test
+    fun `a chat's permission mode survives a new conversation`() {
+        app.run(app.builder(directory)) {
+            app.send(app.ada, app.adaChat, "/mode plan")
+            app.message(app.adaChat, "The permission mode of this chat is now plan.")
+            app.send(app.ada, app.adaChat, "/new")
+            app.message(app.adaChat, "A new conversation with coder has started.")
+            app.send(app.ada, app.adaChat, "/mode")
+            app.message(app.adaChat, "Permission mode: plan (set in this chat). $modes")
+        }
+    }
+
+    @Test
     fun `a member sees the mode but cannot set it, and an admin's bypass shows in the settings`() {
         app.run(app.builder(directory)) {
             app.send(app.bob, app.bobChat, "/mode")
@@ -270,7 +282,7 @@ class TelegramPermissionTest {
         )
         val (set, settings) = app.fake.botMessages(ADA).map { it.text }
         assertEquals("The permission mode of this chat is now bypass for 2 h, then ask.", set)
-        assertEquals("Permission mode: bypass (set in this chat) for 2 h more", settings.lines()[5])
+        assertEquals("Permission mode: bypass (set in this chat) for 2 h more", settings.lines()[6])
     }
 
     private companion object {

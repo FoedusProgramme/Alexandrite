@@ -5,6 +5,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.foedusprogramme.alexandrite.internal.path.hardLinks
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
@@ -48,15 +49,20 @@ internal class PlannedRun(
     val program: String get() = name.substringAfterLast('/')
 }
 
-/** Plans the calls of [agent]'s turns, a turn of the operator's when [operator]. */
-internal class Planner(private val floor: HardFloor, private val agent: AgentId, private val operator: Boolean) {
+/** Plans the calls of [agent]'s turns in [conversation], a turn of the operator's when [operator]. */
+internal class Planner(
+    private val floor: HardFloor,
+    private val agent: AgentId,
+    private val conversation: ConversationId?,
+    private val operator: Boolean,
+) {
     /**
      * What [request] runs in [cwd], which may not exist yet when [missingAllowed].
      *
      * Throws [CallProblem] for a call that cannot run as given and [FloorRefusal] for one that the floor refuses.
      */
     fun plan(request: Request, cwd: Path, missingAllowed: Boolean): PlannedRun {
-        val directory = allowed(floor.checkTree(cwd, agent)) { "The working directory $cwd reaches $it" }
+        val directory = allowed(floor.checkTree(cwd, agent, conversation)) { "The working directory $cwd reaches $it" }
         if (!(missingAllowed && Files.notExists(directory)) && !Files.isDirectory(directory)) {
             throw CallProblem("The working directory $cwd is no directory.")
         }
@@ -70,7 +76,7 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
                     "No program '$name' was found in the system directories or on the PATH."
                 },
             )
-        val executable = allowed(floor.checkRead(resolved, agent)) { "The program $name lies in $it" }
+        val executable = allowed(floor.checkRead(resolved, agent, conversation)) { "The program $name lies in $it" }
         val program = name.substringAfterLast('/')
         val arguments = argv.drop(1)
         val real = executable.fileName.toString()
@@ -117,7 +123,15 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
     /** The canonical path of [candidate], which the floor allows. */
     private fun checkVetted(candidate: String, directory: Path, recursive: Boolean): Path {
         val path = candidatePath(candidate, directory)
-        val check = if (recursive) floor.checkTree(path, agent) else floor.checkRead(path, agent)
+        val check = if (recursive) {
+            floor.checkTree(
+                path,
+                agent,
+                conversation,
+            )
+        } else {
+            floor.checkRead(path, agent, conversation)
+        }
         val canonical = allowed(check) { "'$candidate' reaches $it" }
         if (Files.isRegularFile(canonical, LinkOption.NOFOLLOW_LINKS) && hardLinks(canonical) > 1) {
             throw FloorRefusal(
@@ -132,9 +146,16 @@ internal class Planner(private val floor: HardFloor, private val agent: AgentId,
     private fun checkUnparsed(candidate: String, directory: Path, glued: Boolean) {
         val path = candidatePath(candidate, directory)
         val root = glued && candidate.all { it == '/' }
-        allowed(if (root) floor.checkWrite(path, agent) else floor.checkTree(path, agent)) {
-            "'$candidate' reaches $it"
+        val check = if (root) {
+            floor.checkWrite(
+                path,
+                agent,
+                conversation,
+            )
+        } else {
+            floor.checkTree(path, agent, conversation)
         }
+        allowed(check) { "'$candidate' reaches $it" }
     }
 
     /** The canonical path of [check], else a [FloorRefusal] saying what [refused] says of its reason. */

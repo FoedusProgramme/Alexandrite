@@ -101,32 +101,17 @@ class PersonaEditTurnsTest {
     }
 
     @Test
-    fun `only an agent with a persona directory is offered the tool`() {
+    fun `every agent of a host with a config file is offered the tool, its persona directory made by its first edit`() {
         harness(""", "helper": {"description": "Helps."}""").execute {
             val tools = get<ToolRegistry>()
 
-            val offered = listOf("coder", "helper").map { id -> tools.offered(AgentId(id)).map { it.definition.name } }
+            val offered = listOf("coder", "helper").map { id ->
+                "persona.edit" in
+                    tools.offered(AgentId(id)).map { it.definition.name }
+            }
 
-            assertEquals(
-                listOf(
-                    listOf(
-                        "agent.delegate", "agent.jobs", "agent.stop", "permission.status", "persona.edit",
-                        "profile.create", "profile.edit", "profile.list", "profile.remove", "web.fetch",
-                    ),
-                    listOf(
-                        "agent.delegate",
-                        "agent.jobs",
-                        "agent.stop",
-                        "permission.status",
-                        "profile.create",
-                        "profile.edit",
-                        "profile.list",
-                        "profile.remove",
-                        "web.fetch",
-                    ),
-                ),
-                offered,
-            )
+            assertEquals(listOf(true, true), offered)
+            assertEquals(false, Files.exists(persona.parent.resolveSibling("helper")))
         }
     }
 

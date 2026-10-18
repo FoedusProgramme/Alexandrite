@@ -22,19 +22,21 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.assertEquals
 
-/** A workspace, a repository and two places the floor protects (`secret`, `home/.ssh`) under [root]. */
+/** A workspace, a repository, a conversation directory and two places the floor protects (`secret`, `home/.ssh`) under [root]. */
 class FsFixture(directory: Path) {
     val root: Path = directory.toRealPath()
     val workspace: Path = root.resolve("workspace")
     val repository: Path = root.resolve("repo")
     val secret: Path = root.resolve("secret")
     val home: Path = root.resolve("home")
+    val conversation: Path = root.resolve("conversation")
     val floor = testHardFloor(listOf(secret), home)
 
     init {
         write("secret/key.txt", "SECRET")
         write("home/.ssh/id_rsa", "KEY")
         workspace.createDirectories()
+        conversation.createDirectories()
     }
 
     fun write(relative: String, text: String): Path =
@@ -49,10 +51,12 @@ class FsFixture(directory: Path) {
     fun context(
         workspace: Path? = this.workspace,
         conversation: String = "test",
+        conversationDirectory: Path = this.conversation,
         clearance: Clearance? = null,
     ): TestToolContext = testToolContext(
         testTurn { conversation(ConversationId(conversation)) },
         workspace = workspace,
+        conversationDirectory = conversationDirectory,
         clearance = clearance,
     )
 

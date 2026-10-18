@@ -17,8 +17,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.DirectCalls
+import org.foedusprogramme.alexandrite.agent.QuietHooks
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.cancel.TurnShutdown
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.job.JobRecords
 import org.foedusprogramme.alexandrite.agent.job.Jobs
@@ -27,13 +29,19 @@ import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.pluginScope
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolCallPart
@@ -79,11 +87,16 @@ class ToolExecutorTest {
 
     private fun executor(
         gate: ToolGate = AdmittingGate(),
-        workspaces: Workspaces = Workspaces(hostPaths(null), settings("{}")),
+        workspaces: Workspaces = Workspaces(hostPaths(null), ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
+        directories: ConversationDirectories =
+            ConversationDirectories(ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
     ): ToolExecutor {
         val settings = settings("""{"shutdown": {"cancelJoinSeconds": 3}}""")
-        val jobs = Jobs(settings, JobRecords(testRecords()), { true }, Clock.systemUTC(), pluginScope(GlobalJobs))
-        return ToolExecutor(gate, settings, workspaces, jobs)
+        val jobs =
+            Jobs(settings, JobRecords(testRecords()), {
+                true
+            }, Clock.systemUTC(), QuietHooks, pluginScope(GlobalJobs))
+        return ToolExecutor(gate, settings, workspaces, directories, jobs) { _, _ -> null }
     }
 
     private fun abandoned(after: String) =
@@ -117,6 +130,40 @@ class ToolExecutorTest {
     }
 
     private fun ToolResultEntry.text(): String = content.joinToString("") { (it as TextPart).text }
+
+    @Test
+    fun `an edit admitted as a conversation-directory write ends with no diff, any other edit with its diff`() =
+        runTest {
+            val definition = ToolDefinition(
+                "fs.edit",
+                "Edits.",
+                JsonObject(emptyMap()),
+                ToolRisk.WORKSPACE_WRITE,
+                activity = ToolActivity.EDIT,
+            )
+            val edit = recordingTool(definition) { _, _ -> ToolResult("Edited.") }
+            val preview = ReviewPreview.Diff(Path.of("/srv/notes.md"), "+Hi.")
+
+            val shown = listOf(false, true).map { scratch ->
+                val ended = mutableListOf<TurnEvent.Content?>()
+                val calls = object : TurnCalls by DirectCalls {
+                    override suspend fun ended(call: ToolCallId, status: ToolCallStatus, content: TurnEvent.Content?) {
+                        ended += content
+                    }
+                }
+                val gate = object : ToolGate {
+                    override suspend fun admit(call: GateCall): GateResult =
+                        GateResult.Admitted(Clearance(ClearanceKind.NONE), preview, scratch)
+                }
+                val edits = ToolCallPart(ToolCallId("call-1"), "fs.edit", "{}")
+                executor(
+                    gate,
+                ).execute(turn, edits, mapOf("fs.edit" to edit), 120.seconds, setOf("fs.edit"), taint, calls)
+                ended.single()
+            }
+
+            assertEquals(listOf(TurnEvent.Content.Diff(preview.path, preview.unified), null), shown)
+        }
 
     @Test
     fun `a call that runs past its timeout fails, saying so`() = runTest {
@@ -269,7 +316,11 @@ class ToolExecutorTest {
     @DisabledOnOs(OS.WINDOWS)
     fun `a call's context names its agent's workspace and creates it owner-only once a tool opens it`() = runBlocking {
         val workspaces =
-            Workspaces(hostPaths(null, directory), settings("""{"agents": {"main": {"description": "Main."}}}"""))
+            Workspaces(
+                hostPaths(null, directory),
+                ConventionalAgentPlaces(hostPaths(null, directory)),
+                settings("""{"agents": {"main": {"description": "Main."}}}"""),
+            )
         val workspace = directory.resolve("workspaces/main")
         var existed: Boolean? = null
         val tool = recordingTool("fs.read") { _, context ->

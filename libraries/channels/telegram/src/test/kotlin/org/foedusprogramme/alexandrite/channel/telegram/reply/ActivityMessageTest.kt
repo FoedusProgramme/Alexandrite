@@ -4,6 +4,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
@@ -14,6 +15,8 @@ import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ActivityMessageTest {
@@ -44,8 +47,8 @@ class ActivityMessageTest {
         assertEquals(
             listOf(
                 "sendMessage Let me check.",
-                "sendMessage Reading 1 file\nReading notes.md",
-                "editMessageText Read 1 file\nRead notes.md",
+                "sendMessage Reading 1 file\nnotes.md",
+                "editMessageText Read 1 file\nnotes.md",
             ),
             output.shown(),
         )
@@ -78,11 +81,11 @@ class ActivityMessageTest {
         assertEquals(
             listOf(
                 "sendMessage Checking.",
-                "sendMessage Reading 1 file\nReading notes.md",
-                "editMessageText Read 1 file\nRead notes.md",
+                "sendMessage Reading 1 file\nnotes.md",
+                "editMessageText Read 1 file\nnotes.md",
                 "sendMessage Found it.",
-                "sendMessage Running 1 shell command\nRunning ls",
-                "editMessageText Ran 1 shell command\nRan ls — exit 0",
+                "sendMessage Running 1 shell command\nls",
+                "editMessageText Ran 1 shell command\nls — exit 0",
                 "editMessageText Found it. Done.",
             ),
             output.shown(),
@@ -103,8 +106,8 @@ class ActivityMessageTest {
         advanceTimeBy(1_100)
 
         val edit = output.api.calls("editMessageText").last()
-        assertEquals("Read 2 files\nRead a.kt\nRead b.kt", edit.text)
-        assertEquals(listOf("expandable_blockquote 13+19"), edit.entities)
+        assertEquals("Read 2 files\na.kt\nb.kt", edit.text)
+        assertEquals(listOf("expandable_blockquote 13+9"), edit.entities)
     }
 
     @Test
@@ -119,7 +122,7 @@ class ActivityMessageTest {
         reply.event(TurnEvent.ToolCallUpdated(second, ToolCallStatus.COMPLETED))
         advanceTimeBy(1_100)
 
-        assertEquals(listOf("sendMessage Read 2 files\nRead a.kt\nRead b.kt"), output.shown())
+        assertEquals(listOf("sendMessage Read 2 files\na.kt\nb.kt"), output.shown())
     }
 
     @Test
@@ -132,34 +135,253 @@ class ActivityMessageTest {
         reply.abandon(ReplyEnd.CANCELLED)
         advanceTimeBy(1_100)
 
-        assertEquals(listOf("sendMessage Reading 1 file\nReading notes.md"), output.shown())
+        assertEquals(listOf("sendMessage Reading 1 file\nnotes.md"), output.shown())
     }
 
     @Test
-    fun `a sub-agent's calls join the activity message under its profile, apart from the turn's own call ids`() =
-        runTest {
-            val output = output()
-            val reply = output.open()
-            val run = RunId("r-1")
-            val delegate = ToolCallId("c1")
+    fun `a sub-agent's calls keep their own activity message apart from the delegation`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val run = RunId("r-1")
+        val delegate = ToolCallId("c1")
 
-            reply.event(TurnEvent.ToolCallStarted(delegate, "agent.delegate", ToolActivity.OTHER, "reviewer"))
+        reply.event(TurnEvent.ToolCallStarted(delegate, "agent.delegate", ToolActivity.DELEGATE, "reviewer"))
+        reply.event(
+            TurnEvent.ToolCallStarted(delegate, "fs.read", ToolActivity.READ, "a.kt", run, AgentId("reviewer")),
+        )
+        reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED, null, run))
+        advanceTimeBy(2_200)
+        reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED))
+        advanceTimeBy(1_100)
+
+        assertEquals(
+            listOf(
+                "sendMessage Delegating to reviewer",
+                "sendMessage Read 1 file\nreviewer · a.kt",
+                "editMessageText Delegated to reviewer",
+            ),
+            output.shown(),
+        )
+    }
+
+    @Test
+    fun `four delegation calls to the same profile have four independently updated records`() = runTest {
+        val output = output()
+        val reply = output.open()
+        for (number in 1..4) {
             reply.event(
-                TurnEvent.ToolCallStarted(delegate, "fs.read", ToolActivity.READ, "a.kt", run, AgentId("reviewer")),
-            )
-            reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED, null, run))
-            advanceTimeBy(1_100)
-            reply.event(TurnEvent.ToolCallUpdated(delegate, ToolCallStatus.COMPLETED))
-            advanceTimeBy(1_100)
-
-            assertEquals(
-                listOf(
-                    "sendMessage Delegating to reviewer · Read 1 file\nDelegating to reviewer\nreviewer · Read a.kt",
-                    "editMessageText Delegated to reviewer · Read 1 file\nDelegated to reviewer\nreviewer · Read a.kt",
+                TurnEvent.ToolCallStarted(
+                    ToolCallId("delegate-$number"),
+                    "agent.delegate",
+                    ToolActivity.DELEGATE,
+                    "reviewer",
                 ),
-                output.shown(),
             )
         }
+        advanceTimeBy(5_000)
+        for (number in 1..4) {
+            reply.event(TurnEvent.ToolCallUpdated(ToolCallId("delegate-$number"), ToolCallStatus.BACKGROUNDED))
+        }
+        advanceTimeBy(5_000)
+        assertEquals(List(4) { "Delegating to reviewer" }, output.api.calls("sendMessage").map { it.text })
+        assertEquals(List(4) { "Delegated to reviewer" }, output.api.calls("editMessageText").map { it.text })
+    }
+
+    @Test
+    fun `background activity edits the original parent message after its final answer`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val call = ToolCallId("delegate")
+        val run = RunId("r-1")
+        reply.event(TurnEvent.ToolCallStarted(call, "agent.delegate", ToolActivity.DELEGATE, "general"))
+        advanceTimeBy(1_100)
+        val activity = assertNotNull(reply.detachActivity(DelegatedRun(call, run, AgentId("general"))))
+        reply.event(TurnEvent.ToolCallUpdated(call, ToolCallStatus.BACKGROUNDED))
+        reply.complete(markdown("Working in the background."))
+        activity.event(
+            TurnEvent.ToolCallStarted(
+                ToolCallId("read"),
+                "fs.read",
+                ToolActivity.READ,
+                "a.kt",
+                run,
+                AgentId("general"),
+            ),
+        )
+        activity.event(TurnEvent.ToolCallUpdated(ToolCallId("read"), ToolCallStatus.COMPLETED, run = run))
+        activity.close(ToolCallStatus.COMPLETED)
+        advanceTimeBy(3_000)
+        assertEquals(
+            listOf("Delegating to general", "Working in the background."),
+            output.api.calls("sendMessage").map {
+                it.text
+            },
+        )
+        assertEquals(
+            "Delegated to general (r-1) · Read 1 file\ngeneral · a.kt",
+            output.api.calls("editMessageText").last().text,
+        )
+    }
+
+    @Test
+    fun `a late parent tool result cannot overwrite fast background completion`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val call = ToolCallId("delegate")
+        reply.event(TurnEvent.ToolCallStarted(call, "agent.delegate", ToolActivity.DELEGATE, "general"))
+        val activity = assertNotNull(reply.detachActivity(DelegatedRun(call, RunId("r-1"), AgentId("general"))))
+        activity.close(ToolCallStatus.FAILED)
+        reply.event(TurnEvent.ToolCallUpdated(call, ToolCallStatus.BACKGROUNDED))
+        reply.abandon(ReplyEnd.COMPLETED)
+        advanceTimeBy(3_000)
+        assertEquals(1, output.api.calls("sendMessage").size)
+        assertTrue(output.api.calls("sendMessage").last().text.orEmpty().contains("failed"))
+    }
+
+    @Test
+    fun `closed activity ignores late events and repeated close`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val call = ToolCallId("delegate")
+        val run = RunId("r-1")
+        reply.event(TurnEvent.ToolCallStarted(call, "agent.delegate", ToolActivity.DELEGATE, "general"))
+        val activity = assertNotNull(reply.detachActivity(DelegatedRun(call, run, AgentId("general"))))
+        reply.abandon(ReplyEnd.CANCELLED)
+        activity.close(ToolCallStatus.FAILED)
+        val shown = output.shown()
+        activity.event(TurnEvent.ToolCallStarted(ToolCallId("late"), "fs.read", ToolActivity.READ, "late.kt", run))
+        activity.close(ToolCallStatus.COMPLETED)
+        advanceTimeBy(3_000)
+        assertEquals(shown, output.shown())
+    }
+
+    @Test
+    fun `a nested background run stays in its root parent message after the root answer`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val call = ToolCallId("delegate")
+        val parentRun = RunId("r-parent")
+        val childRun = RunId("r-child")
+        reply.event(TurnEvent.ToolCallStarted(call, "agent.delegate", ToolActivity.DELEGATE, "general"))
+        val parent = assertNotNull(reply.detachActivity(DelegatedRun(call, parentRun, AgentId("general"))))
+        reply.abandon(ReplyEnd.COMPLETED)
+        parent.event(
+            TurnEvent.ToolCallStarted(
+                call,
+                "agent.delegate",
+                ToolActivity.DELEGATE,
+                "general",
+                parentRun,
+                AgentId("general"),
+            ),
+        )
+        val child = assertNotNull(reply.detachActivity(DelegatedRun(call, childRun, AgentId("general"), parentRun)))
+        parent.close(ToolCallStatus.COMPLETED)
+        child.event(
+            TurnEvent.ToolCallStarted(
+                ToolCallId("read"),
+                "fs.read",
+                ToolActivity.READ,
+                "nested.kt",
+                childRun,
+                AgentId("general"),
+            ),
+        )
+        child.close(ToolCallStatus.COMPLETED)
+        advanceTimeBy(3_000)
+        assertEquals(1, output.api.calls("sendMessage").size)
+        assertTrue(output.api.calls("editMessageText").last().text.orEmpty().contains("nested.kt"))
+    }
+
+    @Test
+    fun `stopping a channel also stops the activity retained past the parent answer`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val call = ToolCallId("delegate")
+        val run = RunId("r-1")
+        reply.event(TurnEvent.ToolCallStarted(call, "agent.delegate", ToolActivity.DELEGATE, "general"))
+        val activity = assertNotNull(reply.detachActivity(DelegatedRun(call, run, AgentId("general"))))
+        reply.abandon(ReplyEnd.COMPLETED)
+        output.channel.onStop()
+        val shown = output.shown()
+        activity.event(TurnEvent.ToolCallStarted(ToolCallId("late"), "fs.read", ToolActivity.READ, "late.kt", run))
+        activity.close(ToolCallStatus.FAILED)
+        advanceTimeBy(3_000)
+        assertEquals(shown, output.shown())
+    }
+
+    @Test
+    fun `four concurrent runs of the same profile keep separate activity messages`() = runTest {
+        val output = output()
+        val reply = output.open()
+        for (number in 1..4) {
+            reply.event(
+                TurnEvent.ToolCallStarted(
+                    ToolCallId("read"),
+                    "fs.read",
+                    ToolActivity.READ,
+                    "file-$number.kt",
+                    RunId("r-$number"),
+                    AgentId("reviewer"),
+                ),
+            )
+        }
+        advanceTimeBy(5_000)
+        for (number in 1..4) {
+            reply.event(
+                TurnEvent.ToolCallUpdated(
+                    ToolCallId("read"),
+                    ToolCallStatus.COMPLETED,
+                    run = RunId("r-$number"),
+                ),
+            )
+        }
+        advanceTimeBy(5_000)
+        val sent = output.api.calls("sendMessage")
+        assertEquals(4, sent.size)
+        for (number in 1..4) {
+            assertEquals("Reading 1 file\nreviewer · file-$number.kt", sent[number - 1].text)
+        }
+        assertEquals(4, output.api.calls("editMessageText").size)
+    }
+
+    @Test
+    fun `a text-less round edits the same activity message instead of sending a new one`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val (first, second) = ToolCallId("c1") to ToolCallId("c2")
+
+        reply.event(TurnEvent.ToolCallStarted(first, "fs.glob", ToolActivity.LIST, "a/**"))
+        reply.event(TurnEvent.ToolCallUpdated(first, ToolCallStatus.COMPLETED))
+        advanceTimeBy(1_100)
+        reply.event(TurnEvent.ToolCallStarted(second, "fs.read", ToolActivity.READ, "a.kt"))
+        reply.event(TurnEvent.ToolCallUpdated(second, ToolCallStatus.COMPLETED))
+        advanceTimeBy(1_100)
+
+        assertEquals(
+            listOf(
+                "sendMessage Listed 1 directory\na/**",
+                "editMessageText Listed 1 directory · Read 1 file\na/**\na.kt",
+            ),
+            output.shown(),
+        )
+    }
+
+    @Test
+    fun `an activity message waits for its own segment's text to be sent first`() = runTest {
+        val output = output()
+        val reply = output.open()
+        val id = ToolCallId("c1")
+
+        reply.preview(0, "Checking.")
+        reply.event(TurnEvent.ToolCallStarted(id, "fs.read", ToolActivity.READ, "notes.md"))
+        advanceTimeBy(2_200)
+
+        assertEquals(
+            listOf("sendMessage Checking.", "sendMessage Reading 1 file\nnotes.md"),
+            output.shown(),
+        )
+    }
 
     @Test
     fun `an update of a call the channel never saw started is ignored`() = runTest {

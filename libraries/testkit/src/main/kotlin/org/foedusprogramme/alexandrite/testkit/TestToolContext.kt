@@ -5,7 +5,9 @@ import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
+import org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
+import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
@@ -19,15 +21,21 @@ public fun testToolContext(
     turn: TurnInfo = testTurn(),
     call: ToolCallId = ToolCallId("test-call"),
     workspace: Path? = null,
+    conversationDirectory: Path = Path.of("/test/conversation"),
     clearance: Clearance? = null,
-): TestToolContext = TestToolContext(turn, call, workspace, clearance)
+    background: BackgroundCall? = null,
+    model: ModelRef? = null,
+): TestToolContext = TestToolContext(turn, call, workspace, conversationDirectory, clearance, background, model)
 
 /** A tool context that records the paths and the untrusted content its call reports, valid until [end]. */
 public class TestToolContext internal constructor(
     turn: TurnInfo,
     call: ToolCallId,
     workspace: Path?,
+    conversationDirectory: Path,
     clearance: Clearance?,
+    private val background: BackgroundCall?,
+    model: ModelRef?,
 ) : ToolContext {
     private val reported = CopyOnWriteArrayList<Path>()
     private val reasons = CopyOnWriteArrayList<String>()
@@ -44,7 +52,13 @@ public class TestToolContext internal constructor(
     override val workspace: Path? = workspace
         get() = field.also { checkOpen() }
 
+    override val conversationDirectory: Path = conversationDirectory
+        get() = field.also { checkOpen() }
+
     override val clearance: Clearance? = clearance
+        get() = field.also { checkOpen() }
+
+    override val model: ModelRef? = model
         get() = field.also { checkOpen() }
 
     /** The paths that the call reported as touched, in order. */
@@ -56,14 +70,18 @@ public class TestToolContext internal constructor(
     /** [workspace], created owner-only with the directories on the way when it does not exist. */
     override suspend fun openWorkspace(): Path {
         val path = checkNotNull(workspace) { "The tool context of call $call has no workspace." }
-        return withContext(Dispatchers.IO) {
-            if (Files.isDirectory(path)) return@withContext path
-            if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
-                Files.createDirectories(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY))
-            } else {
-                Files.createDirectories(path)
-            }
-        }
+        return withContext(Dispatchers.IO) { createdOwnerOnly(path) }
+    }
+
+    /** [conversationDirectory], created owner-only with the directories on the way when it does not exist. */
+    override suspend fun openConversationDirectory(): Path =
+        withContext(Dispatchers.IO) { createdOwnerOnly(conversationDirectory) }
+
+    override suspend fun conversationQuotaRefusal(path: Path, bytes: Long): String? = null
+
+    override suspend fun background(): BackgroundCall? {
+        checkOpen()
+        return background
     }
 
     override fun touched(path: Path) {
@@ -84,6 +102,17 @@ public class TestToolContext internal constructor(
     private fun checkOpen() {
         check(open) { "A tool context is valid only while its call runs." }
     }
+}
+
+/** [path], created owner-only with the directories on the way when it does not exist. */
+private fun createdOwnerOnly(path: Path): Path {
+    if (Files.isDirectory(path)) return path
+    if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
+        Files.createDirectories(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY))
+    } else {
+        Files.createDirectories(path)
+    }
+    return path
 }
 
 private val OWNER_ONLY = PosixFilePermissions.fromString("rwx------")

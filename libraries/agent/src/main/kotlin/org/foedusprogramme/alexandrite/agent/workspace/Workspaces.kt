@@ -5,6 +5,7 @@ import org.foedusprogramme.alexandrite.agent.config.AgentSettings
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
@@ -13,9 +14,9 @@ import java.nio.file.attribute.PosixFilePermissions
 
 /** The directories where the agents keep their own files. */
 @Singleton
-internal class Workspaces(paths: HostPaths, settings: AgentSettings) {
+internal class Workspaces(paths: HostPaths, places: AgentPlaces, settings: AgentSettings) {
     /** Absolute and normalized, in config order. */
-    val paths: Map<AgentId, Path> = agentWorkspaces(paths, settings.agents)
+    val paths: Map<AgentId, Path> = agentWorkspaces(paths, places, settings.agents)
 
     /** The workspace of [agent], created owner-only when it does not exist, null for an agent that is not configured. */
     fun open(agent: AgentId): Path? {
@@ -33,13 +34,16 @@ internal class Workspaces(paths: HostPaths, settings: AgentSettings) {
 
 /**
  * Where each of [agents] keeps its own files: its configured workspace, relative to the config file's directory, or
- * `<data root>/workspaces/<id>`.
+ * the one the host's [places] give it.
  */
-internal fun agentWorkspaces(paths: HostPaths, agents: Map<String, AgentConfig>): Map<AgentId, Path> =
-    agents.entries.associate { (id, config) -> AgentId(id) to workspace(id, config, paths) }
+internal fun agentWorkspaces(
+    paths: HostPaths,
+    places: AgentPlaces,
+    agents: Map<String, AgentConfig>,
+): Map<AgentId, Path> = agents.entries.associate { (id, config) -> AgentId(id) to workspace(id, config, paths, places) }
 
-private fun workspace(id: String, config: AgentConfig, paths: HostPaths): Path {
-    val configured = config.workspace ?: return paths.dataRoot.resolve(WORKSPACES).resolve(id)
+private fun workspace(id: String, config: AgentConfig, paths: HostPaths, places: AgentPlaces): Path {
+    val configured = config.workspace ?: return places.workspace(AgentId(id)).normalize()
     val path = Path.of(configured)
     if (path.isAbsolute) return path.normalize()
     val directory = paths.configFile?.parent ?: throw ConfigException(
@@ -49,8 +53,6 @@ private fun workspace(id: String, config: AgentConfig, paths: HostPaths): Path {
     )
     return directory.resolve(path).normalize()
 }
-
-private const val WORKSPACES = "workspaces"
 
 private const val OWNER = "rwx------"
 

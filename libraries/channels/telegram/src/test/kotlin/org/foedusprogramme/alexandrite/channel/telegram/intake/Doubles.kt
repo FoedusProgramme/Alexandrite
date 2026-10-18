@@ -3,6 +3,10 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.foedusprogramme.alexandrite.channel.telegram.PollingConfig
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
@@ -11,12 +15,16 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
+import org.foedusprogramme.alexandrite.channel.telegram.api.DeleteMyCommands
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageReplyMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.EditMessageText
 import org.foedusprogramme.alexandrite.channel.telegram.api.InlineKeyboardMarkup
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
+import org.foedusprogramme.alexandrite.channel.telegram.api.SendFile
 import org.foedusprogramme.alexandrite.channel.telegram.api.SendMessage
+import org.foedusprogramme.alexandrite.channel.telegram.api.SetMyCommands
+import org.foedusprogramme.alexandrite.channel.telegram.api.TelegramFile
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.api.User
 import org.foedusprogramme.alexandrite.channel.telegram.api.WebhookInfo
@@ -33,7 +41,7 @@ import kotlin.time.Duration
  * keeps the bot's messages.
  */
 internal class MemoryBotApi : BotApi {
-    val me = User(1234567890, isBot = true, firstName = "Alexandrite Test Bot", username = "alexandrite_test_bot")
+    var me = User(1234567890, isBot = true, firstName = "Alexandrite Test Bot", username = "alexandrite_test_bot")
 
     /** What each call of `getMe` and `getWebhookInfo` does before it answers, in order. */
     val starts = ArrayDeque<BotApiFailure?>()
@@ -66,6 +74,12 @@ internal class MemoryBotApi : BotApi {
     /** How long each send and edit takes to answer. */
     var latency: Duration = Duration.ZERO
 
+    /** The files that `getFile` and `download` serve, by file id. */
+    val files = HashMap<String, ByteArray>()
+
+    /** The files the bot sent, in order. */
+    val uploads = mutableListOf<SendFile>()
+
     private val failures = HashMap<String, ArrayDeque<BotApiException>>()
     private var lastMessage = 100L
 
@@ -90,6 +104,23 @@ internal class MemoryBotApi : BotApi {
         messages[request.chatId to id] = request.text
         request.replyMarkup?.let { keyboards[request.chatId to id] = it }
         return Message(id, date = 0, chat = Chat(request.chatId, "private"), text = request.text)
+    }
+
+    override suspend fun sendPhoto(request: SendFile): Message = upload("sendPhoto", request)
+
+    override suspend fun sendDocument(request: SendFile): Message = upload("sendDocument", request)
+
+    override suspend fun getFile(fileId: String): TelegramFile {
+        answer("getFile")
+        val bytes = files[fileId] ?: throw BotApiException(BotApiFailure.BAD_REQUEST, "getFile", "invalid file_id")
+        return TelegramFile(fileId, bytes.size.toLong(), "documents/$fileId")
+    }
+
+    override suspend fun download(path: String, maxBytes: Long): ByteArray {
+        answer("download")
+        val bytes = files.getValue(path.removePrefix("documents/"))
+        if (bytes.size > maxBytes) throw BotApiException(BotApiFailure.TOO_LONG, "download", "too large")
+        return bytes
     }
 
     override suspend fun editMessageText(request: EditMessageText): Message {
@@ -133,6 +164,33 @@ internal class MemoryBotApi : BotApi {
     override suspend fun sendChatAction(chat: Long, thread: Long?) {
         sent += SentCall("sendChatAction", chat, thread = thread)
         failures["sendChatAction"]?.removeFirstOrNull()?.let { throw it }
+    }
+
+    override suspend fun setMyCommands(request: SetMyCommands) {}
+
+    override suspend fun deleteMyCommands(request: DeleteMyCommands) {}
+
+    /** The chat actions called, by method and parameters, in order. */
+    val actions = mutableListOf<Pair<String, JsonObject>>()
+
+    /** What a chat action answers, true unless it is set. */
+    var acted: (method: String, params: JsonObject) -> JsonElement = { _, _ -> JsonPrimitive(true) }
+
+    override suspend fun act(method: String, params: JsonObject): JsonElement {
+        actions += method to params
+        sent += SentCall(method, (params["chat_id"] as? JsonPrimitive)?.longOrNull ?: 0)
+        answer(method)
+        return acted(method, params)
+    }
+
+    private suspend fun upload(method: String, request: SendFile): Message {
+        val caption = request.caption
+        sent += SentCall(method, request.chatId, null, caption, request.captionEntities, thread = request.thread)
+        answer(method)
+        uploads += request
+        val id = ++lastMessage
+        messages[request.chatId to id] = caption.orEmpty()
+        return Message(id, date = 0, chat = Chat(request.chatId, "private"), caption = caption)
     }
 
     /** Fails the next call of [method] with [failure]. */

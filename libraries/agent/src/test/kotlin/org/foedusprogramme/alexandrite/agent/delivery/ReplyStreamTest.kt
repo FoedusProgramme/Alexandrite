@@ -89,7 +89,7 @@ class ReplyStreamTest {
     }
 
     @Test
-    fun `each next segment starts on the sink once the last text of the one before is shown`() = runTest {
+    fun `a round with no text keeps the segment, so a later round's calls join the same one`() = runTest {
         val stream = stream()
 
         stream.text("Hel")
@@ -98,7 +98,7 @@ class ReplyStreamTest {
         stream.nextSegment()
         stream.text("Done", afterMillis = 800)
 
-        assertEquals(listOf("preview 0 Hel", "preview 0 Hello", "start 1", "start 2", "preview 2 Done"), sink.calls)
+        assertEquals(listOf("preview 0 Hel", "preview 0 Hello", "start 1", "preview 1 Done"), sink.calls)
     }
 
     @Test
@@ -107,9 +107,44 @@ class ReplyStreamTest {
 
         stream.text("Hel")
         stream.nextSegment()
+        stream.text("World")
 
         assertEquals(listOf("start 1"), sink.calls)
         assertFalse(stream.shown)
+    }
+
+    @Test
+    fun `text after tool calls starts a new segment`() = runTest {
+        val stream = stream(interval = 0)
+
+        stream.text("Looking.")
+        stream.event(ModelEvent.ToolCallStarted(1, ToolCallId("c1"), "fs.read"))
+        stream.nextSegment()
+        stream.text("Found it.")
+
+        assertEquals(listOf("preview 0 Looking.", "start 1", "preview 1 Found it."), sink.calls)
+    }
+
+    @Test
+    fun `a paused round's text is followed by a new segment too`() = runTest {
+        val stream = stream(interval = 0)
+
+        stream.text("Here goes.")
+        stream.nextSegment()
+        stream.text("The rest.")
+
+        assertEquals(listOf("preview 0 Here goes.", "start 1", "preview 1 The rest."), sink.calls)
+    }
+
+    @Test
+    fun `a tool call flushes the round's held-back text at once`() = runTest {
+        val stream = stream()
+
+        stream.text("Looking")
+        stream.text(" closely.", afterMillis = 100)
+        stream.event(ModelEvent.ToolCallStarted(1, ToolCallId("c1"), "fs.read"))
+
+        assertEquals(listOf(0 to "Looking", 0 to "Looking closely."), sink.previews)
     }
 
     @Test
@@ -137,20 +172,25 @@ class ReplyStreamTest {
         stream.nextSegment()
         stream.text("Saved.")
         stream.nextSegment()
+        stream.text("Found it.")
 
-        assertEquals(listOf("preview 0 Saving it.", "preview 0 Saved.", "start 1"), sink.calls)
+        assertEquals(
+            listOf("preview 0 Saving it.", "preview 0 Saved.", "start 1", "preview 1 Found it."),
+            sink.calls,
+        )
     }
 
     @Test
-    fun `a discarded response that showed nothing leaves the segments as they are`() = runTest {
+    fun `a discarded response that showed nothing leaves the segment as it is`() = runTest {
         val stream = stream()
 
         stream.text("Done.")
         stream.nextSegment()
         stream.discard()
         stream.nextSegment()
+        stream.text("Next.", afterMillis = 800)
 
-        assertEquals(listOf("preview 0 Done.", "start 1", "start 2"), sink.calls)
+        assertEquals(listOf("preview 0 Done.", "start 1", "preview 1 Next."), sink.calls)
     }
 
     @Test
@@ -211,8 +251,11 @@ class ReplyStreamTest {
 
         val lines = logged {
             blocking {
+                stream.text("One")
                 stream.nextSegment()
+                stream.text("Two")
                 stream.nextSegment()
+                stream.text("Three")
             }
         }
 

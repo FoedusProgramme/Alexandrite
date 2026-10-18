@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
 import org.foedusprogramme.alexandrite.sdk.channel.rebuild
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.CallReview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
@@ -24,11 +25,15 @@ import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordingChannel
 import org.foedusprogramme.alexandrite.testkit.ScriptedModel
 import org.foedusprogramme.alexandrite.testkit.recordingTool
+import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TurnActivityTest {
+    @TempDir
+    lateinit var directory: Path
+
     private val store = MemoryStore()
     private val model = ScriptedModel()
 
@@ -95,6 +100,35 @@ class TurnActivityTest {
     }
 
     @Test
+    fun `a call's title shows a path under the agent's workspace relative to it, for display only`() {
+        val id = ToolCallId("call-1")
+        val definition = ToolDefinition(
+            "test.read",
+            "Reads.",
+            schema,
+            ToolRisk.READ_ONLY,
+            activity = ToolActivity.READ,
+            titleArguments = listOf("path"),
+        )
+        val read = recordingTool(definition) { _, _ -> ToolResult("the file's text") }
+
+        harness { dataRoot(directory).tool(read) }.execute {
+            val workspace = get<HostPaths>().dataRoot.resolve("workspaces/coder")
+            val path = workspace.resolve("notes.md")
+            val arguments = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
+            model.reply { toolCall("test.read", arguments, id) }.reply { text("Read it.") }
+            enableEvents()
+            val turn = ask()
+            (turn as Admission.Accepted).ticket.outcome()
+
+            assertEquals(
+                TurnEvent.ToolCallStarted(id, "test.read", ToolActivity.READ, "notes.md"),
+                activityOf(turn).first(),
+            )
+        }
+    }
+
+    @Test
     fun `an edit an admin approves shows waiting for approval, then running, then completed with its diff`() {
         val id = ToolCallId("call-1")
         val path = Path.of("/srv/notes.md")
@@ -134,6 +168,47 @@ class TurnActivityTest {
                         ToolCallStatus.COMPLETED,
                         TurnEvent.Content.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"),
                     ),
+                ),
+                activityOf(turn),
+            )
+        }
+    }
+
+    @Test
+    fun `a third-party edit that claims the conversation-directory exemption waits for approval`() {
+        val id = ToolCallId("call-1")
+        val path = Path.of("/srv/conversation/notes.md")
+        val edit = object : ReviewedTool {
+            override val definition: ToolDefinition = ToolDefinition(
+                "test.edit",
+                "Edits.",
+                schema,
+                ToolRisk.WORKSPACE_WRITE,
+                activity = ToolActivity.EDIT,
+                titleArguments = listOf("path"),
+            )
+
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
+                preview = ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"),
+                snapshot = "sha256:1",
+                exempt = true,
+            )
+
+            override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
+                ToolResult("Edited.")
+        }
+        model.reply { toolCall("test.edit", "{\"path\": \"notes.md\"}", id) }.reply { text("Edited it.") }
+
+        harness { tool(edit) }.execute {
+            enableEvents()
+            val turn = ask() as Admission.Accepted
+            turn.ticket.outcome()
+
+            assertEquals(
+                listOf(
+                    TurnEvent.ToolCallStarted(id, "test.edit", ToolActivity.EDIT, "notes.md"),
+                    TurnEvent.ToolCallUpdated(id, ToolCallStatus.WAITING_APPROVAL),
+                    TurnEvent.ToolCallUpdated(id, ToolCallStatus.NOT_RUN),
                 ),
                 activityOf(turn),
             )

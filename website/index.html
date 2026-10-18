@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alexandrite</title>
+  <meta name="description" content="Distributed Model Harness.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Alexandrite">
+  <meta property="og:title" content="Alexandrite">
+  <meta property="og:description" content="Distributed Model Harness.">
+  <meta property="og:url" content="https://alexandrite.unitedsoftware.org/">
+  <meta property="og:image" content="https://alexandrite.unitedsoftware.org/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Alexandrite: Distributed Model Harness.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -960 960 960'%3E%3Cpath d='M704-240 320-624v344h-80v-480h480v80H376l384 384-56 56Z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://rsms.me/">
+  <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+  <style>
+    :root {
+      --ground: #fff;
+      --ink: #000;
+      --box: #eef0f4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --ground: #000;
+        --ink: #fff;
+        --box: #1b1e24;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0 20px;
+      background: var(--ground);
+      color: var(--ink);
+      font: 17px/1.6 InterVariable, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      font-optical-sizing: auto;
+      /* Inter's softer letterforms: one-storey a, tailed l, plain u, compact f and t, round quotes. */
+      font-feature-settings: "cv11", "cv05", "cv06", "cv12", "cv13", "ss03";
+    }
+    /* As tall as the screen, so the footer's last line sits as far from the bottom as the title's first from the top. */
+    main { max-width: 680px; min-height: 100vh; min-height: 100dvh; margin: 0 auto; padding: 72px 0; display: flex; flex-direction: column; }
+    h1, footer { text-box: trim-both cap alphabetic; }
+    h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.02em; margin: 0; font-feature-settings: normal; }
+    /* The arrow stands on the baseline as tall as Inter's capitals (0.727 em) and hangs left of the text column. */
+    h1 { --cap: 0.727em; --gap: 0.7em; }
+    h1 svg { height: var(--cap); width: var(--cap); margin: 0 var(--gap) 0 calc(-1 * var(--cap) - var(--gap)); fill: var(--ink); overflow: visible; }
+    @media (max-width: 800px) { main { padding-left: 64px; } }
+    p { margin: 0 0 14px; }
+    a { color: var(--ink); }
+    .tagline { font-size: 21px; margin-top: 28px; }
+    code { font: 0.9em ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 44px;
+      padding-right: 10px;
+      background: var(--box);
+      border-radius: 10px;
+    }
+    pre {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+      padding: 18px 0 18px 20px;
+      overflow-x: auto;
+      font: 14px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    .copy {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .copy:hover { background: var(--ground); }
+    .copy:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+    .copy svg { width: 20px; height: 20px; fill: currentColor; }
+    .copy .done, .copy.copied .idle { display: none; }
+    .copy.copied .done { display: block; }
+    footer { margin-top: auto; padding-top: 28px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1><svg viewBox="240 -760 520 520" aria-hidden="true"><path d="M704-240 320-624v344h-80v-480h480v80H376l384 384-56 56Z"/></svg>Alexandrite</h1>
+    <p class="tagline">Distributed Model Harness.</p>
+
+    <div class="box">
+      <pre id="install">curl -fsSL https://alexandrite.unitedsoftware.org/install.sh | sh</pre>
+      <button class="copy" type="button" aria-label="Copy the install command" title="Copy">
+        <svg class="idle" viewBox="0 -960 960 960" aria-hidden="true"><path d="M360-240q-33 0-56.5-23.5T280-320v-480q0-33 23.5-56.5T360-880h360q33 0 56.5 23.5T800-800v480q0 33-23.5 56.5T720-240H360Zm0-80h360v-480H360v480ZM200-80q-33 0-56.5-23.5T120-160v-560h80v560h440v80H200Zm160-240v-480 480Z"/></svg>
+        <svg class="done" viewBox="0 -960 960 960" aria-hidden="true"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>
+      </button>
+    </div>
+
+    <footer>Alexandrite · MIT License · © 2026 United Software · <a href="https://github.com/FoedusProgramme/alexandrite">GitHub</a></footer>
+  </main>
+  <script>
+    const copy = document.querySelector(".copy");
+    copy.addEventListener("click", async () => {
+      const command = document.getElementById("install");
+      try {
+        await navigator.clipboard.writeText(command.textContent);
+      } catch {
+        getSelection().selectAllChildren(command);
+        return;
+      }
+      copy.classList.add("copied");
+      setTimeout(() => copy.classList.remove("copied"), 1500);
+    });
+  </script>
+</body>
+</html>

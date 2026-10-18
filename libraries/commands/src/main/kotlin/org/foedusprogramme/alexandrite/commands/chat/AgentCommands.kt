@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.commands.support.RESET
 import org.foedusprogramme.alexandrite.commands.support.Replies
 import org.foedusprogramme.alexandrite.commands.support.TextKeys
 import org.foedusprogramme.alexandrite.commands.support.commandWord
+import org.foedusprogramme.alexandrite.commands.support.description
 import org.foedusprogramme.alexandrite.commands.support.isKeyword
 import org.foedusprogramme.alexandrite.commands.support.refusing
 import org.foedusprogramme.alexandrite.commands.support.replies
@@ -12,6 +13,7 @@ import org.foedusprogramme.alexandrite.commands.support.updateSettings
 import org.foedusprogramme.alexandrite.commands.support.words
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
@@ -27,6 +29,8 @@ import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
 @Contribute(CommandHandler::class)
 internal class AgentCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(AGENT), texts.spec(HOME))
+
+    override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
         val replies = texts.replies(context.turn.language)

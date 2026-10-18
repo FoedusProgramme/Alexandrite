@@ -10,14 +10,19 @@ internal class AgentSettings(
     val maxConcurrentTurns: Int = 4,
     /** Tool calls that run in the background at once per chat. */
     val maxJobsPerChat: Int = 4,
+    /** Background sub-agent runs that run at once across all chats; more wait for one to end. */
+    val maxBackgroundRuns: Int = 4,
+    /** Background sub-agent runs that one chat may have, counted among its jobs. */
+    val maxBackgroundRunsPerChat: Int = 4,
     val queue: QueueConfig = QueueConfig(),
     val shutdown: ShutdownConfig = ShutdownConfig(),
     val models: ModelCallConfig = ModelCallConfig(),
     /** The shortest time between two previews of one reply. */
     val previewIntervalMillis: Long = 750,
     val persona: PersonaConfig = PersonaConfig(),
-    /** The largest attachment a turn stores. */
+    /** The largest attachment a turn takes from a message. */
     val maxMediaBytes: Long = 20_000_000,
+    val conversationDirectory: ConversationDirectoryConfig = ConversationDirectoryConfig(),
     /** Folders whose project instructions load without asking. */
     val trustedFolders: List<String> = emptyList(),
     /** Places no tool may touch, beside those every floor protects. */
@@ -27,7 +32,9 @@ internal class AgentSettings(
 ) {
     init {
         require(maxConcurrentTurns > 0) { "maxConcurrentTurns must be positive" }
+        require(maxBackgroundRuns > 0) { "maxBackgroundRuns must be positive" }
         require(maxJobsPerChat > 0) { "maxJobsPerChat must be positive" }
+        require(maxBackgroundRunsPerChat > 0) { "maxBackgroundRunsPerChat must be positive" }
         require(previewIntervalMillis >= 0) { "previewIntervalMillis may not be negative" }
         require(maxMediaBytes > 0) { "maxMediaBytes must be positive" }
         require(trustedFolders.all(::isPath)) { "trustedFolders holds a blank or malformed path" }
@@ -78,6 +85,19 @@ internal class ModelCallConfig(
         require(retries >= 0) { "models.retries may not be negative" }
         require(maxRetryAfterSeconds >= 0) { "models.maxRetryAfterSeconds may not be negative" }
         require(listingTtlSeconds >= 0) { "models.listingTtlSeconds may not be negative" }
+    }
+}
+
+@Serializable
+internal class ConversationDirectoryConfig(
+    /** The most a conversation directory may hold. */
+    val maxBytes: Long = 1_000_000_000,
+    /** How long a conversation directory survives once its conversation is sealed. */
+    val keepDays: Int = 7,
+) {
+    init {
+        require(maxBytes > 0) { "conversationDirectory.maxBytes must be positive" }
+        require(keepDays > 0) { "conversationDirectory.keepDays must be positive" }
     }
 }
 

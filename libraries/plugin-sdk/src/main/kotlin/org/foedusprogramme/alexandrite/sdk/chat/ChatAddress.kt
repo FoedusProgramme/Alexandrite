@@ -37,6 +37,12 @@ public class ChatAddress(
     }
 
     public companion object {
+        /** The instance of the agents' own chats, which no channel serves. */
+        public val AGENTS: ChannelInstanceId = ChannelInstanceId(ChannelType("alexandrite"), "agent")
+
+        /** The chat of [agent]'s turns that belong to no chat, such as its heartbeats. */
+        public fun ofAgent(agent: AgentId): ChatAddress = ChatAddress(AGENTS, agent.value)
+
         public fun parse(text: String): ChatAddress =
             parseOrNull(text) ?: throw IllegalArgumentException("Malformed chat address '$text'.")
 

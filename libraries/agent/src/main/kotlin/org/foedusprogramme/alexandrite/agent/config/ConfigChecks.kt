@@ -13,6 +13,8 @@ import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.time.DateTimeException
+import java.time.ZoneId
 
 /** The ids that an instruction file's `when` may name. */
 internal val CONDITION_IDS: List<String> = ChatKind.entries.map { it.id } + TurnKind.entries.map { it.id }
@@ -63,6 +65,9 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     require(agent.language == null || isLanguageTag(agent.language)) {
         "$path.language is no BCP 47 language tag, such as \"zh-CN\""
+    }
+    require(agent.zone == null || zoneOrNull(agent.zone) != null) {
+        "$path.zone is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as \"+08:00\""
     }
     val mode = agent.permission.mode
     require(mode == null || CONFIGURABLE_MODES.any { it.id == mode }) {
@@ -167,6 +172,13 @@ private fun checkRules(path: String, entries: List<String>, allow: Boolean) {
         val problem = RuleEntry.problem(entry, allow)
         require(problem == null) { "$path[$index] $problem" }
     }
+}
+
+/** The zone [text] names, a region id or an offset, null when it names none. */
+internal fun zoneOrNull(text: String): ZoneId? = try {
+    ZoneId.of(text)
+} catch (e: DateTimeException) {
+    null
 }
 
 private fun isLanguageTag(text: String): Boolean = try {

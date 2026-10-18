@@ -204,6 +204,7 @@ internal class Assembly(
             channels,
             initiated,
             context,
+            spec.agentPlaces,
         )
         Container.build(plugins + runtime)
     } catch (e: Exception) {

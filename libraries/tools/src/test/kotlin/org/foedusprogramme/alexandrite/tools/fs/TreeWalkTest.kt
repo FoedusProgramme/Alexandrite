@@ -17,7 +17,7 @@ class TreeWalkTest {
     fun `a walk visits in name order, depth first, and stops after its most entries with a note`() {
         val fs = FsFixture(directory)
         listOf("b/2.txt", "b/1.txt", "a.txt", "c.txt", ".git/HEAD").forEach { fs.write("repo/$it", "") }
-        val walk = TreeWalk(fs.floor, AgentId.MAIN, maxEntries = 4)
+        val walk = TreeWalk(fs.floor, AgentId.MAIN, conversation = null, maxEntries = 4)
         val visited = mutableListOf<String>()
 
         walk.walk(fs.repository) {
@@ -45,7 +45,7 @@ class TreeWalkTest {
 
             override fun close() {}
         }
-        val walk = TreeWalk(fs.floor, AgentId.MAIN, maxEntries = 10) { directory ->
+        val walk = TreeWalk(fs.floor, AgentId.MAIN, conversation = null, maxEntries = 10) { directory ->
             if (directory == fs.repository) huge else Files.newDirectoryStream(directory)
         }
 

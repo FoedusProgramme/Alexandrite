@@ -25,6 +25,7 @@ import org.foedusprogramme.alexandrite.agent.context.contextView
 import org.foedusprogramme.alexandrite.agent.control.PendingCommands
 import org.foedusprogramme.alexandrite.agent.control.PendingComparison
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
+import org.foedusprogramme.alexandrite.agent.control.effectiveZone
 import org.foedusprogramme.alexandrite.agent.delegation.DELEGATE_TOOL
 import org.foedusprogramme.alexandrite.agent.delegation.Delegation
 import org.foedusprogramme.alexandrite.agent.delegation.MAX_DEPTH
@@ -33,10 +34,13 @@ import org.foedusprogramme.alexandrite.agent.delegation.delegator
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.delivery.ReplyStream
 import org.foedusprogramme.alexandrite.agent.delivery.Routes
+import org.foedusprogramme.alexandrite.agent.delivery.SentComparison
+import org.foedusprogramme.alexandrite.agent.delivery.SentMessages
 import org.foedusprogramme.alexandrite.agent.delivery.delivered
 import org.foedusprogramme.alexandrite.agent.delivery.notice
 import org.foedusprogramme.alexandrite.agent.delivery.replyMessage
 import org.foedusprogramme.alexandrite.agent.delivery.visibleText
+import org.foedusprogramme.alexandrite.agent.directory.Inbox
 import org.foedusprogramme.alexandrite.agent.hook.Hooked
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.hook.or
@@ -47,6 +51,7 @@ import org.foedusprogramme.alexandrite.agent.job.InterruptedJobs
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.job.described
 import org.foedusprogramme.alexandrite.agent.job.jobEntry
+import org.foedusprogramme.alexandrite.agent.messaging.MessageBudget
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
 import org.foedusprogramme.alexandrite.agent.model.RetryPolicy
 import org.foedusprogramme.alexandrite.agent.model.SelectedModel
@@ -56,6 +61,7 @@ import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
 import org.foedusprogramme.alexandrite.agent.permission.ConversationTaints
+import org.foedusprogramme.alexandrite.agent.permission.Mandates
 import org.foedusprogramme.alexandrite.agent.permission.ReadTaint
 import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
@@ -80,25 +86,33 @@ import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolGlob
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
+import org.foedusprogramme.alexandrite.agent.tool.relativized
 import org.foedusprogramme.alexandrite.agent.tool.textResult
 import org.foedusprogramme.alexandrite.agent.tool.toolTitle
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelCapabilities
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyActivity
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyEnd
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
@@ -131,6 +145,7 @@ import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
 import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
 import org.foedusprogramme.alexandrite.sdk.transcript.AssistantEntry
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
+import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.NotRunReason
@@ -147,6 +162,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -164,6 +180,7 @@ internal class AgentTurnRunner(
     private val conversations: ConversationStore,
     private val transcripts: TranscriptStore,
     private val mediaStore: MediaStore,
+    private val inbox: Inbox,
     private val channels: ChannelDirectory,
     private val endpoints: Endpoints,
     private val retries: RetryPolicy,
@@ -171,11 +188,14 @@ internal class AgentTurnRunner(
     private val compactor: Compactor,
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
+    private val workspaces: Workspaces,
     private val offeredTools: OfferedTools,
     private val pendingCommands: PendingCommands,
     private val executor: ToolExecutor,
     private val jobs: Jobs,
     private val interruptedJobs: InterruptedJobs,
+    private val sentMessages: SentMessages,
+    private val mandates: Mandates,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
     private val reads: ReadTaint,
@@ -191,15 +211,23 @@ internal class AgentTurnRunner(
         resolved: (ConversationId) -> Unit,
     ): TurnOutcome {
         val run = Run(plan, followUps, permit, resolved)
+        val budget = (plan.input as? TurnSource.FromAgentMessage)?.message?.budget
+            ?: (plan.input as? TurnSource.FromJob)?.job?.job?.carried?.get(MessageBudget)
+            ?: currentCoroutineContext()[MessageBudget] ?: MessageBudget(plan.id)
         return try {
-            run.execute()
+            withContext(budget) { run.execute() }
         } catch (e: Throwable) {
             val cause = (e as? CancellationException)?.let(::turnCause)
-            if (cause != null) return withContext(NonCancellable) { run.cutOff(cause) }
+            if (cause != null) {
+                if (budget.rootTurn == plan.id) budget.cancel()
+                return withContext(NonCancellable) { run.cutOff(cause) }
+            }
             if (e is CancellationException) currentCoroutineContext().ensureActive()
             val failed = withContext(NonCancellable) { run.fail(e) }
             if (e is VirtualMachineError) throw e
             failed
+        } finally {
+            (plan.input as? TurnSource.FromJob)?.job?.consumed?.invoke()
         }
     }
 
@@ -218,7 +246,10 @@ internal class AgentTurnRunner(
         private var sink: ReplySink? = null
         private var capabilities: ChannelCapabilities? = null
         private var previews: ReplyStream? = null
-        private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes)
+        private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes, inbox)
+
+        /** Whether the turn's model views images. */
+        private var images = false
         private var recorded = false
         private lateinit var taint: TurnTaint
         private val tracked = Calls()
@@ -246,6 +277,7 @@ internal class AgentTurnRunner(
         suspend fun execute(): TurnOutcome {
             val input = plan.input
             val message = input.message
+            if (input is TurnSource.FromJob && input.job.cancelled()) return TurnOutcome.TakenBack
             if (input is TurnSource.FromJob && !stillActive(input.job)) return dropped(input.job)
             val turn = dequeue()
             if (!openReply(turn)) return TurnOutcome.Failed("Channel instance ${turn.chat.instance} is not open.")
@@ -258,13 +290,14 @@ internal class AgentTurnRunner(
             } catch (e: ModelException) {
                 return modelFailed(e.error)
             } ?: return unknownModel()
+            images = MediaKind.IMAGE in selected.info.inputMedia
             val options = requestOptions(agent, selected.info, reasoning)
             val toolset = toolsOf(selected)
             val offered = toolset.offered
             val definitions = offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
             val narrowed = hooks.turnStart(turn, message, definitions).or { return stopped(it) }.map { it.name }
             val callable = (narrowed + toolset.callableUnoffered)
-                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsAdmin, it) }
+                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsAdmin || operatorSet(turn), it) }
             this.callable = callable
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
@@ -273,6 +306,7 @@ internal class AgentTurnRunner(
             val comparison = if (shared) offeredTools.compare(turn.conversation, definitions) else null
             val commands = if (shared) pendingCommands.pending(turn.conversation) else null
             val interrupted = if (shared) interruptedJobs.pending(turn.conversation) else null
+            val sent = if (shared) sentMessages.pending(turn.conversation, turn.zone ?: clock.zone) else null
             val view = contextView(inherited + history.entries(turn.conversation))
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
@@ -280,13 +314,14 @@ internal class AgentTurnRunner(
             val window = compactor.open(turn, agent.config.compaction, selected.info.contextWindow, summaryModel, view)
             val parts = RequestParts(selected, options, window, sections, definitions, context)
             val turnTools = TurnTools((offered + toolset.unoffered).associateBy { it.definition.name }, callable)
-            val unstored = listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, opening)
+            val unstored =
+                listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, sent?.notice, opening)
             if (input !is TurnSource.FromJob) {
-                return rounds(parts, unstored, turnTools, comparison, commands, interrupted)
+                return rounds(parts, unstored, turnTools, comparison, commands, interrupted, sent)
             }
-            store(unstored, comparison, commands, interrupted)
-            jobs.delivered(input.job.job)
-            return rounds(parts, emptyList(), turnTools, null, null, null)
+            store(unstored, comparison, commands, interrupted, sent)
+            if (input.job.final) jobs.delivered(input.job.job)
+            return rounds(parts, emptyList(), turnTools, null, null, null, null)
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -337,10 +372,12 @@ internal class AgentTurnRunner(
             agent = checkNotNull(directory.agent(key.agent)) { "No agent '${key.agent}' is configured." }
             val delegation = delegation
             val language: LanguageTag?
+            val zone: ZoneId
             if (delegation == null) {
                 model = settings.model(key) ?: checkNotNull(agent.model) { "Agent '${agent.id}' has no model." }
                 reasoning = settings.reasoning(key) ?: agent.reasoning
                 language = settings.language(key) ?: agent.language
+                zone = settings.effectiveZone(key, agent, clock)
                 maxRounds = agent.config.maxRounds
                 maxTurnTokens = agent.config.maxTurnTokens
             } else {
@@ -348,6 +385,7 @@ internal class AgentTurnRunner(
                 model = profile.model ?: delegation.parent.model
                 reasoning = profile.reasoning ?: delegation.parent.reasoning
                 language = delegation.parent.turn.language
+                zone = delegation.parent.turn.zone ?: clock.zone
                 maxRounds = profile.maxRounds
                 maxTurnTokens = profile.maxTurnTokens
             }
@@ -356,7 +394,7 @@ internal class AgentTurnRunner(
                 delegation != null -> delegation.conversation.also { inherited = inherited(it) }
 
                 input is TurnSource.FromJob -> checkNotNull(
-                    conversations.conversation(input.job.job.turn.conversation),
+                    conversations.conversation(input.job.job.resultConversation),
                 ) {
                     "The conversation of job ${input.job.job.id} is gone."
                 }
@@ -368,8 +406,9 @@ internal class AgentTurnRunner(
             resolved(conversation.id)
             taint = taints.open(plan.id, key, conversation.id)
             val turn = TurnInfo.builder(plan.id, plan.origin, conversation.id, plan.kind)
-                .actor(plan.actor)
+                .actor(plan.actor ?: mandated(input, key))
                 .language(language)
+                .zone(zone)
                 .agent(key.agent)
                 .lineage(delegation?.lineage)
                 .replyTarget(plan.replyTarget)
@@ -378,6 +417,20 @@ internal class AgentTurnRunner(
             this.turn = turn
             delegation?.started(turn, taint)
             return turn
+        }
+
+        /**
+         * The operator whose mandate [input] runs under, null for a turn of nobody: when it is no initiated turn of a
+         * mandate, the mandate is not its plugin's at [key], or the conversation took in something untrusted.
+         */
+        private suspend fun mandated(input: TurnSource, key: AgentChatKey): ChatUser? {
+            val mandate = (input as? TurnSource.FromInitiated)?.mandate ?: return null
+            val actor = mandates.actor(mandate, input.plugin, key) ?: return null
+            if (taint.tainted) {
+                logger.info("Turn {} of {} runs as nobody, not as {}: its conversation is tainted", plan.id, key, actor)
+                return null
+            }
+            return actor
         }
 
         /** The entries of the conversations that [conversation] forks, up to each fork point. */
@@ -460,7 +513,29 @@ internal class AgentTurnRunner(
 
             is TurnSource.FromInitiated -> {
                 if (input.trust == Trust.UNTRUSTED) taint.mark("an untrusted prompt of plugin '${input.plugin}'")
-                initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
+                initiatedEntry(
+                    input.plugin,
+                    turn.kind,
+                    input.trust,
+                    plan.queuedAt,
+                    text,
+                    turn.zone ?: clock.zone,
+                    baked,
+                    turn.actor,
+                )
+            }
+
+            is TurnSource.FromAgentMessage -> {
+                input.message.taint?.let { taint.mark(it) }
+                initiatedEntry(
+                    "alexandrite-agent",
+                    turn.kind,
+                    Trust.UNTRUSTED,
+                    plan.queuedAt,
+                    "Agent ${input.message.sender.agent}:\n$text",
+                    turn.zone ?: clock.zone,
+                    baked,
+                )
             }
 
             is TurnSource.FromJob -> jobOpening(turn, input.job, text)
@@ -471,26 +546,30 @@ internal class AgentTurnRunner(
         /** The unstored entry of the result of [job], which reads [text], after the turn took in the job's taint. */
         private suspend fun jobOpening(turn: TurnInfo, job: EndedJob, text: String): UserEntry {
             job.untrusted?.let { taint.mark(it) }
-            reads.reason(turn.agent, job.job.call.name, job.touched)?.let { taint.mark(it) }
+            reads.reason(turn, job.job.call.name, job.touched)?.let { taint.mark(it) }
             val stored = media.stored(job.result)
             val carried = job.result.content.zip(stored.content).mapNotNull { (part, kept) ->
                 (kept as? UserPart)?.takeIf { part is MediaPart }
             }
-            return jobEntry(job, text, clock.zone, carried)
+            return jobEntry(job, text, turn.zone ?: clock.zone, carried)
         }
 
         /** Whether the conversation of [job] still takes entries. */
         private suspend fun stillActive(job: EndedJob): Boolean =
-            conversations.conversation(job.job.turn.conversation)?.state == ConversationState.ACTIVE
+            conversations.conversation(job.job.resultConversation)?.state == ConversationState.ACTIVE
 
         /** Drops the result of [job], whose conversation was sealed since the job started, telling its chat. */
         private suspend fun dropped(job: EndedJob): TurnOutcome = withContext(NonCancellable) {
             val started = job.job
+            if (!job.final) {
+                jobs.stop(started.id, started.turn.chat, null)
+                return@withContext TurnOutcome.Completed(null)
+            }
             logger.info(
                 "The result of job {} ({}) is dropped: its conversation {} of {} was sealed",
                 started.id,
                 described(started),
-                started.turn.conversation,
+                started.resultConversation,
                 plan.key,
             )
             val text = notices.text(
@@ -506,7 +585,7 @@ internal class AgentTurnRunner(
             if (delivery !is Delivery.Delivered) {
                 logger.warn("Chat {} is not told that the result of job {} is dropped: {}", chat, started.id, delivery)
             }
-            jobs.delivered(started)
+            if (job.final) jobs.delivered(started)
             TurnOutcome.Completed(null)
         }
 
@@ -516,6 +595,7 @@ internal class AgentTurnRunner(
             comparison: ToolComparison?,
             commands: PendingComparison?,
             interrupted: InterruptedComparison?,
+            sent: SentComparison?,
         ) {
             withContext(NonCancellable) {
                 val turn = checkNotNull(turn)
@@ -523,6 +603,7 @@ internal class AgentTurnRunner(
                 comparison?.let { offeredTools.record(turn.conversation, it) }
                 commands?.let { pendingCommands.clear(turn.conversation, it) }
                 interrupted?.let { interruptedJobs.clear(turn.conversation, it) }
+                sent?.let { sentMessages.clear(turn.conversation, it) }
             }
         }
 
@@ -534,7 +615,13 @@ internal class AgentTurnRunner(
             baked: List<ContextPart>,
         ): UserEntry {
             val linked = topology.group(turn.agent, message.chat) != null
-            return messageEntry(message, text, clock.zone, linked, baked + media.put(message.media))
+            return messageEntry(
+                message,
+                text,
+                turn.zone ?: clock.zone,
+                linked,
+                baked + media.put(turn, message, images),
+            )
         }
 
         /** Marks the turn tainted where [message] was forwarded or quotes what its channel does not vouch for. */
@@ -553,6 +640,7 @@ internal class AgentTurnRunner(
             comparison: ToolComparison?,
             commands: PendingComparison?,
             interrupted: InterruptedComparison?,
+            sent: SentComparison?,
         ): TurnOutcome {
             val turn = checkNotNull(turn)
             var pending = opening
@@ -595,13 +683,15 @@ internal class AgentTurnRunner(
                     message.blank && finish == FinishKind.MAX_OUTPUT_TOKENS ->
                         return unanswered(first, NoticeKind.OUTPUT_LIMIT, TextKeys.OUTPUT_LIMIT_UNANSWERED)
 
-                    message.blank -> return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
+                    message.blank && turn.kind !in SILENT_KINDS ->
+                        return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
                 }
                 val reply = withContext(NonCancellable) {
                     val entries = append(*(pending + message).toTypedArray())
                     if (first && comparison != null) offeredTools.record(turn.conversation, comparison)
                     if (first && commands != null) pendingCommands.clear(turn.conversation, commands)
                     if (first && interrupted != null) interruptedJobs.clear(turn.conversation, interrupted)
+                    if (first && sent != null) sentMessages.clear(turn.conversation, sent)
                     entries.last() as AssistantEntry
                 }
                 pending = emptyList()
@@ -610,6 +700,8 @@ internal class AgentTurnRunner(
                     paused -> pauses++
 
                     limit != null -> return withContext(NonCancellable) { limited(reply, calls, limit) }
+
+                    calls.isEmpty() && awaitedRuns(turn) -> absorbJobs(turn)
 
                     calls.isEmpty() -> return withContext(NonCancellable) {
                         val cutShort = finish == FinishKind.MAX_OUTPUT_TOKENS
@@ -710,11 +802,13 @@ internal class AgentTurnRunner(
             val slots = Semaphore(if (parallel) MAX_PARALLEL_CALLS else 1)
             val loading = Collections.synchronizedList(mutableListOf<LoadedFile>())
             val untrusted = Collections.synchronizedList(mutableListOf<UntrustedFolder>())
+            val skills = Collections.synchronizedList(mutableListOf<UserEntry>())
             val budget = InstructionBudget()
             var loaded = false
+            val workspace = workspaces.paths[turn.agent]
             for (call in calls) {
                 val definition = tools.offered[call.name]?.definition ?: continue
-                val title = toolTitle(definition, call.parseArguments())
+                val title = relativized(toolTitle(definition, call.parseArguments()), workspace)
                 emitToolCallStarted(call.id, definition.name, definition.activity, title)
             }
             try {
@@ -724,11 +818,12 @@ internal class AgentTurnRunner(
                             slots.withPermit {
                                 val end =
                                     executor.execute(turn, call, tools.offered, timeout, tools.callable, taint, tracked)
-                                reads.reason(turn.agent, call.name, end.touched)?.let { taint.mark(it) }
+                                reads.reason(turn, call.name, end.touched)?.let { taint.mark(it) }
                                 taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
                                 untrusted += found.untrusted
+                                skills += end.loads
                                 val result = withContext(NonCancellable) {
                                     appending.withLock {
                                         appendLocked(listOf(media.stored(found.noted(end.result)))).single()
@@ -741,7 +836,7 @@ internal class AgentTurnRunner(
                     }
                 }
                 if (untrusted.isNotEmpty()) warn(turn, untrusted.toList())
-                val entries = entries(loading)
+                val entries = entries(loading) + skills
                 if (entries.isNotEmpty()) append(*entries.toTypedArray())
                 loaded = true
             } finally {
@@ -778,14 +873,21 @@ internal class AgentTurnRunner(
         }
 
         /** Whether the turn, or a turn it works for, used up its token budget. */
-        private fun overBudget(): Boolean =
-            maxTurnTokens?.let { spent.get() >= it } == true || delegation?.parent?.overBudget == true
+        private fun overBudget(): Boolean = maxTurnTokens?.let { spent.get() >= it } == true ||
+            delegation?.takeUnless { it.background }?.parent?.overBudget == true
 
         /** Counts [tokens] toward the turn's budget and toward that of each turn it works for. */
         private fun spend(tokens: Long) {
             spent.addAndGet(tokens)
-            delegation?.parent?.spend(tokens)
+            delegation?.takeUnless { it.background }?.parent?.spend(tokens)
         }
+
+        /**
+         * Whether a report came in from a background run that this run started, waited for without the turn's permit,
+         * so that the run answers only once none is left; false at once for a top-level turn.
+         */
+        private suspend fun awaitedRuns(turn: TurnInfo): Boolean =
+            delegation != null && permit.released { followUps.awaitJobs(turn.conversation) }
 
         /** Takes in the results of the jobs that turns from the turn's chat started in its conversation. */
         private suspend fun absorbJobs(turn: TurnInfo) {
@@ -801,17 +903,29 @@ internal class AgentTurnRunner(
         private suspend fun absorbJob(turn: TurnInfo, taken: ArrayDeque<FollowUp>) {
             val followUp = taken.first()
             val job = (followUp.plan.input as TurnSource.FromJob).job
+            if (job.cancelled()) {
+                taken.removeFirst()
+                job.consumed()
+                followUp.complete(TurnOutcome.TakenBack)
+                return
+            }
             val entry = jobOpening(turn, job, job.text)
             withContext(NonCancellable) {
                 taken.removeFirst()
                 try {
+                    if (job.cancelled()) {
+                        followUp.complete(TurnOutcome.TakenBack)
+                        return@withContext
+                    }
                     append(entry)
-                    jobs.delivered(job.job)
+                    if (job.final) jobs.delivered(job.job)
                     followUp.complete(TurnOutcome.Absorbed(turn.id))
                     logger.debug("Turn {} of {} takes in the result of job {}", turn.id, turn.key, job.job.id)
                 } catch (e: Throwable) {
                     followUp.complete(TurnOutcome.Failed(e.toString()))
                     throw e
+                } finally {
+                    job.consumed()
                 }
             }
         }
@@ -904,6 +1018,9 @@ internal class AgentTurnRunner(
         private suspend fun answer(reply: AssistantEntry, after: Pair<NoticeKind, String>?): TurnOutcome {
             val turn = checkNotNull(turn)
             val text = visibleText(reply)
+            if (text.isBlank() && turn.kind in SILENT_KINDS && after == null) {
+                return end(TurnOutcome.Completed(reply), TurnEndKind.COMPLETED)
+            }
             if (text.isEmpty()) {
                 val (kind, key) = after ?: (NoticeKind.BLANK_REPLY to TextKeys.BLANK_REPLY)
                 return ended(kind, notices.text(turn, key), TurnOutcome.Completed(null), TurnEndKind.COMPLETED)
@@ -1068,6 +1185,12 @@ internal class AgentTurnRunner(
 
             override val reasoning: ReasoningEffort? get() = this@Run.reasoning
 
+            override val runAncestors: Set<RunId>
+                get() = delegation?.let { it.parent.runAncestors + it.run }.orEmpty()
+
+            override val activityVisible: Boolean get() = delegation?.parent?.activityVisible
+                ?: (turn.replyTarget == ReplyTarget.CHAT)
+
             override val callable: Set<String> get() = this@Run.callable
 
             override val overBudget: Boolean get() = this@Run.overBudget()
@@ -1117,6 +1240,14 @@ internal class AgentTurnRunner(
                     else -> return
                 }
                 emit(kind) { event }
+            }
+
+            override suspend fun detachActivity(run: DelegatedRun): ReplyActivity? {
+                var activity: ReplyActivity? = null
+                attempt("retain a delegated activity") {
+                    activity = delegation?.parent?.detachActivity(run) ?: sink?.detachActivity(run)
+                }
+                return activity
             }
 
             override fun spend(tokens: Long) = this@Run.spend(tokens)
@@ -1223,6 +1354,7 @@ private val TurnSource.message: IncomingMessage?
 /** What the model reads of the turn's input before `turn.input` changes it. */
 private val TurnSource.text: String
     get() = when (this) {
+        is TurnSource.FromAgentMessage -> message.text
         is TurnSource.FromMessage -> message.text
         is TurnSource.FromInitiated -> prompt
         is TurnSource.FromJob -> job.text
@@ -1257,3 +1389,12 @@ private const val MAX_PARALLEL_CALLS = 4
 private const val MAX_NAMED_FOLDERS = 10
 
 private val logger = LoggerFactory.getLogger(AgentTurnRunner::class.java)
+
+/**
+ * Whether [turn] may call every tool an admin's turn may, though it has no admin: a heartbeat, which the operator's
+ * config sets up and whose gated calls are refused, as it has nobody to ask.
+ */
+private fun operatorSet(turn: TurnInfo): Boolean = turn.kind == TurnKind.HEARTBEAT && turn.actor == null
+
+/** The kinds of turn that may end saying nothing: a job's that has nothing to add, a heartbeat's. */
+private val SILENT_KINDS = setOf(TurnKind.JOB, TurnKind.HEARTBEAT)

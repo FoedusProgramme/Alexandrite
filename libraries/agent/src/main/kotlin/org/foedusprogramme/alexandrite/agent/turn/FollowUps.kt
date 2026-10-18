@@ -22,6 +22,12 @@ internal interface FollowUps {
 
     /** Takes the results of the jobs that turns from [chat] started in [conversation] off the queue, in queue order. */
     fun takeJobs(chat: ChatAddress, conversation: ConversationId): List<FollowUp>
+
+    /**
+     * Waits until a result of a job that [conversation] started is queued and returns true, or returns false once no
+     * such job runs; false at once where results start turns of their own, as at a top-level turn.
+     */
+    suspend fun awaitJobs(conversation: ConversationId): Boolean = false
 }
 
 /** A queued message or job result that a running turn took, whose own turn ends with what [complete] is given. */

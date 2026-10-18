@@ -3,9 +3,11 @@ package org.foedusprogramme.alexandrite.commands.trust
 import org.foedusprogramme.alexandrite.commands.support.Replies
 import org.foedusprogramme.alexandrite.commands.support.TextKeys
 import org.foedusprogramme.alexandrite.commands.support.commandWord
+import org.foedusprogramme.alexandrite.commands.support.description
 import org.foedusprogramme.alexandrite.commands.support.refusing
 import org.foedusprogramme.alexandrite.commands.support.replies
 import org.foedusprogramme.alexandrite.commands.support.spec
+import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.di.Contribute
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
@@ -21,15 +23,17 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 
-/** `/trust` and `/untrust`. */
+/** `/trust`, `/untrust` and `/untaint`. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class TrustCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
-    override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST))
+    override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST), texts.spec(UNTAINT))
+
+    override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
-        val replies = texts.replies(context.turn.language)
+        val replies = texts.replies(context.turn)
         val argument = unquoted(invocation.arguments.trim())
         when (val name = commandWord(invocation.name)) {
             TRUST -> when {
@@ -41,7 +45,27 @@ internal class TrustCommands(private val control: AgentControl, private val text
                 argument.isEmpty() -> context.reply(replies.usage(name))
                 else -> untrust(argument, invocation, context, replies)
             }
+
+            UNTAINT -> untaint(invocation, context, replies)
         }
+    }
+
+    private suspend fun untaint(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
+        if (invocation.arguments.isNotBlank()) {
+            context.reply(replies.usage(UNTAINT))
+            return
+        }
+        val cleared = context.refusing { control.untaint(invocation.chat, invocation.issuer) }
+        val text = when {
+            cleared == null -> replies.text(TextKeys.UNTAINT_CLEAN)
+
+            else -> replies.text(
+                TextKeys.UNTAINT_DONE,
+                "reason" to cleared.reason,
+                "date" to dateOf(cleared.at, replies),
+            )
+        }
+        context.reply(text)
     }
 
     private suspend fun trust(text: String, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
@@ -88,22 +112,23 @@ internal class TrustCommands(private val control: AgentControl, private val text
                 TextKeys.TRUST_DECLARED_GRANTED,
                 "folder" to folder.path,
                 "user" to (by?.displayName ?: replies.text(TextKeys.VALUE_HOST)),
-                "date" to dateOf(at),
+                "date" to dateOf(at, replies),
             )
 
             by == null ->
-                replies.text(TextKeys.TRUST_GRANTED_BY_HOST, "folder" to folder.path, "date" to dateOf(at))
+                replies.text(TextKeys.TRUST_GRANTED_BY_HOST, "folder" to folder.path, "date" to dateOf(at, replies))
 
             else -> replies.text(
                 TextKeys.TRUST_GRANTED,
                 "folder" to folder.path,
                 "user" to by.displayName,
-                "date" to dateOf(at),
+                "date" to dateOf(at, replies),
             )
         }
     }
 
-    private fun dateOf(instant: Instant): LocalDate = LocalDate.ofInstant(instant, clock.zone)
+    private fun dateOf(instant: Instant, replies: Replies): LocalDate =
+        LocalDate.ofInstant(instant, replies.zone ?: clock.zone)
 
     /** The absolute folder [text] names, null once the reply says why it names none. */
     private suspend fun folder(command: String, text: String, context: CommandContext, replies: Replies): Path? {
@@ -123,6 +148,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
     private companion object {
         const val TRUST = "trust"
         const val UNTRUST = "untrust"
+        const val UNTAINT = "untaint"
     }
 }
 

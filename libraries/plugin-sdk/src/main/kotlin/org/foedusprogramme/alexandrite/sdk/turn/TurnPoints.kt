@@ -16,6 +16,12 @@ import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
  * - [CONTEXT_COMPACT] and [CONTEXT_COMPACTED] also fire for a compaction that a command asks for, with its COMMAND turn.
  */
 public object TurnPoints {
+    public val AGENT_SPAWN: ObserverPoint<AgentRunLifecycle> = ObserverPoint("agent.spawn")
+    public val AGENT_RUN_ENDED: ObserverPoint<AgentRunLifecycle> = ObserverPoint("agent.run.ended")
+    public val JOB_STARTED: ObserverPoint<JobLifecycle> = ObserverPoint("job.started")
+    public val JOB_ENDED: ObserverPoint<JobLifecycle> = ObserverPoint("job.ended")
+    public val TOOL_BACKGROUNDED: ObserverPoint<JobLifecycle> = ObserverPoint("tool.backgrounded")
+
     public val PROMPT_SECTIONS: InterceptorPoint<PromptSections> =
         InterceptorPoint("prompt.sections", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
 

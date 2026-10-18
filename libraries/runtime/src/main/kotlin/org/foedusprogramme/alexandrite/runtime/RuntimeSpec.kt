@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.foedusprogramme.alexandrite.runtime.plugin.PluginSet
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSource
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
+import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import java.nio.file.Path
 
 /** What an [AlexandriteRuntime] is assembled from. */
@@ -18,6 +20,8 @@ public class RuntimeSpec private constructor(
     /** Texts that take the place of the plugins' own, followed while the runtime runs. */
     public val texts: StateFlow<TextCatalog>,
     public val listener: RuntimeListener,
+    /** Where the agents' places lie, made from the host's paths; [ConventionalAgentPlaces] unless the host says. */
+    public val agentPlaces: (HostPaths) -> AgentPlaces,
     /** The file that changes are written back to, null for none. */
     internal val writableFile: Path?,
     internal val environment: Map<String, String>,
@@ -29,6 +33,7 @@ public class RuntimeSpec private constructor(
         private var environment: Map<String, String> = emptyMap()
         private var texts: StateFlow<TextCatalog> = NO_TEXTS
         private var listener = RuntimeListener {}
+        private var agentPlaces: (HostPaths) -> AgentPlaces = ::ConventionalAgentPlaces
 
         /**
          * Reads the config of every plugin from [file] now with [ConfigFile.read], and names [file] the host's config
@@ -57,8 +62,20 @@ public class RuntimeSpec private constructor(
 
         public fun listener(listener: RuntimeListener): Builder = apply { this.listener = listener }
 
-        public fun build(): RuntimeSpec =
-            RuntimeSpec(config, plugins, pluginConfig, configFile, texts, listener, writableFile, environment)
+        /** Lays the agents' places out as [places] makes them from the host's paths. */
+        public fun agentPlaces(places: (HostPaths) -> AgentPlaces): Builder = apply { this.agentPlaces = places }
+
+        public fun build(): RuntimeSpec = RuntimeSpec(
+            config,
+            plugins,
+            pluginConfig,
+            configFile,
+            texts,
+            listener,
+            agentPlaces,
+            writableFile,
+            environment,
+        )
     }
 
     public companion object {

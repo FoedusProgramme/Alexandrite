@@ -4,6 +4,7 @@ package org.foedusprogramme.alexandrite.testkit
 
 import com.tschuchort.compiletesting.KotlinCompilation
 import com.tschuchort.compiletesting.SourceFile
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -28,6 +29,7 @@ class PublicApiTest {
         import kotlinx.serialization.json.JsonObject
         import kotlinx.serialization.json.JsonPrimitive
         import org.foedusprogramme.alexandrite.runtime.TextCatalog
+        import org.foedusprogramme.alexandrite.sdk.web.WebQuery
         import org.foedusprogramme.alexandrite.sdk.agent.*
         import org.foedusprogramme.alexandrite.sdk.channel.*
         import org.foedusprogramme.alexandrite.sdk.chat.*
@@ -79,6 +81,7 @@ class PublicApiTest {
             return listOf(
                 events, scripted.requests, scripted.remaining, scripted.problems, scripted.awaitRequests(1),
                 scripted.models(), scripted.turnContextMode("m", ModelOptions.DEFAULT, Trust.TRUSTED), scripted.id,
+                runCatching { scripted.webSearch("m", WebQuery("query", 1)) }.isFailure,
                 ScriptedModel.DIALECT, ScriptedModel.DEFAULT_ENDPOINT, ScriptedModel.DEFAULT_MODEL,
                 TEST_MODEL,
             )
@@ -108,6 +111,7 @@ class PublicApiTest {
             val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test", null)
             val answer: ApprovalAnswer = channel.askApproval(request)
             val approvals: List<ApprovalRequest> = channel.awaitApprovals(1) + channel.approvals
+            val mayRun: Boolean = channel.mayRun(channel.chat(), channel.user(), "new", withArguments = false)
             val preview: RecordedReply.Preview = recorded.previews.first()
             val event = channel.awaitEvent { it is RecordingChannel.Event.Completed }
             val described = when (event) {
@@ -124,13 +128,15 @@ class PublicApiTest {
                 else -> null
             }
             return listOf(
-                command, admissions, described, answer, approvals, preview.segment, preview.text, recorded.request,
+                command, admissions, described, answer, approvals, mayRun, preview.segment, preview.text,
+                recorded.request,
                 recorded.turn,
                 recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,
                 recorded.ended, recorded.activity,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,
                 channel.violations, channel.capabilities(channel.chat()),
-                channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), RecordingChannel.STOPPED,
+                channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), channel.title(channel.chat()),
+                RecordingChannel.STOPPED,
             )
         }
 
@@ -142,6 +148,7 @@ class PublicApiTest {
             initiator.refuseNext(RefusalReason.NO_AGENT)
             val initiated = InitiatedTurn.builder(testChat("c", null, TEST_INSTANCE), TurnKind.REMINDER, "Go.").build()
             initiator.initiate(initiated)
+            initiator.revoke(Mandate("m-test"))
             val first: RecordingTurnInitiator.Initiated = initiator.awaitInitiated(1).first()
             val ticket = TestTurnTicket(TurnId("t"))
             ticket.complete(TurnOutcome.Completed(null))
@@ -165,6 +172,9 @@ class PublicApiTest {
             control.stopJob(testChat(), RunId("j"), null)
             control.newConversation(testChat(), null)
             control.compact(testChat(), "the tests", null)
+            control.taints[testChat()] =
+                org.foedusprogramme.alexandrite.sdk.store.ConversationTaint(java.time.Instant.EPOCH, "a quote")
+            control.untaint(testChat(), null)
             control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.unlink(AgentId.MAIN, testChat("other"), null)
@@ -181,6 +191,7 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
                 is RecordingAgentControl.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
+                is RecordingAgentControl.Call.Untaint -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
                 is RecordingAgentControl.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
                 is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
@@ -258,12 +269,17 @@ class PublicApiTest {
             val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"), clearance = cleared)
             context.touched(Path.of("/srv/work/notes.md"))
             context.untrusted("a web page")
+            val mandate = context.mandate()
+            val background = context.background()
             testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
+            val quotaRefusal = context.conversationQuotaRefusal(Path.of("/srv/conversation/notes.md"), 10L)
             return listOf(
+                mandate,
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
-                context.turn, context.call, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
-                context.clearance, context.untrustedReasons,
+                context.turn, context.call, context.model, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
+                context.clearance, context.untrustedReasons, context.conversationDirectory,
+                context.openConversationDirectory(), quotaRefusal, background.toString(),
             )
         }
 
@@ -299,6 +315,7 @@ class PublicApiTest {
                 .texts(TextCatalog.EMPTY)
                 .texts(kotlinx.coroutines.flow.MutableStateFlow(TextCatalog.EMPTY))
                 .shutdownGrace(1.seconds)
+                .agentPlaces { org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces(it) }
                 .inspectTermination()
                 .model(model)
                 .watch(ScriptedModel(EndpointId("decorated")))

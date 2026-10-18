@@ -60,13 +60,17 @@ class ApprovalDeskTest {
     private val bob = user(BOB, "Bob", admin = false)
 
     /** The desk of a bot whose admins are Ada, whose direct chat is paired, and Grace, whose is not. */
-    private inner class Desk(test: TestScope, admins: List<Long> = listOf(ADA, GRACE)) {
+    private inner class Desk(
+        test: TestScope,
+        admins: List<Long> = listOf(ADA, GRACE),
+        paired: List<Long> = listOf(ADA, BOB, GROUP),
+    ) {
         val api = MemoryBotApi()
         private val instance = TestInstance(test.backgroundScope)
         private val config = TelegramInstanceConfig(
             Secret(FAKE_BOT_TOKEN),
             adminUserIds = admins,
-            allowedChats = listOf(ADA, BOB, GROUP),
+            allowedChats = paired,
         )
         private val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
         private val texts = testTexts("alexandrite-channel-telegram")
@@ -229,6 +233,44 @@ class ApprovalDeskTest {
     }
 
     @Test
+    fun `a file to send shows its path, size, hash and destination, and its caption as code`() = runTest {
+        val desk = Desk(this)
+        desk.titles.note(ChatAddress(WORK, "$GROUP"), "Back\u202Eend")
+        val sha256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        val file = ReviewPreview.OutgoingFile(
+            Path.of("/srv/out/report.pdf"),
+            1_572_864,
+            sha256,
+            ChatAddress(WORK, "$GROUP"),
+            "The weekly report",
+        )
+        val bare = ReviewPreview.OutgoingFile(Path.of("/srv/out/a.txt"), 12, sha256, ChatAddress(WORK, "$ADA"))
+
+        asking(desk, request(turnOf(ada, GROUP), file, id = "file"))
+        asking(desk, request(turnOf(ada, ADA), bare, id = "bare"))
+        advanceTimeBy(5.seconds)
+
+        val text = desk.api.messages.getValue(GROUP to 101L)
+        assertTrue(
+            text.endsWith(
+                "File: /srv/out/report.pdf\nSize: 1572864 bytes (1.5 MB)\nSHA-256: $sha256\n" +
+                    "Destination: Back\\u202Eend (telegram:work:$GROUP)\nCaption:\n\nThe weekly report",
+            ),
+            text,
+        )
+        val code = text.indexOf("The weekly report")
+        assertEquals("pre $code+17", desk.api.calls("sendMessage").first().entities.last())
+        val plain = desk.shown(ADA).single()
+        assertTrue(
+            plain.endsWith(
+                "File: /srv/out/a.txt\nSize: 12 bytes (12 B)\nSHA-256: $sha256\n" +
+                    "Destination: telegram:work:$ADA [Allow|Deny]",
+            ),
+            plain,
+        )
+    }
+
+    @Test
     fun `the names and titles that Telegram gives are escaped like the rest of the request`() = runTest {
         val desk = Desk(this)
         desk.titles.note(ChatAddress(WORK, "$GROUP"), "Back\u202Eend")
@@ -352,6 +394,26 @@ class ApprovalDeskTest {
                 "ask mode\nTool: fs.write (workspace_write)\nArguments:\n\n{\"path\":\"notes.md\"}\n\nDenied by Ada.",
             ),
         )
+    }
+
+    @Test
+    fun `a member's request goes to every admin, and one admin's answer closes it for all, a denial too`() = runTest {
+        val desk = Desk(this, paired = listOf(ADA, GRACE, BOB, GROUP))
+        val answer = asking(desk, request(turnOf(bob, GROUP), id = "member"))
+        advanceTimeBy(5.seconds)
+        val asked = listOf(ADA, GRACE).map { chat -> desk.api.messages.keys.single { it.first == chat } }
+
+        desk.press(grace, "apv:member:d", GRACE, asked[1].second)
+        advanceTimeBy(5.seconds)
+        desk.press(ada, "apv:member:a", ADA, asked[0].second)
+        advanceTimeBy(5.seconds)
+
+        assertEquals(ApprovalAnswer.Denied(grace), answer.await())
+        for (chat in listOf(ADA, GRACE)) {
+            val shown = desk.shown(chat).single()
+            assertTrue(shown.endsWith("Denied by Grace."), shown)
+        }
+        assertEquals(listOf(null, "This request no longer waits for an answer."), desk.toasts())
     }
 
     @Test

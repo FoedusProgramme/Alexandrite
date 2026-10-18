@@ -6,11 +6,13 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.foedusprogramme.alexandrite.agent.StoreIndex
 import org.foedusprogramme.alexandrite.agent.agentHarness
 import org.foedusprogramme.alexandrite.agent.blocking
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.agent.logged
 import org.foedusprogramme.alexandrite.agent.turn.Interceptor
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardKind
 import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
@@ -241,6 +243,19 @@ class TaintTurnsTest {
         assertEquals(cases.map { case -> case.second?.let { "fs.read reached $it" } }, marks)
     }
 
+    @Test
+    fun `a read inside the turn's own conversation directory keeps the conversation clean`() {
+        lateinit var own: Path
+        harness().execute {
+            own = get<ConversationDirectories>().path(AgentId("coder"), store.conversations.current(key).id)
+        }
+
+        model.reply { toolCall("fs.read", reading(own.resolve("secret.txt"))) }.reply { text("Read.") }
+        harness().execute { ask() }
+
+        assertEquals(null, blocking { mark() })
+    }
+
     // Effect.
 
     @Test
@@ -283,6 +298,32 @@ class TaintTurnsTest {
             assertEquals(listOf(ToolOutcome.Succeeded), results().map { it.outcome })
             assertEquals(null, mark())
             assertTrue(store.conversations.taint(tainted) != null)
+        }
+        assertEquals("I like coffee.\n", persona.readText())
+    }
+
+    @Test
+    fun `untaint clears the mark after the queued turns, keeps the history, and a later source marks it again`() {
+        model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+            .reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Noted.") }
+            .reply { toolCall("notes.paste") }.reply { text("Pasted again.") }
+
+        harness().execute {
+            ask()
+            val conversation = store.conversations.current(key).id
+            val control = get<AgentControl>()
+
+            val cleared = control.untaint(channel().chat(), channel().user("admin"))
+            val again = control.untaint(channel().chat(), channel().user("admin"))
+            ask()
+            ask()
+
+            assertTrue(cleared?.reason.orEmpty().endsWith("reported untrusted content: a pasted page"), "$cleared")
+            assertEquals(null, again)
+            assertEquals(conversation, store.conversations.current(key).id)
+            assertEquals(emptyList(), channel().approvals)
+            assertEquals(List(3) { ToolOutcome.Succeeded }, results().map { it.outcome })
+            assertTrue(mark() != null)
         }
         assertEquals("I like coffee.\n", persona.readText())
     }

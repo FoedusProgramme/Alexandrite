@@ -74,7 +74,7 @@ internal class PermissionStatusTool(
         return when {
             until != null ->
                 "Mode: bypass (set in this chat) for ${left(Duration.between(now, until))} more, until " +
-                    "${time(until)}, then $after."
+                    "${time(until, turn)}, then $after."
 
             stored != null -> "Mode: ${stored.mode} (set in this chat)."
 
@@ -99,15 +99,15 @@ internal class PermissionStatusTool(
     private fun rules(turn: TurnInfo): List<String> {
         val inForce = rules.value.inForce(turn.agent, session(turn))
         if (inForce.isEmpty()) return listOf("Allow rules: none.")
-        return listOf(RULES) + inForce.map(::described)
+        return listOf(RULES) + inForce.map { described(it, turn) }
     }
 
-    private fun described(rule: AllowRule): String {
+    private fun described(rule: AllowRule, turn: TurnInfo): String {
         val subject = rule.subject
         val calls = if (subject.tokens.isEmpty()) "every call" else subject.display
         val at = rule.grantedAt
         val by = rule.grantedBy?.let { ReviewText.escape(it.displayName) } ?: "the host"
-        val source = if (at == null) "declared in the config file" else "allowed by $by at ${time(at)} until /new"
+        val source = if (at == null) "declared in the config file" else "allowed by $by at ${time(at, turn)} until /new"
         return "${rule.number}. ${subject.tool}: $calls ($source)"
     }
 
@@ -131,10 +131,10 @@ internal class PermissionStatusTool(
             "Until /new starts a new conversation, calls that change your lasting state, such as persona.edit, need " +
                 "an approval."
         }
-        return "Conversation: tainted since ${time(taint.at)} (${taint.reason}).$unstored $effect"
+        return "Conversation: tainted since ${time(taint.at, turn)} (${taint.reason}).$unstored $effect"
     }
 
-    private fun time(instant: Instant): String = TIME.format(instant.atZone(clock.zone))
+    private fun time(instant: Instant, turn: TurnInfo): String = TIME.format(instant.atZone(turn.zone ?: clock.zone))
 
     private companion object {
         const val HEADER = "Permission status of this chat (only an administrator changes it):"

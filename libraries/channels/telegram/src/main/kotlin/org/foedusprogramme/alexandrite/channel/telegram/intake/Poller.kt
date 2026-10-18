@@ -11,6 +11,8 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiException
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
+import org.foedusprogramme.alexandrite.channel.telegram.replay.Backlog
+import org.foedusprogramme.alexandrite.channel.telegram.replay.Replay
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
 import org.foedusprogramme.alexandrite.sdk.di.Inject
@@ -25,8 +27,9 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 /**
- * Long-polls the bot's updates and dispatches them in order, keeping the offset in memory: each poll confirms the
- * updates before it, and so does the close.
+ * Long-polls the bot's updates and dispatches them in order: each poll confirms the updates before it, and so does the
+ * close. Before its first poll it hands what the last run left to [resume], which gives the offset that run saved;
+ * the offset is saved again after each batch and at the close.
  */
 @ChannelInstanceScoped
 internal class Poller(
@@ -37,6 +40,8 @@ internal class Poller(
     private val session: BotSession,
     private val random: Random,
     private val timeSource: TimeSource.WithComparableMarks,
+    private val resume: suspend () -> Long? = { null },
+    private val save: suspend (Long) -> Unit = {},
 ) : Lifecycle {
     @Inject
     constructor(
@@ -45,7 +50,19 @@ internal class Poller(
         api: BotApi,
         intake: Intake,
         session: BotSession,
-    ) : this(instance, config, api, intake::dispatch, session, Random.Default, TimeSource.Monotonic)
+        backlog: Backlog,
+        replay: Replay,
+    ) : this(
+        instance,
+        config,
+        api,
+        intake::dispatch,
+        session,
+        Random.Default,
+        TimeSource.Monotonic,
+        resume = { backlog.resume(intake::replay, replay::unfinished) },
+        save = backlog::saveOffset,
+    )
 
     @Volatile
     private var closing = false
@@ -57,6 +74,9 @@ internal class Poller(
     /** The offset that the last poll confirmed. */
     private var confirmed: Long? = null
 
+    /** The offset that was saved last. */
+    private var saved: Long? = null
+
     override suspend fun onOpen() {
         loop = instance.scope.launch(CoroutineName("${instance.id} polling")) { poll() }
     }
@@ -65,6 +85,7 @@ internal class Poller(
         closing = true
         loop?.cancelAndJoin()
         val next = offset ?: return
+        if (next != saved) save(next)
         if (next == confirmed) return
         try {
             withTimeoutOrNull(CONFIRM_TIMEOUT) { api.getUpdates(next, 1, 0) }
@@ -75,6 +96,8 @@ internal class Poller(
     }
 
     private suspend fun poll() {
+        offset = resume()
+        saved = offset
         val polling = config.polling
         var failures = 0
         var lastConflict: ComparableTimeMark? = null
@@ -120,7 +143,12 @@ internal class Poller(
             if (failures > 0) logger.info("{} polls Telegram again", instance.id)
             failures = 0
             confirmed = offset
-            if (!dispatch(updates)) return
+            val going = dispatch(updates)
+            offset?.takeIf { it != saved }?.let { next ->
+                save(next)
+                saved = next
+            }
+            if (!going) return
         }
     }
 

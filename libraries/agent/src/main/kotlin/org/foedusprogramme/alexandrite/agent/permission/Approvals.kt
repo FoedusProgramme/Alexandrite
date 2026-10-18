@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.internal.text.ReviewText
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
@@ -68,6 +69,9 @@ internal class ChannelApprovals(
             grantable?.let { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) },
             gate.calls.chain?.agents.orEmpty(),
         )
+        if (turn.chat.instance == ChatAddress.AGENTS) {
+            return unavailable(request, "the turn belongs to no chat, so nobody can be asked")
+        }
         val channel = channels.channel(turn.chat.instance)
             ?: return unavailable(request, "the channel of the chat is not open")
         logger.info(
@@ -126,7 +130,7 @@ internal class ChannelApprovals(
                 always?.let { rules.grant(call, it, answer.by) }
                 judge.allowedByAdmin(request.turn.key, request.tool)
                 val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
-                GateResult.Admitted(clearance, call.review.preview)
+                GateResult.Admitted(clearance, call.review.preview, call.review.exempt)
             }
 
             is ApprovalAnswer.Denied -> {
@@ -192,6 +196,14 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
     )
 
     is ReviewPreview.Text -> ReviewPreview.Text(ReviewText.escape(preview.text, keepNewlines = true))
+
+    is ReviewPreview.OutgoingFile -> ReviewPreview.OutgoingFile(
+        escaped(preview.path),
+        preview.size,
+        ReviewText.escape(preview.sha256),
+        preview.destination,
+        preview.caption?.let { ReviewText.escape(it, keepNewlines = true) },
+    )
 
     else -> null
 }

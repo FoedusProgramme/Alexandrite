@@ -52,6 +52,9 @@ public class FakeChat internal constructor(
     }
 }
 
+/** The scope of a command menu, as `setMyCommands` names it. */
+public data class FakeScope(public val type: String, public val chat: Long? = null, public val user: Long? = null)
+
 /** A forum topic, whose thread id is the id of its root message. */
 public class FakeTopic internal constructor(
     public val chat: FakeChat,
@@ -79,8 +82,22 @@ public class FakeBotMessage internal constructor(
     public val thread: Long?,
     /** The rows of its inline keyboard, empty when it has none. */
     public val buttons: List<List<FakeButton>> = emptyList(),
+    /** The file it carries, whose caption is [text], null when it carries none. */
+    public val file: FakeSentFile? = null,
 ) {
-    override fun toString(): String = "#$id in $chat: $text" + if (buttons.isEmpty()) "" else " $buttons"
+    override fun toString(): String =
+        "#$id in $chat: $text" + (if (buttons.isEmpty()) "" else " $buttons") + (file?.let { " $it" } ?: "")
+}
+
+/** A file the bot sent, as `sendPhoto` or `sendDocument` ([method]) uploaded it. */
+public class FakeSentFile internal constructor(
+    public val method: String,
+    /** The file name of its form part. */
+    public val name: String,
+    public val mediaType: String,
+    public val bytes: ByteArray,
+) {
+    override fun toString(): String = "[$method $name $mediaType ${bytes.size} bytes]"
 }
 
 /** A button of an inline keyboard, which sends [data] back to the bot when pressed. */

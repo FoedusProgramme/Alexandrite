@@ -8,10 +8,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
+import org.foedusprogramme.alexandrite.agent.directory.Inbox
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
+import org.foedusprogramme.alexandrite.agent.permission.AgentFloor
 import org.foedusprogramme.alexandrite.agent.tool.TurnCalls
+import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.runtime.RuntimeStartException
 import org.foedusprogramme.alexandrite.runtime.StartStage
 import org.foedusprogramme.alexandrite.sdk.AlexandriteSdk
@@ -25,6 +31,10 @@ import org.foedusprogramme.alexandrite.sdk.config.ConfigSectionSpec
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.instanceBinding
 import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.hook.Hooks
+import org.foedusprogramme.alexandrite.sdk.hook.Interception
+import org.foedusprogramme.alexandrite.sdk.hook.InterceptorPoint
+import org.foedusprogramme.alexandrite.sdk.hook.ObserverPoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelEndpoint
 import org.foedusprogramme.alexandrite.sdk.model.ModelProvider
 import org.foedusprogramme.alexandrite.sdk.plugin.PluginIds
@@ -37,6 +47,10 @@ import org.foedusprogramme.alexandrite.sdk.store.ConversationInfo
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.TranscriptStore
+import org.foedusprogramme.alexandrite.sdk.tool.CallReview
+import org.foedusprogramme.alexandrite.sdk.tool.ReviewedTool
+import org.foedusprogramme.alexandrite.sdk.tool.Tool
+import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.transcript.EntryId
 import org.foedusprogramme.alexandrite.sdk.transcript.TranscriptEntry
 import org.foedusprogramme.alexandrite.testkit.MemoryStore
@@ -222,6 +236,23 @@ internal object DirectCalls : TurnCalls {
     override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T = ask()
 }
 
+/** The inbox of the conversation directories under [dataRoot], with the agent settings of [config]. */
+internal fun inbox(dataRoot: Path, config: String = "{}"): Inbox {
+    val settings = settings(config)
+    val paths = hostPaths(null, dataRoot)
+    val directories = ConversationDirectories(ConventionalAgentPlaces(paths), settings)
+    return Inbox(
+        directories,
+        AgentFloor(
+            paths,
+            ConventionalAgentPlaces(paths),
+            Workspaces(paths, ConventionalAgentPlaces(paths), settings),
+            settings,
+            directories,
+        ),
+    )
+}
+
 fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths = object : HostPaths {
     override val dataRoot = dataRoot
     override val pluginDataRoot: Path = dataRoot.resolve("plugins")
@@ -230,4 +261,15 @@ fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths =
     override val configTarget = configFile
     override val configBackup = configFile?.let { it.resolveSibling("${it.fileName}.bak") }
     override val protected = emptyList<Path>()
+}
+
+object QuietHooks : Hooks {
+    override suspend fun <P : Any> fire(point: InterceptorPoint<P>, payload: P): Interception<P> =
+        org.foedusprogramme.alexandrite.sdk.hook.Interception.Proceed(payload)
+    override suspend fun <P : Any> fire(point: ObserverPoint<P>, payload: P) = Unit
+}
+
+/** [tool], whose review asks every call to start as a background job. */
+fun startingInBackground(tool: Tool): ReviewedTool = object : ReviewedTool, Tool by tool {
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(background = true)
 }

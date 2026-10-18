@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeUser
 import org.foedusprogramme.alexandrite.channel.telegram.logged
 import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundFile
 import org.foedusprogramme.alexandrite.sdk.config.Secret
 import org.slf4j.LoggerFactory
 import java.net.ServerSocket
@@ -85,5 +86,36 @@ class TokenMaskingTest {
         assertMasked(api.toString())
         assertMasked(config.toString())
         assertMasked(config.botToken.toString())
+    }
+
+    @Test
+    fun `no download or upload shows the token in an exception or a log line`() = runBlocking {
+        val path = checkNotNull(api.getFile(fake.file("data".encodeToByteArray())).filePath)
+        val file = OutboundFile.builder("a.txt", "text/plain", "data".encodeToByteArray()).build()
+        val lines = logged {
+            assertEquals("data", api.download(path, 10).decodeToString())
+            api.sendDocument(SendFile(chat, file))
+            fails { api.download("documents/missing.bin", 10) }
+            fails { api.download(path, 2) }
+            fake.respond("download", 502, "<html>No upstream for /file/bot${fake.token}/$path</html>")
+            fails { api.download(path, 10) }
+            fake.breakConnection("download")
+            fails { api.download(path, 10) }
+            fake.delay("download", 2.seconds)
+            fails { api.download(path, 10) }
+            fake.respond("sendDocument", 500, "<html>/bot${fake.token}/sendDocument failed</html>")
+            fails { api.sendDocument(SendFile(chat, file)) }
+            fails { api.getFile("missing") }
+            val logger = LoggerFactory.getLogger(TokenMaskingTest::class.java)
+            failures.forEach { logger.error("The call failed", it) }
+        }
+
+        assertEquals(7, failures.size)
+        for (failure in failures) {
+            assertMasked(failure.toString())
+            assertMasked(failure.stackTraceToString())
+            assertMasked(failure.description.orEmpty())
+        }
+        lines.forEach(::assertMasked)
     }
 }

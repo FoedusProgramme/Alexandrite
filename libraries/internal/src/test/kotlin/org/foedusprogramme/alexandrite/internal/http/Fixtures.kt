@@ -68,9 +68,9 @@ internal class TestServer : AutoCloseable {
             line.substringBefore(':').trim().lowercase() to line.substringAfter(':').trim()
         }
         val length = headers["content-length"]?.toInt() ?: 0
-        val body = input.readNBytes(length).toString(Charsets.UTF_8)
+        val bytes = input.readNBytes(length)
         val (method, path) = requestLine.split(' ')
-        return TestRequest(method, path, headers, body)
+        return TestRequest(method, path, headers, bytes)
     }
 
     private fun readLine(input: InputStream): String? {
@@ -85,7 +85,14 @@ internal class TestServer : AutoCloseable {
     }
 }
 
-internal class TestRequest(val method: String, val path: String, val headers: Map<String, String>, val body: String)
+internal class TestRequest(
+    val method: String,
+    val path: String,
+    val headers: Map<String, String>,
+    val bytes: ByteArray,
+) {
+    val body: String get() = bytes.toString(Charsets.UTF_8)
+}
 
 /** One response, written as a chunked body. */
 internal class Exchange(private val socket: Socket, private val input: InputStream) {

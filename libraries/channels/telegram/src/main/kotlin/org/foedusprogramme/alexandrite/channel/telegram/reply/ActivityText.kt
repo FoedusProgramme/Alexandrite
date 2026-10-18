@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.telegram.reply
 
 import org.foedusprogramme.alexandrite.channel.telegram.format.FormattedText
+import org.foedusprogramme.alexandrite.channel.telegram.format.MAX_MESSAGE_LENGTH
 import org.foedusprogramme.alexandrite.channel.telegram.format.Span
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
 import org.foedusprogramme.alexandrite.internal.text.ReviewText
@@ -8,51 +9,92 @@ import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
 
 /** One tool call of an activity message, as [TurnEvent]s update it, made by the sub-agent [agent] unless null. */
-internal class CallState(val tool: String, val activity: ToolActivity, val title: String, val agent: AgentId? = null) {
+internal class CallState(val tool: String, val activity: ToolActivity, var title: String, val agent: AgentId? = null) {
     var status: ToolCallStatus = ToolCallStatus.RUNNING
     var content: TurnEvent.Content? = null
 
+    /** The background run that the call started, once its activity was handed over. */
+    var run: RunId? = null
+
     /** Whether the call delegates a task to the sub-agent its title names, and was not refused. */
-    val delegates: Boolean get() = tool == DELEGATE_TOOL && status != ToolCallStatus.NOT_RUN
+    val delegates: Boolean get() = activity == ToolActivity.DELEGATE && status != ToolCallStatus.NOT_RUN
 }
 
-/** The statuses that end a call, after which the aggregate line speaks of it in the past tense. */
-private val ENDED = setOf(ToolCallStatus.COMPLETED, ToolCallStatus.FAILED)
+/** The statuses that end a call, after which a delegation's own line speaks of it in the past tense. */
+private val ENDED = setOf(ToolCallStatus.COMPLETED, ToolCallStatus.FAILED, ToolCallStatus.BACKGROUNDED)
+
+/** The statuses that count as still running, for a kind's aggregate verb. */
+private val ACTIVE = setOf(ToolCallStatus.RUNNING, ToolCallStatus.WAITING_APPROVAL)
 
 /** [calls]' activity message: a summary line aggregated by kind, and each call folded below it. */
 internal fun renderActivity(texts: Texts, language: LanguageTag?, calls: Collection<CallState>): FormattedText {
-    val summary = summaryLine(texts, language, calls)
-    val details = calls.joinToString("\n") { detailLine(texts, language, it) }
+    val groups = groupedByKind(calls)
+    val summary = summaryLine(texts, language, groups)
+    val lines = groups.flatten().mapNotNull { detailLine(texts, language, it) }
+    return assembled(texts, language, summary, lines)
+}
+
+/** [summary] with [lines] below it in one message, its oldest shown lines dropped and counted when they do not fit. */
+private fun assembled(texts: Texts, language: LanguageTag?, summary: String, lines: List<String>): FormattedText {
+    if (lines.isEmpty()) return FormattedText(summary)
+    val room = MAX_MESSAGE_LENGTH - summary.length - 1
+    var used = 0
+    var kept = 0
+    for (line in lines.asReversed()) {
+        val next = used + line.length + if (kept > 0) 1 else 0
+        val omitted = lines.size - kept - 1
+        val notice = if (omitted > 0) omittedNotice(texts, language, omitted).length + 1 else 0
+        if (next + notice > room) break
+        used = next
+        kept++
+    }
+    val omitted = lines.size - kept
+    val shown = lines.takeLast(kept)
+    val details = (if (omitted > 0) listOf(omittedNotice(texts, language, omitted)) + shown else shown)
+        .joinToString("\n")
     return FormattedText("$summary\n$details", listOf(Span(BLOCKQUOTE, summary.length + 1, details.length)))
 }
 
-/** The calls grouped by kind in the order each kind first appears, each delegation alone, aggregated into one line. */
-private fun summaryLine(texts: Texts, language: LanguageTag?, calls: Collection<CallState>): String {
+private fun omittedNotice(texts: Texts, language: LanguageTag?, omitted: Int): String =
+    texts.text(TextKeys.activityOmitted(omitted != 1), language, "count" to omitted)
+
+/** [calls] grouped by kind in the order each kind first appears, each delegation alone. */
+private fun groupedByKind(calls: Collection<CallState>): Collection<List<CallState>> {
     val byKind = LinkedHashMap<Any, MutableList<CallState>>()
     for (call in calls) byKind.getOrPut(if (call.delegates) call else call.activity) { mutableListOf() } += call
-    return byKind.values.joinToString(" · ") { kindCalls ->
+    return byKind.values
+}
+
+/** One aggregate line per kind of [groups], in order. */
+private fun summaryLine(texts: Texts, language: LanguageTag?, groups: Collection<List<CallState>>): String =
+    groups.joinToString(" · ") { kindCalls ->
         val first = kindCalls.first()
         if (first.delegates) return@joinToString delegation(texts, language, first)
         val kind = first.activity
-        val nounKey = TextKeys.activityNoun(kind.id, kindCalls.size != 1)
-        val noun = texts.text(nounKey, language, "count" to kindCalls.size)
-        if (kindCalls.all { it.status == ToolCallStatus.NOT_RUN }) {
+        val ran = kindCalls.filterNot { it.status == ToolCallStatus.NOT_RUN }
+        if (ran.isEmpty()) {
+            val noun = nounPhrase(texts, language, kind.id, kindCalls.size)
             texts.text(TextKeys.ACTIVITY_SUMMARY_NOT_RUN, language, "noun" to noun)
         } else {
-            val verbKey = TextKeys.activityVerb(kind.id, kindCalls.all { it.status in ENDED })
-            "${texts.text(verbKey, language)} $noun"
+            val verbKey = TextKeys.activityVerb(kind.id, ran.none { it.status in ACTIVE })
+            "${texts.text(verbKey, language)} ${nounPhrase(texts, language, kind.id, ran.size)}"
         }
     }
-}
 
-/** One call, folded under the summary line, after the sub-agent that made it. */
-private fun detailLine(texts: Texts, language: LanguageTag?, call: CallState): String {
+/** The noun phrase of one activity kind's [count] calls. */
+private fun nounPhrase(texts: Texts, language: LanguageTag?, kind: String, count: Int): String =
+    texts.text(TextKeys.activityNoun(kind, count != 1), language, "count" to count)
+
+/** One call, folded under the summary line, after the sub-agent that made it; null when the summary already said it. */
+private fun detailLine(texts: Texts, language: LanguageTag?, call: CallState): String? {
     val line = if (call.delegates) {
-        delegation(texts, language, call) + if (call.status == ToolCallStatus.FAILED) failed(texts, language) else ""
+        if (call.status != ToolCallStatus.FAILED) return null
+        delegation(texts, language, call) + failed(texts, language)
     } else {
         callLine(texts, language, call)
     }
@@ -63,10 +105,12 @@ private fun detailLine(texts: Texts, language: LanguageTag?, call: CallState): S
 /** That [call] delegates, or delegated, its task to the sub-agent its title names. */
 private fun delegation(texts: Texts, language: LanguageTag?, call: CallState): String {
     val key = if (call.status in ENDED) TextKeys.ACTIVITY_DELEGATED else TextKeys.ACTIVITY_DELEGATING
-    return texts.text(key, language, "agent" to shortened(ReviewText.escape(call.title)))
+    val agent = shortened(ReviewText.escape(call.title))
+    val named = call.run?.let { texts.text(TextKeys.ACTIVITY_RUN, language, "agent" to agent, "run" to it) } ?: agent
+    return texts.text(key, language, "agent" to named)
 }
 
-/** One call, without the sub-agent that made it. */
+/** One call, without the sub-agent that made it: the summary already names its verb. */
 private fun callLine(texts: Texts, language: LanguageTag?, call: CallState): String {
     val title = shortened(ReviewText.escape(call.title))
     return when (call.status) {
@@ -78,15 +122,7 @@ private fun callLine(texts: Texts, language: LanguageTag?, call: CallState): Str
         ToolCallStatus.BACKGROUNDED ->
             texts.text(TextKeys.ACTIVITY_BACKGROUNDED, language, "tool" to call.tool, "title" to title)
 
-        else -> {
-            val past = call.status != ToolCallStatus.RUNNING
-            if (call.activity == ToolActivity.SEARCH) {
-                val key = if (past) TextKeys.ACTIVITY_SEARCHED else TextKeys.ACTIVITY_SEARCHING
-                return texts.text(key, language, "title" to title) + suffix(texts, language, call)
-            }
-            val verb = texts.text(TextKeys.activityVerb(call.activity.id, past), language)
-            "$verb $title${suffix(texts, language, call)}"
-        }
+        else -> title + suffix(texts, language, call)
     }
 }
 
@@ -134,9 +170,6 @@ private fun shortened(text: String): String {
 }
 
 private const val BLOCKQUOTE = "expandable_blockquote"
-
-/** The agent's tool that runs a sub-agent. */
-private const val DELEGATE_TOOL = "agent.delegate"
 
 /** The characters of a call's title an activity message shows. */
 private const val MAX_TITLE_CHARS = 80

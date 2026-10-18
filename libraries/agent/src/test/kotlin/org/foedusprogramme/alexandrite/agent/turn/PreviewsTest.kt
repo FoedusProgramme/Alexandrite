@@ -100,7 +100,7 @@ class PreviewsTest {
     }
 
     @Test
-    fun `each round after the first starts a segment, also one that shows no preview`() {
+    fun `a round with no text keeps the segment, and the next text after it starts a new one`() {
         model.reply {
             text("Looking.")
             toolCall("fs.read")
@@ -111,7 +111,7 @@ class PreviewsTest {
             admission.outcome()
 
             val reply = channel().reply(admission)
-            assertEquals(listOf(1, 2), reply.startedSegments)
+            assertEquals(listOf(1), reply.startedSegments)
             assertEquals(listOf(Preview(0, "Looking.")), reply.previews)
             assertEquals("Found.", reply.completed?.text)
             assertEquals(

@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.sdk.di.container.DiException
 import org.foedusprogramme.alexandrite.sdk.di.container.DiProblemKind
 import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
@@ -21,5 +22,15 @@ internal class PluginTurnInitiator(private val plugin: String, private val initi
             return Admission.Refused(RefusalReason.SHUTTING_DOWN)
         }
         return backend.initiate(plugin, turn)
+    }
+
+    override suspend fun revoke(mandate: Mandate) {
+        val backend = try {
+            initiation?.value ?: return
+        } catch (e: DiException) {
+            if (e.problems.none { it.kind == DiProblemKind.CLOSED }) throw e
+            return
+        }
+        backend.revoke(plugin, mandate)
     }
 }

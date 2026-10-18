@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.sdk.model.FinishKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelErrorKind
 import org.foedusprogramme.alexandrite.sdk.model.ModelEvent
 import org.foedusprogramme.alexandrite.sdk.model.ModelOptions
+import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.model.Usage
 import org.foedusprogramme.alexandrite.sdk.tool.ToolDefinition
@@ -204,6 +205,19 @@ internal val PROVIDER_CHECKS: List<ProviderCheck> = listOf(
         expectEqual(ModelErrorKind.UNSUPPORTED, error.kind, "The error's kind")
         expect(!error.outputStarted) { "The refusal came after output: $error." }
         expectEqual(requests, server.requests.size, "Requests sent for a refused call")
+    },
+    providerCheck("an effort the model does not take is warned about, and the response still comes") {
+        val model = models().firstOrNull { ReasoningEffort.HIGH !in it.reasoningEfforts } ?: return@providerCheck
+        server.enqueue(fixture.text(listOf("Fine.")))
+
+        val response =
+            respond(request(model.id) { options(ModelOptions.builder().reasoning(ReasoningEffort.HIGH).build()) })
+
+        response.completed
+        val started = response.events.filterIsInstance<ModelEvent.ResponseStarted>().single()
+        expect(started.warnings.isNotEmpty()) {
+            "Model '${model.id}' takes no effort HIGH, yet nothing warns about it."
+        }
     },
     providerCheck("images reach only a model that takes them") {
         val encoded = Base64.getEncoder().encodeToString(IMAGE)

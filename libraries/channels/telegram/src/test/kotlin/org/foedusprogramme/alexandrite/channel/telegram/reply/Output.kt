@@ -15,10 +15,15 @@ import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.intake.BotSession
 import org.foedusprogramme.alexandrite.channel.telegram.intake.ChatTitles
+import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
 import org.foedusprogramme.alexandrite.channel.telegram.intake.MemoryBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.intake.RecordingControl
 import org.foedusprogramme.alexandrite.channel.telegram.intake.TestInstance
 import org.foedusprogramme.alexandrite.channel.telegram.pairing.TelegramPairingDesk
+import org.foedusprogramme.alexandrite.channel.telegram.tools.ChatDesk
+import org.foedusprogramme.alexandrite.channel.telegram.tools.KnownUsers
+import org.foedusprogramme.alexandrite.channel.telegram.tools.TelegramDesks
+import org.foedusprogramme.alexandrite.channel.telegram.tools.TurnMessages
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
@@ -27,6 +32,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.config.Secret
+import org.foedusprogramme.alexandrite.testkit.TestChatStates
 import org.foedusprogramme.alexandrite.testkit.testRecords
 import org.foedusprogramme.alexandrite.testkit.testTexts
 import org.foedusprogramme.alexandrite.testkit.testTurn
@@ -43,25 +49,73 @@ val THREE_MESSAGES = "a".repeat(4_000) + "\n\n" + "b".repeat(4_000) + "\n\n" + "
  * [DIRECT], the direct chat after it and [GROUP] are paired.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-internal class Output(test: TestScope, streaming: Boolean = true) {
+internal class Output(
+    test: TestScope,
+    streaming: Boolean = true,
+    mode: StreamingMode = StreamingMode.EDIT,
+    quote: Boolean = true,
+) {
     val api = MemoryBotApi().apply { clock = { test.currentTime } }
     val control = RecordingControl()
     private val instance = TestInstance(test.backgroundScope)
     private val config = TelegramInstanceConfig(
         Secret(FAKE_BOT_TOKEN),
         allowedChats = listOf(DIRECT, DIRECT + 1, GROUP),
-        streaming = StreamingConfig(streaming),
+        streaming = StreamingConfig(streaming, mode = mode, quote = quote),
     )
+
+    /** The chats' own `/streaming` choices. */
+    val choices = StreamingChoices(TestChatStates().of("alexandrite-channel-telegram"))
     val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
     private val session = BotSession(instance, config, api, TelegramBots(), control)
     private val texts = testTexts("alexandrite-channel-telegram")
     val outbox = Outbox(instance, api, limiter, texts, null, session)
-    private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
+
+    /** The bot's messages that answered an admin. */
+    val vouched = VouchedReplies(instance, testRecords())
+    private val pairings = TelegramPairingDesk(Clock.systemUTC(), testRecords())
+    private val gate = AccessGate(instance, config, pairings, outbox, null)
         .also { runBlocking { it.onStart() } }
     private val approvals =
         ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())
-    val channel =
-        TelegramChannel(instance, config, gate, outbox, Typing(instance, api, limiter, session), texts, approvals)
+    val deliveries =
+        Deliveries(
+            instance,
+            config,
+            gate,
+            outbox,
+            Typing(instance, api, limiter, session),
+            texts,
+            ReplyStyles(config, choices),
+            vouched,
+        )
+
+    /** The titles of the groups the bot heard from. */
+    val titles = ChatTitles()
+
+    /** The desk where the Telegram tools act on this output. */
+    val desk = ChatDesk(
+        instance,
+        api,
+        outbox,
+        deliveries,
+        limiter,
+        gate,
+        pairings,
+        titles,
+        TurnMessages(),
+        KnownUsers(),
+        TelegramDesks(),
+    )
+    val channel = TelegramChannel(
+        instance,
+        config,
+        gate,
+        deliveries,
+        approvals,
+        CommandRules(emptyList(), null),
+        titles,
+    )
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */
     suspend fun open(chat: Long = DIRECT, trigger: String? = "41", thread: Long? = null): ReplySink {

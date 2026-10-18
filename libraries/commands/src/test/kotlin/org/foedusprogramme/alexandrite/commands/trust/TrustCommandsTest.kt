@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.commands.answer
 import org.foedusprogramme.alexandrite.commands.commandTexts
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.turn.AgentControl
 import org.foedusprogramme.alexandrite.sdk.turn.Revocation
 import org.foedusprogramme.alexandrite.sdk.turn.TrustedFolder
@@ -15,6 +16,7 @@ import org.foedusprogramme.alexandrite.testkit.RecordingAgentControl.Call
 import org.foedusprogramme.alexandrite.testkit.TEST_TIME
 import org.foedusprogramme.alexandrite.testkit.testCommand
 import java.nio.file.Path
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -110,6 +112,24 @@ class TrustCommandsTest {
         val reply = commands.answer(trust("/srv/data"))
 
         assertEquals("/srv/data is a protected place (the data directory), so it cannot be trusted.", reply)
+    }
+
+    @Test
+    fun `untaint clears the taint of the chat's conversation and says what it was, or that there was none`() = runTest {
+        val untaint = testCommand("untaint", issuer = ADMIN)
+        control.taints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
+
+        assertEquals(
+            "This conversation is no longer tainted (it was since 2026-01-01: a web page). Its next turns run as in " +
+                "a clean conversation until something taints it again; what it took in is still in its history.",
+            commands.answer(untaint),
+        )
+        assertEquals("This conversation is not tainted.", commands.answer(untaint))
+        assertEquals(
+            "Send /untaint alone to clear the taint of this conversation.",
+            commands.answer(testCommand("untaint", "now", issuer = ADMIN)),
+        )
+        assertEquals(List(2) { Call.Untaint(untaint.chat, ADMIN) }, control.calls)
     }
 
     private fun trust(folder: String = "") = testCommand("trust", folder, issuer = ADMIN)

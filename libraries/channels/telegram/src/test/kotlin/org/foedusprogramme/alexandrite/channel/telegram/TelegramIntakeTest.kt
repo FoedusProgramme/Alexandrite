@@ -25,7 +25,6 @@ import org.foedusprogramme.alexandrite.sdk.runtime.StopKind
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.Submission
-import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -90,15 +89,51 @@ class TelegramIntakeTest {
             fake.send(telegram.bob, telegram.group, "/start@other_bot")
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot what is new?")
             fake.send(telegram.bob, telegram.group, "And the tests?", replyTo = bot.messageId)
-            telegram.consumed(4)
+            fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot")
+            telegram.consumed(5)
 
-            val (mention, reply) = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message }
+            val (mention, reply, bare) =
+                telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message }
             assertEquals("what is new?", mention.text)
             assertEquals(ChatInfo(ChatKind.GROUP, "Backend", null), mention.chatInfo)
             assertEquals("And the tests?", reply.text)
             assertEquals(true, reply.quote?.senderIsBot)
-            assertEquals(2, telegram.submitter.submissions.size)
+            assertEquals("@alexandrite_test_bot", bare.text)
+            assertEquals(3, telegram.submitter.submissions.size)
         }
+    }
+
+    @Test
+    fun `a bot that takes every group message answers one that names it not, and offers no code for one`() {
+        val every = """, "groupMessages": "all""""
+        val builder = telegram.builder("work" to telegram.instance(allowed = "[$ADA]", more = every))
+        val other = fake.group(-1001234500009, "Elsewhere")
+        telegram.run(builder) {
+            fake.send(telegram.bob, other, "Anyone here?")
+            fake.send(telegram.bob, telegram.group, "Lunch at noon?")
+            fake.send(telegram.bob, telegram.group, "/start@other_bot")
+            fake.send(telegram.ada, telegram.adaChat, "Paired.")
+            telegram.submitted(1)
+            telegram.consumed(4)
+        }
+
+        val texts = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message.text }
+        assertEquals(listOf("Paired."), texts)
+        assertEquals(emptyList(), fake.botMessages(other.id) + fake.botMessages(GROUP))
+    }
+
+    @Test
+    fun `a paired group's every message reaches the agent when the bot takes them all`() {
+        val every = """, "groupMessages": "all""""
+        telegram.run(telegram.builder("work" to telegram.instance(more = every))) {
+            fake.send(telegram.bob, telegram.group, "Lunch at noon?")
+            fake.send(telegram.bob, telegram.group, "/start@other_bot")
+            fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot and you?")
+            telegram.consumed(3)
+        }
+
+        val texts = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message.text }
+        assertEquals(listOf("Lunch at noon?", "and you?"), texts)
     }
 
     // The command rules.
@@ -205,12 +240,12 @@ class TelegramIntakeTest {
     @Test
     fun `content the bot does not read is told once an hour`() {
         telegram.run {
-            repeat(2) { fake.queue(photo()) }
+            repeat(2) { fake.queue(sticker()) }
             telegram.consumed(2)
         }
 
         assertEquals(
-            listOf("This bot reads only text and captions, so it did not take this message."),
+            listOf("This bot reads text, captions and files, but not this kind of message, so it did not take it."),
             fake.botMessages(BOB).map { it.text },
         )
         assertEquals(emptyList(), telegram.submitter.submissions)
@@ -247,31 +282,6 @@ class TelegramIntakeTest {
         assertEquals(2, fake.confirmedOffset)
         assertEquals(listOf(null, 2L), fake.offsets)
         assertEquals(0, fake.pendingUpdates)
-    }
-
-    @Test
-    fun `a message a stop cut off is asked for again at once, per message in a group and once in a direct chat`() {
-        val again = "The bot stopped before it answered this message. Send it again once the bot is back."
-        TelegramHarness(outcome = null).use { open ->
-            open.run {
-                open.fake.send(open.bob, open.group, "@alexandrite_test_bot run the migration")
-                open.fake.send(open.bob, open.group, "@alexandrite_test_bot and the backfill")
-                open.fake.send(open.bob, open.bobChat, "one")
-                open.fake.send(open.bob, open.bobChat, "two")
-                open.fake.send(open.ada, open.adaChat, "and this one ends")
-                open.submitted(5)
-                open.submitter.tickets.take(4).forEach { it.complete(TurnOutcome.ShutDown(replayable = true)) }
-                open.submitter.tickets[4].complete(TurnOutcome.Completed(null))
-
-                val notices = open.fake.await { botMessages().takeIf { it.size == 3 } }
-                assertEquals(GROUP, notices.last().chat)
-            }
-
-            val group = open.fake.botMessages(GROUP).map { it.text to it.replyTo }
-            assertEquals(listOf(again to 1L, again to 2L), group.sortedBy { it.second })
-            assertEquals(listOf(again to null), open.fake.botMessages(BOB).map { it.text to it.replyTo })
-            assertEquals(emptyList(), open.fake.botMessages(ADA))
-        }
     }
 
     @Test
@@ -346,20 +356,17 @@ class TelegramIntakeTest {
         return problem.message
     }
 
-    private fun photo() = buildJsonObject {
+    private fun sticker() = buildJsonObject {
         put("from", telegram.bob.json())
         put("chat", telegram.bobChat.json())
         put(
-            "photo",
-            buildJsonArray {
-                add(
-                    buildJsonObject {
-                        put("file_id", "AgAC")
-                        put("file_unique_id", "AQAD")
-                        put("width", 90)
-                        put("height", 60)
-                    },
-                )
+            "sticker",
+            buildJsonObject {
+                put("file_id", "CAAC")
+                put("file_unique_id", "AgAD")
+                put("type", "regular")
+                put("width", 512)
+                put("height", 512)
             },
         )
     }

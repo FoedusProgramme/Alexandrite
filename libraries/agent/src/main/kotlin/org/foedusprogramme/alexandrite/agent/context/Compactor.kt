@@ -142,7 +142,7 @@ internal class Compactor(
         ): Fit {
             var request = build()
             val window = window ?: return Fit(request, null)
-            val limits = config.limits(window)
+            val limits = config.limits(window, request.options.maxOutputTokens)
             var size = size(request)
             if (limits.clearAt != null && size >= limits.clearAt && clear(current, limits.clearAtLeast)) {
                 request = build()
@@ -166,7 +166,7 @@ internal class Compactor(
                 request = build()
                 size = size(request)
             }
-            return Fit(request.takeIf { size < window }, compaction)
+            return Fit(request.within(window, size), compaction)
         }
 
         /** Records the prompt tokens that [usage] counted for [request]. */
@@ -341,10 +341,38 @@ internal fun fold(
 /** The prompt tokens at which a conversation in a [window] of tokens clears, compacts and sheds to. */
 internal class Limits(val trigger: Long, val target: Long, val clearAt: Long?, val clearAtLeast: Long)
 
-internal fun CompactionConfig.limits(window: Int): Limits {
-    val trigger = checkNotNull(trigger.tokens(window)).coerceIn(1, window.toLong())
+/**
+ * The thresholds of a [window] whose requests leave [reserve] tokens for the answer: the trigger at the latest where
+ * the prompt and the reserve would no longer fit.
+ */
+internal fun CompactionConfig.limits(window: Int, reserve: Int? = null): Limits {
+    val room = reserve?.let { window.toLong() - it - margin(window) } ?: window.toLong()
+    val trigger = minOf(checkNotNull(trigger.tokens(window)), room).coerceIn(1, window.toLong())
     val target = checkNotNull(target.tokens(window)).coerceIn(0, trigger - 1)
     return Limits(trigger, target, clearAt.tokens(window), checkNotNull(clearAtLeast.tokens(window)))
 }
+
+/**
+ * This request with its answer cut to the room that a prompt of [size] leaves in [window], null when it leaves less
+ * than [MIN_OUTPUT_TOKENS]; one that asks for no limit only needs its prompt to fit.
+ */
+private fun ModelRequest.within(window: Int, size: Long): ModelRequest? {
+    val reserve = options.maxOutputTokens ?: return takeIf { size < window }
+    val room = window - size - margin(window)
+    if (room < MIN_OUTPUT_TOKENS) return null
+    if (reserve <= room) return this
+    logger.debug("A request of about {} prompt tokens leaves {} of {} answer tokens", size, room, reserve)
+    return toBuilder().options(options.toBuilder().maxOutputTokens(room.toInt()).build()).build()
+}
+
+/** The tokens kept free of a [window] for the error of the prompt's estimate. */
+private fun margin(window: Int): Long = maxOf(MIN_MARGIN, window / MARGIN_DIVISOR.toLong())
+
+/** The fewest answer tokens a request is sent with. */
+internal const val MIN_OUTPUT_TOKENS: Long = 1024
+
+private const val MIN_MARGIN = 1024L
+
+private const val MARGIN_DIVISOR = 50
 
 private val logger = LoggerFactory.getLogger(Compactor::class.java)

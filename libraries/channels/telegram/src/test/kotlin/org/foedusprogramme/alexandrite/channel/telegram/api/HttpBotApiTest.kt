@@ -30,8 +30,10 @@ import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FakeUser
 import org.foedusprogramme.alexandrite.channel.telegram.logged
 import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundFile
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -121,6 +123,47 @@ class HttpBotApiTest {
         val kept = fake.botMessage(direct.id, message.messageId)!!
         assertEquals(asked, kept.replyTo)
         assertEquals(0, kept.edits)
+    }
+
+    @Test
+    fun `an upload sends a form of the chat, the caption, its entities and the file`() = runBlocking {
+        val bytes = ByteArray(100_000) { (it % 251).toByte() }
+        val report = OutboundFile.builder("report.pdf", "application/pdf", bytes).build()
+        val chart = OutboundFile.builder("chart.png", "image/png", byteArrayOf(1, 2, 3)).build()
+
+        val message = api.sendDocument(
+            SendFile(direct.id, report, caption = "New report", captionEntities = listOf(MessageEntity("bold", 0, 3))),
+        )
+        val photo = api.sendPhoto(SendFile(direct.id, chart))
+
+        val sent = fake.botMessage(direct.id, message.messageId)!!
+        assertEquals("New report", sent.text)
+        assertEquals("[sendDocument report.pdf application/pdf 100000 bytes]", "${sent.file}")
+        assertContentEquals(bytes, sent.file?.bytes)
+        val expected = buildJsonObject {
+            put("chat_id", "${direct.id}")
+            put("caption", "New report")
+            put("caption_entities", """[{"type":"bold","offset":0,"length":3}]""")
+        }
+        assertEquals(expected, fake.calls("sendDocument").single().params)
+        val shown = fake.botMessage(direct.id, photo.messageId)
+        assertEquals("[sendPhoto chart.png image/png 3 bytes]", "${shown?.file}")
+        assertEquals("", shown?.text)
+    }
+
+    @Test
+    fun `getFile names a file's path, from which a download reads its bytes up to a limit`() = runBlocking {
+        val id = fake.file("hello".encodeToByteArray())
+
+        val file = api.getFile(id)
+        val path = checkNotNull(file.filePath)
+
+        assertEquals(5L, file.fileSize)
+        assertEquals("hello", api.download(path, 5).decodeToString())
+        assertEquals(TOO_LONG, failure { download(path, 4) }.failure)
+        assertEquals(BAD_REQUEST, failure { getFile("unknown") }.failure)
+        assertEquals(PROTOCOL, failure { download("../bot/getMe", 10) }.failure)
+        assertEquals(listOf(path, path), fake.calls("download").map { it.params["path"]?.jsonPrimitive?.content })
     }
 
     @Test

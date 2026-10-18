@@ -38,7 +38,7 @@ internal class JobsTool(private val jobs: Jobs, private val clock: Clock) : Comp
         val running = jobs.list(context.turn.chat)
         if (running.isEmpty()) return ToolResult("No job runs in this chat.")
         val lines = running.map { job ->
-            val since = TIME.format(job.startedAt.atZone(clock.zone))
+            val since = TIME.format(job.startedAt.atZone(context.turn.zone ?: clock.zone))
             "- ${job.id}: ${described(job.tool, job.title)} (running since $since)"
         }
         return ToolResult((listOf("Jobs that run in this chat:") + lines).joinToString("\n"))

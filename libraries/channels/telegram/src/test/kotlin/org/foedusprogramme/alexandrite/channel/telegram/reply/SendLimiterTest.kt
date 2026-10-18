@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.telegram.reply
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
@@ -76,6 +77,38 @@ class SendLimiterTest {
         limiter.preview(-100L, group = true) { at += "preview ${currentTime}ms" }
 
         assertEquals(listOf("preview 0ms", "final 1000ms", "preview 3000ms"), at)
+    }
+
+    @Test
+    fun `calls cancelled while they wait free their slots for the final, whatever order they took them in`() = runTest {
+        val limiter = limiter()
+        val at = mutableListOf<Long>()
+
+        limiter.message(1L) { at += currentTime }
+        val text = launch { limiter.message(1L) { at += currentTime } }
+        val activity = launch { limiter.message(1L) { at += currentTime } }
+        runCurrent()
+        text.cancelAndJoin()
+        activity.cancelAndJoin()
+        limiter.message(1L) { at += currentTime }
+
+        assertEquals(listOf(0L, 1_000L), at)
+    }
+
+    @Test
+    fun `a cancelled call frees its slot, and a later one still waits for the one before it`() = runTest {
+        val limiter = limiter()
+        val at = mutableListOf<Long>()
+
+        limiter.message(1L) { at += currentTime }
+        val first = launch { limiter.message(1L) { at += currentTime } }
+        val second = launch { limiter.message(1L) { at += currentTime } }
+        runCurrent()
+        first.cancelAndJoin()
+        second.join()
+        limiter.message(1L) { at += currentTime }
+
+        assertEquals(listOf(0L, 2_000L, 3_000L), at)
     }
 
     @Test

@@ -177,13 +177,18 @@ class InitiatedTurnsTest {
                 listOf(
                     "agent.delegate",
                     "agent.jobs",
+                    "agent.send",
                     "agent.stop",
+                    "chat.list",
+                    "chat.send",
+                    "chat.send_file",
                     "fs.read",
                     "permission.status",
                     "profile.create",
                     "profile.edit",
                     "profile.list",
                     "profile.remove",
+                    "skill.load",
                 ) to
                     ToolChoice.Auto,
                 request.tools.map { it.name } to request.toolChoice,

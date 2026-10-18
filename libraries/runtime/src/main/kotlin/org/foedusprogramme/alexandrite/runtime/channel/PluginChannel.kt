@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.runtime.channel
 import org.foedusprogramme.alexandrite.runtime.RuntimeProblemKind
 import org.foedusprogramme.alexandrite.sdk.channel.Channel
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.container.Binding
 import org.foedusprogramme.alexandrite.sdk.di.container.Scope
 import org.foedusprogramme.alexandrite.sdk.di.key
@@ -32,6 +33,13 @@ internal fun pluginChannel(id: String, bindings: List<Binding<*>>): PluginChanne
         name == null -> problems += problem(
             id,
             "Unnamed channel: ${label(channel)} contributes a Channel without a name, which is its channel type.",
+        )
+
+        name == ChatAddress.AGENTS.type.value -> problems += Problem(
+            RuntimeProblemKind.MALFORMED_CHANNEL_TYPE,
+            "Reserved channel type '$name' of plugin '$id', the name of its Channel ${channel.origin}: Alexandrite " +
+                "keeps it for the chats of its agents' own turns.",
+            id,
         )
 
         !PluginIds.PATTERN.matches(name) -> problems += Problem(

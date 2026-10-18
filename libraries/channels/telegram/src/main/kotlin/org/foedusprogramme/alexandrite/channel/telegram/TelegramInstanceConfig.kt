@@ -1,6 +1,10 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
+import org.foedusprogramme.alexandrite.channel.telegram.intake.Who
+import org.foedusprogramme.alexandrite.channel.telegram.reply.StreamingMode
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
 import org.foedusprogramme.alexandrite.sdk.config.Secret
@@ -21,8 +25,16 @@ internal class TelegramInstanceConfig(
     val apiBaseUrl: String = "https://api.telegram.org",
     val polling: PollingConfig = PollingConfig(),
     val streaming: StreamingConfig = StreamingConfig(),
+    /** Which messages of an allowed group the bot answers. */
+    val groupMessages: GroupMessages = GroupMessages.ADDRESSED,
     /** How long an approval request waits for an admin's answer. */
     val approvalMinutes: Int = 10,
+    /** How old a message that a stop cut off may be and still be answered after the restart, 0 for none. */
+    val replayWindowMinutes: Int = 1440,
+    /** Whether the bot publishes its command menu. */
+    val commandMenu: Boolean = true,
+    /** Who may run each named command of another plugin, which only admins may run otherwise. */
+    val commands: Map<String, Who> = emptyMap(),
 ) {
     init {
         val token = botToken.reveal()
@@ -41,10 +53,29 @@ internal class TelegramInstanceConfig(
             "apiBaseUrl must be an http or https URL without user info, query or fragment"
         }
         require(approvalMinutes in 1..MAX_APPROVAL_MINUTES) { "approvalMinutes must lie between 1 and 1440" }
+        require(replayWindowMinutes in 0..MAX_REPLAY_MINUTES) { "replayWindowMinutes must lie between 0 and 10080" }
+        for (name in commands.keys) {
+            require(COMMAND.matches(name)) {
+                "commands.$name must name a command: lowercase letters, digits and '_', 32 characters at most"
+            }
+            require(name !in CommandRules.MATRIX) { "commands.$name: /$name keeps the rule of the default commands" }
+        }
     }
 
     /** [apiBaseUrl] without a trailing `/`. */
     val apiBase: String get() = apiBaseUrl.trimEnd('/')
+}
+
+/** Which messages of an allowed group a bot answers. */
+@Serializable
+internal enum class GroupMessages {
+    /** Those that name it: a command for it, a mention of it, a reply to it. */
+    @SerialName("addressed")
+    ADDRESSED,
+
+    /** Every one, but a command for another bot. */
+    @SerialName("all")
+    ALL,
 }
 
 @Serializable
@@ -71,6 +102,10 @@ internal class StreamingConfig(
     val editIntervalMillis: Long = 1000,
     /** The shortest pause between two preview edits in a group. */
     val groupEditIntervalMillis: Long = 3000,
+    /** How a chat sees a reply come, unless it chose otherwise with `/streaming`. */
+    val mode: StreamingMode = StreamingMode.EDIT,
+    /** Whether a reply quotes the message it answers, unless the chat chose otherwise. */
+    val quote: Boolean = true,
 ) {
     init {
         require(editIntervalMillis in 0..MAX_INTERVAL) { "streaming.editIntervalMillis must lie between 0 and 60000" }
@@ -86,9 +121,13 @@ internal fun configPath(instance: ChannelInstanceId, key: String? = null): Strin
 
 private val TOKEN = Regex("[0-9]+:[A-Za-z0-9_-]{30,}")
 
+private val COMMAND = Regex("[a-z0-9_]{1,32}")
+
 private const val MAX_INTERVAL = 60_000L
 
 private const val MAX_APPROVAL_MINUTES = 1440
+
+private const val MAX_REPLAY_MINUTES = 10_080
 
 private fun isHttpUrl(text: String): Boolean = try {
     val uri = URI(text)

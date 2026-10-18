@@ -112,6 +112,9 @@ public value class NotRunReason internal constructor(public val id: String) {
         /** The turn's tree of sub-agent runs is as deep as it may grow. */
         public val DELEGATION_LIMIT: NotRunReason = NotRunReason("delegation_limit")
 
+        /** The chat already runs as many background jobs or sub-agent runs as it may. */
+        public val BACKGROUND_FULL: NotRunReason = NotRunReason("background_full")
+
         /** The values this version knows. */
         public val entries: List<NotRunReason> = listOf(
             INVALID_ARGUMENTS,
@@ -129,6 +132,7 @@ public value class NotRunReason internal constructor(public val id: String) {
             CANCELLED,
             INTERRUPTED,
             DELEGATION_LIMIT,
+            BACKGROUND_FULL,
         )
 
         /** The value of [id], which keeps an id this version does not know. */

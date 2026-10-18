@@ -6,12 +6,14 @@ import org.foedusprogramme.alexandrite.agent.DirectCalls
 import org.foedusprogramme.alexandrite.agent.TestClock
 import org.foedusprogramme.alexandrite.agent.agentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.settings
 import org.foedusprogramme.alexandrite.agent.tool.AgentToolContext
 import org.foedusprogramme.alexandrite.agent.tool.GateCall
 import org.foedusprogramme.alexandrite.agent.tool.ToolRegistry
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -77,8 +79,14 @@ class PermissionStatusToolTest {
         rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), subject, admin)
     }
 
-    private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext =
-        AgentToolContext(turn, ToolCallId("call-1"), Workspaces(hostPaths(null), settings("{}")), null, taint)
+    private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext = AgentToolContext(
+        turn,
+        ToolCallId("call-1"),
+        Workspaces(hostPaths(null), ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
+        ConversationDirectories(ConventionalAgentPlaces(hostPaths(null)), settings("{}")),
+        null,
+        taint,
+    )
 
     @Test
     fun `the call is of activity other, titled by nothing`() {

@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.tool.RuleSubject
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -41,6 +42,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnStatus
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
+import java.time.ZoneId
 import java.time.ZoneOffset
 
 /**
@@ -62,7 +64,7 @@ public class RecordingAgentControl(
     ChatSettings {
     private val lock = Any()
     private val recorded = mutableListOf<Call>()
-    private val profiles = linkedMapOf(defaultAgent to Profile(defaultAgent.value, null, null, null, null, null))
+    private val profiles = linkedMapOf(defaultAgent to Profile(defaultAgent.value, null, null, null, null, null, null))
     private val selected = HashMap<ChatAddress, AgentId>()
     private val settings = HashMap<AgentChatKey, ChatSettingsSnapshot>()
     private val configuredHomes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
@@ -89,11 +91,14 @@ public class RecordingAgentControl(
     @Volatile
     public var compaction: CompactionReport = CompactionReport(0, 0, 0)
 
+    /** The taint of the conversation at each chat, which [untaint] clears and returns. */
+    public val taints: MutableMap<ChatAddress, ConversationTaint> = mutableMapOf()
+
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
 
     /**
      * Lists [agent], in its place when it is listed already, with [name], [description] and the [model], [reasoning],
-     * [language] and permission [mode] it is configured with.
+     * [language], permission [mode] and [zone] it is configured with.
      */
     public fun scriptAgent(
         agent: AgentId,
@@ -103,8 +108,9 @@ public class RecordingAgentControl(
         reasoning: ReasoningEffort? = null,
         language: LanguageTag? = null,
         mode: PermissionMode? = null,
+        zone: ZoneId? = null,
     ) {
-        synchronized(lock) { profiles[agent] = Profile(name, description, model, reasoning, language, mode) }
+        synchronized(lock) { profiles[agent] = Profile(name, description, model, reasoning, language, mode, zone) }
     }
 
     /** Lists [endpoint], in its place when it is listed already, with [models]. */
@@ -206,6 +212,12 @@ public class RecordingAgentControl(
             compaction
         }
 
+    override suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint? = synchronized(lock) {
+        recorded += Call.Untaint(chat, by)
+        refuseQueued()
+        taints.remove(chat)
+    }
+
     /** The status scripted at [chat], else that of an unmeasured conversation of a model with an unknown window. */
     override suspend fun context(chat: ChatAddress): ContextStatus = synchronized(lock) {
         contexts[chat] ?: ContextStatus(
@@ -248,6 +260,9 @@ public class RecordingAgentControl(
     override suspend fun language(chat: ChatAddress): LanguageTag? = synchronized(lock) {
         snapshot(chat).effectiveLanguage
     }
+
+    /** The zone stored at [chat], else the one its agent is scripted with. */
+    override suspend fun zone(chat: ChatAddress): ZoneId? = synchronized(lock) { snapshot(chat).effectiveZone }
 
     /**
      * Refuses an agent that is not listed, a model that an endpoint listed with [scriptModels] lacks, a home chat of
@@ -305,6 +320,7 @@ public class RecordingAgentControl(
             .reasoning(update.reasoning.applyTo(stored?.reasoning))
             .language(update.language.applyTo(stored?.language))
             .mode(if (modeChanged) mode else stored?.mode, if (modeChanged) until else stored?.modeUntil)
+            .zone(update.zone.applyTo(stored?.zone))
             .build()
         snapshot(chat)
     }
@@ -435,6 +451,7 @@ public class RecordingAgentControl(
             .defaultLanguage(profile?.language)
             .apply { if (ended) mode(null) }
             .defaultMode(profile?.mode)
+            .defaultZone(profile?.zone)
             .build()
     }
 
@@ -472,6 +489,7 @@ public class RecordingAgentControl(
         val reasoning: ReasoningEffort?,
         val language: LanguageTag?,
         val mode: PermissionMode?,
+        val zone: ZoneId?,
     )
 
     /** A call of the control port. */
@@ -499,6 +517,9 @@ public class RecordingAgentControl(
 
         @Poko
         public class Compact(public val chat: ChatAddress, public val focus: String?, public val by: ChatUser?) : Call
+
+        @Poko
+        public class Untaint(public val chat: ChatAddress, public val by: ChatUser?) : Call
 
         @Poko
         public class UpdateSettings(

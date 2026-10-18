@@ -197,6 +197,42 @@ class ApprovalTurnsTest {
         }
     }
 
+    @Test
+    fun `a file to send is shown with its path and caption escaped, and its size, hash and destination as they are`() {
+        val send = object : ReviewedTool {
+            override val definition: ToolDefinition = testToolDefinition("files.send", ToolRisk.EXTERNAL_ACTION)
+
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
+                preview = ReviewPreview.OutgoingFile(
+                    Path.of("/srv/a\u200Bb.pdf"),
+                    12,
+                    "ab".repeat(32),
+                    context.turn.chat,
+                    "See\u202Ethis\nfile",
+                ),
+                snapshot = "sha256:${"ab".repeat(32)}",
+            )
+
+            override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Sent.")
+        }
+        model.reply { toolCall("files.send", "{}") }.reply { text("Asked.") }
+
+        harness { tool(send) }.execute {
+            ask().ticket.outcome()
+
+            assertEquals(
+                ReviewPreview.OutgoingFile(
+                    Path.of("/srv/a\\u200Bb.pdf"),
+                    12,
+                    "ab".repeat(32),
+                    channel().chat(),
+                    "See\\u202Ethis\nfile",
+                ),
+                channel().approvals.single().preview,
+            )
+        }
+    }
+
     // Waiting.
 
     @Test

@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.agent.permission
 
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.internal.floor.DenyRoot
 import org.foedusprogramme.alexandrite.internal.floor.Floor
@@ -9,36 +10,68 @@ import org.foedusprogramme.alexandrite.internal.floor.Overlap
 import org.foedusprogramme.alexandrite.internal.floor.Placement
 import org.foedusprogramme.alexandrite.internal.path.PathCanonicalizer
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.config.ConfigException
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
+import org.foedusprogramme.alexandrite.sdk.runtime.AgentPlaces
 import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.slf4j.LoggerFactory
+import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 
 /** The hard floor of every tool. */
 @Singleton
 @Binds(HardFloor::class)
-internal class AgentFloor(paths: HostPaths, workspaces: Workspaces, settings: AgentSettings) : HardFloor {
+internal class AgentFloor(
+    paths: HostPaths,
+    places: AgentPlaces,
+    workspaces: Workspaces,
+    settings: AgentSettings,
+    private val directories: ConversationDirectories,
+) : HardFloor {
     private val floor = hostFloor(
         paths,
         workspaces.paths,
         userHome(),
         operatorPlaces(paths, settings.protectedPaths),
+        personas = workspaces.paths.keys.mapNotNull { id -> places.personaDirectory(id)?.let { id to it } }.toMap(),
+        skills = workspaces.paths.keys.associateWith { places.skillDirectories(it).map(Path::normalize) },
         environment = System.getenv(),
     )
 
-    override fun checkRead(path: Path, agent: AgentId?): FloorCheck = floor.checkRead(path, agent).toCheck()
+    override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+        ownConversation(path, agent, conversation, tree = false) { floor.checkRead(path, agent) }
 
-    override fun checkWrite(path: Path, agent: AgentId?): FloorCheck = floor.checkWrite(path).toCheck()
+    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+        ownConversation(path, agent, conversation, tree = false) { floor.checkWrite(path) }
 
-    override fun checkTree(path: Path, agent: AgentId?): FloorCheck = floor.checkTree(path).toCheck()
+    override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
+        ownConversation(path, agent, conversation, tree = true) { floor.checkTree(path) }
 
     /** [path] (absolute) made canonical and checked for a write by the persona tool of [agent]. */
     fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck = floor.checkPersonaWrite(path, agent).toCheck()
+
+    /**
+     * [base]'s decision, or the directory of [agent]'s conversation [conversation] carved out of the data root for
+     * [path] instead, when [base] refuses it and carving that one directory out would not.
+     */
+    private fun ownConversation(
+        path: Path,
+        agent: AgentId?,
+        conversation: ConversationId?,
+        tree: Boolean,
+        base: () -> FloorDecision,
+    ): FloorCheck {
+        val decision = base()
+        if (decision !is FloorDecision.Denied || agent == null || conversation == null) return decision.toCheck()
+        val exemption = floor.checkConversation(path, directories.path(agent, conversation), tree)
+        return if (exemption is FloorDecision.Allowed) exemption.toCheck() else decision.toCheck()
+    }
 
     private fun FloorDecision.toCheck(): FloorCheck = when (this) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(canonical)
@@ -52,6 +85,8 @@ internal class HostFloor(
     private val shared: Floor?,
     private val own: Map<AgentId, Floor>,
     private val personas: Map<AgentId, Path> = emptyMap(),
+    /** [checkConversation], null to refuse every path. */
+    private val withConversation: ((path: Path, directory: Path, tree: Boolean) -> FloorDecision)? = null,
 ) {
     fun checkRead(path: Path, agent: AgentId? = null): FloorDecision {
         val floor = agent?.let(own::get) ?: shared ?: return FloorDecision.Denied(UNKNOWN_HOME)
@@ -61,6 +96,10 @@ internal class HostFloor(
     fun checkWrite(path: Path): FloorDecision = shared?.check(path) ?: FloorDecision.Denied(UNKNOWN_HOME)
 
     fun checkTree(path: Path): FloorDecision = shared?.checkTree(path) ?: FloorDecision.Denied(UNKNOWN_HOME)
+
+    /** [path] checked as by [checkWrite] (or [checkTree] when [tree]) with [directory] carved out of the data root. */
+    fun checkConversation(path: Path, directory: Path, tree: Boolean): FloorDecision =
+        withConversation?.invoke(path, directory, tree) ?: FloorDecision.Denied(UNKNOWN_HOME)
 
     /** [path] checked for a write that only the Markdown files directly in [agent]'s persona directory may take. */
     fun checkPersonaWrite(path: Path, agent: AgentId): FloorDecision {
@@ -95,6 +134,10 @@ internal fun hostFloor(
     workspaces: Map<AgentId, Path>,
     home: Path?,
     operator: List<Path> = emptyList(),
+    /** Each agent's persona directory, carved out for that agent alone. */
+    personas: Map<AgentId, Path> = emptyMap(),
+    /** The skill directories each agent may read and no file tool may write. */
+    skills: Map<AgentId, List<Path>> = emptyMap(),
     canonicalizer: PathCanonicalizer = PathCanonicalizer(),
     environment: Map<String, String> = emptyMap(),
 ): HostFloor {
@@ -110,7 +153,6 @@ internal fun hostFloor(
         operator.map { DenyRoot(it, "a place the operator protects") }
     val keepsCarveOuts = setOfNotNull(configuration, data)
     val plain = Floor(places, home, canonicalizer, environment)
-    val personas = workspaces.keys.mapNotNull { id -> personaDirectory(paths, id)?.let { id to it } }.toMap()
     val personaPlaces = Floor(
         personas.map { (id, persona) -> DenyRoot(persona, "the persona directory of agent '$id'") },
         null,
@@ -138,25 +180,40 @@ internal fun hostFloor(
             checkNotNull(overlap.root).path,
         )
     }
-    fun floor(extra: Map<DenyRoot, Path>) = Floor(
-        places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty() + listOfNotNull(extra[it])) },
+    fun floor(extra: Map<DenyRoot, List<Path>>) = Floor(
+        places.map { DenyRoot(it.path, it.kind, carveOuts[it].orEmpty() + extra[it].orEmpty()) },
         home,
         canonicalizer,
         environment,
     )
-    val own = personas.mapValues { (_, persona) ->
+    val own = (personas.keys + skills.keys).associateWith { id ->
+        val readable = listOfNotNull(personas[id]) + skills[id].orEmpty()
         floor(
-            plain.overlaps(persona)
-                .filter { it.placement == Placement.INSIDE && it.root in keepsCarveOuts }
-                .associate { checkNotNull(it.root) to persona },
+            readable.flatMap { place ->
+                plain.overlaps(place)
+                    .filter { it.placement == Placement.INSIDE && it.root in keepsCarveOuts }
+                    .map { checkNotNull(it.root) to place }
+            }.groupBy({ it.first }, { it.second }),
         )
     }
-    return HostFloor(floor(emptyMap()), own, personas)
+    val withConversation = { path: Path, conversationDirectory: Path, tree: Boolean ->
+        val extended = floor(mapOf(data to listOf(conversationDirectory)))
+        if (tree) extended.checkTree(path) else extended.check(path)
+    }
+    return HostFloor(floor(emptyMap()), own, personas, withConversation)
 }
 
-/** The persona directory of [agent] beside the config file in [paths], null when the host read no config file. */
-internal fun personaDirectory(paths: HostPaths, agent: AgentId): Path? =
-    paths.configFile?.parent?.resolve(PERSONAS)?.resolve(agent.value)?.normalize()
+/** [agent]'s persona directory as [places] gives it, created owner-only when missing, null where the host keeps none. */
+internal fun openPersonaDirectory(places: AgentPlaces, agent: AgentId): Path? {
+    val directory = places.personaDirectory(agent) ?: return null
+    if (Files.isDirectory(directory)) return directory
+    if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
+        Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)))
+    } else {
+        Files.createDirectories(directory)
+    }
+    return directory
+}
 
 /** The places of `agent.protectedPaths`, each absolute or relative to the config file's directory. */
 internal fun operatorPlaces(paths: HostPaths, configured: List<String>): List<Path> = configured.map { entry ->
@@ -200,7 +257,7 @@ private fun userHome(): Path? = try {
 private const val CONFIGURATION = "Alexandrite's configuration"
 
 /** Where the agents' persona directories lie in the config directory. */
-private const val PERSONAS = "agents"
+private const val OWNER = "rwx------"
 
 private const val UNKNOWN_HOME = "every path, as the home directory is unknown"
 

@@ -61,7 +61,8 @@ internal class ProfileEdit(
  * The profiles a delegating agent may run as a sub-agent: every `agent.agents.<id>` without `channels`, those
  * plugins contribute, and those the agent created itself through `profile.create`.
  *
- * An id a config entry or a plugin already uses cannot be created or edited through this class.
+ * An id a config entry or a plugin already uses cannot be created or edited through this class. A config entry
+ * `general` replaces the built-in [GeneralProfile].
  */
 @Singleton
 internal class Profiles(
@@ -79,6 +80,7 @@ internal class Profiles(
     init {
         val byId = LinkedHashMap<AgentId, AgentProfile>()
         for (profile in contributed) {
+            if (profile is GeneralProfile && profile.id in config) continue
             if (profile.id in config) {
                 throw ConfigException(
                     null,

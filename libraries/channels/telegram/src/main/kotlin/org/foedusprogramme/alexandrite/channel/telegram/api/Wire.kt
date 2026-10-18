@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.channel.telegram.api
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundFile
 
 /** The envelope of every Bot API answer. */
 @Serializable
@@ -39,7 +40,20 @@ internal class CallbackQuery(
     val data: String? = null,
 )
 
-/** A message, its media and other content kept only as present or absent. */
+/** The files of a message, flat over the kinds the bot reads. */
+internal interface MessageFiles {
+    val animation: TelegramMedia?
+    val audio: TelegramMedia?
+    val document: TelegramMedia?
+
+    /** The sizes of one photo. */
+    val photo: List<TelegramMedia>?
+    val video: TelegramMedia?
+    val videoNote: TelegramMedia?
+    val voice: TelegramMedia?
+}
+
+/** A message, its stickers and other content kept only as present or absent. */
 @Serializable
 internal class Message(
     @SerialName("message_id") val messageId: Long,
@@ -60,15 +74,17 @@ internal class Message(
     val entities: List<MessageEntity>? = null,
     val caption: String? = null,
     @SerialName("caption_entities") val captionEntities: List<MessageEntity>? = null,
-    val animation: JsonElement? = null,
-    val audio: JsonElement? = null,
-    val document: JsonElement? = null,
-    val photo: JsonElement? = null,
+    /** The album the message belongs to, null when it belongs to none. */
+    @SerialName("media_group_id") val mediaGroupId: String? = null,
+    override val animation: TelegramMedia? = null,
+    override val audio: TelegramMedia? = null,
+    override val document: TelegramMedia? = null,
+    override val photo: List<TelegramMedia>? = null,
     val sticker: JsonElement? = null,
     val story: JsonElement? = null,
-    val video: JsonElement? = null,
-    @SerialName("video_note") val videoNote: JsonElement? = null,
-    val voice: JsonElement? = null,
+    override val video: TelegramMedia? = null,
+    @SerialName("video_note") override val videoNote: TelegramMedia? = null,
+    override val voice: TelegramMedia? = null,
     @SerialName("paid_media") val paidMedia: JsonElement? = null,
     val contact: JsonElement? = null,
     val dice: JsonElement? = null,
@@ -77,6 +93,40 @@ internal class Message(
     val venue: JsonElement? = null,
     val location: JsonElement? = null,
     val invoice: JsonElement? = null,
+) : MessageFiles
+
+/** A file of a message, flat over the photo size, document, audio, voice, video, video note and animation types. */
+@Serializable
+internal class TelegramMedia(
+    @SerialName("file_id") val fileId: String,
+    @SerialName("file_size") val fileSize: Long? = null,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("mime_type") val mimeType: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    /** The width and height of a video note, which is square. */
+    val length: Int? = null,
+)
+
+/** A file as `getFile` makes it ready to download. */
+@Serializable
+internal class TelegramFile(
+    @SerialName("file_id") val fileId: String,
+    @SerialName("file_size") val fileSize: Long? = null,
+    /** Where the file downloads from below the bot's file URL, null when it cannot be downloaded. */
+    @SerialName("file_path") val filePath: String? = null,
+)
+
+@Serializable
+internal class GetFile(@SerialName("file_id") val fileId: String)
+
+/** A file that `sendPhoto` or `sendDocument` uploads in a multipart form. */
+internal class SendFile(
+    val chatId: Long,
+    val file: OutboundFile,
+    val thread: Long? = null,
+    val caption: String? = null,
+    val captionEntities: List<MessageEntity>? = null,
 )
 
 @Serializable
@@ -143,7 +193,14 @@ internal class ExternalReplyInfo(
     val origin: MessageOrigin,
     val chat: Chat? = null,
     @SerialName("message_id") val messageId: Long? = null,
-)
+    override val animation: TelegramMedia? = null,
+    override val audio: TelegramMedia? = null,
+    override val document: TelegramMedia? = null,
+    override val photo: List<TelegramMedia>? = null,
+    override val video: TelegramMedia? = null,
+    @SerialName("video_note") override val videoNote: TelegramMedia? = null,
+    override val voice: TelegramMedia? = null,
+) : MessageFiles
 
 @Serializable
 internal class WebhookInfo(
@@ -221,4 +278,38 @@ internal class SendChatAction(
     @SerialName("chat_id") val chatId: Long,
     @SerialName("message_thread_id") val messageThreadId: Long?,
     val action: String,
+)
+
+@Serializable
+internal data class BotCommand(val command: String, val description: String)
+
+/** The chats and users a command menu applies to. */
+@Serializable
+internal data class BotCommandScope(
+    val type: String,
+    @SerialName("chat_id") val chatId: Long? = null,
+    @SerialName("user_id") val userId: Long? = null,
+) {
+    companion object {
+        val PRIVATE_CHATS = BotCommandScope("all_private_chats")
+        val GROUP_CHATS = BotCommandScope("all_group_chats")
+
+        fun chat(chat: Long): BotCommandScope = BotCommandScope("chat", chat)
+
+        fun member(chat: Long, user: Long): BotCommandScope = BotCommandScope("chat_member", chat, user)
+    }
+}
+
+@Serializable
+internal class SetMyCommands(
+    val commands: List<BotCommand>,
+    val scope: BotCommandScope,
+    /** The two-letter language of the users it applies to, every language when null. */
+    @SerialName("language_code") val languageCode: String? = null,
+)
+
+@Serializable
+internal class DeleteMyCommands(
+    val scope: BotCommandScope,
+    @SerialName("language_code") val languageCode: String? = null,
 )

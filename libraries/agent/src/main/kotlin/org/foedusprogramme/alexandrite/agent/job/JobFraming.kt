@@ -44,7 +44,15 @@ internal fun jobFraming(job: EndedJob, text: String, zone: ZoneId): String = bui
     val ended = if (job.result.outcome.isError) "failed" else "succeeded"
     val started = TIME.format(job.job.startedAt.atZone(zone))
     appendLine("[alexandrite:job]")
-    appendLine("$JOB_HEADER: job ${job.job.id}, ${described(job.job)}, started $started. It $ended.")
+    if (job.final) {
+        appendLine("$JOB_HEADER: job ${job.job.id}, ${described(job.job)}, started $started. It $ended.")
+    } else {
+        appendLine(
+            "Background monitor update: job ${job.job.id}, ${described(
+                job.job,
+            )}, started $started. It is still running.",
+        )
+    }
     if (text.isNotEmpty()) appendLine(Escaper.HEADERS.text(text))
     append("[/alexandrite:job]")
 }
@@ -56,14 +64,23 @@ internal fun interruptedEntry(jobs: List<InterruptedJob>): UserEntry = UserEntry
     UserOrigin.SystemWritten(JOB_SOURCE),
 )
 
+/** The tool whose recorded calls are agent messages awaiting a reply, which a restart reports as such. */
+internal const val AGENT_MESSAGE_TOOL: String = "agent.send"
+
 /** Interrupted jobs framing v1: the background jobs that a restart interrupted, none of which ran again. */
 internal fun interruptedFraming(jobs: List<InterruptedJob>): String = buildString {
     appendLine("[alexandrite:job]")
     for (job in jobs) {
-        appendLine(
-            "$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. It was interrupted by a restart and was " +
-                "not run again, so no result will come.",
-        )
+        if (job.tool == AGENT_MESSAGE_TOOL) {
+            appendLine(
+                "$JOB_HEADER: your message to agent ${job.title} was interrupted by a restart, so no reply will come.",
+            )
+        } else {
+            appendLine(
+                "$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. It was interrupted by a restart and " +
+                    "was not run again, so no result will come.",
+            )
+        }
     }
     append("[/alexandrite:job]")
 }
@@ -96,7 +113,7 @@ private fun JsonElement.title(): String? = when (this) {
 }
 
 /** The arguments that name what a call works on, in the order they are looked for. */
-private val TITLE_ARGUMENTS = listOf("command", "argv", "path", "url", "query", "pattern")
+private val TITLE_ARGUMENTS = listOf("command", "argv", "path", "url", "query", "pattern", "profile")
 
 private const val MAX_TITLE_CHARS = 80
 

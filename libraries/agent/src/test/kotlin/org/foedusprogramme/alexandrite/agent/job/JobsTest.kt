@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.job
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -10,7 +11,9 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.foedusprogramme.alexandrite.agent.DirectCalls
+import org.foedusprogramme.alexandrite.agent.QuietHooks
 import org.foedusprogramme.alexandrite.agent.TestClock
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.hostPaths
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.pluginScope
@@ -21,11 +24,17 @@ import org.foedusprogramme.alexandrite.agent.tool.ToolCallEnd
 import org.foedusprogramme.alexandrite.agent.tool.ToolExecutor
 import org.foedusprogramme.alexandrite.agent.tool.ToolGate
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
+import org.foedusprogramme.alexandrite.runtime.ConventionalAgentPlaces
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.TurnLineage
+import org.foedusprogramme.alexandrite.sdk.chat.rebuild
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.permission.ClearanceKind
+import org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall
 import org.foedusprogramme.alexandrite.sdk.tool.Tool
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -69,6 +78,7 @@ class JobsTest {
         JobRecords(records.of("alexandrite-agent")),
         { delivered.add(it) },
         clock,
+        QuietHooks,
         pluginScope(backgroundScope),
     )
 
@@ -76,8 +86,17 @@ class JobsTest {
         tool: Tool,
         timeout: Duration = 120.seconds,
         turn: TurnInfo = this@JobsTest.turn,
+        gate: ToolGate = AdmittingGate,
     ): ToolCallEnd {
-        val executor = ToolExecutor(AdmittingGate, settings("{}"), Workspaces(hostPaths(null), settings("{}")), this)
+        val paths = hostPaths(null)
+        val executor = ToolExecutor(
+            gate,
+            settings("{}"),
+            Workspaces(paths, ConventionalAgentPlaces(paths), settings("{}")),
+            ConversationDirectories(ConventionalAgentPlaces(paths), settings("{}")),
+            this,
+            { _, _ -> null },
+        )
         val name = tool.definition.name
         return executor.execute(turn, call, mapOf(name to tool), timeout, setOf(name), taint, DirectCalls)
     }
@@ -227,6 +246,88 @@ class JobsTest {
         )
     }
 
+    @Test
+    fun `a call that moved to the background after its foreground time gets no background job to update`() = runTest {
+        val handed = CompletableDeferred<BackgroundCall?>()
+        val tool = recordingTool("fs.slow") { _, context ->
+            delay(11.seconds)
+            handed.complete(context.background())
+            ToolResult("Done.")
+        }
+
+        job(jobs().execute(tool))
+        advanceTimeBy(2.seconds)
+
+        assertEquals(null, handed.await())
+    }
+
+    @Test
+    fun `a stalled consumer retains at most one update per job, refusing the others`() = runTest {
+        val taken = CopyOnWriteArrayList<Boolean>()
+        val tool = recordingTool("fs.slow") { _, context ->
+            val job = checkNotNull(context.background())
+            repeat(100) { taken += job.update(ToolResult("MATCH $it")) }
+            awaitCancellation()
+        }
+        val jobs = jobs()
+        val id = job(jobs.execute(tool, gate = BackgroundGate))
+        advanceTimeBy(2.seconds)
+        runCurrent()
+        assertEquals(1, delivered.size)
+        assertEquals(listOf(true) + List(99) { false }, taken.toList())
+        assertTrue(jobs.stop(id, turn.chat, null))
+        runCurrent()
+        assertTrue(delivered.single().cancelled())
+    }
+
+    @Test
+    fun `an update taken by a turn frees the job for the next one`() = runTest {
+        val next = CompletableDeferred<Unit>()
+        val taken = CopyOnWriteArrayList<Boolean>()
+        val tool = recordingTool("fs.slow") { _, context ->
+            val job = checkNotNull(context.background())
+            repeat(2) { taken += job.update(ToolResult("MATCH $it")) }
+            next.await()
+            taken += job.update(ToolResult("MATCH after consumption"))
+            ToolResult("Done.")
+        }
+        val jobs = jobs()
+        jobs.execute(tool, gate = BackgroundGate)
+        runCurrent()
+        assertEquals(1, delivered.size)
+        delivered.single().consumed()
+        next.complete(Unit)
+        runCurrent()
+        assertEquals(listOf(true, false, true), taken.toList())
+        assertEquals(2, delivered.count { !it.final })
+        assertEquals(emptyList(), jobs.list(turn.chat))
+    }
+
+    @Test
+    fun `a job that a run started records the run's conversation and turn, which take its result`() = runTest {
+        val child = turn.rebuild {
+            id(TurnId("child-turn"))
+            conversation(ConversationId("child-conversation"))
+            lineage(
+                TurnLineage(
+                    RunId("parent-run"),
+                    turn.id,
+                    turn.conversation,
+                    call.id,
+                    turn.id,
+                    turn.conversation,
+                    1,
+                ),
+            )
+        }
+        val job = BackgroundJob(RunId("nested-job"), child, call, "reviewer", clock.now, 120.seconds)
+        val records = JobRecords(records.of("alexandrite-agent"))
+        records.put(job)
+        val saved = records.all().getValue(job.id)
+        assertEquals(child.conversation to child.id, saved.conversation to saved.turn)
+        assertEquals(child.conversation, job.resultConversation)
+    }
+
     /** The job of a call made once the agent stopped, null when the call stayed in the foreground. */
     private suspend fun Jobs.detachedAfterDrain(tool: Tool): RunId? =
         (execute(tool, timeout = 11.seconds).result.outcome as? ToolOutcome.Detached)?.job
@@ -234,4 +335,10 @@ class JobsTest {
 
 private object AdmittingGate : ToolGate {
     override suspend fun admit(call: GateCall): GateResult = GateResult.Admitted(Clearance(ClearanceKind.NONE))
+}
+
+/** A gate that admits each call to start in the background, as a review asking for it makes the real one. */
+private object BackgroundGate : ToolGate {
+    override suspend fun admit(call: GateCall): GateResult =
+        GateResult.Admitted(Clearance(ClearanceKind.NONE), background = true)
 }

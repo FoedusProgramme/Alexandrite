@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.agent.project
 
+import org.foedusprogramme.alexandrite.agent.skill.skillFiles
 import org.foedusprogramme.alexandrite.internal.path.hardLinks
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
@@ -13,8 +14,11 @@ import java.nio.file.attribute.BasicFileAttributes
 /** An instruction file found at [found], to be read at [canonical]. */
 internal class InstructionFile(val found: Path, val canonical: Path)
 
-/** A project [folder] (canonical) and the instruction files found from it down to the touched paths. */
-internal class Project(val folder: Path, val files: List<InstructionFile>)
+/**
+ * A project [folder] (canonical), the instruction files found from it down to the touched paths and the `SKILL.md`
+ * files (canonical) of its skill directories.
+ */
+internal class Project(val folder: Path, val files: List<InstructionFile>, val skills: List<Path> = emptyList())
 
 /** Finds the projects that the paths a tool call touched lie in. */
 internal class ProjectFolders(
@@ -39,7 +43,7 @@ internal class ProjectFolders(
             return starts.map(::project)
                 .groupBy { it.folder }
                 .map { (folder, projects) ->
-                    Project(folder, projects.flatMap { it.files }.distinctBy { it.canonical })
+                    Project(folder, projects.flatMap { it.files }.distinctBy { it.canonical }, projects.first().skills)
                 }
         }
 
@@ -58,8 +62,13 @@ internal class ProjectFolders(
             val folder = marked(start) ?: start
             val below = generateSequence(start) { it.parent }.takeWhile { it != folder }.toList().asReversed()
                 .takeWhile { it.fileName.toString() !in DEPENDENCIES }
-            return Project(folder, (listOf(folder) + below).flatMap(::files))
+            return Project(folder, (listOf(folder) + below).flatMap(::files), skills(folder))
         }
+
+        /** The `SKILL.md` files of [folder]'s skill directories that the floor lets the agent read. */
+        private fun skills(folder: Path): List<Path> = SKILL_DIRECTORIES
+            .flatMap { skillFiles(folder.resolve(it)) }
+            .mapNotNull(::allowed)
 
         /** The nearest marked directory from [start] up, stopping below the first directory the floor refuses. */
         private fun marked(start: Path): Path? {
@@ -105,6 +114,9 @@ internal class ProjectFolders(
 
 /** Whether [directory] holds `.git`. */
 internal fun isRepository(directory: Path): Boolean = Files.exists(directory.resolve(GIT), LinkOption.NOFOLLOW_LINKS)
+
+/** Where a project keeps its skills, one directory per skill. */
+private val SKILL_DIRECTORIES = listOf(".agents/skills", ".claude/skills")
 
 /** The names of the instruction files, in the order they load. */
 private val NAMES = listOf("AGENTS.md", "CLAUDE.md")

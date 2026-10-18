@@ -1,11 +1,23 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.sdk.channel.DisplayFact
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
+import org.foedusprogramme.alexandrite.sdk.channel.MediaAttachment
+import org.foedusprogramme.alexandrite.sdk.channel.MediaContent
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
@@ -18,6 +30,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.ForwardOrigin
 import org.foedusprogramme.alexandrite.sdk.chat.Quote
 import org.foedusprogramme.alexandrite.sdk.chat.QuoteTrust
 import org.foedusprogramme.alexandrite.sdk.chat.UserAddress
+import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import java.time.Instant
 import kotlin.test.Test
@@ -30,7 +43,19 @@ import kotlin.test.assertTrue
 class UpdateReaderTest {
     private val work = ChannelInstanceId(ChannelType("telegram"), "work")
     private val approvals = ApprovalMessages()
-    private val reader = UpdateReader(work, setOf(1001L), BotIdentity(1234567890, "alexandrite_test_bot"), approvals)
+    private val reads = mutableListOf<String>()
+
+    /** The bot's messages that answered an admin, by chat and message id. */
+    private val answered = mutableSetOf<Pair<Long, Long>>()
+    private val reader = UpdateReader(
+        work,
+        setOf(1001L),
+        BotIdentity(1234567890, "alexandrite_test_bot"),
+        approvals,
+        { chat, message -> chat to message in answered },
+    ) {
+        MediaContent { _ -> "bytes of $it".encodeToByteArray().also { _ -> reads += it } }
+    }
     private val adaChat = ChatAddress(work, "1001")
     private val group = ChatAddress(work, "-1001234500000")
     private val ada = ChatUser(UserAddress(work, "1001"), "Ada Lovelace", "ada_test", isBot = false, isAdmin = true)
@@ -48,6 +73,33 @@ class UpdateReaderTest {
     private fun message(name: String): IncomingMessage = assertIs<Inbound.Message>(read(name)).message
 
     private fun ignored(name: String): String = assertIs<Inbound.Ignored>(read(name)).why
+
+    /** The fixture [name] with [fields] put in place of its own. */
+    private fun with(name: String, vararg fields: Pair<String, JsonElement>): Message {
+        val text = checkNotNull(javaClass.getResource("/updates/$name.json")).readText()
+        val message = JSON.parseToJsonElement(text).jsonObject.getValue("message").jsonObject
+        return JSON.decodeFromJsonElement(Message.serializer(), JsonObject(message + fields))
+    }
+
+    private fun file(id: String, size: Long? = null, name: String? = null, type: String? = null) = buildJsonObject {
+        put("file_id", id)
+        put("file_unique_id", "u-$id")
+        size?.let { put("file_size", it) }
+        name?.let { put("file_name", it) }
+        type?.let { put("mime_type", it) }
+    }
+
+    private fun MediaAttachment.described(): String = listOf(
+        kind,
+        mediaType,
+        size,
+        width?.let { "${it}x$height" },
+        name,
+        "quoted".takeIf { fromQuote },
+        unavailable,
+    ).joinToString(" ") { "${it ?: "-"}" }
+
+    private fun MediaAttachment.read(): String = runBlocking { content.read(100).decodeToString() }
 
     // Direct chats.
 
@@ -81,12 +133,13 @@ class UpdateReaderTest {
     }
 
     @Test
-    fun `a reply quotes the part the user picked, else the whole message, and is never trusted`() {
+    fun `a reply quotes the part the user picked, else the whole message, its author known and its content not`() {
         val expected = Quote.builder("reads the config")
             .senderName("Alexandrite Test Bot")
             .sender(bot)
             .senderIsBot(true)
             .target(ChannelMessageRef(adaChat, "9"))
+            .trust(AUTHOR_KNOWN)
             .build()
 
         assertEquals(expected, message("private_quote").quote)
@@ -94,7 +147,62 @@ class UpdateReaderTest {
             expected.toBuilder().text("Main.kt starts the app and reads the config.").build(),
             message("private_reply").quote,
         )
-        assertEquals(QuoteTrust.UNTRUSTED, message("private_reply").quote?.trust)
+    }
+
+    @Test
+    fun `a quote of an admin's own message or of the bot's answer to an admin is vouched for, no other`() {
+        fun replied(from: JsonObject, vararg fields: Pair<String, JsonElement>) = buildJsonObject {
+            put("message_id", 9)
+            put("from", from)
+            put(
+                "chat",
+                buildJsonObject {
+                    put("id", -1001234500000)
+                    put("type", "supergroup")
+                },
+            )
+            put("date", 1760169480)
+            put("text", "Deploy at five.")
+            fields.forEach { (name, value) -> put(name, value) }
+        }
+        fun trustOf(replied: JsonObject): QuoteTrust? {
+            val reply = with("group_mention", "reply_to_message" to replied)
+            return assertIs<Inbound.Message>(reader.read(reply)).message.quote?.trust
+        }
+        val adaUser = buildJsonObject {
+            put("id", 1001)
+            put("is_bot", false)
+            put("first_name", "Ada")
+        }
+        val bobUser = buildJsonObject {
+            put("id", 1002)
+            put("is_bot", false)
+            put("first_name", "Bob")
+        }
+        val botUser = buildJsonObject {
+            put("id", 1234567890)
+            put("is_bot", true)
+            put("first_name", "Alexandrite Test Bot")
+        }
+        val forward = buildJsonObject {
+            put("type", "hidden_user")
+            put("date", 1760169000)
+            put("sender_user_name", "Someone")
+        }
+        val group = buildJsonObject {
+            put("id", -1001234500000)
+            put("title", "Backend")
+            put("type", "supergroup")
+        }
+        answered += -1001234500000L to 9L
+
+        assertEquals(VOUCHED, trustOf(replied(adaUser)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(adaUser, "forward_origin" to forward)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(adaUser, "via_bot" to botUser)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(bobUser)))
+        assertEquals(VOUCHED, trustOf(replied(botUser)))
+        assertEquals(AUTHOR_KNOWN, trustOf(replied(botUser, "message_id" to JsonPrimitive(10))))
+        assertEquals(QuoteTrust.UNTRUSTED, trustOf(replied(adaUser, "sender_chat" to group)))
     }
 
     @Test
@@ -114,43 +222,195 @@ class UpdateReaderTest {
         assertEquals(expected, message("private_reply").quote)
         assertEquals(expected, message("private_quote").quote)
         val otherChat = message("group_reply_to_bot").quote
-        assertEquals("The build is green." to QuoteTrust.UNTRUSTED, otherChat?.text to otherChat?.trust)
-        val member = message("group_bare_mention_reply").quote
-        assertEquals("Deploy at five." to QuoteTrust.UNTRUSTED, member?.text to member?.trust)
+        assertEquals("The build is green." to AUTHOR_KNOWN, otherChat?.text to otherChat?.trust)
+        val admin = message("group_bare_mention_reply").quote
+        assertEquals("Deploy at five." to VOUCHED, admin?.text to admin?.trust)
     }
 
     @Test
-    fun `an external reply quotes its text and origin without a target`() {
+    fun `an external reply quotes its text and origin without a target, untrusted`() {
         val message = message("external_reply")
 
         assertEquals(Quote.builder("Rates rise again").senderName("News").external(true).build(), message.quote)
         assertEquals("Thoughts?", message.text)
     }
 
+    @Test
+    fun `the files of an external reply are attachments of the quote`() {
+        val external = buildJsonObject {
+            put(
+                "origin",
+                buildJsonObject {
+                    put("type", "hidden_user")
+                    put("date", 1760168800)
+                    put("sender_user_name", "Someone")
+                },
+            )
+            put(
+                "photo",
+                buildJsonArray {
+                    add(file("small", 900))
+                    add(file("big", 52000))
+                },
+            )
+        }
+
+        val reply = with("private_text", "external_reply" to external, "text" to JsonPrimitive("What is this?"))
+        val message = assertIs<Inbound.Message>(reader.read(reply)).message
+
+        assertEquals(listOf("image image/jpeg 52000 - - quoted -"), message.media.map { it.described() })
+        assertEquals(true to QuoteTrust.UNTRUSTED, message.quote?.external to message.quote?.trust)
+    }
+
     // Media and other content.
 
     @Test
-    fun `a caption is the text and the media a model-facing fact`() {
+    fun `a caption is the text and a photo its largest size, whose bytes are read only when asked for`() {
         val message = message("photo_caption")
+        val animation = message("animation_caption")
 
         assertEquals("Look at this chart", message.text)
-        assertEquals(listOf(DisplayFact("attachment", "photo, not passed on by this channel")), message.facts)
-        assertEquals(emptyList(), message.media)
+        assertEquals(emptyList(), message.facts)
+        assertEquals(listOf("image image/jpeg 52000 1280x853 - - -"), message.media.map { it.described() })
+        assertEquals(emptyList(), reads)
+        assertEquals("bytes of AgAC-big", message.media.single().read())
+        assertEquals(listOf("video video/mp4 - 320x240 - - -"), animation.media.map { it.described() })
+        assertEquals(emptyList(), animation.facts)
+    }
+
+    @Test
+    fun `documents, audio, voice, video and video notes become attachments, a sticker stays a fact`() {
+        val message = assertIs<Inbound.Message>(
+            reader.read(
+                with(
+                    "photo_caption",
+                    "document" to file("doc", 1200, "report.pdf", "application/pdf"),
+                    "audio" to file("song", 3000, "tune.mp3", "audio/mpeg"),
+                    "voice" to file("voice", 800),
+                    "video" to file("clip", 9000, type = "video/quicktime"),
+                    "video_note" to buildJsonObject {
+                        put("file_id", "note")
+                        put("file_unique_id", "u-note")
+                        put("length", 240)
+                    },
+                    "sticker" to buildJsonObject { put("file_id", "CAAC") },
+                ),
+            ),
+        ).message
+
         assertEquals(
-            listOf(DisplayFact("attachment", "animation, not passed on by this channel")),
-            message("animation_caption").facts,
+            listOf(
+                "image image/jpeg 52000 1280x853 - - -",
+                "file application/pdf 1200 - report.pdf - -",
+                "audio audio/mpeg 3000 - tune.mp3 - -",
+                "audio audio/ogg 800 - - - -",
+                "video video/quicktime 9000 - - - -",
+                "video video/mp4 - 240x240 - - -",
+            ),
+            message.media.map { it.described() },
+        )
+        assertEquals(
+            listOf(DisplayFact("attachment", "sticker (not passed on by this channel, id CAAC)")),
+            message.facts,
+        )
+        assertEquals("bytes of doc", message.media[1].read())
+    }
+
+    @Test
+    fun `a document that is a picture is an image, one past the 20 MB a bot downloads is unavailable`() {
+        val image = file("png", 500, "chart.png", "image/png")
+        val big = file("big", 20L * 1024 * 1024 + 1, "dump.zip", "application/zip")
+
+        val picture =
+            assertIs<Inbound.Message>(reader.read(with("photo_only", "photo" to JsonNull, "document" to image)))
+        val huge = assertIs<Inbound.Message>(reader.read(with("photo_only", "photo" to JsonNull, "document" to big)))
+
+        assertEquals(listOf("image image/png 500 - chart.png - -"), picture.message.media.map { it.described() })
+        val unavailable = "larger than the 20 MB that a bot may download from Telegram"
+        assertEquals(
+            listOf("file application/zip 20971521 - dump.zip - $unavailable"),
+            huge.message.media.map { it.described() },
         )
     }
 
     @Test
+    fun `the files of the quoted message are attachments of the quote`() {
+        val bob = buildJsonObject {
+            put("id", 1002)
+            put("first_name", "Bob")
+        }
+        val chat = buildJsonObject {
+            put("id", 1001)
+            put("type", "private")
+        }
+        val replied = buildJsonObject {
+            put("message_id", 9)
+            put("from", bob)
+            put("chat", chat)
+            put("date", 1760169480)
+            put("document", file("log", 64, "build.log", "text/plain"))
+        }
+
+        val reply = with("private_text", "reply_to_message" to replied, "text" to JsonPrimitive("Why?"))
+        val message = assertIs<Inbound.Message>(reader.read(reply)).message
+
+        assertEquals("Why?", message.text)
+        assertEquals(listOf("file text/plain 64 - build.log quoted -"), message.media.map { it.described() })
+        assertEquals("", message.quote?.text)
+    }
+
+    @Test
+    fun `an album's parts are one message with every part's file, its captions joined`() {
+        val first = with("photo_caption", "media_group_id" to JsonPrimitive("g1"))
+        val second = with(
+            "photo_only",
+            "message_id" to JsonPrimitive(41),
+            "media_group_id" to JsonPrimitive("g1"),
+            "photo" to buildJsonArray { add(file("second", 10)) },
+            "caption" to JsonPrimitive("and this"),
+        )
+
+        val message = assertIs<Inbound.Message>(reader.read(listOf(first, second))).message
+
+        assertEquals(ChannelMessageRef(adaChat, "40"), message.ref)
+        assertEquals("Look at this chart\n\nand this", message.text)
+        assertEquals(listOf("bytes of AgAC-big", "bytes of second"), message.media.map { it.read() })
+    }
+
+    @Test
     fun `content without text is unsupported, a notice of the chat is ignored`() {
-        for (name in listOf("photo_only", "sticker", "location")) {
+        assertEquals(1, message("photo_only").media.size)
+        for (name in listOf("sticker", "location")) {
             val inbound = assertIs<Inbound.Unsupported>(read(name), name)
             assertEquals(adaChat, inbound.chat)
             assertEquals(adaChat, inbound.trigger.chat)
         }
         assertEquals("it is not addressed to the bot", ignored("service_new_members"))
         assertFalse(reader.addressed(fixture("service_new_members")))
+    }
+
+    @Test
+    fun `a bot that takes every group message reads one that does not name it, but no command for another bot`() {
+        val every = UpdateReader(
+            work,
+            setOf(1001L),
+            BotIdentity(1234567890, "alexandrite_test_bot"),
+            approvals,
+            everyGroupMessage = true,
+        ) { MediaContent { _ -> ByteArray(0) } }
+        val sticker = buildJsonObject { put("file_id", "CAAC") }
+        val unnamed = with("group_unaddressed", "text" to JsonNull, "sticker" to sticker)
+        val named = with("group_reply_to_bot", "text" to JsonNull, "sticker" to sticker)
+
+        val plain = assertIs<Inbound.Message>(every.read(fixture("group_unaddressed"))).message
+        assertEquals("Lunch at noon?", plain.text)
+        val other = assertIs<Inbound.Ignored>(every.read(fixture("group_command_other_bot")))
+        assertEquals("it is a command for @other_bot", other.why)
+        assertEquals("it holds nothing the bot reads", assertIs<Inbound.Ignored>(every.read(unnamed)).why)
+        assertFalse(every.names(fixture("group_unaddressed")))
+        assertTrue(every.addressed(fixture("group_unaddressed")))
+        assertEquals("it is not addressed to the bot", ignored("group_unaddressed"))
+        assertIs<Inbound.Unsupported>(every.read(named))
     }
 
     // Commands.
@@ -196,7 +456,7 @@ class UpdateReaderTest {
         assertEquals("/usr/bin is empty", message("private_path").text)
         val caption = message("caption_command")
         assertEquals("/new", caption.text)
-        assertEquals(1, caption.facts.size)
+        assertEquals(1, caption.media.size)
     }
 
     // Groups.
@@ -230,12 +490,13 @@ class UpdateReaderTest {
     }
 
     @Test
-    fun `a bare mention is ignored unless it replies to a message, whose quote is the message`() {
-        assertEquals("it only mentions the bot", ignored("group_bare_mention"))
+    fun `a bare mention reaches the agent as written, or as the quote of the message it replies to`() {
+        assertEquals("@alexandrite_test_bot", message("group_bare_mention").text)
         val reply = message("group_bare_mention_reply")
         assertEquals("", reply.text)
         assertEquals("Deploy at five.", reply.quote?.text)
-        assertIs<Inbound.Unsupported>(read("caption_mention_only"))
+        val photo = message("caption_mention_only")
+        assertEquals("" to 1, photo.text to photo.media.size)
     }
 
     @Test
@@ -269,3 +530,7 @@ class UpdateReaderTest {
         }
     }
 }
+
+private val VOUCHED = QuoteTrust(live = true, content = true)
+
+private val AUTHOR_KNOWN = QuoteTrust(live = true, content = false)

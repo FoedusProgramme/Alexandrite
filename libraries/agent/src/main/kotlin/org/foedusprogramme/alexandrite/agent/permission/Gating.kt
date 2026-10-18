@@ -49,9 +49,9 @@ internal fun strictest(modes: List<PermissionMode>): PermissionMode =
 
 /**
  * The kinds of turn whose admin actor makes them an operator's. A sub-agent run carries an admin actor only under an
- * operator's root turn.
+ * operator's root turn, a reminder only under its operator's mandate.
  */
-private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)
+private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED, TurnKind.REMINDER)
 
 private val STRICTNESS = listOf(
     PermissionMode.PLAN,

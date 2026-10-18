@@ -10,7 +10,9 @@ import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.context.ContextControl
 import org.foedusprogramme.alexandrite.agent.context.ContextRecords
 import org.foedusprogramme.alexandrite.agent.delegation.DelegatedRuns
+import org.foedusprogramme.alexandrite.agent.delegation.RunRecords
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
+import org.foedusprogramme.alexandrite.agent.delivery.SentMessages
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
@@ -50,6 +52,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ModelInfo
 import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.store.ConversationStore
+import org.foedusprogramme.alexandrite.sdk.store.ConversationTaint
 import org.foedusprogramme.alexandrite.sdk.store.Rotation
 import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
@@ -74,6 +77,7 @@ import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
 
 /** The agent's control port and the chat settings it shows other plugins. */
@@ -96,6 +100,8 @@ internal class AgentControlImpl(
     private val offeredTools: OfferedTools,
     private val pendingCommands: PendingCommands,
     private val interruptedJobs: InterruptedJobs,
+    private val sentMessages: SentMessages,
+    private val runRecords: RunRecords,
     private val contexts: ContextControl,
     private val contextRecords: ContextRecords,
     private val hooks: TurnHooks,
@@ -124,7 +130,9 @@ internal class AgentControlImpl(
     }
 
     override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean {
-        if (!runs.cancel(run, tree, TurnCancelled(by))) return background.stop(run, null, by)
+        val backgroundStopped = background.stop(run, null, by, tree)
+        val runStopped = runs.cancel(run, tree, TurnCancelled(by))
+        if (!backgroundStopped && !runStopped) return false
         logger.info("Run {}{} is cancelled by {}", run, if (tree) " and the runs below it" else "", who(by))
         return true
     }
@@ -160,6 +168,21 @@ internal class AgentControlImpl(
 
     override suspend fun context(chat: ChatAddress): ContextStatus =
         contexts.status(refusing(null) { served(chat).key })
+
+    override suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint? {
+        val key = refusing(null) { served(chat).key }
+        val cleared = onWorker(key) { conversations.clearTaint(conversations.current(key).id) }
+        if (cleared != null) {
+            logger.info(
+                "The taint of the conversation of {} (since {}: {}) is cleared by {}",
+                key,
+                cleared.at,
+                cleared.reason,
+                who(by),
+            )
+        }
+        return cleared
+    }
 
     override fun agents(instance: ChannelInstanceId): List<AgentSummary> {
         val default = directory.default(instance)?.id
@@ -273,6 +296,11 @@ internal class AgentControlImpl(
         return states.language(key) ?: directory.agent(key.agent)?.language
     }
 
+    override suspend fun zone(chat: ChatAddress): ZoneId? {
+        val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
+        return states.zone(key) ?: directory.agent(key.agent)?.zone
+    }
+
     private suspend fun served(chat: ChatAddress): Resolution.Served =
         router.resolve(chat) as? Resolution.Served ?: throw Refused(TextKeys.NO_AGENT, "chat" to chat)
 
@@ -303,6 +331,8 @@ internal class AgentControlImpl(
             .defaultLanguage(agent?.language)
             .mode(mode?.mode, mode?.until)
             .defaultMode(agent?.mode)
+            .zone(states.zone(key))
+            .defaultZone(agent?.zone)
             .build()
     }
 
@@ -405,11 +435,14 @@ internal class AgentControlImpl(
         offeredTools.sealed(sealed)
         pendingCommands.sealed(sealed)
         interruptedJobs.sealed(sealed)
+        sentMessages.sealed(sealed)
+        runRecords.sealed(sealed)
         contextRecords.sealed(sealed)
         val turn = command?.takeIf { it.key == key }
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)
                 .language(states.language(key) ?: directory.agent(key.agent)?.language)
+                .zone(states.effectiveZone(key, directory.agent(key.agent), clock))
                 .agent(key.agent)
                 .key(key)
                 .build()
@@ -466,10 +499,14 @@ internal class AgentControlImpl(
 }
 
 /** The changes of [update] to the settings kept per agent and chat, as a log shows them. */
-private fun settingChanges(update: ChatSettingsUpdate): String =
-    listOf("model" to update.model, "reasoning" to update.reasoning, "language" to update.language)
-        .filter { it.second != SettingChange.Keep }
-        .joinToString { (name, change) -> "$name ${(change as? SettingChange.SetTo)?.value ?: "reset"}" }
+private fun settingChanges(update: ChatSettingsUpdate): String = listOf(
+    "model" to update.model,
+    "reasoning" to update.reasoning,
+    "language" to update.language,
+    "zone" to update.zone,
+)
+    .filter { it.second != SettingChange.Keep }
+    .joinToString { (name, change) -> "$name ${(change as? SettingChange.SetTo)?.value ?: "reset"}" }
 
 private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 

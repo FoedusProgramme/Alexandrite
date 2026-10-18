@@ -3,6 +3,7 @@ package org.foedusprogramme.alexandrite.sdk.tool
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.json.JsonObject
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import java.nio.file.Path
 
 /** A tool that reviews each call before the permission layer decides it. */
@@ -26,7 +27,32 @@ public class CallReview(
     public val rule: RuleSubject? = null,
     /** Why the call cannot run as asked, null when it can. */
     public val problem: String? = null,
-)
+    /** Whether the call needs no approval outside `plan` mode, as a write in the turn's own conversation directory does. */
+    public val exempt: Boolean = false,
+    /** Whether the call runs as a background job from its start, which [ToolContext.background] then hands it. */
+    public val background: Boolean = false,
+) {
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+        exempt: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false)
+
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false)
+}
 
 /** What an approver is shown of a call. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
@@ -55,6 +81,24 @@ public interface ReviewPreview {
     @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Text(public val text: String) : ReviewPreview
+
+    /** The file [path] sent to [destination]. */
+    @OptIn(InternalAlexandriteApi::class)
+    @Poko
+    public class OutgoingFile(
+        public val path: Path,
+        /** In bytes. */
+        public val size: Long,
+        /** The SHA-256 of the file's bytes in lowercase hex. */
+        public val sha256: String,
+        public val destination: ChatAddress,
+        /** The text sent with the file, null for none. */
+        public val caption: String? = null,
+    ) : ReviewPreview {
+        init {
+            require(size >= 0) { "A file holds at least 0 bytes, was $size." }
+        }
+    }
 }
 
 /** The calls that an allow rule covers: those of [tool] whose subject starts with [tokens]. */

@@ -69,8 +69,14 @@ class DependencyRuleTest {
     }
 
     @Test
-    fun `examples, provider-common and channel-common compile without the SDK's internal API`() {
-        val modules = listOf("examples/x", "libraries/provider-common", "libraries/channel-common", "libraries/runtime")
+    fun `examples and the common libraries compile without the SDK's internal API`() {
+        val modules = listOf(
+            "examples/x",
+            "libraries/provider-common",
+            "libraries/channel-common",
+            "libraries/automation-common",
+            "libraries/runtime",
+        )
         val printOptIns = "afterEvaluate {\n" +
             "    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().forEach {\n" +
             "        println(\"opt-ins \${path} \${it.name} \${it.compilerOptions.optIn.get()}\")\n" +

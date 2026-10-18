@@ -22,6 +22,19 @@ class SubclassOptInTest {
             override val cacheDir get() = TODO()
         }
 
+        class Models : org.foedusprogramme.alexandrite.sdk.web.WebModels {
+            override suspend fun answer(question: org.foedusprogramme.alexandrite.sdk.web.PageQuestion): String = TODO()
+
+            override suspend fun search(
+                model: org.foedusprogramme.alexandrite.sdk.transcript.ModelRef,
+                query: org.foedusprogramme.alexandrite.sdk.web.WebQuery,
+            ): List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult>? = TODO()
+        }
+
+        class Background : org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall {
+            override suspend fun update(result: org.foedusprogramme.alexandrite.sdk.tool.ToolResult): Boolean = TODO()
+        }
+
         abstract class Index : org.foedusprogramme.alexandrite.sdk.plugin.PluginIndex
 
         class Control : org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl {
@@ -54,8 +67,11 @@ class SubclassOptInTest {
             override val turn get() = TODO()
             override val call get() = TODO()
             override val workspace get() = TODO()
+            override val conversationDirectory get() = TODO()
             override val clearance get() = TODO()
             override suspend fun openWorkspace() = TODO()
+            override suspend fun openConversationDirectory() = TODO()
+            override suspend fun conversationQuotaRefusal(path: java.nio.file.Path, bytes: Long) = TODO()
             override fun touched(path: java.nio.file.Path) = TODO()
             override fun untrusted(reason: String) = TODO()
         }
@@ -69,14 +85,23 @@ class SubclassOptInTest {
         class Answer : org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 
         class Floor : org.foedusprogramme.alexandrite.sdk.tool.HardFloor {
-            override fun checkRead(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
-                TODO()
+            override fun checkRead(
+                path: java.nio.file.Path,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                conversation: org.foedusprogramme.alexandrite.sdk.chat.ConversationId?,
+            ) = TODO()
 
-            override fun checkWrite(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
-                TODO()
+            override fun checkWrite(
+                path: java.nio.file.Path,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                conversation: org.foedusprogramme.alexandrite.sdk.chat.ConversationId?,
+            ) = TODO()
 
-            override fun checkTree(path: java.nio.file.Path, agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?) =
-                TODO()
+            override fun checkTree(
+                path: java.nio.file.Path,
+                agent: org.foedusprogramme.alexandrite.sdk.chat.AgentId?,
+                conversation: org.foedusprogramme.alexandrite.sdk.chat.ConversationId?,
+            ) = TODO()
         }
 
         class States : org.foedusprogramme.alexandrite.sdk.chat.ChatStates {
@@ -257,6 +282,10 @@ class SubclassOptInTest {
                 by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
             override suspend fun context(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun untaint(
+                chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress,
+                by: org.foedusprogramme.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
             override fun agents(instance: org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
             override suspend fun settings(chat: org.foedusprogramme.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun updateSettings(
@@ -921,6 +950,19 @@ class SubclassOptInTest {
     @Test
     fun `a plugin's tool checks its paths against the hard floor without the internal API`() {
         assertEquals(emptyList(), errors(fileTool))
+    }
+
+    @Test
+    fun `a plugin implements web search capabilities without the internal API`() {
+        val source = """
+            class Search : org.foedusprogramme.alexandrite.sdk.web.WebSearchBackend {
+                override val id = "search"
+                override suspend fun search(query: org.foedusprogramme.alexandrite.sdk.web.WebQuery):
+                    List<org.foedusprogramme.alexandrite.sdk.web.WebSearchResult> = listOf(org.foedusprogramme.alexandrite.sdk.web.WebSearchResult("title", "url", query.text))
+            }
+        """.trimIndent()
+
+        assertEquals(emptyList(), errors(source))
     }
 
     @Test

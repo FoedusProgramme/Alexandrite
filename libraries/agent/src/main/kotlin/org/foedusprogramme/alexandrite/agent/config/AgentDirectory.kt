@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.sdk.model.ReasoningEffort
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.slf4j.LoggerFactory
+import java.time.ZoneId
 
 internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: List<Attachment>) {
     val name: String get() = config.name ?: id.value
@@ -21,6 +22,8 @@ internal class Agent(val id: AgentId, val config: AgentConfig, val attachments: 
     val reasoning: ReasoningEffort? = config.reasoning?.let(ReasoningEffort::of)
 
     val language: LanguageTag? = config.language?.let(LanguageTag::of)
+
+    val zone: ZoneId? = config.zone?.let(ZoneId::of)
 
     val mode: PermissionMode? = config.permission.mode?.let(PermissionMode::of)
 

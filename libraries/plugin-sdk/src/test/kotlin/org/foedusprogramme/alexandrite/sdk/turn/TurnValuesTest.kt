@@ -94,6 +94,18 @@ class TurnValuesTest {
         )
     }
 
+    @Test
+    fun `a command handler describes a command by its spec in every language unless it says otherwise`() {
+        val handler = object : CommandHandler {
+            override val commands = listOf(CommandSpec.builder("new", "Starts over.").build())
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
+        }
+
+        assertEquals("Starts over.", handler.description("new", null))
+        assertEquals("Starts over.", handler.description("new", LanguageTag("zh-CN")))
+    }
+
     // Submissions.
 
     @Test

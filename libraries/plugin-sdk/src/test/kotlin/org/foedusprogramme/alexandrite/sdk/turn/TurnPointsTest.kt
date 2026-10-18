@@ -26,6 +26,7 @@ class TurnPointsTest {
                 "prompt.sections", "turn.start", "turn.input", "context.loaded", "context.inject", "llm.request",
                 "llm.response", "tool.before", "tool.after", "response.preview", "response.before", "turn.committed",
                 "conversation.sealed", "context.compact", "context.compacted", "context.cleared",
+                "agent.spawn", "agent.run.ended", "job.started", "job.ended", "tool.backgrounded",
             ),
             ids.toSet(),
         )

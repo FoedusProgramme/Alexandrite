@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
 import kotlinx.coroutines.delay
+import org.foedusprogramme.alexandrite.channel.telegram.GroupMessages
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramBots
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApi
@@ -14,6 +15,7 @@ import org.foedusprogramme.alexandrite.sdk.di.Lifecycle
 import org.foedusprogramme.alexandrite.sdk.runtime.RuntimeControl
 import org.foedusprogramme.alexandrite.sdk.runtime.StopRequest
 import org.slf4j.LoggerFactory
+import org.slf4j.event.Level
 import java.io.IOException
 import java.net.URI
 import java.util.concurrent.atomic.AtomicBoolean
@@ -74,11 +76,15 @@ internal class BotSession(
         }
         val username = user.username.orEmpty()
         me = BotIdentity(user.id, username)
-        val reads = if (user.canReadAllGroupMessages == true) "yes" else "no"
-        logger.info("{} is @{} (id {}), reads all group messages: {}", instance.id, username, user.id, reads)
-        if (config.allowedChats.isEmpty()) {
-            logger.warn("{}: no chat is paired yet: the first message of a chat gets a pairing code", instance.id)
-        }
+        val reads = user.canReadAllGroupMessages == true
+        logger.info(
+            "{} is @{} (id {}), reads all group messages: {}",
+            instance.id,
+            username,
+            user.id,
+            if (reads) "yes" else "no",
+        )
+        if (!reads) privacyHint(username)
         if (sendsTokenInClear(config.apiBase)) {
             logger.warn(
                 "{} reaches the Bot API at {} over plain http, so its bot token crosses the network unencrypted",
@@ -124,6 +130,19 @@ internal class BotSession(
     }
 
     private fun path(key: String?): String = configPath(instance.id, key)
+
+    /** Tells what the bot's privacy mode keeps from it in the groups where it is no admin. */
+    private fun privacyHint(username: String) {
+        val all = config.groupMessages == GroupMessages.ALL
+        logger.atLevel(if (all) Level.WARN else Level.INFO).log(
+            "{}: @{} has privacy mode on, so in a group where it is no admin Telegram gives it only commands for " +
+                "it and replies to it, not {}: make it a group admin, or turn privacy off with /setprivacy at " +
+                "@BotFather and add it to the group again",
+            instance.id,
+            username,
+            if (all) "every message" else "mentions",
+        )
+    }
 
     private companion object {
         const val TRIES = 3

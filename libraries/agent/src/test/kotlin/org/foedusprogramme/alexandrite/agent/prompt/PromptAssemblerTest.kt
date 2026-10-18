@@ -1,9 +1,11 @@
 package org.foedusprogramme.alexandrite.agent.prompt
 
 import org.foedusprogramme.alexandrite.agent.agentHarness
+import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
 import org.foedusprogramme.alexandrite.agent.execute
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatKind
+import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.model.PromptSection
@@ -33,7 +35,11 @@ class PromptAssemblerTest {
               "instructions": ["Be brief."],
               "tools": {"deny": ["persona.edit"]}
             },
-            "helper": {"description": "Helps.", "instructionFiles": [{"file": "private.md", "when": ["direct"]}]}
+            "helper": {
+              "description": "Helps.",
+              "instructionFiles": [{"file": "private.md", "when": ["direct"]}],
+              "tools": {"deny": ["persona.edit"]}
+            }
           }
         }
     """.trimIndent()
@@ -85,7 +91,7 @@ class PromptAssemblerTest {
     }
 
     @Test
-    fun `an agent that selects a tool is told of its workspace before the chat's language`() {
+    fun `an agent that selects a tool is told of its workspace and conversation directory before the language`() {
         val config = """
             {
               "agents": {
@@ -99,10 +105,21 @@ class PromptAssemblerTest {
             val assembler = get<PromptAssembler>()
             val coder = testTurn { agent(AgentId("coder")).language(LanguageTag("zh-CN")) }
             val helper = testTurn { agent(AgentId("helper")) }
+            val conversationDirectory = get<ConversationDirectories>().path(AgentId("coder"), ConversationId("test"))
 
             val sections = assembler.sections(coder, ChatKind.DIRECT)
-            assertEquals(listOf(BASE_SECTION, WORKSPACE_SECTION, LANGUAGE_SECTION), sections.map { it.id })
+            assertEquals(
+                listOf(
+                    BASE_SECTION,
+                    WORKSPACE_SECTION,
+                    CONVERSATION_DIRECTORY_SECTION,
+                    SKILLS_SECTION,
+                    LANGUAGE_SECTION,
+                ),
+                sections.map { it.id },
+            )
             assertEquals(workspaceSection(Path.of("/srv/coder")), sections[1])
+            assertEquals(conversationDirectorySection(conversationDirectory), sections[2])
             assertEquals(listOf(BASE_SECTION), assembler.sections(helper, ChatKind.DIRECT).map { it.id })
         }
     }

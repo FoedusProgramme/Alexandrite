@@ -1,12 +1,20 @@
 package org.foedusprogramme.alexandrite.agent.turn
 
+import org.foedusprogramme.alexandrite.agent.directory.Inbox
+import org.foedusprogramme.alexandrite.agent.directory.Saving
+import org.foedusprogramme.alexandrite.agent.directory.generatedName
+import org.foedusprogramme.alexandrite.agent.directory.inboxName
+import org.foedusprogramme.alexandrite.agent.prompt.NotedMedia
 import org.foedusprogramme.alexandrite.agent.prompt.mediaNote
+import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.MediaAttachment
 import org.foedusprogramme.alexandrite.sdk.chat.TurnId
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.store.MediaStore
 import org.foedusprogramme.alexandrite.sdk.store.storeInline
 import org.foedusprogramme.alexandrite.sdk.transcript.InlineMedia
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaId
+import org.foedusprogramme.alexandrite.sdk.transcript.MediaKind
 import org.foedusprogramme.alexandrite.sdk.transcript.MediaPart
 import org.foedusprogramme.alexandrite.sdk.transcript.StoredMedia
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
@@ -18,21 +26,30 @@ import org.foedusprogramme.alexandrite.sdk.transcript.UserPart
 import org.slf4j.LoggerFactory
 import kotlin.coroutines.cancellation.CancellationException
 
-/** The media of the turn [turn]: its message's attachments put into [store], and the bytes its requests carry. */
-internal class TurnMedia(private val turn: TurnId, private val store: MediaStore, private val maxBytes: Long) {
+/**
+ * The media of the turn [turn]: its messages' attachments saved into the [inbox], images put into [store] for a model
+ * that views them, and the bytes its requests carry.
+ */
+internal class TurnMedia(
+    private val turn: TurnId,
+    private val store: MediaStore,
+    private val maxBytes: Long,
+    private val inbox: Inbox,
+) {
     /** The bytes of the media the turn put or read, null where the store has none. */
     private val loaded = HashMap<MediaId, InlineMedia?>()
 
-    /** The parts that refer to [attachments] in the store, followed by a note on those left out. */
-    suspend fun put(attachments: List<MediaAttachment>): List<UserPart> {
+    /**
+     * The images of [message] that the model is shown where it views [images], followed by the note that names where
+     * each attachment was saved in the inbox of [info] or why it was not.
+     */
+    suspend fun put(info: TurnInfo, message: IncomingMessage, images: Boolean): List<UserPart> {
         val parts = mutableListOf<UserPart>()
-        val leftOut = mutableListOf<Pair<MediaAttachment, String>>()
-        for (attachment in attachments) {
-            val why = put(attachment, parts) ?: continue
-            logger.warn("Turn {} leaves out an attachment of type {} ({})", turn, attachment.mediaType, why)
-            leftOut += attachment to why
+        val noted = message.media.mapIndexed { index, attachment ->
+            val generated = generatedName(attachment.kind, attachment.mediaType, message.ref.id, index + 1)
+            put(info, attachment, generated, images, parts)
         }
-        if (leftOut.isNotEmpty()) parts += mediaNote(leftOut)
+        if (noted.isNotEmpty()) parts += mediaNote(noted)
         return parts
     }
 
@@ -72,28 +89,63 @@ internal class TurnMedia(private val turn: TurnId, private val store: MediaStore
         }
     }
 
-    /** Adds the part that refers to [attachment] in the store to [parts], or returns why it is left out. */
-    private suspend fun put(attachment: MediaAttachment, parts: MutableList<UserPart>): String? {
+    /**
+     * Saves [attachment] into the inbox of [info] as its own name or else [generated], and adds the part that shows it
+     * to [parts] when it is an image the model views where it views [images].
+     */
+    private suspend fun put(
+        info: TurnInfo,
+        attachment: MediaAttachment,
+        generated: String,
+        images: Boolean,
+        parts: MutableList<UserPart>,
+    ): NotedMedia {
+        attachment.unavailable?.let { return notSaved(attachment, it) }
         val tooLarge = "larger than the $maxBytes bytes a message may carry"
-        if ((attachment.size ?: 0) > maxBytes) return tooLarge
+        if ((attachment.size ?: 0) > maxBytes) return notSaved(attachment, tooLarge)
         val bytes = try {
             attachment.content.read(maxBytes)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logger.debug("Turn {} cannot load an attachment", turn, e)
-            return "which could not be loaded"
+            logger.debug("Turn {} cannot load an attachment: {}", turn, e.toString())
+            return notSaved(attachment, "it could not be loaded")
         }
-        if (bytes.size > maxBytes) return tooLarge
+        if (bytes.size > maxBytes) return notSaved(attachment, tooLarge, bytes.size.toLong())
+        val saving = inbox.save(info, attachment.name?.let(::inboxName) ?: generated, bytes)
+        val refusal = (saving as? Saving.Refused)?.reason
+        refusal?.let {
+            logger.warn("Turn {} did not save an attachment of type {}: {}", turn, attachment.mediaType, it)
+        }
+        val view = when {
+            attachment.kind != MediaKind.IMAGE -> null
+            !images -> NotedMedia.View.NOT_VIEWED
+            attachment.mediaType.lowercase() !in VIEWED_IMAGES -> NotedMedia.View.UNVIEWABLE
+            else -> shown(attachment, bytes, parts)
+        }
+        return NotedMedia(attachment, bytes.size.toLong(), (saving as? Saving.Saved)?.path, refusal, view)
+    }
+
+    /** Adds the part that shows [attachment] to [parts], and says how it went. */
+    private suspend fun shown(
+        attachment: MediaAttachment,
+        bytes: ByteArray,
+        parts: MutableList<UserPart>,
+    ): NotedMedia.View {
         val stored = try {
             store.put(bytes, attachment.kind, attachment.mediaType)
         } catch (e: IllegalArgumentException) {
-            logger.debug("Turn {} cannot store an attachment", turn, e)
-            return "which could not be stored"
+            logger.debug("Turn {} cannot store an attachment: {}", turn, e.toString())
+            return NotedMedia.View.NOT_STORED
         }
         loaded[stored.id] = InlineMedia(bytes)
         with(attachment) { parts += MediaPart(kind, mediaType, stored, name, width, height) }
-        return null
+        return NotedMedia.View.SHOWN
+    }
+
+    private fun notSaved(attachment: MediaAttachment, why: String, size: Long? = attachment.size): NotedMedia {
+        logger.warn("Turn {} leaves out an attachment of type {} ({})", turn, attachment.mediaType, why)
+        return NotedMedia(attachment, size, null, why, null)
     }
 
     private suspend fun userPart(part: UserPart): UserPart =
@@ -132,5 +184,8 @@ private fun ToolOutputPart.inlineBytes(): InlineMedia? = (this as? MediaPart)?.s
 
 private fun ToolResultEntry.withContent(part: (ToolOutputPart) -> ToolOutputPart): ToolResultEntry =
     ToolResultEntry(record, callId, toolName, content.map(part), outcome)
+
+/** The types of image that the agent shows a model that views images. */
+private val VIEWED_IMAGES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
 
 private val logger = LoggerFactory.getLogger(TurnMedia::class.java)
