@@ -4,10 +4,12 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
+import org.foedusprogramme.alexandrite.channel.telegram.GroupMessages
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramBots
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
+import org.foedusprogramme.alexandrite.channel.telegram.api.User
 import org.foedusprogramme.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import org.foedusprogramme.alexandrite.channel.telegram.logged
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
@@ -90,6 +92,49 @@ class BotSessionTest {
         val error = assertFailsWith<ConfigException> { session(home).onStart() }
         assertEquals("channels.telegram.instances.home.botToken", error.path)
         assertContains(error.message.orEmpty(), "is the bot of telegram:work already")
+    }
+
+    @Test
+    fun `a bot without admins is warned of at start, one with an admin not`() = runTest {
+        suspend fun started(admins: List<Long>): List<String> = logged {
+            val config = TelegramInstanceConfig(Secret(FAKE_BOT_TOKEN), adminUserIds = admins)
+            BotSession(TestInstance(backgroundScope), config, api, bots, control).apply {
+                onStart()
+                onStop()
+            }
+        }.filter { "no admin is configured" in it }
+
+        assertEquals(
+            listOf(
+                "WARN telegram:work: no admin is configured, so nobody may run admin commands and agents offer tools " +
+                    "to nobody",
+            ),
+            started(emptyList()),
+        )
+        assertEquals(emptyList(), started(listOf(1001)))
+    }
+
+    @Test
+    fun `privacy mode is told of at start, as a warning when the bot takes every group message`() = runTest {
+        suspend fun started(groupMessages: GroupMessages): List<String> = logged {
+            val config = TelegramInstanceConfig(Secret(FAKE_BOT_TOKEN), groupMessages = groupMessages)
+            BotSession(TestInstance(backgroundScope), config, api, bots, control).apply {
+                onStart()
+                onStop()
+            }
+        }.filter { "privacy mode" in it }
+        val hint = "telegram:work: @alexandrite_test_bot has privacy mode on, so in a group where it is no admin " +
+            "Telegram gives it only commands for it and replies to it, not %s: make it a group admin, or turn " +
+            "privacy off with /setprivacy at @BotFather and add it to the group again"
+
+        val addressed = started(GroupMessages.ADDRESSED)
+        val all = started(GroupMessages.ALL)
+        api.me = User(api.me.id, isBot = true, username = api.me.username, canReadAllGroupMessages = true)
+        val open = started(GroupMessages.ALL)
+
+        assertEquals(listOf("INFO " + hint.format("mentions")), addressed)
+        assertEquals(listOf("WARN " + hint.format("every message")), all)
+        assertEquals(emptyList(), open)
     }
 
     @Test

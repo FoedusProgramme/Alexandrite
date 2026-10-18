@@ -53,6 +53,8 @@ internal class UpdateReader(
     private val bot: BotIdentity,
     private val approvals: ApprovalMessages,
     private val answeredAdmin: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
+    /** Whether every message of a group is meant for the bot, not only those that name it. */
+    private val everyGroupMessage: Boolean = false,
     private val files: (fileId: String) -> MediaContent,
 ) {
     /** The chat of [message], its forum topic as the thread. */
@@ -77,8 +79,15 @@ internal class UpdateReader(
         isAdmin = user.id in admins && senderChat == null,
     )
 
-    /** Whether [message] is meant for the bot: any message with content in a direct chat, else one that names it. */
-    fun addressed(message: Message): Boolean = if (kindOf(message.chat) == ChatKind.DIRECT) {
+    /**
+     * Whether [message] is meant for the bot: one that [names] it, or in a group any message but a command for another
+     * bot when the bot takes [everyGroupMessage].
+     */
+    fun addressed(message: Message): Boolean =
+        names(message) || (everyGroupMessage && kindOf(message.chat) != ChatKind.DIRECT && command(message) == null)
+
+    /** Whether [message] names the bot: any message with content in a direct chat, else a command, mention or reply. */
+    fun names(message: Message): Boolean = if (kindOf(message.chat) == ChatKind.DIRECT) {
         message.text != null || message.caption != null || hasContent(message)
     } else {
         val command = command(message)
@@ -98,7 +107,7 @@ internal class UpdateReader(
         if (parts.none(::addressed)) return Inbound.Ignored("it is not addressed to the bot")
         val media = parts.flatMap { media(it, quoted = false) }
         if (parts.all { it.text == null && it.caption == null } && media.isEmpty()) {
-            return if (parts.any(::hasContent)) Inbound.Unsupported(chat, ref) else Inbound.Ignored("it is a notice")
+            return if (parts.any(::hasContent)) unsupported(parts, chat, ref) else Inbound.Ignored("it is a notice")
         }
         val facts = parts.flatMap(::facts).distinct()
         val quote = quote(message, chat)
@@ -129,13 +138,17 @@ internal class UpdateReader(
             withoutMentions(body, entities).trim().takeIf { it.isNotEmpty() }
         }.joinToString("\n\n")
         if (text.isEmpty() && quote == null && media.isEmpty()) {
-            if (facts.isNotEmpty()) return Inbound.Unsupported(chat, ref)
+            if (facts.isNotEmpty()) return unsupported(parts, chat, ref)
             // A bare mention reaches the model as it was written, which tells it all there is to tell.
             val mention = parts.mapNotNull { it.text ?: it.caption }.joinToString("\n\n").trim()
             return Inbound.Message(builder.text(mention).build())
         }
         return Inbound.Message(builder.text(text).build())
     }
+
+    /** [parts], which hold nothing the bot reads, told as such only when they name the bot. */
+    private fun unsupported(parts: List<Message>, chat: ChatAddress, ref: ChannelMessageRef): Inbound =
+        if (parts.any(::names)) Inbound.Unsupported(chat, ref) else Inbound.Ignored("it holds nothing the bot reads")
 
     /** The files of [message], each as an attachment of the quoted message when [quoted]. */
     private fun media(message: MessageFiles, quoted: Boolean): List<MediaAttachment> = buildList {

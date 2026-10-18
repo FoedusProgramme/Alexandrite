@@ -386,6 +386,30 @@ class UpdateReaderTest {
         assertFalse(reader.addressed(fixture("service_new_members")))
     }
 
+    @Test
+    fun `a bot that takes every group message reads one that does not name it, but no command for another bot`() {
+        val every = UpdateReader(
+            work,
+            setOf(1001L),
+            BotIdentity(1234567890, "alexandrite_test_bot"),
+            approvals,
+            everyGroupMessage = true,
+        ) { MediaContent { _ -> ByteArray(0) } }
+        val sticker = buildJsonObject { put("file_id", "CAAC") }
+        val unnamed = with("group_unaddressed", "text" to JsonNull, "sticker" to sticker)
+        val named = with("group_reply_to_bot", "text" to JsonNull, "sticker" to sticker)
+
+        val plain = assertIs<Inbound.Message>(every.read(fixture("group_unaddressed"))).message
+        assertEquals("Lunch at noon?", plain.text)
+        val other = assertIs<Inbound.Ignored>(every.read(fixture("group_command_other_bot")))
+        assertEquals("it is a command for @other_bot", other.why)
+        assertEquals("it holds nothing the bot reads", assertIs<Inbound.Ignored>(every.read(unnamed)).why)
+        assertFalse(every.names(fixture("group_unaddressed")))
+        assertTrue(every.addressed(fixture("group_unaddressed")))
+        assertEquals("it is not addressed to the bot", ignored("group_unaddressed"))
+        assertIs<Inbound.Unsupported>(every.read(named))
+    }
+
     // Commands.
 
     @Test

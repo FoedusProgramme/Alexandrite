@@ -103,6 +103,39 @@ class TelegramIntakeTest {
         }
     }
 
+    @Test
+    fun `a bot that takes every group message answers one that names it not, and offers no code for one`() {
+        val every = """, "groupMessages": "all""""
+        val builder = telegram.builder("work" to telegram.instance(allowed = "[$ADA]", more = every))
+        val other = fake.group(-1001234500009, "Elsewhere")
+        telegram.run(builder) {
+            fake.send(telegram.bob, other, "Anyone here?")
+            fake.send(telegram.bob, telegram.group, "Lunch at noon?")
+            fake.send(telegram.bob, telegram.group, "/start@other_bot")
+            fake.send(telegram.ada, telegram.adaChat, "Paired.")
+            telegram.submitted(1)
+            telegram.consumed(4)
+        }
+
+        val texts = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message.text }
+        assertEquals(listOf("Paired."), texts)
+        assertEquals(emptyList(), fake.botMessages(other.id) + fake.botMessages(GROUP))
+    }
+
+    @Test
+    fun `a paired group's every message reaches the agent when the bot takes them all`() {
+        val every = """, "groupMessages": "all""""
+        telegram.run(telegram.builder("work" to telegram.instance(more = every))) {
+            fake.send(telegram.bob, telegram.group, "Lunch at noon?")
+            fake.send(telegram.bob, telegram.group, "/start@other_bot")
+            fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot and you?")
+            telegram.consumed(3)
+        }
+
+        val texts = telegram.submitter.submissions.map { assertIs<Submission.Message>(it).message.text }
+        assertEquals(listOf("Lunch at noon?", "and you?"), texts)
+    }
+
     // The command rules.
 
     @Test

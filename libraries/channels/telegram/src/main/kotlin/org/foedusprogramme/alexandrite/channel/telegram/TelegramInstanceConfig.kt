@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.telegram
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
 import org.foedusprogramme.alexandrite.channel.telegram.intake.Who
@@ -24,6 +25,8 @@ internal class TelegramInstanceConfig(
     val apiBaseUrl: String = "https://api.telegram.org",
     val polling: PollingConfig = PollingConfig(),
     val streaming: StreamingConfig = StreamingConfig(),
+    /** Which messages of an allowed group the bot answers. */
+    val groupMessages: GroupMessages = GroupMessages.ADDRESSED,
     /** How long an approval request waits for an admin's answer. */
     val approvalMinutes: Int = 10,
     /** How old a message that a stop cut off may be and still be answered after the restart, 0 for none. */
@@ -61,6 +64,18 @@ internal class TelegramInstanceConfig(
 
     /** [apiBaseUrl] without a trailing `/`. */
     val apiBase: String get() = apiBaseUrl.trimEnd('/')
+}
+
+/** Which messages of an allowed group a bot answers. */
+@Serializable
+internal enum class GroupMessages {
+    /** Those that name it: a command for it, a mention of it, a reply to it. */
+    @SerialName("addressed")
+    ADDRESSED,
+
+    /** Every one, but a command for another bot. */
+    @SerialName("all")
+    ALL,
 }
 
 @Serializable

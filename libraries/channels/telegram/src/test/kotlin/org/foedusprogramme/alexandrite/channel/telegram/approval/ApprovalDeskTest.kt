@@ -60,13 +60,17 @@ class ApprovalDeskTest {
     private val bob = user(BOB, "Bob", admin = false)
 
     /** The desk of a bot whose admins are Ada, whose direct chat is paired, and Grace, whose is not. */
-    private inner class Desk(test: TestScope, admins: List<Long> = listOf(ADA, GRACE)) {
+    private inner class Desk(
+        test: TestScope,
+        admins: List<Long> = listOf(ADA, GRACE),
+        paired: List<Long> = listOf(ADA, BOB, GROUP),
+    ) {
         val api = MemoryBotApi()
         private val instance = TestInstance(test.backgroundScope)
         private val config = TelegramInstanceConfig(
             Secret(FAKE_BOT_TOKEN),
             adminUserIds = admins,
-            allowedChats = listOf(ADA, BOB, GROUP),
+            allowedChats = paired,
         )
         private val limiter = SendLimiter(timeSource = test.testScheduler.timeSource)
         private val texts = testTexts("alexandrite-channel-telegram")
@@ -390,6 +394,26 @@ class ApprovalDeskTest {
                 "ask mode\nTool: fs.write (workspace_write)\nArguments:\n\n{\"path\":\"notes.md\"}\n\nDenied by Ada.",
             ),
         )
+    }
+
+    @Test
+    fun `a member's request goes to every admin, and one admin's answer closes it for all, a denial too`() = runTest {
+        val desk = Desk(this, paired = listOf(ADA, GRACE, BOB, GROUP))
+        val answer = asking(desk, request(turnOf(bob, GROUP), id = "member"))
+        advanceTimeBy(5.seconds)
+        val asked = listOf(ADA, GRACE).map { chat -> desk.api.messages.keys.single { it.first == chat } }
+
+        desk.press(grace, "apv:member:d", GRACE, asked[1].second)
+        advanceTimeBy(5.seconds)
+        desk.press(ada, "apv:member:a", ADA, asked[0].second)
+        advanceTimeBy(5.seconds)
+
+        assertEquals(ApprovalAnswer.Denied(grace), answer.await())
+        for (chat in listOf(ADA, GRACE)) {
+            val shown = desk.shown(chat).single()
+            assertTrue(shown.endsWith("Denied by Grace."), shown)
+        }
+        assertEquals(listOf(null, "This request no longer waits for an answer."), desk.toasts())
     }
 
     @Test

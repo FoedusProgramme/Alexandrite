@@ -37,7 +37,7 @@ import kotlin.time.Duration
  * keeps the bot's messages.
  */
 internal class MemoryBotApi : BotApi {
-    val me = User(1234567890, isBot = true, firstName = "Alexandrite Test Bot", username = "alexandrite_test_bot")
+    var me = User(1234567890, isBot = true, firstName = "Alexandrite Test Bot", username = "alexandrite_test_bot")
 
     /** What each call of `getMe` and `getWebhookInfo` does before it answers, in order. */
     val starts = ArrayDeque<BotApiFailure?>()

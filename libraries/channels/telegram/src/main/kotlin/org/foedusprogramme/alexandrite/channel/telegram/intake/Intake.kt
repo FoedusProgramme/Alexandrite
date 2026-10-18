@@ -1,5 +1,6 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import org.foedusprogramme.alexandrite.channel.telegram.GroupMessages
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.Update
@@ -39,6 +40,7 @@ internal class Intake(
             session.identity,
             approvalMessages,
             vouched::contains,
+            config.groupMessages == GroupMessages.ALL,
             files::content,
         )
     }
@@ -81,7 +83,7 @@ internal class Intake(
         val kind = reader.kindOf(message.chat)
         val trigger = ChannelMessageRef(chat, "${message.messageId}")
         val requester = message.from?.let { reader.user(it, message.senderChat) }
-        if (!gate.admit(chat, kind, message.chat.title, trigger, requester, parts.any(reader::addressed))) {
+        if (!gate.admit(chat, kind, message.chat.title, trigger, requester, parts.any(reader::names))) {
             return Dispatch.DONE
         }
         titles.note(chat, message.chat.title)
