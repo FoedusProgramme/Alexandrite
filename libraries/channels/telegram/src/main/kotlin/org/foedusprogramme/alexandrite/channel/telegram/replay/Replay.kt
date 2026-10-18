@@ -10,6 +10,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.i18n.TextKeys
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Outbox
+import org.foedusprogramme.alexandrite.channel.telegram.tools.TurnMessages
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -33,6 +34,7 @@ internal class Replay(
     private val gate: AccessGate,
     private val outbox: Outbox,
     private val backlog: Backlog,
+    private val turns: TurnMessages,
 ) : Lifecycle {
     private val watchers = SupervisorJob(instance.scope.coroutineContext[Job])
     private val scope = CoroutineScope(instance.scope.coroutineContext + watchers)
@@ -57,6 +59,7 @@ internal class Replay(
             logger.debug("{} watches {} turns, so turn {} goes unwatched", instance.id, MAX_WATCHED, ticket.turn)
             return
         }
+        turns.note(ticket.turn, parts.first())
         val message = backlog.accepted(trigger, direct, parts)
         scope.launch {
             try {

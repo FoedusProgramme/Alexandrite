@@ -64,9 +64,14 @@ internal class Deliveries(
         message.files.isEmpty() -> outbox.send(chat, message)
 
         else -> {
-            replies.filter { it.chat == chat }.forEach { it.flush() }
+            flush(chat)
             outbox.sendFiles(chat, message)
         }
+    }
+
+    /** Shows what the open replies in [chat] hold so far, so that a message sent beside them follows it. */
+    suspend fun flush(chat: ChatAddress) {
+        replies.filter { it.chat == chat }.forEach { it.flush() }
     }
 
     fun stop() {

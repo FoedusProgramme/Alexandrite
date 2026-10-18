@@ -125,6 +125,9 @@ internal class HttpBotApi(config: TelegramInstanceConfig, timeouts: HttpTimeouts
         call("deleteMyCommands", JSON.encodeToString(DeleteMyCommands.serializer(), request), Boolean.serializer())
     }
 
+    override suspend fun act(method: String, params: JsonObject): JsonElement =
+        call(method, params.toString(), JsonElement.serializer())
+
     override fun close() {
         transport.close()
     }

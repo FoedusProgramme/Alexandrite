@@ -1,5 +1,9 @@
 package org.foedusprogramme.alexandrite.channel.telegram.intake
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import org.foedusprogramme.alexandrite.channel.telegram.api.Chat
 import org.foedusprogramme.alexandrite.channel.telegram.api.Message
 import org.foedusprogramme.alexandrite.channel.telegram.api.MessageEntity
@@ -302,11 +306,20 @@ private val VOUCHED = QuoteTrust(live = true, content = true)
 private val AUTHOR_KNOWN = QuoteTrust(live = true, content = false)
 
 /** Model-facing facts of the media that [message] holds, which the channel does not pass on. */
-private fun facts(message: Message): List<DisplayFact> = listOfNotNull(
-    DisplayFact("attachment", "sticker, not passed on by this channel").takeIf {
-        message.sticker != null
-    },
-)
+private fun facts(message: Message): List<DisplayFact> = listOfNotNull(stickerFact(message.sticker))
+
+/** A sticker as its emoji and the id that `telegram.sticker` sends it again by, the image not passed on. */
+private fun stickerFact(sticker: JsonElement?): DisplayFact? {
+    sticker ?: return null
+    val fields = sticker as? JsonObject
+    val emoji = (fields?.get("emoji") as? JsonPrimitive)?.contentOrNull?.let { " $it" }.orEmpty()
+    val id = (fields?.get("file_id") as? JsonPrimitive)?.contentOrNull?.takeIf { STICKER_ID.matches(it) }
+    val named = id?.let { ", id $it" }.orEmpty()
+    return DisplayFact("attachment", "sticker$emoji (not passed on by this channel$named)")
+}
+
+/** A Telegram file id, which holds nothing that could pass for a framing field. */
+private val STICKER_ID = Regex("[A-Za-z0-9_-]{1,256}")
 
 /** The largest of a photo's [sizes]. */
 private fun largest(sizes: List<TelegramMedia>): TelegramMedia? =

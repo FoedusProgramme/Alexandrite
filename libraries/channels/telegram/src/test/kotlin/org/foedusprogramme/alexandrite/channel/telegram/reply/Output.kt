@@ -20,6 +20,10 @@ import org.foedusprogramme.alexandrite.channel.telegram.intake.MemoryBotApi
 import org.foedusprogramme.alexandrite.channel.telegram.intake.RecordingControl
 import org.foedusprogramme.alexandrite.channel.telegram.intake.TestInstance
 import org.foedusprogramme.alexandrite.channel.telegram.pairing.TelegramPairingDesk
+import org.foedusprogramme.alexandrite.channel.telegram.tools.ChatDesk
+import org.foedusprogramme.alexandrite.channel.telegram.tools.KnownUsers
+import org.foedusprogramme.alexandrite.channel.telegram.tools.TelegramDesks
+import org.foedusprogramme.alexandrite.channel.telegram.tools.TurnMessages
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
@@ -69,11 +73,12 @@ internal class Output(
 
     /** The bot's messages that answered an admin. */
     val vouched = VouchedReplies(instance, testRecords())
-    private val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
+    private val pairings = TelegramPairingDesk(Clock.systemUTC(), testRecords())
+    private val gate = AccessGate(instance, config, pairings, outbox, null)
         .also { runBlocking { it.onStart() } }
     private val approvals =
         ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())
-    private val deliveries =
+    val deliveries =
         Deliveries(
             instance,
             config,
@@ -84,6 +89,21 @@ internal class Output(
             ReplyStyles(config, choices),
             vouched,
         )
+
+    /** The desk where the Telegram tools act on this output. */
+    val desk = ChatDesk(
+        instance,
+        api,
+        outbox,
+        deliveries,
+        limiter,
+        gate,
+        pairings,
+        ChatTitles(),
+        TurnMessages(),
+        KnownUsers(),
+        TelegramDesks(),
+    )
     val channel = TelegramChannel(instance, config, gate, deliveries, approvals, CommandRules(emptyList(), null))
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */

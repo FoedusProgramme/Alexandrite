@@ -309,7 +309,10 @@ class UpdateReaderTest {
             ),
             message.media.map { it.described() },
         )
-        assertEquals(listOf(DisplayFact("attachment", "sticker, not passed on by this channel")), message.facts)
+        assertEquals(
+            listOf(DisplayFact("attachment", "sticker (not passed on by this channel, id CAAC)")),
+            message.facts,
+        )
         assertEquals("bytes of doc", message.media[1].read())
     }
 

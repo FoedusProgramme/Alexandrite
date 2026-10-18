@@ -7,6 +7,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.api.Update
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
 import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.foedusprogramme.alexandrite.channel.telegram.reply.VouchedReplies
+import org.foedusprogramme.alexandrite.channel.telegram.tools.KnownUsers
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.di.ChannelInstanceScoped
@@ -32,6 +33,7 @@ internal class Intake(
     private val approvalMessages: ApprovalMessages,
     private val files: TelegramFiles,
     private val vouched: VouchedReplies,
+    private val users: KnownUsers,
 ) : Lifecycle {
     private val reader by lazy {
         UpdateReader(
@@ -87,6 +89,7 @@ internal class Intake(
             return Dispatch.DONE
         }
         titles.note(chat, message.chat.title)
+        message.from?.let { users.note(message.chat.id, it) }
         return when (val inbound = reader.read(parts)) {
             is Inbound.Ignored -> ignored(message.messageId, inbound.why)
 

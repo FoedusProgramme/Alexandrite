@@ -3,6 +3,10 @@ package org.foedusprogramme.alexandrite.channel.telegram.intake
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import org.foedusprogramme.alexandrite.channel.telegram.PollingConfig
 import org.foedusprogramme.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.foedusprogramme.alexandrite.channel.telegram.WORK
@@ -165,6 +169,19 @@ internal class MemoryBotApi : BotApi {
     override suspend fun setMyCommands(request: SetMyCommands) {}
 
     override suspend fun deleteMyCommands(request: DeleteMyCommands) {}
+
+    /** The chat actions called, by method and parameters, in order. */
+    val actions = mutableListOf<Pair<String, JsonObject>>()
+
+    /** What a chat action answers, true unless it is set. */
+    var acted: (method: String, params: JsonObject) -> JsonElement = { _, _ -> JsonPrimitive(true) }
+
+    override suspend fun act(method: String, params: JsonObject): JsonElement {
+        actions += method to params
+        sent += SentCall(method, (params["chat_id"] as? JsonPrimitive)?.longOrNull ?: 0)
+        answer(method)
+        return acted(method, params)
+    }
 
     private suspend fun upload(method: String, request: SendFile): Message {
         val caption = request.caption

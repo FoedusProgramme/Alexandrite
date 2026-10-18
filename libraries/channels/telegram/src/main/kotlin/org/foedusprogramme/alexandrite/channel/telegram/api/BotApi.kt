@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.telegram.api
 
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import java.io.IOException
 import kotlin.time.Duration
 
@@ -37,6 +39,9 @@ internal interface BotApi {
     suspend fun setMyCommands(request: SetMyCommands)
 
     suspend fun deleteMyCommands(request: DeleteMyCommands)
+
+    /** Calls [method] with [params], one of the chat actions the agent's tools take, and returns its result. */
+    suspend fun act(method: String, params: JsonObject): JsonElement
 }
 
 /** A Bot API call that failed. */

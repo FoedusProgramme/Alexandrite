@@ -251,6 +251,18 @@ class TelegramPermissionTest {
     }
 
     @Test
+    fun `a chat's permission mode survives a new conversation`() {
+        app.run(app.builder(directory)) {
+            app.send(app.ada, app.adaChat, "/mode plan")
+            app.message(app.adaChat, "The permission mode of this chat is now plan.")
+            app.send(app.ada, app.adaChat, "/new")
+            app.message(app.adaChat, "A new conversation with coder has started.")
+            app.send(app.ada, app.adaChat, "/mode")
+            app.message(app.adaChat, "Permission mode: plan (set in this chat). $modes")
+        }
+    }
+
+    @Test
     fun `a member sees the mode but cannot set it, and an admin's bypass shows in the settings`() {
         app.run(app.builder(directory)) {
             app.send(app.bob, app.bobChat, "/mode")

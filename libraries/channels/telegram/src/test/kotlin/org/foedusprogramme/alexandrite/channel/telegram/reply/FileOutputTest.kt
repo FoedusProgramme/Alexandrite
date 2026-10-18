@@ -4,6 +4,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.foedusprogramme.alexandrite.channel.telegram.api.BotApiFailure
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.DeliveryFailure
@@ -105,6 +107,23 @@ class FileOutputTest {
         val calls = output.api.calls("sendDocument")
         assertEquals(2, calls.size)
         assertTrue(calls[1].at - calls[0].at >= 3_000, "$calls")
+    }
+
+    @Test
+    fun `a sticker or a poll a tool posts in a group comes after the text the reply holds so far`() = runTest {
+        val output = output()
+        val reply = output.open(GROUP)
+        val chat = output.address(GROUP)
+        val sticker = buildJsonObject {
+            put("chat_id", GROUP)
+            put("sticker", "CAAC")
+        }
+
+        reply.preview(0, "Look at this.")
+        output.desk.post(chat, "sendSticker", sticker)
+        reply.complete(markdown("Look at this."))
+
+        assertEquals(listOf("sendMessage Look at this.", "sendSticker null"), output.shown())
     }
 
     @Test

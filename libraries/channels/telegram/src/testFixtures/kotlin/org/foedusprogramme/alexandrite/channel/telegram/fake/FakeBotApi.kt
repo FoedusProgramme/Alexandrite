@@ -48,6 +48,12 @@ public class FakeBotApi(
     private val stopping = CountDownLatch(1)
     private var closed = false
     private val chats = HashMap<Long, FakeChat>()
+
+    /** The users who wrote in each chat, by chat and user id. */
+    private val senders = HashMap<Long, MutableMap<Long, JsonObject>>()
+
+    /** The users that `getChatMember` tells are administrators of their chats. */
+    public val chatAdmins: MutableSet<Long> = mutableSetOf()
     private val topics = HashMap<Pair<Long, Long>, FakeTopic>()
     private val messages = HashMap<Pair<Long, Long>, JsonObject>()
     private val sent = LinkedHashMap<Pair<Long, Long>, FakeBotMessage>()
@@ -160,6 +166,7 @@ public class FakeBotApi(
             if (found.isNotEmpty()) put("entities", found)
         }
         messages[chat.id to id] = message
+        senders.getOrPut(chat.id, ::HashMap)[from.id] = from.json()
         if (!chat.isGroup || canReadAllGroupMessages || passesPrivacy(text, found, target)) queueUpdate(message)
         message
     }
@@ -468,6 +475,10 @@ public class FakeBotApi(
             method == "sendChatAction" -> sendChatAction(params)
             method == "setMyCommands" -> setMyCommands(params)
             method == "deleteMyCommands" -> deleteMyCommands(params)
+            method == "setMessageReaction" || method == "pinChatMessage" -> onMessage(params)
+            method == "setChatTitle" -> setChatTitle(params)
+            method == "sendPoll" || method == "sendSticker" -> sendContent(method, params)
+            method == "getChatMember" -> getChatMember(params)
             else -> 404 to error(404, "Not Found")
         }
         write(exchange, status, body.toString())
@@ -664,6 +675,60 @@ public class FakeBotApi(
         )
         changed.signalAll()
         200 to ok(edited)
+    }
+
+    /** A reaction to or a pin of a message of the chat, which must exist. */
+    private fun onMessage(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val chat = params.long("chat_id")?.let(chats::get) ?: return 400 to error(400, CHAT_NOT_FOUND)
+        if (chat.id to (params.long("message_id") ?: -1L) !in messages) {
+            return 400 to error(400, "Bad Request: message not found")
+        }
+        200 to ok(JsonPrimitive(true))
+    }
+
+    private fun setChatTitle(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val chat = params.long("chat_id")?.let(chats::get) ?: return 400 to error(400, CHAT_NOT_FOUND)
+        if (!chat.isGroup) return 400 to error(400, "Bad Request: chat is not a group")
+        if (params.string("title").isNullOrBlank()) return 400 to error(400, "Bad Request: title is empty")
+        200 to ok(JsonPrimitive(true))
+    }
+
+    /** A poll or a sticker the bot sends, kept as a message that reads the poll's question or nothing. */
+    private fun sendContent(method: String, params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val chat = params.long("chat_id")?.let(chats::get) ?: return 400 to error(400, CHAT_NOT_FOUND)
+        val thread = params.long("message_thread_id")
+        val id = nextMessageId(chat.id)
+        val question = params.string("question")
+        val message = buildJsonObject {
+            put("message_id", id)
+            put("from", bot.json())
+            put("chat", chat.json())
+            put("date", now())
+            thread?.let { put("message_thread_id", it) }
+            if (method == "sendPoll") {
+                putJsonObject("poll") { put("question", question.orEmpty()) }
+            } else {
+                putJsonObject("sticker") { put("file_id", params.string("sticker").orEmpty()) }
+            }
+        }
+        messages[chat.id to id] = message
+        sent[chat.id to id] = FakeBotMessage(chat.id, id, question.orEmpty(), JsonArray(emptyList()), 0, null, thread)
+        changed.signalAll()
+        200 to ok(message)
+    }
+
+    /** A member of the chat: someone who wrote in it, an administrator when [chatAdmins] names them. */
+    private fun getChatMember(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
+        val chat = params.long("chat_id")?.let(chats::get) ?: return 400 to error(400, CHAT_NOT_FOUND)
+        val user = params.long("user_id")?.let { senders[chat.id]?.get(it) }
+            ?: return 400 to error(400, "Bad Request: user not found")
+        val status = if (user.long("id") in chatAdmins) "administrator" else "member"
+        200 to ok(
+            buildJsonObject {
+                put("status", status)
+                put("user", user)
+            },
+        )
     }
 
     private fun deleteMessage(params: JsonObject): Pair<Int, JsonObject> = lock.withLock {
