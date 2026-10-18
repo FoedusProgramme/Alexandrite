@@ -105,6 +105,9 @@ internal class QqBotApprovals(
         val request = waiting.request
         val shown = mutableListOf<ChatAddress>()
         for (chat in recipients(request)) {
+            // Register the chat before the platform can send its press: the button can be pressed as soon as the
+            // message is delivered, which may be before sendApproval returns here.
+            waiting.chats += chat
             val delivery = sender.sendApproval(
                 chat,
                 render(request),
@@ -114,9 +117,9 @@ internal class QqBotApprovals(
                 request.always?.let { text(TextKeys.APPROVAL_ALWAYS, request.turn.language, "rule" to it.display) },
             )
             if (delivery is Delivery.Delivered) {
-                waiting.chats += chat
                 shown += chat
             } else {
+                waiting.chats.remove(chat)
                 logger.warn("{}: approval {} was not shown in {}: {}", instance.id, request.id, chat, delivery)
             }
         }

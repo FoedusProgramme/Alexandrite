@@ -4,9 +4,11 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.foedusprogramme.alexandrite.channel.qqbot.channel.QQ_BOT_MAX_FILE_BYTES
 import org.foedusprogramme.alexandrite.channel.qqbot.testing.FakeApiServer
 import org.foedusprogramme.alexandrite.channel.qqbot.testing.FakeGatewayServer
+import org.foedusprogramme.alexandrite.channel.qqbot.testing.PlatformAnswer
 import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
@@ -33,11 +35,14 @@ import org.foedusprogramme.alexandrite.sdk.turn.Submission
 import org.foedusprogramme.alexandrite.testkit.PluginHarness
 import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.testTurn
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The QQ bot channel inside a real runtime.
@@ -273,7 +278,13 @@ class QqBotChannelIntegrationTest {
     fun `an approval is asked with buttons and answered by a press`() {
         val api = FakeApiServer()
         api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
-        api.on(SEND_DIRECT, """{"id":"sent1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val sendReached = CountDownLatch(1)
+        val releaseSend = CountDownLatch(1)
+        api.on(SEND_DIRECT) {
+            sendReached.countDown()
+            check(releaseSend.await(5, TimeUnit.SECONDS)) { "the test did not release the approval send" }
+            PlatformAnswer(200, """{"id":"sent1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        }
         val platform = FakeGatewayServer().startAndAwait()
         val submitter = RecordingTurnSubmitter()
         try {
@@ -297,6 +308,7 @@ class QqBotChannelIntegrationTest {
                             null,
                         )
                         val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
+                        assertTrue(sendReached.await(5, TimeUnit.SECONDS), "the approval message was not sent")
                         val shown = assertNotNull(api.awaitRequest(SEND_DIRECT))
                         assertTrue("\"msg_type\":2" in shown.body, shown.body)
                         assertTrue("\"markdown\"" in shown.body, shown.body)
@@ -306,11 +318,16 @@ class QqBotChannelIntegrationTest {
                         assertTrue("\"enter\":true" in shown.body, shown.body)
 
                         platform.push(APPROVAL_PRESS)
-                        val answer = waiting.await()
+                        // Let the inbox handle the press while sendApproval is still waiting for its answer. The
+                        // recipient has to be known before this point; otherwise the press is silently dropped.
+                        Thread.sleep(100)
+                        releaseSend.countDown()
+                        val answer = withTimeout(10.seconds) { waiting.await() }
                         assertIs<ApprovalAnswer.Allowed>(answer)
                     }
             }
         } finally {
+            releaseSend.countDown()
             platform.stop()
             api.close()
         }
