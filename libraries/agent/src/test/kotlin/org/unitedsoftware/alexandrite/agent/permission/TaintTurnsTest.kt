@@ -97,6 +97,7 @@ class TaintTurnsTest {
         val config = """
             {
               "previewIntervalMillis": 0,
+              "floor": {"deny": ["credentials", "system", "alexandrite"]},
               "trustedFolders": ["$trusted"],
               "agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}
             }

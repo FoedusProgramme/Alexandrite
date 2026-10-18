@@ -39,6 +39,7 @@ class RepositoryQuestionTest {
     private val config = """
         {
           "previewIntervalMillis": 0,
+          "floor": {"deny": ["alexandrite"]},
           "agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}
         }
     """.trimIndent()

@@ -25,8 +25,8 @@ internal class AgentSettings(
     val conversationDirectory: ConversationDirectoryConfig = ConversationDirectoryConfig(),
     /** Folders whose project instructions load without asking. */
     val trustedFolders: List<String> = emptyList(),
-    /** Places no tool may touch, beside those every floor protects. */
-    val protectedPaths: List<String> = emptyList(),
+    /** What the hard floor refuses to every tool whatever the mode: nothing unless named here. */
+    val floor: FloorConfig = FloorConfig(),
     /** The agents by their ids. */
     val agents: Map<String, AgentConfig> = emptyMap(),
 ) {
@@ -38,8 +38,37 @@ internal class AgentSettings(
         require(previewIntervalMillis >= 0) { "previewIntervalMillis may not be negative" }
         require(maxMediaBytes > 0) { "maxMediaBytes must be positive" }
         require(trustedFolders.all(::isPath)) { "trustedFolders holds a blank or malformed path" }
-        require(protectedPaths.all(::isPath)) { "protectedPaths holds a blank or malformed path" }
         checkAgents(agents)
+    }
+}
+
+/**
+ * The places of the hard floor: each entry of [deny] a group — `credentials` (the credential stores of the home
+ * directory and those the environment moves), `system` (`/dev`, sensitive `/proc` entries, macOS magic entries),
+ * `alexandrite` (its config, data, plugin data and cache, and the agents' persona directories, each agent keeping its
+ * own and its conversation's directory) — or a path, absolute, under `~/`, or relative to the config file's directory.
+ */
+@Serializable
+internal class FloorConfig(val deny: List<String> = emptyList()) {
+    init {
+        for ((index, entry) in deny.withIndex()) {
+            require(entry in FLOOR_GROUPS || isPath(entry)) {
+                "floor.deny[$index] is neither a group (${FLOOR_GROUPS.joinToString()}) nor a path"
+            }
+        }
+    }
+
+    /** The groups [deny] names. */
+    val groups: Set<String> get() = deny.filter { it in FLOOR_GROUPS }.toSet()
+
+    /** The paths [deny] names. */
+    val paths: List<String> get() = deny.filterNot { it in FLOOR_GROUPS }
+
+    companion object {
+        const val CREDENTIALS: String = "credentials"
+        const val SYSTEM: String = "system"
+        const val ALEXANDRITE: String = "alexandrite"
+        val FLOOR_GROUPS: List<String> = listOf(CREDENTIALS, SYSTEM, ALEXANDRITE)
     }
 }
 

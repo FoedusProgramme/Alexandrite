@@ -55,12 +55,12 @@ class HostFloorTest {
         agents: String = "{}",
         paths: HostPaths = paths(),
         home: Path? = this.home,
-        protectedPaths: List<String> = emptyList(),
+        denied: List<String> = emptyList(),
     ): HostFloor = hostFloor(
         paths,
         agentWorkspaces(paths, ConventionalAgentPlaces(paths), settings("""{"agents": $agents}""").agents),
         home,
-        operatorPlaces(paths, protectedPaths),
+        operatorPlaces(paths, denied),
         settings("""{"agents": $agents}""").agents.keys.mapNotNull { id ->
             ConventionalAgentPlaces(paths).personaDirectory(AgentId(id))?.let { AgentId(id) to it }
         }.toMap(),
@@ -80,9 +80,9 @@ class HostFloorTest {
         workspace: Path,
         relation: String,
         paths: HostPaths = paths(),
-        protectedPaths: List<String> = emptyList(),
+        denied: List<String> = emptyList(),
     ) {
-        val error = assertFailsWith<ConfigException> { floor(coder(workspace), paths, protectedPaths = protectedPaths) }
+        val error = assertFailsWith<ConfigException> { floor(coder(workspace), paths, denied = denied) }
         assertEquals(
             "Invalid config at 'agent.agents.coder.workspace': the workspace $workspace $relation: give the agent " +
                 "another directory",
@@ -154,14 +154,14 @@ class HostFloorTest {
     @Test
     fun `the operator's protected paths are denied, a relative one in the config directory`() {
         val vault = root.resolve("vault")
-        val protectedPaths = listOf("$vault", "../secrets/./api.env")
+        val denied = listOf("$vault", "../secrets/./api.env")
 
-        val floor = floor(protectedPaths = protectedPaths)
+        val floor = floor(denied = denied)
 
         assertDenied("a place the operator protects", vault.resolve("notes.md"), floor)
         assertDenied("a place the operator protects", root.resolve("secrets/api.env"), floor)
         assertAllowed(root.resolve("secrets/other.env"), floor)
-        assertCollides(vault, "is a protected place (a place the operator protects)", protectedPaths = protectedPaths)
+        assertCollides(vault, "is a protected place (a place the operator protects)", denied = denied)
     }
 
     @Test
@@ -446,7 +446,7 @@ class HostFloorTest {
         val share = home.resolve(".local/share")
         val projects = root.resolve("projects")
 
-        val floor = floor(protectedPaths = listOf("$projects/vault"))
+        val floor = floor(denied = listOf("$projects/vault"))
 
         assertEquals(FloorDecision.Denied("SSH keys", held = true), floor.checkTree(home))
         assertEquals(FloorDecision.Denied("SSH keys", held = true), floor.checkTree(Path.of("/")))

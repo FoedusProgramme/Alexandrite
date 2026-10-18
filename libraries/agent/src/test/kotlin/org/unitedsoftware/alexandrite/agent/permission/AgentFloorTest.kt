@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 class AgentFloorTest {
     @TempDir
@@ -28,7 +29,7 @@ class AgentFloorTest {
     private val home: Path = Path.of(System.getProperty("user.home"))
 
     private fun harness(agents: String, configFile: Path? = this.configFile): PluginHarness =
-        agentHarness("""{"agents": $agents}""") {
+        agentHarness("""{"floor": {"deny": ["credentials", "system", "alexandrite"]}, "agents": $agents}""") {
             dataRoot(data)
             configFile?.let(::configFile)
             protect(logs)
@@ -135,7 +136,7 @@ class AgentFloorTest {
     fun `the operator's protected paths are denied, and a relative one fails the start without a config file`() {
         val config = """
             {
-              "protectedPaths": ["vault", ${JsonPrimitive("$root/keys")}],
+              "floor": {"deny": ["credentials", "system", "alexandrite", "vault", ${JsonPrimitive("$root/keys")}]},
               "agents": {"coder": {"description": "Codes."}}
             }
         """.trimIndent()
@@ -149,9 +150,9 @@ class AgentFloorTest {
             assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(configFile.resolveSibling("vault/notes.md")))
             assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(root.resolve("keys/api.env")))
         }
-        agentHarness("""{"protectedPaths": ["vault"]}""") { dataRoot(data) }.assertStartFails(
+        agentHarness("""{"floor": {"deny": ["vault"]}}""") { dataRoot(data) }.assertStartFails(
             StartStage.GRAPH,
-            "Invalid config at 'agent.protectedPaths': the protected path 'vault' is relative, but the host read no " +
+            "Invalid config at 'agent.floor.deny': the protected path 'vault' is relative, but the host read no " +
                 "config file to resolve it against: give an absolute path",
         )
     }
@@ -163,6 +164,45 @@ class AgentFloorTest {
             "Invalid config at 'agent.agents.coder.workspace': the workspace 'notes' is relative, but the host read " +
                 "no config file to resolve it against: give an absolute path",
         )
+    }
+
+    @Test
+    fun `by default the floor refuses nothing, Alexandrite's own places and the credential stores included`() {
+        agentHarness("""{"agents": {"coder": {"description": "Codes."}}}""") {
+            dataRoot(data)
+            configFile(configFile)
+        }.execute {
+            val floor = get<HardFloor>()
+
+            for (path in listOf(configFile, data.resolve("alexandrite.db"), home.resolve(".ssh/id_ed25519"))) {
+                assertIs<FloorCheck.Allowed>(floor.checkRead(path), "$path")
+                assertIs<FloorCheck.Allowed>(floor.checkWrite(path), "$path")
+            }
+            assertIs<FloorCheck.Allowed>(floor.checkTree(home))
+        }
+    }
+
+    @Test
+    fun `each group is switched on alone, and a path under the home directory is written with a tilde`() {
+        fun floor(deny: String, block: suspend (HardFloor) -> Unit) = agentHarness(
+            """{"floor": {"deny": [$deny]}, "agents": {"coder": {"description": "Codes."}}}""",
+        ) {
+            dataRoot(data)
+            configFile(configFile)
+        }.execute { block(get()) }
+
+        floor("\"credentials\"") { floor ->
+            assertIs<FloorCheck.Denied>(floor.checkRead(home.resolve(".ssh/id_ed25519")))
+            assertIs<FloorCheck.Allowed>(floor.checkRead(configFile))
+        }
+        floor("\"alexandrite\"") { floor ->
+            assertIs<FloorCheck.Denied>(floor.checkRead(configFile))
+            assertIs<FloorCheck.Allowed>(floor.checkRead(home.resolve(".ssh/id_ed25519")))
+        }
+        floor("\"~/vault\"") { floor ->
+            assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(home.resolve("vault/notes.md")))
+            assertIs<FloorCheck.Allowed>(floor.checkRead(configFile))
+        }
     }
 
     private companion object {

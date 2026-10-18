@@ -45,11 +45,19 @@ public enum class Placement {
 /** A protected place that a path meets: [root] is null for a place that every floor protects. */
 public data class Overlap(val kind: String, val placement: Placement, val root: DenyRoot?)
 
+/** The places a floor may protect beside its own: each a group that the operator switches on by name. */
+public enum class StandardPlaces {
+    /** The credential stores and `.claude*` entries of the home directory, and those the environment moves. */
+    CREDENTIALS,
+
+    /** `/dev`, the sensitive `/proc/<pid>` entries and the macOS magic root entries. */
+    SYSTEM,
+}
+
 /**
  * The hard floor: refuses every path in a protected place, however it is spelled.
  *
- * Beside [places], every floor protects the credential stores and `.claude*` entries of [home], the credential stores
- * that [environment] moves, `/dev`, the sensitive `/proc/<pid>` entries and the macOS magic root entries.
+ * Beside [places], a floor protects the groups of [standard] of [home] and [environment].
  */
 public class Floor(
     places: List<DenyRoot>,
@@ -57,10 +65,13 @@ public class Floor(
     home: Path?,
     private val canonicalizer: PathCanonicalizer = PathCanonicalizer(),
     environment: Map<String, String> = emptyMap(),
+    private val standard: Set<StandardPlaces> = StandardPlaces.entries.toSet(),
 ) {
     private val roots: List<Root> =
-        standardRoots(home, environment).map { Root(it, null) } + places.map { Root(it, it) }
-    private val home: CanonicalPath? = home?.let(canonicalizer::canonicalize)
+        standardRoots(home, environment, standard).map { Root(it, null) } + places.map { Root(it, it) }
+    private val home: CanonicalPath? = home?.takeIf { StandardPlaces.CREDENTIALS in standard }
+        ?.let(canonicalizer::canonicalize)
+    private val system = StandardPlaces.SYSTEM in standard
 
     /** [path] (absolute) made canonical and checked, a refusal naming the innermost place it lies in. */
     public fun check(path: Path): FloorDecision = check(canonicalizer.canonicalize(path))
@@ -78,24 +89,25 @@ public class Floor(
     public fun overlaps(path: Path): List<Overlap> = overlaps(canonicalizer.canonicalize(path))
 
     private fun check(candidate: CanonicalPath): FloorDecision {
-        if (isMagic(candidate)) return FloorDecision.Denied(MAGIC)
+        if (system && isMagic(candidate)) return FloorDecision.Denied(MAGIC)
         roots.filter { it.denies(candidate) }
             .maxByOrNull { it.path.real.nameCount }
             ?.let { return FloorDecision.Denied(it.place.kind) }
         if (claudeEntry(candidate) == Placement.INSIDE) return FloorDecision.Denied(CLAUDE)
-        if (denyKeys(candidate).any(PROC_SENSITIVE::matches)) return FloorDecision.Denied(PROCESS)
+        if (system && denyKeys(candidate).any(PROC_SENSITIVE::matches)) return FloorDecision.Denied(PROCESS)
         return FloorDecision.Allowed(candidate.real)
     }
 
     private fun overlaps(candidate: CanonicalPath): List<Overlap> {
         val keys = denyKeys(candidate)
         return buildList {
-            if (isMagic(candidate)) add(Overlap(MAGIC, Placement.INSIDE, null))
+            if (system && isMagic(candidate)) add(Overlap(MAGIC, Placement.INSIDE, null))
             for (root in roots) {
                 meetings(candidate, root.path).sorted().forEach { add(Overlap(root.place.kind, it, root.given)) }
             }
             claudeEntry(candidate)?.let { add(Overlap(CLAUDE, it, null)) }
             when {
+                !system -> Unit
                 keys.any(PROC_SENSITIVE::matches) -> add(Overlap(PROCESS, Placement.INSIDE, null))
                 keys.any(PROC_ANCESTOR::matches) -> add(Overlap(PROCESS, Placement.HOLDS, null))
             }
@@ -186,10 +198,17 @@ private fun isMagic(path: CanonicalPath): Boolean {
     }
 }
 
-private fun standardRoots(home: Path?, environment: Map<String, String>): List<DenyRoot> =
-    home?.let { CREDENTIAL_STORES.map { (name, kind) -> DenyRoot(home.resolve(name), kind) } }.orEmpty() +
-        movedStores(environment) +
-        DenyRoot(Path.of("/dev"), "devices")
+private fun standardRoots(
+    home: Path?,
+    environment: Map<String, String>,
+    standard: Set<StandardPlaces>,
+): List<DenyRoot> = buildList {
+    if (StandardPlaces.CREDENTIALS in standard) {
+        home?.let { addAll(CREDENTIAL_STORES.map { (name, kind) -> DenyRoot(home.resolve(name), kind) }) }
+        addAll(movedStores(environment))
+    }
+    if (StandardPlaces.SYSTEM in standard) add(DenyRoot(Path.of("/dev"), "devices"))
+}
 
 /** The credential stores at the absolute places that the variables of [environment] name. */
 private fun movedStores(environment: Map<String, String>): List<DenyRoot> {

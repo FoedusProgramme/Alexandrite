@@ -409,7 +409,10 @@ class AgentSettingsTest {
             "agents.coder.workspace is a blank or malformed path",
         )
         assertConfigFails("""{"trustedFolders": ["/srv", ""]}""", "trustedFolders holds a blank or malformed path")
-        assertConfigFails("""{"protectedPaths": [" "]}""", "protectedPaths holds a blank or malformed path")
+        assertConfigFails(
+            """{"floor": {"deny": [" "]}}""",
+            "floor.deny[0] is neither a group (credentials, system, alexandrite) nor a path",
+        )
         assertConfigFails(
             agents(""""coder": {"instructionFiles": [""]}"""),
             "agents.coder.instructionFiles holds a blank or malformed path",

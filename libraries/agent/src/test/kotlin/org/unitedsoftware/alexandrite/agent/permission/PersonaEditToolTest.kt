@@ -52,7 +52,7 @@ class PersonaEditToolTest {
         agents: String = """{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""",
         configFile: Path? = this.configFile,
     ): PersonaEditTool {
-        val settings = settings("""{"agents": $agents}""")
+        val settings = settings("""{"floor": {"deny": ["credentials", "system", "alexandrite"]}, "agents": $agents}""")
         val paths = hostPaths(configFile, root.resolve("data"))
         return PersonaEditTool(
             AgentFloor(

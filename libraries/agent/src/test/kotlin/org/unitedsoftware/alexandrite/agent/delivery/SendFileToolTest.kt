@@ -57,7 +57,7 @@ class SendFileToolTest {
     private val report: Path get() = root.resolve("out/report.pdf").also { it.parent.createDirectories() }
 
     private fun tool(open: Boolean = true): SendFileTool {
-        val settings = settings("{}")
+        val settings = settings("""{"floor": {"deny": ["credentials", "system", "alexandrite"]}}""")
         val paths = hostPaths(null, data)
         val floor =
             AgentFloor(

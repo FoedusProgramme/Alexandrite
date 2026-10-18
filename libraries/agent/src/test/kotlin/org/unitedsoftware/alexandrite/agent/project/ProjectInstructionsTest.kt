@@ -87,6 +87,7 @@ class ProjectInstructionsTest {
             """
             {
               "previewIntervalMillis": 0,
+              "floor": {"deny": ["credentials", "system", "alexandrite"]},
               "trustedFolders": ${JsonArray(trusted.map { JsonPrimitive("$it") })},
               "agents": {"coder": {"name": "Coder", "model": "scripted/test-model", "channels": {"test:main": {}}}}
             }
