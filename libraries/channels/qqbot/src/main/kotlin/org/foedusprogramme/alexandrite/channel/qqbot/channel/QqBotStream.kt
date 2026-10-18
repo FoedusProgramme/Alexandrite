@@ -1,0 +1,105 @@
+package org.foedusprogramme.alexandrite.channel.qqbot.channel
+
+import org.foedusprogramme.alexandrite.channel.qqbot.net.QqBotAnswer
+import org.foedusprogramme.alexandrite.sdk.channel.Delivery
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+
+/**
+ * One streaming message of a single chat, which the platform lets a reply grow in place.
+ *
+ * The first piece starts the message and gives the id the later pieces name; every piece replaces the shown text with
+ * the whole text so far, and the last one ends the message. A platform that takes no streaming, or a piece it refuses,
+ * leaves the reply to the ordinary message path: the parts are then not shown, and only the final message is sent.
+ */
+internal class QqBotStream(
+    private val sender: QqBotSender,
+    private val chat: ChatAddress,
+    private val msgId: String,
+    private val msgSeq: Int,
+) {
+    private var streamId: String? = null
+    private var index = 0
+    private var shown = ""
+    private var failed = false
+
+    /** The id of the platform message this stream writes, null before the first piece was taken. */
+    val messageId: String? get() = streamId
+
+    /** What the platform has accepted as the message so far. */
+    val shownText: String get() = shown
+
+    /** Shows [text], the whole text of the streaming message so far; false once the platform refuses. */
+    suspend fun show(text: String): Boolean {
+        if (failed || text.isEmpty()) return false
+        val delta = delta(text)
+        if (delta.isEmpty()) return true
+        val answer = sender.stream(chat, delta, msgId, msgSeq, streamId, index, last = false, append = true)
+        if (answer !is QqBotAnswer.Ok) {
+            failed = true
+            return false
+        }
+        val id = sender.sentId(answer) ?: run {
+            failed = true
+            return false
+        }
+        streamId = id
+        shown += delta
+        index++
+        return true
+    }
+
+    /** Ends the streaming message with [text], the whole answer; null when it was never started or is refused. */
+    suspend fun finish(text: String): Delivery? {
+        if (failed) return null
+        val id = streamId ?: return null
+        val delta = delta(text.ifBlank { shown })
+        val answer = sender.stream(chat, delta, msgId, msgSeq, id, index, last = true, append = true)
+        return if (answer is QqBotAnswer.Ok) sender.delivery(chat, answer) else null
+    }
+
+    /** Appends [text] as the next piece, without comparing it with what was shown. */
+    suspend fun append(text: String): Boolean {
+        if (failed || text.isEmpty()) return false
+        val answer = sender.stream(chat, text, msgId, msgSeq, streamId, index, last = false, append = true)
+        if (answer !is QqBotAnswer.Ok) {
+            failed = true
+            return false
+        }
+        val id = sender.sentId(answer) ?: run {
+            failed = true
+            return false
+        }
+        streamId = id
+        shown += text
+        index++
+        return true
+    }
+
+    /** Ends the streaming message after its pieces were appended. */
+    suspend fun finishAppended(): Delivery? {
+        if (failed) return null
+        val id = streamId ?: return null
+        val answer = sender.stream(chat, "", msgId, msgSeq, id, index, last = true, append = true)
+        return if (answer is QqBotAnswer.Ok) sender.delivery(chat, answer) else null
+    }
+
+    /**
+     * The part of [text] the platform does not hold yet.
+     *
+     * A stream is appended in pieces: a preview that grows contributes its suffix, and text that does not continue
+     * what was shown (an answer replacing a tool activity, a rewritten segment) starts a new paragraph. Append mode
+     * has no prefix restriction, unlike replace, which refused such a body with `40113003`.
+     */
+    private fun delta(text: String): String = when {
+        shown.isEmpty() -> text
+        text.startsWith(shown) -> text.removePrefix(shown)
+        else -> "\n\n" + text
+    }
+
+    /** Ends a stream that is not carried on, so the chat does not show it as still being written. */
+    suspend fun abandon() {
+        val id = streamId ?: return
+        if (failed) return
+        runCatching { sender.stream(chat, shown, msgId, msgSeq, id, index, last = true) }
+    }
+}
