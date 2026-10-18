@@ -11,6 +11,7 @@ logback = "1.6.5"
 junit = "6.1.3"
 kctfork = "0.14.0"
 poko = "0.23.2"
+java-websocket = "1.6.0"
 
 [libraries]
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -32,6 +33,7 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+java-websocket = { module = "org.java-websocket:Java-WebSocket", version.ref = "java-websocket" }
 
 [plugins]
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
