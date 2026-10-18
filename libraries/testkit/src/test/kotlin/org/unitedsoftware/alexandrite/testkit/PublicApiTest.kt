@@ -114,9 +114,9 @@ class PublicApiTest {
             val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test", null)
             val answer: ApprovalAnswer = channel.askApproval(request)
             val approvals: List<ApprovalRequest> = channel.awaitApprovals(1) + channel.approvals
-            channel.membersMayRun = false
+            channel.guestsMayRun = false
             val mayRun: Boolean = channel.mayRun(channel.chat(), channel.user(), "new", withArguments = false)
-            val isAdmin: Boolean = channel.isAdmin(channel.chat(), channel.user().address)
+            val isOperator: Boolean = channel.isOperator(channel.chat(), channel.user().address)
             val preview: RecordedReply.Preview = recorded.previews.first()
             val event = channel.awaitEvent { it is RecordingChannel.Event.Completed }
             val described = when (event) {
@@ -133,7 +133,7 @@ class PublicApiTest {
                 else -> null
             }
             return listOf(
-                command, admissions, described, answer, approvals, mayRun, isAdmin, preview.segment, preview.text,
+                command, admissions, described, answer, approvals, mayRun, isOperator, preview.segment, preview.text,
                 recorded.request,
                 recorded.turn,
                 recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,

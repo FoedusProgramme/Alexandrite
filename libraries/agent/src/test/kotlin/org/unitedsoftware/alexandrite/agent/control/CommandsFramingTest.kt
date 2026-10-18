@@ -10,7 +10,7 @@ class CommandsFramingTest {
     private fun text(entry: UserEntry): String = (entry.parts.single() as ContextPart).text
 
     @Test
-    fun `an admin's command is told apart from a member's, and one with no reply just names it`() {
+    fun `an operator's command is told apart from a guest's, and one with no reply just names it`() {
         val commands = listOf(
             PendingCommandRecord(
                 "Ada",

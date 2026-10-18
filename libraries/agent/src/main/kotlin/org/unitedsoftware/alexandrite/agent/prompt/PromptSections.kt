@@ -76,7 +76,7 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
             "instead of making it), [alexandrite:denied by=policy] (refused: do not retry it or an equivalent call, " +
             "and tell the user) or [alexandrite:blocked_floor] (a protected place that no approval opens: do not " +
             "look for another way in). A call that waited for an approval may also return " +
-            "[alexandrite:denied by=admin] (an administrator refused it: do not retry it), [alexandrite:expired] " +
+            "[alexandrite:denied by=operator] (an operator refused it: do not retry it), [alexandrite:expired] " +
             "(nobody answered in time: do not retry it now) or [alexandrite:declined] (the user wrote instead of " +
             "answering: do what their message says).",
         "To save room, the results of older tool calls may read [alexandrite:cleared] instead of what they held: " +

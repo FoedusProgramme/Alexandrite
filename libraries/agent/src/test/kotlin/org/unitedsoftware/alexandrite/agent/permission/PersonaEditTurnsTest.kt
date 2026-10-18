@@ -53,18 +53,18 @@ class PersonaEditTurnsTest {
                 "coder": {
                   "model": "scripted/test-model",
                   "channels": {"test:main": {}},
-                  "tools": {"forMembers": ["persona.edit"]}
+                  "tools": {"forGuests": ["persona.edit"]}
                 }$others
               }
             }
         """.trimIndent()
         return agentHarness(config, store) {
-            channel(admins = setOf("admin")).model(model).tool(fetch)
+            channel(operators = setOf("operator")).model(model).tool(fetch)
             configFile(configFile).dataRoot(root.resolve("data"))
         }
     }
 
-    private suspend fun PluginHarness.Running.ask(user: String = "admin") {
+    private suspend fun PluginHarness.Running.ask(user: String = "operator") {
         (channel().receive("Hi", sender = channel().user(user)) as Admission.Accepted).ticket.outcome()
     }
 
@@ -116,13 +116,13 @@ class PersonaEditTurnsTest {
     }
 
     @Test
-    fun `a member's edit and one in a tainted operator's turn wait for an administrator, whom none can reach yet`() {
+    fun `a guest's edit and one in a tainted operator's turn wait for an operator, whom none can reach yet`() {
         model.reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Not edited.") }
             .reply { toolCall("web.fetch") }.reply { toolCall("persona.edit", edit("tea", "cake")) }
             .reply { text("Not edited either.") }
 
         harness().execute {
-            ask(user = "member")
+            ask(user = "guest")
             ask()
 
             val refused = ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY)

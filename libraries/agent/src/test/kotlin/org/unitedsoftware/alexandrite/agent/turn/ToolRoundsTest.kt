@@ -74,9 +74,9 @@ class ToolRoundsTest {
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).tool(read).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).tool(read).apply(configure) }
 
-    private fun PluginHarness.Running.ask(text: String = "Hi", user: String = "admin"): Admission.Accepted =
+    private fun PluginHarness.Running.ask(text: String = "Hi", user: String = "operator"): Admission.Accepted =
         channel().receive(text, sender = channel().user(user)) as Admission.Accepted
 
     private suspend fun stored(): List<TranscriptEntry> = store.transcripts.entries(store.conversations.current(key).id)
@@ -269,7 +269,7 @@ class ToolRoundsTest {
             """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}""",
             store = null,
         ) {
-            channel(admins = setOf("admin")).model(model).plugin(StoreIndex(store, media = media))
+            channel(operators = setOf("operator")).model(model).plugin(StoreIndex(store, media = media))
             shots.forEach(::tool)
         }.execute { ask().ticket.outcome() }
 
@@ -531,18 +531,18 @@ class ToolRoundsTest {
     // Offers.
 
     @Test
-    fun `every turn is offered the agent's tools, and a member may call only those it lists for members`() {
+    fun `every turn is offered the agent's tools, and a guest may call only those it lists for guests`() {
         val glob = recordingTool("fs.glob")
         val tools = listOf(glob, recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE))
-        model.reply { text("To the admin.") }.reply {
+        model.reply { text("To the operator.") }.reply {
             toolCall("fs.glob")
             toolCall("fs.read", """{"path": "a"}""")
-        }.reply { text("To the member.") }
+        }.reply { text("To the guest.") }
 
-        harness(""", "tools": {"forMembers": ["fs.read"]}""") { tools.forEach(::tool) }.execute {
+        harness(""", "tools": {"forGuests": ["fs.read"]}""") { tools.forEach(::tool) }.execute {
             ask().ticket.outcome()
-            val member = ask(user = "member")
-            member.ticket.outcome()
+            val guest = ask(user = "guest")
+            guest.ticket.outcome()
 
             assertEquals(
                 List(3) {
@@ -556,7 +556,7 @@ class ToolRoundsTest {
                 },
                 model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
-            val results = results(store.transcripts.turnEntries(member.ticket.turn))
+            val results = results(store.transcripts.turnEntries(guest.ticket.turn))
             assertEquals(
                 NotRun(NotRunReason.NOT_PERMITTED) to "This turn may not call 'fs.glob'.",
                 results.getValue("fs.glob").let { it.outcome to text(it) },
@@ -573,10 +573,10 @@ class ToolRoundsTest {
 
         harness().execute {
             ask().ticket.outcome()
-            val asked = ask(user = "member")
+            val asked = ask(user = "guest")
             asked.ticket.outcome()
 
-            val member = model.requests.drop(2)
+            val guest = model.requests.drop(2)
             assertEquals(
                 List(2) {
                     listOf(
@@ -596,10 +596,10 @@ class ToolRoundsTest {
                         "skill.load",
                     ) to ToolChoice.Auto
                 },
-                member.map { request -> request.tools.map { it.name } to request.toolChoice },
+                guest.map { request -> request.tools.map { it.name } to request.toolChoice },
             )
-            assertEquals(model.requests[0].tools, member[0].tools)
-            assertTrue(member[0].history.any { it is ToolResultEntry })
+            assertEquals(model.requests[0].tools, guest[0].tools)
+            assertTrue(guest[0].history.any { it is ToolResultEntry })
             val refused = results(store.transcripts.turnEntries(asked.ticket.turn)).getValue("fs.read")
             assertEquals(NotRun(NotRunReason.NOT_PERMITTED), refused.outcome)
             assertEquals(1, read.calls.size)
@@ -650,7 +650,7 @@ class ToolRoundsTest {
             agentHarness(
                 """{"agents": {"coder": {"model": "scripted/plain", "channels": {"test:main": {}}}}}""",
                 store,
-            ) { channel(admins = setOf("admin")).model(model).tool(read) }.execute {
+            ) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
                 ask().ticket.outcome()
                 ask().ticket.outcome()
             }

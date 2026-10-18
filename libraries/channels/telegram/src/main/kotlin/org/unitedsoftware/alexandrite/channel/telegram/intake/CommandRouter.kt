@@ -26,7 +26,7 @@ internal class CommandRouter(
             admissions.refuse(invocation, trigger, refusal)
             return Dispatch.DONE
         }
-        val capacity = if (invocation.issuer.isAdmin) Capacity.EXEMPT else Capacity.COUNTED
+        val capacity = if (invocation.issuer.isOperator) Capacity.EXEMPT else Capacity.COUNTED
         val submission = Submission.Command(invocation, inbound.message, capacity)
         return admissions.submit(submission, parts, trigger, kind) { menu.refresh() }
     }

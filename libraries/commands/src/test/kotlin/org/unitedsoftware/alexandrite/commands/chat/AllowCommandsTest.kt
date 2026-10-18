@@ -1,7 +1,7 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
@@ -21,23 +21,23 @@ class AllowCommandsTest {
     private val gradle = RuleSubject("command.exec", listOf("/srv/repo/gradlew", "test"), "/srv/repo/gradlew test")
 
     private suspend fun allow(arguments: String = ""): String =
-        commands.answer(testCommand("allow", arguments, issuer = ADMIN))
+        commands.answer(testCommand("allow", arguments, issuer = OPERATOR))
 
     @Test
     fun `allow lists the declared rules, then the conversation's with who allowed them and when`() = runTest {
         val empty = allow()
         control.declareAllowRule(status)
         control.declareAllowRule(RuleSubject("deploy.run", emptyList(), "deploy.run"))
-        control.grantAllowRule(testChat(), gradle, ADMIN)
+        control.grantAllowRule(testChat(), gradle, OPERATOR)
         control.grantAllowRule(testChat(), RuleSubject("notes.add", listOf("todo"), "todo"), null)
-        control.grantAllowRule(testChat("other"), RuleSubject("command.exec", listOf("make"), "make"), ADMIN)
+        control.grantAllowRule(testChat("other"), RuleSubject("command.exec", listOf("make"), "make"), OPERATOR)
 
         assertEquals("No allow rule is in force here.", empty)
         assertEquals(
             "Allow rules in force here (revoke one with /allow revoke <number>):\n" +
                 "1. command.exec: git status (declared in the config file)\n" +
                 "2. deploy.run: every call (declared in the config file)\n" +
-                "3. command.exec: /srv/repo/gradlew test (allowed by Admin on 2026-01-01 until /new)\n" +
+                "3. command.exec: /srv/repo/gradlew test (allowed by Operator on 2026-01-01 until /new)\n" +
                 "4. notes.add: todo (allowed by the host on 2026-01-01 until /new)",
             allow(),
         )
@@ -47,8 +47,12 @@ class AllowCommandsTest {
     @Test
     fun `allow revoke removes a granted rule, and says which rules only the config file removes`() = runTest {
         control.declareAllowRule(status)
-        control.grantAllowRule(testChat(), gradle, ADMIN)
-        control.grantAllowRule(testChat(), RuleSubject("command.exec", listOf("git", "status", "--short"), "x"), ADMIN)
+        control.grantAllowRule(testChat(), gradle, OPERATOR)
+        control.grantAllowRule(
+            testChat(),
+            RuleSubject("command.exec", listOf("git", "status", "--short"), "x"),
+            OPERATOR,
+        )
 
         val replies = listOf(allow("revoke 3"), allow("REVOKE 2"), allow("revoke 1"), allow("revoke 2"))
 
@@ -61,7 +65,7 @@ class AllowCommandsTest {
             ),
             replies,
         )
-        assertEquals(listOf(3, 2, 1, 2).map { Call.RevokeAllowRule(testChat(), it, ADMIN) }, control.calls)
+        assertEquals(listOf(3, 2, 1, 2).map { Call.RevokeAllowRule(testChat(), it, OPERATOR) }, control.calls)
     }
 
     @Test

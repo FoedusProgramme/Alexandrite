@@ -53,12 +53,12 @@ val SHANGHAI: ZoneId = ZoneId.of("Asia/Shanghai")
 val CHAT: ChatAddress = testChat()
 val OTHER_CHAT: ChatAddress = testChat("other")
 val KEY: AgentChatKey = AgentChatKey(AgentId.MAIN, CHAT)
-val ADMIN: ChatUser = testUser("ada", isAdmin = true)
-val MEMBER: ChatUser = testUser("bob")
+val OPERATOR: ChatUser = testUser("ada", isOperator = true)
+val GUEST: ChatUser = testUser("bob")
 
 /** A message turn of [actor] at [chat], its times in Shanghai. */
 fun turn(
-    actor: ChatUser? = ADMIN,
+    actor: ChatUser? = OPERATOR,
     chat: ChatAddress = CHAT,
     kind: TurnKind = TurnKind.MESSAGE,
     block: TurnInfo.Builder.() -> Unit = {},

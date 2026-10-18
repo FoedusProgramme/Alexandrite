@@ -198,7 +198,7 @@ internal class PermissionGate(
 /** Why a person is asked about the gated [call] of [principal] in [mode], which a profile [tightened] to it. */
 private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode, tightened: Boolean): String = when {
     call.requiredApproval != null -> call.requiredApproval
-    principal == Principal.MEMBER -> "a member's call"
+    principal == Principal.GUEST -> "a guest's call"
     principal == Principal.AUTOMATION -> "a call of a turn that nobody sent"
     call.risk == ToolRisk.PERSISTENT_STATE -> tainted(call.call.taint)
     tightened -> "the sub-agent's profile sets $mode mode"

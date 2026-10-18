@@ -58,8 +58,8 @@ internal class ToolRegistry(
     private val chosen: Map<AgentId, List<Tool>>
     private val globs: Map<AgentId, Globs>
     private val builtIn: Set<String> = tools.filter(origins::isBuiltIn).mapTo(HashSet()) { it.definition.name }
-    private val forMembers: Map<AgentId, List<ToolGlob>> =
-        directory.agents.associate { agent -> agent.id to agent.config.tools.forMembers.map(ToolGlob::of) }
+    private val forGuests: Map<AgentId, List<ToolGlob>> =
+        directory.agents.associate { agent -> agent.id to agent.config.tools.forGuests.map(ToolGlob::of) }
 
     /** The models already warned of for taking no tools. */
     private val toolless = ConcurrentHashMap.newKeySet<ModelRef>()
@@ -153,9 +153,9 @@ internal class ToolRegistry(
         return emptyList()
     }
 
-    /** Whether a turn of [agent] may call [tool]: an [admin]'s any, anyone else's those of `tools.forMembers`. */
-    fun permits(agent: AgentId, admin: Boolean, tool: String): Boolean =
-        admin || forMembers[agent].orEmpty().any { it.matches(tool) }
+    /** Whether a turn of [agent] may call [tool]: an [operator]'s any, anyone else's those of `tools.forGuests`. */
+    fun permits(agent: AgentId, operator: Boolean, tool: String): Boolean =
+        operator || forGuests[agent].orEmpty().any { it.matches(tool) }
 }
 
 /** An agent's `tools.allow` and `tools.deny`. */

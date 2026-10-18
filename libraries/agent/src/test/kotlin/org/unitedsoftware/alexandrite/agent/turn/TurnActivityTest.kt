@@ -48,13 +48,13 @@ class TurnActivityTest {
             "coder": {
               "model": "scripted/test-model",
               "channels": {"test:main": {}},
-              "tools": {"forMembers": ["test.read", "test.edit", "test.exec"]}
+              "tools": {"forGuests": ["test.read", "test.edit", "test.exec"]}
             }
           }
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).apply(configure) }
+    ) { channel(operators = setOf("operator")).model(model).apply(configure) }
 
     /** Lets the channel show every kind of turn event. */
     private fun PluginHarness.Running.enableEvents() {
@@ -63,7 +63,7 @@ class TurnActivityTest {
     }
 
     private fun PluginHarness.Running.ask(text: String = "Go.") =
-        channel().receive(text, channel().chat(), channel().user("admin"))
+        channel().receive(text, channel().chat(), channel().user("operator"))
 
     /** The tool-call events of [turn]'s reply, its usage updates left out. */
     private fun PluginHarness.Running.activityOf(turn: Admission.Accepted): List<TurnEvent> =
@@ -129,7 +129,7 @@ class TurnActivityTest {
     }
 
     @Test
-    fun `an edit an admin approves shows waiting for approval, then running, then completed with its diff`() {
+    fun `an edit an operator approves shows waiting for approval, then running, then completed with its diff`() {
         val id = ToolCallId("call-1")
         val path = Path.of("/srv/notes.md")
         val edit = object : ReviewedTool {
@@ -154,7 +154,7 @@ class TurnActivityTest {
 
         harness { tool(edit) }.execute {
             enableEvents()
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
             val turn = ask() as Admission.Accepted
             turn.ticket.outcome()
 
@@ -216,7 +216,7 @@ class TurnActivityTest {
     }
 
     @Test
-    fun `a call an admin denies shows waiting for approval, then not run`() {
+    fun `a call an operator denies shows waiting for approval, then not run`() {
         val id = ToolCallId("call-1")
         val edit = recordingTool(
             ToolDefinition("test.edit", "Edits.", schema, ToolRisk.WORKSPACE_WRITE, activity = ToolActivity.EDIT),
@@ -225,7 +225,7 @@ class TurnActivityTest {
 
         harness { tool(edit) }.execute {
             enableEvents()
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
             val turn = ask() as Admission.Accepted
             turn.ticket.outcome()
 

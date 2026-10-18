@@ -36,7 +36,7 @@ import kotlin.time.Duration.Companion.seconds
 
 class RecordingChannelTest {
     private val submitter = RecordingTurnSubmitter()
-    private val channel = RecordingChannel(admins = setOf("ada"), partLength = 10, submitter = submitter)
+    private val channel = RecordingChannel(operators = setOf("ada"), partLength = 10, submitter = submitter)
     private val turn = testTurn()
 
     private fun turn(
@@ -392,8 +392,8 @@ class RecordingChannelTest {
         val command = channel.command("new", "now", issuer = channel.user("bob"))
 
         assertEquals("test:main:group#7", thread.toString())
-        assertTrue(channel.user("ada").isAdmin)
-        assertFalse(channel.user().isAdmin)
+        assertTrue(channel.user("ada").isOperator)
+        assertFalse(channel.user().isOperator)
         assertEquals("Ada", channel.user("ada").displayName)
         assertEquals(ChannelMessageRef(thread, "in-1"), message.ref)
         assertEquals("hi there", message.text)
@@ -419,7 +419,7 @@ class RecordingChannelTest {
         val carried = assertIs<Submission.Command>(command)
         assertEquals("/new now", carried.message?.text)
         assertEquals(carried.message?.ref, carried.invocation.trigger)
-        assertTrue(carried.invocation.issuer.isAdmin)
+        assertTrue(carried.invocation.issuer.isOperator)
         assertEquals(
             listOf(RecordingChannel.Event.Received(message), RecordingChannel.Event.Received(command)),
             channel.events,

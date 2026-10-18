@@ -70,7 +70,7 @@ class ConfigWriterTest {
     }
 
     @Serializable
-    data class Bot(val token: Secret, val admins: List<String> = emptyList())
+    data class Bot(val token: Secret, val operators: List<String> = emptyList())
 
     @JvmInline
     @Serializable
@@ -543,11 +543,11 @@ class ConfigWriterTest {
         write(text)
         val channel = editor(bot, ChannelType("bot"))
 
-        channel.change { set("instances.work.admins", strings("ada")) }
+        channel.change { set("instances.work.operators", strings("ada")) }
         val unknown = channel.refusal { set("instances.work.bogus", JsonPrimitive(1)) }
         val secret = channel.refusal { set("instances.home", obj("token" to JsonPrimitive("plain"))) }
 
-        assertEquals(text.replace("\"$TOKEN\"}", "\"$TOKEN\", \"admins\": [\"ada\"]}"), read())
+        assertEquals(text.replace("\"$TOKEN\"}", "\"$TOKEN\", \"operators\": [\"ada\"]}"), read())
         assertEquals(ConfigEditRefusal.INVALID_RESULT, unknown.refusal)
         assertContains(unknown.message!!, "channels.bot.instances.work")
         assertEquals(ConfigEditRefusal.SECRET, secret.refusal)

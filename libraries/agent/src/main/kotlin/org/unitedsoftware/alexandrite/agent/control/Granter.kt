@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.control
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
@@ -11,9 +12,9 @@ internal class Granter(
     val name: String,
     val username: String? = null,
     val bot: Boolean = false,
-    val admin: Boolean = false,
+    @SerialName("admin") val operator: Boolean = false,
 ) {
-    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isAdmin)
+    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isOperator)
 
-    fun user(): ChatUser = ChatUser(address, name, username, bot, admin)
+    fun user(): ChatUser = ChatUser(address, name, username, bot, operator)
 }

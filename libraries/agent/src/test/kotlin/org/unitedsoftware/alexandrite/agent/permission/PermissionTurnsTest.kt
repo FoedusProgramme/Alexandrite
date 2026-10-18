@@ -48,16 +48,16 @@ class PermissionTurnsTest {
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).tool(write).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).tool(write).apply(configure) }
 
-    private fun PluginHarness.Running.ask(text: String = "Hi", user: String = "admin"): Admission.Accepted =
+    private fun PluginHarness.Running.ask(text: String = "Hi", user: String = "operator"): Admission.Accepted =
         channel().receive(text, sender = channel().user(user)) as Admission.Accepted
 
     private suspend fun PluginHarness.Running.setMode(mode: PermissionMode, until: Instant? = null) =
         get<AgentControl>().updateSettings(
             channel().chat(),
             ChatSettingsUpdate.builder().mode(mode, until).build(),
-            channel().user("admin"),
+            channel().user("operator"),
         )
 
     private suspend fun results(): List<ToolResultEntry> {
@@ -104,18 +104,18 @@ class PermissionTurnsTest {
     }
 
     @Test
-    fun `a member's gated call asks an approver even in the operator's bypass`() {
+    fun `a guest's gated call asks an approver even in the operator's bypass`() {
         model.reply { toolCall("fs.write") }.reply { text("Not written.") }
 
-        harness(""", "tools": {"forMembers": ["fs.write"]}""").execute {
+        harness(""", "tools": {"forGuests": ["fs.write"]}""").execute {
             setMode(PermissionMode.BYPASS)
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
-            ask(user = "member").ticket.outcome()
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
+            ask(user = "guest").ticket.outcome()
 
             val request = channel().approvals.single()
-            assertEquals("a member's call", request.reason)
+            assertEquals("a guest's call", request.reason)
             assertEquals(
-                ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_ADMIN,
+                ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_OPERATOR,
                 results().single().let { it.outcome to it.text() },
             )
             assertEquals(emptyList(), write.calls)
@@ -212,7 +212,7 @@ class PermissionTurnsTest {
             val control = get<AgentControl>()
             val anchor = channel().chat("anchor")
             val member = channel().chat()
-            control.link(coder, anchor, member, channel().user("admin"))
+            control.link(coder, anchor, member, channel().user("operator"))
             control.updateSettings(member, ChatSettingsUpdate.builder().mode(PermissionMode.PLAN).build(), null)
 
             assertEquals(PermissionMode.PLAN, control.settings(anchor).mode)

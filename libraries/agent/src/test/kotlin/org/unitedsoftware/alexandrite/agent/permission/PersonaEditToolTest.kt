@@ -45,7 +45,7 @@ class PersonaEditToolTest {
     private val personas: Path get() = configFile.resolveSibling("agents")
     private val coder: TurnInfo = testTurn {
         agent(AgentId("coder"))
-        actor(testUser("admin", isAdmin = true))
+        actor(testUser("operator", isOperator = true))
     }
 
     private fun tool(

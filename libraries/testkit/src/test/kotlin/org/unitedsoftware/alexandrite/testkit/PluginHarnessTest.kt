@@ -304,12 +304,12 @@ class PluginHarnessTest {
         val text = "{\n\t\"plugins\": {\n\t\t\"probe\": {\"greeting\": \"h\\u0069\"}\n\t}\n}\n"
         Files.writeString(file, text)
 
-        harness { writeConfigFile(file).channel(admins = setOf("ada")) }.execute {
-            assertTrue(channel().user("ada").isAdmin)
+        harness { writeConfigFile(file).channel(operators = setOf("ada")) }.execute {
+            assertTrue(channel().user("ada").isOperator)
         }
 
         val section = "\t\t\"test-channel\": {\n\t\t\t\"instances\": {\n\t\t\t\t\"main\": {\n" +
-            "\t\t\t\t\t\"admins\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
+            "\t\t\t\t\t\"operators\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
         assertEquals(text.replace("}\n\t}", "},\n$section\n\t}"), Files.readString(file))
     }
 
@@ -317,10 +317,10 @@ class PluginHarnessTest {
     fun `a kept config file the test wrote gets the sections of the harness's recording channels`() {
         val file = directory.resolve("alexandrite.json")
         Files.writeString(file, "{\"plugins\": {\"probe\": {\"greeting\": \"hi\"}}}\n")
-        val harness = harness { writeConfigFile(file).channel(admins = setOf("ada")) }
+        val harness = harness { writeConfigFile(file).channel(operators = setOf("ada")) }
 
         harness.execute {
-            assertTrue(channel().user("ada").isAdmin)
+            assertTrue(channel().user("ada").isOperator)
             assertEquals(JsonObject(mapOf("greeting" to JsonPrimitive("hi"))), get<JsonObject>())
         }
         val written = Files.readString(file)

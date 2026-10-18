@@ -38,7 +38,7 @@ internal class Ports(
     val records: RecordStore,
     private val turns: AtomicInteger,
 ) {
-    /** Records a new turn of [kind] in [conversation], whose actor is a member unless it is a heartbeat. */
+    /** Records a new turn of [kind] in [conversation], whose actor is a guest unless it is a heartbeat. */
     suspend fun startTurn(
         conversation: ConversationInfo,
         kind: TurnKind = TurnKind.MESSAGE,

@@ -59,7 +59,7 @@ public enum class Capacity {
     /** Admitted while the queue is below its bound. */
     COUNTED,
 
-    /** Admitted past the bound, as replays and an admin's commands are. */
+    /** Admitted past the bound, as replays and an operator's commands are. */
     EXEMPT,
 }
 

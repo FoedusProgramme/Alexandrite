@@ -39,7 +39,7 @@ class PendingCommandsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).commandHandler(commands).commandHandler(EchoCommands()) }
+    ) { channel(operators = setOf("operator")).model(model).commandHandler(commands).commandHandler(EchoCommands()) }
 
     private suspend fun conversation(): ConversationId = store.conversations.current(key).id
 
@@ -65,14 +65,14 @@ class PendingCommandsTest {
     private fun recorded(): Map<String, String> =
         blocking { store.records.list("alexandrite-agent", "pending_commands") }.associate { it.key to it.value }
 
-    private suspend fun PluginHarness.Running.ask(text: String = "Hi", issuer: ChatUser = channel().user("admin")) {
+    private suspend fun PluginHarness.Running.ask(text: String = "Hi", issuer: ChatUser = channel().user("operator")) {
         assertIs<Admission.Accepted>(channel().receive(text, sender = issuer)).ticket.outcome()
     }
 
     private suspend fun PluginHarness.Running.runCommand(
         name: String,
         arguments: String = "",
-        issuer: ChatUser = channel().user("admin"),
+        issuer: ChatUser = channel().user("operator"),
     ) {
         assertIs<Admission.Accepted>(channel().receiveCommand(name, arguments, issuer = issuer)).ticket.outcome()
     }
@@ -95,7 +95,7 @@ class PendingCommandsTest {
                 listOf(
                     "[alexandrite:commands]\n" +
                         "Commands run in this chat since your last turn (they need no answer of their own):\n" +
-                        "- Admin (operator) ran /echo Hi! and was told: \"Hi!\"\n" +
+                        "- Operator (operator) ran /echo Hi! and was told: \"Hi!\"\n" +
                         "[/alexandrite:commands]",
                 ),
                 notices(entries),
@@ -145,7 +145,7 @@ class PendingCommandsTest {
                 listOf(
                     "[alexandrite:commands]\n" +
                         "Commands run in this chat since your last turn (they need no answer of their own):\n" +
-                        "- Admin (operator) ran /quiet.\n" +
+                        "- Operator (operator) ran /quiet.\n" +
                         "[/alexandrite:commands]",
                 ),
                 notices(stored()),
@@ -163,10 +163,10 @@ class PendingCommandsTest {
         harness().execute {
             commands.control = get()
             val channel = channel()
-            val admin = channel.user("admin")
-            val running = assertIs<Admission.Accepted>(channel.receive("Hi", sender = admin))
+            val operator = channel.user("operator")
+            val running = assertIs<Admission.Accepted>(channel.receive("Hi", sender = operator))
             model.awaitRequests(1)
-            val cancel = assertIs<Admission.Accepted>(channel.receiveCommand("cancel", issuer = admin))
+            val cancel = assertIs<Admission.Accepted>(channel.receiveCommand("cancel", issuer = operator))
 
             assertIs<TurnOutcome.Completed>(cancel.ticket.outcome())
             assertEquals(TurnOutcome.Cancelled, running.ticket.outcome())

@@ -70,10 +70,10 @@ internal class TelegramChannel(
     }
 
     override fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =
-        rules.mayRun(chat, issuer.isAdmin, command, withArguments)
+        rules.mayRun(chat, issuer.isOperator, command, withArguments)
 
-    /** Whether [user] is one of the instance's configured admins, who are admins in every chat of the bot. */
-    override suspend fun isAdmin(chat: ChatAddress, user: UserAddress): Boolean =
+    /** Whether [user] is one of the instance's configured admins, who are operators in every chat of the bot. */
+    override suspend fun isOperator(chat: ChatAddress, user: UserAddress): Boolean =
         user.instance == instance.id && user.user.toLongOrNull() in config.adminUserIds
 
     override fun onStop() {

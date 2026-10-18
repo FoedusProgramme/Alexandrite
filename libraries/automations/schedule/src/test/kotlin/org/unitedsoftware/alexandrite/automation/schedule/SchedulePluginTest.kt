@@ -36,9 +36,9 @@ class SchedulePluginTest {
                 )
                 assertEquals(listOf("schedule"), getAll<CommandHandler>().flatMap { it.commands }.map { it.name })
                 val control = get<ScheduleControl>()
-                control.create(KEY, CHAT, at, SHANGHAI, "Wish a happy new century.", ADMIN, null)
+                control.create(KEY, CHAT, at, SHANGHAI, "Wish a happy new century.", OPERATOR, null)
                 assertFailsWith<ScheduleRefusedException> {
-                    control.create(KEY, CHAT, at, SHANGHAI, "Again.", ADMIN, null)
+                    control.create(KEY, CHAT, at, SHANGHAI, "Again.", OPERATOR, null)
                 }
             }
             harness().run {

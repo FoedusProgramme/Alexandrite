@@ -41,19 +41,19 @@ class PendingCommandsPersistenceTest {
             .plugin(AlexandriteCommandsIndex())
             .config(config)
             .model(model)
-            .channel(admins = setOf("admin"))
+            .channel(operators = setOf("operator"))
             .dataRoot(directory.resolve("data"))
             .build()
         runBlocking { withTimeout(20.seconds) { harness.run(block) } }
     }
 
     private suspend fun PluginHarness.Running.runMode(arguments: String) {
-        (channel().receiveCommand("mode", arguments, issuer = channel().user("admin")) as Admission.Accepted).ticket
+        (channel().receiveCommand("mode", arguments, issuer = channel().user("operator")) as Admission.Accepted).ticket
             .outcome()
     }
 
     private suspend fun PluginHarness.Running.ask() {
-        (channel().receive("Hi", sender = channel().user("admin")) as Admission.Accepted).ticket.outcome()
+        (channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted).ticket.outcome()
     }
 
     private suspend fun PluginHarness.Running.stored(): List<TranscriptEntry> =
@@ -78,8 +78,8 @@ class PendingCommandsPersistenceTest {
             listOf(
                 "[alexandrite:commands]\n" +
                     "Commands run in this chat since your last turn (they need no answer of their own):\n" +
-                    "- Admin (operator) ran /mode allowedit and was told: \"The permission mode of this chat is now " +
-                    "allowedit.\"\n" +
+                    "- Operator (operator) ran /mode allowedit and was told: \"The permission mode of this chat is " +
+                    "now allowedit.\"\n" +
                     "[/alexandrite:commands]",
             ),
             notices(entries),

@@ -27,7 +27,7 @@ import kotlin.test.assertIs
 class TelegramApprovalTest {
     private val telegram = TelegramHarness()
     private val fake = telegram.fake
-    private val ada = ChatUser(UserAddress(WORK, "$ADA"), "Ada Lovelace", "ada_test", isBot = false, isAdmin = true)
+    private val ada = ChatUser(UserAddress(WORK, "$ADA"), "Ada Lovelace", "ada_test", isBot = false, isOperator = true)
 
     @AfterTest
     fun close() {

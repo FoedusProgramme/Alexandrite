@@ -297,7 +297,7 @@ internal class AgentTurnRunner(
             val definitions = offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
             val narrowed = hooks.turnStart(turn, message, definitions).or { return stopped(it) }.map { it.name }
             val callable = (narrowed + toolset.callableUnoffered)
-                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsAdmin || operatorSet(turn), it) }
+                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsOperator || operatorSet(turn), it) }
             this.callable = callable
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
@@ -1412,7 +1412,7 @@ private const val MAX_NAMED_FOLDERS = 10
 private val logger = LoggerFactory.getLogger(AgentTurnRunner::class.java)
 
 /**
- * Whether [turn] may call every tool an admin's turn may, though it has no admin: a heartbeat, which the operator's
+ * Whether [turn] may call every tool an operator's turn may, though it has no actor: a heartbeat, which the operator's
  * config sets up and whose gated calls are refused, as it has nobody to ask.
  */
 private fun operatorSet(turn: TurnInfo): Boolean = turn.kind == TurnKind.HEARTBEAT && turn.actor == null

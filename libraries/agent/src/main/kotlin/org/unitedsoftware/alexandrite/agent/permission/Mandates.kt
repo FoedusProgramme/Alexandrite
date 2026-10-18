@@ -26,7 +26,7 @@ import java.util.Base64
 
 /**
  * The mandates that operators' turns granted to plugins: each lets the plugin's later turns at one agent chat key run
- * as the operator while the operator's channel still counts them an admin, until the plugin revokes it.
+ * as the operator while the operator's channel still counts them one, until the plugin revokes it.
  */
 @Singleton
 @Binds(MandateGrants::class)
@@ -66,7 +66,7 @@ internal class Mandates(
 
     /**
      * The operator that [mandate] lets [plugin]'s turns at [key] run as, null when it lets them run as nobody; the
-     * chat at [key] is told once when the operator is no longer an admin.
+     * chat at [key] is told once when the channel no longer counts them an operator.
      */
     suspend fun actor(mandate: Mandate, plugin: String, key: AgentChatKey): ChatUser? {
         val record = granted.get(mandate.value)?.value
@@ -81,10 +81,10 @@ internal class Mandates(
         }
         val address = UserAddress.parseOrNull(record.actor) ?: return null
         val chat = record.chat?.let(ChatAddress::parseOrNull) ?: key.chat
-        val admin = channels.channel(address.instance)?.isAdmin(chat, address) == true
-        if (!admin) {
+        val operator = channels.channel(address.instance)?.isOperator(chat, address) == true
+        if (!operator) {
             logger.info(
-                "Mandate {} of {} lets plugin '{}' run as nobody: {} is no admin",
+                "Mandate {} of {} lets plugin '{}' run as nobody: {} is no operator",
                 mandate,
                 key,
                 plugin,
@@ -97,7 +97,7 @@ internal class Mandates(
             return null
         }
         if (record.lapsed) granted.put(mandate.value, record.copy(lapsed = false), null)
-        return ChatUser(address, record.name, record.username, isBot = false, isAdmin = true)
+        return ChatUser(address, record.name, record.username, isBot = false, isOperator = true)
     }
 
     private suspend fun tellLapsed(key: AgentChatKey, record: MandateRecord) {
@@ -131,7 +131,7 @@ internal fun interface MandateGrants {
 
 /**
  * A mandate that [actor], named [name], granted [plugin] in [chat] for turns at [key], at the ISO-8601 instant [at];
- * [lapsed] once the chat was told that the actor is no longer an admin.
+ * [lapsed] once the chat was told that the actor is no longer an operator.
  */
 @Serializable
 internal data class MandateRecord(

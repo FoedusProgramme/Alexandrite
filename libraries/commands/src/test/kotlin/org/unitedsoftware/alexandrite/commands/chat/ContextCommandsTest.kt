@@ -1,9 +1,9 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
 import org.unitedsoftware.alexandrite.commands.CHINESE
-import org.unitedsoftware.alexandrite.commands.MEMBER
+import org.unitedsoftware.alexandrite.commands.GUEST
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
@@ -33,8 +33,8 @@ class ContextCommandsTest {
         control.compaction = CompactionReport(12, 190_000, 41_000)
 
         val replies = listOf(
-            commands.answer(testCommand("compact", issuer = MEMBER)),
-            commands.answer(testCommand("compact", "  the failing tests ", issuer = ADMIN)),
+            commands.answer(testCommand("compact", issuer = GUEST)),
+            commands.answer(testCommand("compact", "  the failing tests ", issuer = OPERATOR)),
         )
 
         assertEquals(
@@ -45,7 +45,7 @@ class ContextCommandsTest {
             replies,
         )
         assertEquals(
-            listOf(Call.Compact(chat, null, MEMBER), Call.Compact(chat, "the failing tests", ADMIN)),
+            listOf(Call.Compact(chat, null, GUEST), Call.Compact(chat, "the failing tests", OPERATOR)),
             control.calls,
         )
     }
@@ -54,7 +54,7 @@ class ContextCommandsTest {
     fun `a compaction that is refused answers with why`() = runTest {
         control.refuseNext("There is nothing to compact yet.")
 
-        assertEquals("There is nothing to compact yet.", commands.answer(testCommand("compact", issuer = ADMIN)))
+        assertEquals("There is nothing to compact yet.", commands.answer(testCommand("compact", issuer = OPERATOR)))
     }
 
     @Test
@@ -79,7 +79,7 @@ class ContextCommandsTest {
                 It is compacted once a request reaches 190000 tokens, down to 40000.
                 Last compacted at 2026-01-01 00:30: its summary stands in for 57 entries.
             """.trimIndent(),
-            commands.answer(testCommand("context", issuer = MEMBER)),
+            commands.answer(testCommand("context", issuer = GUEST)),
         )
         assertEquals(emptyList(), control.calls)
     }
@@ -98,9 +98,9 @@ class ContextCommandsTest {
             The model's context window is unknown, so the conversation is compacted only when you send /compact.
             It was not compacted yet.
             """.trimIndent(),
-            commands.answer(testCommand("context", issuer = MEMBER)),
+            commands.answer(testCommand("context", issuer = GUEST)),
         )
-        val other = commands.answer(testCommand("context", chat = testChat("other"), issuer = MEMBER))
+        val other = commands.answer(testCommand("context", chat = testChat("other"), issuer = GUEST))
         assertEquals("Last request: 900 tokens, counted at 2026-01-01 00:00.", other.lines()[1])
         assertEquals("Send /context without anything after it.", commands.answer(testCommand("context", "now")))
     }
@@ -110,7 +110,7 @@ class ContextCommandsTest {
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "context.not_compacted", "还没有压缩过。").build()
         val chinese = ContextCommands(control, commandTexts(catalog), TestClock())
         control.scriptContext(chat, ContextStatus(conversation, null, null, null, null, null, null, null, 0))
-        val invocation = testCommand("context", issuer = ADMIN)
+        val invocation = testCommand("context", issuer = OPERATOR)
 
         val reply = chinese.answer(invocation, commandContext(invocation, language = CHINESE))
 

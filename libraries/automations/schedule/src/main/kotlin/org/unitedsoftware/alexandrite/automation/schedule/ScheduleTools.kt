@@ -46,7 +46,7 @@ internal class CreateTool(
             "at least ${shown(
                 config.minIntervalMinutes.minutes,
             )}; or cron, a five-field cron expression in this chat's zone " +
-            "such as \"0 9 * * MON-FRI\". Only an administrator's own message may schedule. Tell the user the id " +
+            "such as \"0 9 * * MON-FRI\". Only an operator's own message may schedule. Tell the user the id " +
             "and the next run it answers with.",
         parameters = schema(
             listOf("prompt"),
@@ -174,7 +174,7 @@ internal class CancelTool(control: Lazy<ScheduleControl>) : Tool {
 
     override val definition = ToolDefinition(
         name = "schedule.cancel",
-        description = "Cancels a task scheduled in this chat, by its id such as t-4k2p. Only an administrator's own " +
+        description = "Cancels a task scheduled in this chat, by its id such as t-4k2p. Only an operator's own " +
             "message may cancel.",
         parameters = schema(listOf("id"), "id" to "The task's id, such as t-4k2p."),
         risk = ToolRisk.AGENT_STATE,
@@ -202,9 +202,9 @@ internal fun refusal(turn: TurnInfo, act: String): String? = when {
     turn.lineage != null || turn.kind == TurnKind.DELEGATED -> "A sub-agent cannot $act tasks."
 
     turn.kind != TurnKind.MESSAGE ->
-        "Only an administrator's own message can $act tasks; a scheduled or other automated turn cannot."
+        "Only an operator's own message can $act tasks; a scheduled or other automated turn cannot."
 
-    !turn.actorIsAdmin -> "Only an administrator can $act tasks."
+    !turn.actorIsOperator -> "Only an operator can $act tasks."
 
     else -> null
 }

@@ -347,7 +347,7 @@ internal class McpServer(
     }
 
     private fun loginHint(): String =
-        "An administrator must send /mcp login ${spec.name} in a direct chat with the bot, then try again."
+        "An operator must send /mcp login ${spec.name} in a direct chat with the bot, then try again."
 
     private fun unavailable(): ToolResult {
         val status = current.value

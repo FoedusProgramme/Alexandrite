@@ -45,7 +45,7 @@ class ChatTopologyTest {
     private val helper = AgentId("helper")
     private val main = ChannelInstanceId.parse("test:main")
     private val solo = ChannelInstanceId.parse("test:solo")
-    private val admin = testUser("ada", isAdmin = true)
+    private val operator = testUser("ada", isOperator = true)
     private val texts = testTexts("alexandrite-agent")
 
     private fun topology(config: String = this.config): ChatTopology {
@@ -73,7 +73,7 @@ class ChatTopologyTest {
     }
 
     private fun change(agent: AgentId, at: String, change: SettingChange<Boolean>) {
-        blocking { topology.changeHome(agent, chat(at), change, admin) }
+        blocking { topology.changeHome(agent, chat(at), change, operator) }
     }
 
     private fun home(agent: AgentId, at: String) = change(agent, at, SettingChange.SetTo(true))
@@ -83,7 +83,7 @@ class ChatTopologyTest {
     private fun resetHome(agent: AgentId, at: String) = change(agent, at, SettingChange.Reset)
 
     private fun link(agent: AgentId, chat: ChatAddress, member: ChatAddress): LinkGroup =
-        blocking { topology.link(agent, chat, member, admin) }
+        blocking { topology.link(agent, chat, member, operator) }
 
     private fun unlink(agent: AgentId, member: ChatAddress, topology: ChatTopology = this.topology): Revocation =
         blocking { topology.unlink(agent, member) }
@@ -184,7 +184,7 @@ class ChatTopologyTest {
         val grant = topology.homeGrant(coder, main)
 
         assertEquals(chat("test:main:1"), topology.configuredHome(coder, main))
-        assertEquals(admin, grant?.by)
+        assertEquals(operator, grant?.by)
         assertEquals(listOf(true, false), listOf(grant != null, topology.homeGrant(helper, main) != null))
     }
 
@@ -209,7 +209,7 @@ class ChatTopologyTest {
         assertEquals(AgentChatKey.parse("helper@test:main:5"), topology.key(helper, chat("test:solo:5")))
         assertEquals(AgentChatKey.parse("coder@test:solo:9"), topology.key(coder, chat("test:solo:10")))
         val group = topology.group(coder, chat("test:solo:9"))!!
-        assertEquals(admin, topology.linkGrant(coder, group, chat("test:main:9"))?.by)
+        assertEquals(operator, topology.linkGrant(coder, group, chat("test:main:9"))?.by)
         assertNull(topology.linkGrant(coder, group, chat("test:solo:9")))
     }
 
@@ -286,21 +286,21 @@ class ChatTopologyTest {
         assertNull(restarted.home(helper, main))
         assertEquals(group("test:main:5", "test:solo:5"), restarted.group(coder, chat("test:solo:5")))
         assertEquals(declared("test:main:7", "test:solo:7", "test:main:8"), restarted.group(coder, chat("test:main:8")))
-        assertEquals(listOf(admin, admin), listOf(coder, helper).map { restarted.homeGrant(it, main)?.by })
-        val by = "{\"address\":\"${admin.address}\",\"name\":\"Ada\",\"username\":null,\"bot\":false,\"admin\":true}"
+        assertEquals(listOf(operator, operator), listOf(coder, helper).map { restarted.homeGrant(it, main)?.by })
+        val by = "{\"address\":\"${operator.address}\",\"name\":\"Ada\",\"username\":null,\"bot\":false,\"admin\":true}"
         assertEquals(
             listOf(
                 "coder@test:main {\"agent\":\"coder\",\"instance\":\"test:main\",\"chat\":\"test:main:5\"," +
-                    "\"by\":$by} ${admin.address}",
+                    "\"by\":$by} ${operator.address}",
                 "helper@test:main {\"agent\":\"helper\",\"instance\":\"test:main\",\"chat\":null,\"by\":$by} " +
-                    "${admin.address}",
+                    "${operator.address}",
             ),
             stored("homes"),
         )
         assertEquals(
             listOf(
                 "coder@test:solo:5 {\"agent\":\"coder\",\"member\":\"test:solo:5\",\"anchor\":\"test:main:5\"," +
-                    "\"by\":$by} ${admin.address}",
+                    "\"by\":$by} ${operator.address}",
             ),
             stored("links"),
         )

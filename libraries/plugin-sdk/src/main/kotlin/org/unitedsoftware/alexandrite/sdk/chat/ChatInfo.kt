@@ -13,10 +13,10 @@ public value class ChatKind internal constructor(public val id: String) {
         /** A chat that the bot and exactly one human can read, as the channel checked. */
         public val DIRECT: ChatKind = ChatKind("direct")
 
-        /** A chat of several members. */
+        /** A chat of several people. */
         public val GROUP: ChatKind = ChatKind("group")
 
-        /** A chat that only its admins post to. */
+        /** A chat that only its owners post to. */
         public val BROADCAST: ChatKind = ChatKind("broadcast")
 
         /** A chat the channel cannot classify. */

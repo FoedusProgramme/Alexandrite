@@ -67,7 +67,7 @@ class CallRulesTest {
     private val records = TestRecords(store.records).of(AGENT)
     private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT))
     private val key = AgentChatKey(AgentId.MAIN, testChat())
-    private val admin = testUser("admin", isAdmin = true)
+    private val operator = testUser("operator", isOperator = true)
     private val exec = ScriptedTool("command.exec", ToolRisk.EXEC)
     private val deploy = ScriptedTool("deploy.run", ToolRisk.EXEC)
     private val notes = ScriptedTool("notes.keep", ToolRisk.PERSISTENT_STATE)
@@ -109,10 +109,10 @@ class CallRulesTest {
 
     private suspend fun operator(): TurnInfo {
         val conversation = conversation()
-        return testTurn { actor(admin).conversation(conversation) }
+        return testTurn { actor(operator).conversation(conversation) }
     }
 
-    private suspend fun member(): TurnInfo {
+    private suspend fun guest(): TurnInfo {
         val conversation = conversation()
         return testTurn { conversation(conversation) }
     }
@@ -157,7 +157,7 @@ class CallRulesTest {
 
         for (mode in PermissionMode.entries) {
             setMode(mode)
-            for (turn in listOf(operator(), member(), automation())) {
+            for (turn in listOf(operator(), guest(), automation())) {
                 val decided = listOf(setup.decide(exec, push, turn), setup.decide(exec, status, turn))
 
                 assertEquals(denied, decided[0], "$mode ${turn.kind} ${turn.actor}")
@@ -202,7 +202,7 @@ class CallRulesTest {
             val decided = listOf("manual", "ask", "allowedit", "auto").map { mode ->
                 setMode(PermissionMode.of(mode))
                 setup.decide(exec, test, operator()) + " " + setup.decide(exec, build, operator())
-            } + setup.decide(exec, test, member())
+            } + setup.decide(exec, test, guest())
 
             assertEquals(listOf("ask ask", "rule ask", "rule ask", "rule ask", "ask"), decided)
         }
@@ -278,7 +278,7 @@ class CallRulesTest {
 
         val offered = listOf(
             rules.grantable(checked(operator(), exec, review)),
-            rules.grantable(checked(member(), exec, review)),
+            rules.grantable(checked(guest(), exec, review)),
             rules.grantable(checked(automation(), exec, review)),
             rules.grantable(checked(operator(), exec, foreign)),
             rules.grantable(checked(operator(), exec, CallReview())),
@@ -294,10 +294,10 @@ class CallRulesTest {
         val setup = Setup()
         val test = run("make", "test")
         val elsewhere = store.conversations.current(AgentChatKey(AgentId.MAIN, testChat("other"))).id
-        val other = testTurn(chat = testChat("other")) { actor(admin).conversation(elsewhere) }
+        val other = testTurn(chat = testChat("other")) { actor(operator).conversation(elsewhere) }
         val before = setup.decide(exec, test, operator())
 
-        setup.rules.grant(checked(operator(), exec, test), test.rule!!, admin)
+        setup.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
 
         assertEquals(
             listOf("ask", "rule", "ask", "ask", "ask"),
@@ -306,12 +306,12 @@ class CallRulesTest {
                 setup.decide(exec, run("make", "test", "--verbose"), operator()),
                 setup.decide(exec, run("make", "clean"), operator()),
                 setup.decide(exec, test, other),
-                setup.decide(exec, test, member()),
+                setup.decide(exec, test, guest()),
             ),
         )
         val record = storedRules().single()
         assertEquals(
-            listOf("${conversation()}", "command.exec", "[\"make\",\"test\"]", "make test", admin.address),
+            listOf("${conversation()}", "command.exec", "[\"make\",\"test\"]", "make test", operator.address),
             listOf(
                 record.value["conversation"].content(),
                 record.value["tool"].content(),
@@ -330,9 +330,13 @@ class CallRulesTest {
         val lines = logged {
             blocking {
                 setMode(PermissionMode.MANUAL)
-                rules.grant(checked(operator(), exec, test), test.rule!!, admin)
+                rules.grant(checked(operator(), exec, test), test.rule!!, operator)
                 setMode(PermissionMode.ASK)
-                rules.grant(checked(operator(), exec, test), RuleSubject("command.exec", listOf("make"), "make"), admin)
+                rules.grant(
+                    checked(operator(), exec, test),
+                    RuleSubject("command.exec", listOf("make"), "make"),
+                    operator,
+                )
             }
         }
 
@@ -352,14 +356,14 @@ class CallRulesTest {
         val test = run("make", "test")
         val lint = run("make", "lint")
         val sealed = conversation()
-        first.rules.grant(checked(operator(), exec, test), test.rule!!, admin)
+        first.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
         store.conversations.newConversation(key)
         first.rules.sealed(sealed)
         val sealedRules = first.rules.inForce(AgentId.MAIN, sealed)
         val stillCurrent = conversation()
-        first.rules.grant(checked(operator(), exec, lint), lint.rule!!, admin)
+        first.rules.grant(checked(operator(), exec, lint), lint.rule!!, operator)
         store.conversations.newConversation(key)
-        first.rules.grant(checked(operator(), exec, test), test.rule!!, admin)
+        first.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
         val restarted = Setup()
 
         restarted.rules.onStart()
@@ -382,7 +386,7 @@ class CallRulesTest {
     fun `the rules in force are the declared ones, then the conversation's with who and when`() = runTest {
         val setup = Setup("""{"allow": ["command.exec(git status)", "deploy.run"]}""")
         val sneaky = RuleSubject("command.exec", listOf("cat", "a‮b"), "cat a‮b")
-        setup.rules.grant(checked(operator(), exec, run("cat", "a‮b").withRule(sneaky)), sneaky, admin)
+        setup.rules.grant(checked(operator(), exec, run("cat", "a‮b").withRule(sneaky)), sneaky, operator)
 
         assertEquals(
             listOf(
@@ -393,7 +397,7 @@ class CallRulesTest {
                     RuleSubject("command.exec", listOf("cat", "a‮b"), "cat a\\u202Eb"),
                     false,
                     TEST_TIME,
-                    admin,
+                    operator,
                 ),
             ),
             setup.rules.inForce(AgentId.MAIN, conversation()),
@@ -407,15 +411,15 @@ class CallRulesTest {
             val status = run("/usr/bin/git", "status", executable = "/usr/bin/git")
                 .withRule(RuleSubject("command.exec", listOf("git", "status"), "git status"))
             val test = run("make", "test")
-            setup.rules.grant(checked(operator(), exec, test), test.rule!!, admin)
-            setup.rules.grant(checked(operator(), exec, status), status.rule!!, admin)
+            setup.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
+            setup.rules.grant(checked(operator(), exec, status), status.rule!!, operator)
 
             val revoked = listOf(
-                setup.rules.revoke(AgentId.MAIN, conversation(), 1, admin),
-                setup.rules.revoke(AgentId.MAIN, conversation(), 3, admin),
-                setup.rules.revoke(AgentId.MAIN, conversation(), 2, admin),
-                setup.rules.revoke(AgentId.MAIN, conversation(), 2, admin),
-                setup.rules.revoke(AgentId.MAIN, conversation(), 0, admin),
+                setup.rules.revoke(AgentId.MAIN, conversation(), 1, operator),
+                setup.rules.revoke(AgentId.MAIN, conversation(), 3, operator),
+                setup.rules.revoke(AgentId.MAIN, conversation(), 2, operator),
+                setup.rules.revoke(AgentId.MAIN, conversation(), 2, operator),
+                setup.rules.revoke(AgentId.MAIN, conversation(), 0, operator),
             )
 
             assertEquals(
@@ -500,5 +504,5 @@ private fun JsonElement?.content(): String = (this as JsonPrimitive).content
 private object UnsureJudge : Judge {
     override suspend fun judge(call: CheckedCall): Verdict = Verdict.Ask("unsure")
 
-    override fun allowedByAdmin(key: AgentChatKey, tool: String) = Unit
+    override fun allowedByOperator(key: AgentChatKey, tool: String) = Unit
 }

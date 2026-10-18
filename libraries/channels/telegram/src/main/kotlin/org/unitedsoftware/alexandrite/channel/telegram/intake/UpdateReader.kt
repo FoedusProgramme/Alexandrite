@@ -80,7 +80,7 @@ internal class UpdateReader(
         nameOf(user),
         user.username,
         user.isBot,
-        isAdmin = user.id in admins && senderChat == null,
+        isOperator = user.id in admins && senderChat == null,
     )
 
     /**

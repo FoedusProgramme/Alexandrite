@@ -40,9 +40,9 @@ class FollowUpsTest {
     ): PluginHarness = agentHarness(
         """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}""",
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(read).apply(configure) }
+    ) { channel(operators = setOf("operator")).model(model).tool(read).apply(configure) }
 
-    private fun PluginHarness.Running.send(text: String, user: String = "admin"): Admission.Accepted =
+    private fun PluginHarness.Running.send(text: String, user: String = "operator"): Admission.Accepted =
         channel().receive(text, sender = channel().user(user)) as Admission.Accepted
 
     private suspend fun stored(): List<TranscriptEntry> = store.transcripts.entries(store.conversations.current(key).id)
@@ -87,7 +87,7 @@ class FollowUpsTest {
         harness { hook(input) }.execute {
             val first = send("Read it.")
             read.awaitCalls(1)
-            val message = channel().message("And more.", sender = channel().user("admin"))
+            val message = channel().message("And more.", sender = channel().user("operator"))
             val second = channel().submit(Submission.Message(message)) as Admission.Accepted
             read.release()
 
@@ -166,11 +166,11 @@ class FollowUpsTest {
             }
         """.trimIndent()
 
-        agentHarness(config, store) { channel(admins = setOf("admin")).model(model).tool(read) }.execute {
-            val admin = channel().user("admin")
-            val group = channel().receive("Read it.", channel().chat("group"), admin) as Admission.Accepted
+        agentHarness(config, store) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
+            val operator = channel().user("operator")
+            val group = channel().receive("Read it.", channel().chat("group"), operator) as Admission.Accepted
             read.awaitCalls(1)
-            val dm = channel().receive("Privately: hi.", channel().chat("dm"), admin) as Admission.Accepted
+            val dm = channel().receive("Privately: hi.", channel().chat("dm"), operator) as Admission.Accepted
             read.release()
 
             assertIs<TurnOutcome.Completed>(group.ticket.outcome())
@@ -184,19 +184,19 @@ class FollowUpsTest {
 
     @Test
     fun `a message of anyone but the principal waits for its own turn`() {
-        model.reply { toolCall("fs.read") }.reply { text("To the admin.") }.reply { text("To the member.") }
+        model.reply { toolCall("fs.read") }.reply { text("To the operator.") }.reply { text("To the guest.") }
 
         harness().execute {
             val first = send("Read it.")
             read.awaitCalls(1)
-            val second = send("Me too.", user = "member")
+            val second = send("Me too.", user = "guest")
             read.release()
 
             assertIs<TurnOutcome.Completed>(first.ticket.outcome())
             assertIs<TurnOutcome.Completed>(second.ticket.outcome())
             val kinds = model.requests[1].history.map { it::class }
             assertEquals(listOf(UserEntry::class, AssistantEntry::class, ToolResultEntry::class), kinds)
-            assertEquals("To the member.", channel().reply(second.ticket.turn).completed?.text)
+            assertEquals("To the guest.", channel().reply(second.ticket.turn).completed?.text)
         }
     }
 }

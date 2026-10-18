@@ -4,6 +4,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.prompt.COMMANDS_HEADER
@@ -55,7 +56,7 @@ internal class PendingCommands(records: Records, private val conversations: Conv
         commandLine: String,
         replies: List<ReplyRecord>,
     ) {
-        val entry = PendingCommandRecord(issuer.displayName, issuer.isAdmin, commandLine, replies.map(::stored))
+        val entry = PendingCommandRecord(issuer.displayName, issuer.isOperator, commandLine, replies.map(::stored))
         writing.withLock {
             try {
                 if (conversations.conversation(conversation)?.state != ConversationState.ACTIVE) return@withLock
@@ -153,7 +154,7 @@ internal fun commandsFraming(commands: List<PendingCommandRecord>): String = bui
 
 /** One line naming who ran [command] and what it told them, its replies indented when it told more than one line. */
 private fun commandBullet(command: PendingCommandRecord): String {
-    val who = oneLine(command.who).let { if (command.admin) "$it (operator)" else it }
+    val who = oneLine(command.who).let { if (command.operator) "$it (operator)" else it }
     val action = "ran ${oneLine(command.commandLine).trim()}"
     val replies = command.replies
     val inline = replies.singleOrNull()?.takeIf { lines(it).size == 1 }
@@ -181,11 +182,11 @@ private fun quotedLines(reply: String): List<String> {
 @Serializable
 internal data class PendingCommandsRecord(val commands: List<PendingCommandRecord> = emptyList())
 
-/** [who] ran [commandLine], whether they are [admin], and the text of each of its [replies] as stored. */
+/** [who] ran [commandLine], whether they are an [operator], and the text of each of its [replies] as stored. */
 @Serializable
 internal data class PendingCommandRecord(
     val who: String,
-    val admin: Boolean,
+    @SerialName("admin") val operator: Boolean,
     val commandLine: String,
     val replies: List<String> = emptyList(),
 )

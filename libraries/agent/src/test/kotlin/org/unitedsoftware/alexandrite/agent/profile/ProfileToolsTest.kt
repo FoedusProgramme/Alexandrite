@@ -29,8 +29,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProfileToolsTest {
-    private val admin = testUser("admin", isAdmin = true)
-    private val turn = testTurn { actor(admin) }
+    private val operator = testUser("operator", isOperator = true)
+    private val turn = testTurn { actor(operator) }
     private val catalog = Profiles(
         agentDirectory(settings("{}")),
         Persona(
@@ -46,7 +46,7 @@ class ProfileToolsTest {
 
     private suspend fun create(id: String, description: String = "Helps.", name: String = "Helper") {
         val draft = ProfileDraft(id, name, description, "Be helpful.")
-        catalog.persistCreate(catalog.plannedCreate(draft), admin)
+        catalog.persistCreate(catalog.plannedCreate(draft), operator)
     }
 
     private fun arguments(vararg fields: Pair<String, Any?>): JsonObject = JsonObject(
@@ -105,7 +105,7 @@ class ProfileToolsTest {
         val result = blocking { ProfileListTool(catalog).execute(arguments(), testToolContext(turn)) }
 
         val expected = "Profiles:\n- reviewer (Reviewer): Reviews code. [model=(the delegating agent's), " +
-            "toolsAllow=*, toolsDeny=(none), mode=(tightens whatever mode it runs in), source=created by Admin]"
+            "toolsAllow=*, toolsDeny=(none), mode=(tightens whatever mode it runs in), source=created by Operator]"
         assertEquals(expected, (result.content.single() as TextPart).text)
     }
 
@@ -220,6 +220,6 @@ class ProfileToolsTest {
     }
 
     private suspend fun applyEdit(id: String, edit: ProfileEdit) {
-        catalog.persistEdit(catalog.plannedEdit(AgentId(id), edit).second, admin)
+        catalog.persistEdit(catalog.plannedEdit(AgentId(id), edit).second, operator)
     }
 }

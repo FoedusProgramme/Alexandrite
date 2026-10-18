@@ -80,7 +80,7 @@ internal class WorkerBench(
     val workers = TurnWorkers(settings, lock, conversations, runner, clock).also { it.open() }
     val intakes = ChatIntakes(settings, lock, workers, router)
 
-    fun receive(chat: String, capacity: Capacity = Capacity.COUNTED, user: String = "member"): Admission {
+    fun receive(chat: String, capacity: Capacity = Capacity.COUNTED, user: String = "guest"): Admission {
         val address = ChatAddress.parse(chat)
         val message = testMessage("Hello", address, testUser(user, instance = address.instance))
         return intakes.dispatch(newTurnId(clock.instant()), message, capacity, clock.instant())

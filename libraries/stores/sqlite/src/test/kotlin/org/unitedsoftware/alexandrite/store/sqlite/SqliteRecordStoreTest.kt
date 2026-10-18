@@ -14,7 +14,7 @@ class SqliteRecordStoreTest {
     fun `a record keeps one row, stored again by the store's clock, and adds no chat`() {
         val clock = MutableClock()
         withStore(directory, clock) {
-            val first = records.put("notes", "grants", "$chat", "1", member.address)
+            val first = records.put("notes", "grants", "$chat", "1", guest.address)
             clock.advance(Duration.ofSeconds(5))
             val second = records.put("notes", "grants", "$chat", "2", null)
 
@@ -24,7 +24,7 @@ class SqliteRecordStoreTest {
                 listOf(clock.instant.minusSeconds(5), clock.instant),
                 listOf(first.createdAt, second.updatedAt),
             )
-            assertEquals(listOf(listOf("$chat", "2", "${member.address}", null)), rows(ROW))
+            assertEquals(listOf(listOf("$chat", "2", "${guest.address}", null)), rows(ROW))
         }
     }
 

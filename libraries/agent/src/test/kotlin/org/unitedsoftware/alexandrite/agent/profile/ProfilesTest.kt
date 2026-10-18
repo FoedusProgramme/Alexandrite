@@ -39,7 +39,7 @@ class ProfilesTest {
 
     private val configFile: Path get() = directory.resolve("alexandrite.json")
     private val store = MemoryStore()
-    private val admin = testUser("admin", isAdmin = true)
+    private val operator = testUser("operator", isOperator = true)
 
     private fun profiles(config: String = "{}", contributed: List<AgentProfile> = emptyList()): Profiles {
         val settings = settings(config)
@@ -144,8 +144,8 @@ class ProfilesTest {
         val reviewer = AgentProfile(AgentId("reviewer"), "Plugin's", "Plugin's own.", "Be strict.")
         val catalog = profiles("""{"agents": {"coder": {"description": "Codes."}}}""", listOf(reviewer))
 
-        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("coder"), admin) } }
-        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("reviewer"), admin) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("coder"), operator) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("reviewer"), operator) } }
     }
 
     // profile.create.
@@ -154,27 +154,27 @@ class ProfilesTest {
     fun `a created profile is listed with who made it and when`() {
         val catalog = profiles()
 
-        val created = blocking { catalog.create(draft("helper", description = "Helps."), admin) }
+        val created = blocking { catalog.create(draft("helper", description = "Helps."), operator) }
         val summary = blocking { catalog.profile(AgentId("helper")) }
         val source = summary?.source as? ProfileSource.Created
 
         assertEquals("Helps.", created.description)
-        assertEquals(admin, source?.by)
+        assertEquals(operator, source?.by)
         assertEquals(created, summary?.profile)
     }
 
     @Test
     fun `an id already created cannot be created again`() {
         val catalog = profiles()
-        blocking { catalog.create(draft("helper"), admin) }
+        blocking { catalog.create(draft("helper"), operator) }
 
-        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("helper"), admin) } }
+        assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("helper"), operator) } }
     }
 
     @Test
     fun `validation problems are refused before anything is created`() {
         val catalog = profiles()
-        fun fails(draft: ProfileDraft) = assertFailsWith<ToolRefusal> { blocking { catalog.create(draft, admin) } }
+        fun fails(draft: ProfileDraft) = assertFailsWith<ToolRefusal> { blocking { catalog.create(draft, operator) } }
 
         fails(draft("Not-An-Id"))
         fails(draft("helper", name = " "))
@@ -199,7 +199,7 @@ class ProfilesTest {
         blocking {
             catalog.create(
                 draft("helper", model = "scripted/test-model", mode = "ask", maxRounds = 5, maxTurnTokens = 100),
-                admin,
+                operator,
             )
         }
 
@@ -210,7 +210,7 @@ class ProfilesTest {
             maxTurnTokens = SettingChange.Reset,
         )
         val (before, after) = blocking { catalog.plannedEdit(AgentId("helper"), edit) }
-        blocking { catalog.persistEdit(after, admin) }
+        blocking { catalog.persistEdit(after, operator) }
         val stored = blocking { catalog.profile(AgentId("helper")) }?.profile
 
         assertEquals("Helps.", before.description)
@@ -236,7 +236,7 @@ class ProfilesTest {
     @Test
     fun `removing a created profile takes it off the list, and removing it again is refused`() {
         val catalog = profiles()
-        blocking { catalog.create(draft("helper"), admin) }
+        blocking { catalog.create(draft("helper"), operator) }
 
         val removed = blocking { catalog.plannedRemove(AgentId("helper")) }
         blocking { catalog.persistRemove(AgentId("helper")) }
@@ -250,13 +250,13 @@ class ProfilesTest {
 
     @Test
     fun `a created profile survives a restart, read from the same store`() {
-        blocking { profiles().create(draft("helper", description = "Helps."), admin) }
+        blocking { profiles().create(draft("helper", description = "Helps."), operator) }
 
         val restarted = blocking { profiles().profile(AgentId("helper")) }
 
         assertTrue(restarted != null)
         assertEquals("Helps.", restarted.profile.description)
-        assertEquals(admin, (restarted.source as? ProfileSource.Created)?.by)
+        assertEquals(operator, (restarted.source as? ProfileSource.Created)?.by)
     }
 
     private fun draft(

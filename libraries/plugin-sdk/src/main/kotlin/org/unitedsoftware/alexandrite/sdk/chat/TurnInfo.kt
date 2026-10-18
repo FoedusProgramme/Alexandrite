@@ -14,7 +14,7 @@ import java.time.ZoneId
  * - `TurnOutcome.replayable` is false once any run the turn delegated has persisted anything.
  * - Authority flows only from a live `ToolContext`, which is valid only during `Tool.execute`; a turn that
  *   `TurnInitiator` creates carries a principal only under a `Mandate` that an operator's turn granted, and only while
- *   that operator is still an admin of the chat.
+ *   that operator's channel still counts them an operator in the chat.
  * - Cancelling a chat's running turn cancels every run it delegated, background runs of the chat included.
  */
 @Poko
@@ -41,8 +41,8 @@ public class TurnInfo private constructor(
         require(key.agent == agent) { "Turn $id of agent $agent cannot have the key $key of another agent." }
     }
 
-    /** Whether [actor] is an admin, false when there is none. */
-    public val actorIsAdmin: Boolean get() = actor?.isAdmin == true
+    /** Whether [actor] is an operator, false when there is none. */
+    public val actorIsOperator: Boolean get() = actor?.isOperator == true
 
     /** A builder of this turn, whose key follows its agent and chat unless it is kept at another chat. */
     public fun toBuilder(): Builder = Builder(id, chat, conversation, kind)

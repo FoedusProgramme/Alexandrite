@@ -65,10 +65,10 @@ class CancellationTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(read).tool(stuck).apply(configure) }
+    ) { channel(operators = setOf("operator")).model(model).tool(read).tool(stuck).apply(configure) }
 
     private fun PluginHarness.Running.ask(text: String = "Hi"): Admission.Accepted =
-        channel().receive(text, sender = channel().user("admin")) as Admission.Accepted
+        channel().receive(text, sender = channel().user("operator")) as Admission.Accepted
 
     private suspend fun entries(turn: TurnId): List<TranscriptEntry> = store.transcripts.turnEntries(turn)
 

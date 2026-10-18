@@ -113,13 +113,13 @@ class TaintTurnsTest {
                     ),
                 )
             }
-            channel(admins = setOf("admin")).model(model).tool(read).tool(paste).tool(fetch).apply(configure)
+            channel(operators = setOf("operator")).model(model).tool(read).tool(paste).tool(fetch).apply(configure)
             configFile(configFile).dataRoot(root.resolve("data"))
         }
     }
 
     private suspend fun PluginHarness.Running.ask(
-        user: String = "admin",
+        user: String = "operator",
         block: IncomingMessage.Builder.() -> Unit = {},
     ): TurnOutcome = (channel().receive("Hi", sender = channel().user(user), block = block) as Admission.Accepted)
         .ticket.outcome()
@@ -193,7 +193,7 @@ class TaintTurnsTest {
             store = MemoryStore()
             model = ScriptedModel().reply { text("Seen.") }
             harness().execute {
-                ask(user = "member") {
+                ask(user = "guest") {
                     forwarded(origin)
                     quote(quoted)
                 }
@@ -210,10 +210,10 @@ class TaintTurnsTest {
         model.reply { toolCall("fs.glob") }.reply { text("Done.") }
 
         harness { tool(held) }.execute {
-            val first = channel().receive("Look.", sender = channel().user("admin")) as Admission.Accepted
+            val first = channel().receive("Look.", sender = channel().user("operator")) as Admission.Accepted
             held.awaitCalls(1)
             assertEquals(null, mark())
-            val second = channel().receive("This too.", sender = channel().user("admin")) {
+            val second = channel().receive("This too.", sender = channel().user("operator")) {
                 forwarded(ForwardOrigin(ForwardKind.CHAT, "News", null, null))
             } as Admission.Accepted
             held.release()
@@ -294,7 +294,7 @@ class TaintTurnsTest {
         harness().execute {
             ask()
             val tainted = store.conversations.current(key).id
-            get<AgentControl>().newConversation(channel().chat(), channel().user("admin"))
+            get<AgentControl>().newConversation(channel().chat(), channel().user("operator"))
             ask()
 
             assertEquals(listOf(ToolOutcome.Succeeded), results().map { it.outcome })
@@ -315,8 +315,8 @@ class TaintTurnsTest {
             val conversation = store.conversations.current(key).id
             val control = get<AgentControl>()
 
-            val cleared = control.untaint(channel().chat(), channel().user("admin"))
-            val again = control.untaint(channel().chat(), channel().user("admin"))
+            val cleared = control.untaint(channel().chat(), channel().user("operator"))
+            val again = control.untaint(channel().chat(), channel().user("operator"))
             ask()
             ask()
 
@@ -342,7 +342,7 @@ class TaintTurnsTest {
 
         val lines = logged {
             harness(conversations = unreadable).execute {
-                val admission = channel().receive("Hi", sender = channel().user("admin")) as Admission.Accepted
+                val admission = channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted
                 turn = admission.ticket.turn
                 admission.ticket.outcome()
                 assertEquals(
@@ -401,7 +401,7 @@ class TaintTurnsTest {
         val since = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm").format(at.atOffset(ZoneOffset.ofHours(8)))
         assertEquals(
             listOf(
-                "Permission status of this chat (only an administrator changes it):",
+                "Permission status of this chat (only an operator changes it):",
                 "Mode: ask (the default).",
                 "Allow rules: none.",
                 "Conversation: tainted since $since +08:00 (call call-1 reported " +

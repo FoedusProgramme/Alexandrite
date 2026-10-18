@@ -157,10 +157,13 @@ internal class CommandLanes(
         }
     }
 
-    /** Whether the channel of [command]'s chat lets its issuer run it, false while the channel is closed. */
+    /** Whether [command]'s spec and its chat's channel let its issuer run it, false while the channel is closed. */
     fun mayRun(command: CommandInvocation): Boolean {
         val channel = channels.channel(command.chat.instance) ?: return false
-        return channel.mayRun(command.chat, command.issuer, command.name, command.arguments.isNotBlank())
+        val withArguments = command.arguments.isNotBlank()
+        val forOperators = registry.value.spec(command.name)?.operatorsOnly?.includes(withArguments) == true
+        if (forOperators && !command.issuer.isOperator) return false
+        return channel.mayRun(command.chat, command.issuer, command.name, withArguments)
     }
 
     /** Answers [command], which its issuer may not run, with a notice. */

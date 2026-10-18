@@ -10,6 +10,6 @@ public class ChatUser(
     /** The user's handle, without a leading `@`. */
     public val username: String?,
     public val isBot: Boolean,
-    /** Whether the user is an operator of this agent per the config of the channel instance. */
-    public val isAdmin: Boolean,
+    /** Whether the channel vouches that the user may act on the host on its behalf. */
+    public val isOperator: Boolean,
 )

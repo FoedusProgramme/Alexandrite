@@ -24,13 +24,13 @@ public fun testChat(
     instance: ChannelInstanceId = TEST_INSTANCE,
 ): ChatAddress = ChatAddress(instance, chat, thread)
 
-/** A human user named after [user], such as `Member` for `member`. */
+/** A human user named after [user], such as `Guest` for `guest`. */
 public fun testUser(
-    user: String = "member",
-    isAdmin: Boolean = false,
+    user: String = "guest",
+    isOperator: Boolean = false,
     instance: ChannelInstanceId = TEST_INSTANCE,
 ): ChatUser =
-    ChatUser(UserAddress(instance, user), user.replaceFirstChar(Char::uppercaseChar), null, isBot = false, isAdmin)
+    ChatUser(UserAddress(instance, user), user.replaceFirstChar(Char::uppercaseChar), null, isBot = false, isOperator)
 
 /** A message of [sender] in the direct chat [chat], neither forwarded nor quoting, changed by [block]. */
 public fun testMessage(

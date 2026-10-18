@@ -52,7 +52,7 @@ class ModelEdgesTest {
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).apply(configure) }
 
     private fun busy(retryAfter: Duration? = Duration.ZERO): ModelError =
         ModelError.builder(ModelErrorKind.OVERLOADED, "Busy.").retryAfter(retryAfter).build()
@@ -136,8 +136,8 @@ class ModelEdgesTest {
     private fun ScriptedReply.Builder.leak(text: String): ScriptedReply.Builder =
         text(text).fail(ModelErrorKind.MALFORMED_OUTPUT, "The model wrote a tool call as text (DSML markup).")
 
-    private fun PluginHarness.Running.askAsAdmin(): Admission.Accepted =
-        channel().receive("Hi", sender = channel().user("admin")).accepted
+    private fun PluginHarness.Running.askAsOperator(): Admission.Accepted =
+        channel().receive("Hi", sender = channel().user("operator")).accepted
 
     private fun detections(lines: List<String>): List<String> = lines.filter { it.startsWith("WARN Turn ") }
         .mapNotNull { Regex("wrote malformed output on attempt (\\d+): ").find(it)?.groupValues?.get(1) }
@@ -152,7 +152,7 @@ class ModelEdgesTest {
 
         val lines = logged {
             harness { tool(write) }.execute {
-                val admission = askAsAdmin()
+                val admission = askAsOperator()
 
                 assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
                 assertEquals(1, write.calls.size)
@@ -186,7 +186,7 @@ class ModelEdgesTest {
         model.reply { leak("Saving it.") }.reply { toolCall("fs.write", ARGUMENTS) }.reply { text("Saved.") }
 
         harness { tool(write) }.execute {
-            val admission = askAsAdmin()
+            val admission = askAsOperator()
 
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             assertEquals(1, write.calls.size)
@@ -203,7 +203,7 @@ class ModelEdgesTest {
 
         val lines = logged {
             harness("""{"retries": 2}""") { tool(write) }.execute {
-                val admission = askAsAdmin()
+                val admission = askAsOperator()
 
                 assertEquals(
                     TurnOutcome.Failed("malformed_output: The model wrote a tool call as text (DSML markup)."),

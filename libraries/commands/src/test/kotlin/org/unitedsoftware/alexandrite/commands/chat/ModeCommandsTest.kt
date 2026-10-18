@@ -1,8 +1,8 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
 import org.unitedsoftware.alexandrite.commands.CHINESE
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
@@ -26,7 +26,7 @@ class ModeCommandsTest {
     private val modes = "Modes: plan, manual, ask, allowedit, auto, bypass."
 
     private suspend fun mode(arguments: String = ""): String =
-        commands.answer(testCommand("mode", arguments, issuer = ADMIN))
+        commands.answer(testCommand("mode", arguments, issuer = OPERATOR))
 
     private fun updates(): List<ChatSettingsUpdate> = control.calls.map { (it as Call.UpdateSettings).update }
 
@@ -125,7 +125,11 @@ class ModeCommandsTest {
             .text(PLUGIN, CHINESE, "mode.set_bypass", "权限模式现在是 bypass，持续 {left}，之后为 {after}。")
             .build()
         val commands = ModeCommands(control, commandTexts(catalog), clock)
-        control.updateSettings(testCommand("mode").chat, ChatSettingsUpdate.builder().language(CHINESE).build(), ADMIN)
+        control.updateSettings(
+            testCommand("mode").chat,
+            ChatSettingsUpdate.builder().language(CHINESE).build(),
+            OPERATOR,
+        )
 
         assertEquals("权限模式现在是 auto。", commands.answer(testCommand("mode", "auto")))
         assertEquals("权限模式现在是 bypass，持续 2 小时，之后为 ask。", commands.answer(testCommand("mode", "bypass 2h")))

@@ -238,8 +238,9 @@ class HeartbeatPluginTest {
         val config = """
             {"agents": {"coder": {"every": "1h30m", "activeHours": "08:00-23:00", "zone": "Asia/Shanghai"}}}
         """.trimIndent()
-        val noHome = "Coder has no home chat, so a beat reaches nobody through \"home\". An admin makes a chat its " +
-            "home with /home there, or the config sets channels.<instance>.home for the agent."
+        val noHome =
+            "Coder has no home chat, so a beat reaches nobody through \"home\". An operator makes a chat its " +
+                "home with /home there, or the config sets channels.<instance>.home for the agent."
 
         harness(config).execute {
             time.settle(1)

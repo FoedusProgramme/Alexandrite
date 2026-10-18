@@ -35,8 +35,8 @@ class TurnValuesTest {
     private val work = ChannelInstanceId(ChannelType("telegram"), "work")
     private val home = ChannelInstanceId(ChannelType("telegram"), "home")
     private val chat = ChatAddress(work, "-100")
-    private val ada = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isAdmin = true)
-    private val bob = ChatUser(UserAddress(work, "2"), "Bob", null, isBot = false, isAdmin = false)
+    private val ada = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isOperator = true)
+    private val bob = ChatUser(UserAddress(work, "2"), "Bob", null, isBot = false, isOperator = false)
     private val ref = ChannelMessageRef(chat, "42")
     private val at = Instant.parse("2026-10-08T09:00:00Z")
     private val claude = ModelRef(EndpointId("anthropic"), "claude-opus")
@@ -72,7 +72,7 @@ class TurnValuesTest {
             assertFailsWith<IllegalArgumentException>(name) { invocation(name).build() }
         }
         val elsewhere = ChannelMessageRef(ChatAddress(work, "-200"), "1")
-        val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isAdmin = false)
+        val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isOperator = false)
 
         assertFailsWith<IllegalArgumentException> { invocation().trigger(elsewhere).build() }
         val error = assertFailsWith<IllegalArgumentException> { invocation().issuer(stranger).build() }

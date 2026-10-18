@@ -363,16 +363,16 @@ class AgentControlTest {
         harness().execute {
             val control = get<AgentControl>()
             val home = channel().chat("home")
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
             fun helper() = control.agents(channel().instance).single { it.id == helper }
             suspend fun update(chat: ChatAddress, update: ChatSettingsUpdate.Builder.() -> Unit) =
-                control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), admin)
+                control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), operator)
 
             update(home) { noHome() }
             val off = helper()
             update(channel().chat("dm")) { resetHome() }
 
-            assertEquals(listOf(null, home, admin), listOf(off.home, off.configuredHome, off.homeSetBy))
+            assertEquals(listOf(null, home, operator), listOf(off.home, off.configuredHome, off.homeSetBy))
             assertTrue(off.homeSetAt != null)
             assertEquals(AgentSummary(helper, "helper", null, false, home, home), helper())
         }

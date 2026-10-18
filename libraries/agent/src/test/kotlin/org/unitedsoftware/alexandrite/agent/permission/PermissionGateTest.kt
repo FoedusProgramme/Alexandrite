@@ -80,8 +80,8 @@ class PermissionGateTest {
     private val approvals = RecordingApprovals()
     private val rules = ScriptedRules()
 
-    private val operator: TurnInfo = testTurn { actor(testUser("admin", isAdmin = true)) }
-    private val member: TurnInfo = testTurn()
+    private val operator: TurnInfo = testTurn { actor(testUser("operator", isOperator = true)) }
+    private val guest: TurnInfo = testTurn()
     private val automation: TurnInfo = testTurn(TurnKind.HEARTBEAT)
     private val cwd = Path.of("/srv")
 
@@ -136,42 +136,42 @@ class PermissionGateTest {
         val risks = ToolRisk.entries
         val tools = risks.map { recordingTool("risk.${it.name.lowercase()}", it) }
         val gate = gate(tools)
-        val turns = mapOf("operator" to operator, "member" to member, "automation" to automation)
+        val turns = mapOf("operator" to operator, "guest" to guest, "automation" to automation)
         val table = """
             plan      operator   clean    run run run run  plan plan plan
             plan      operator   tainted  run run run plan plan plan plan
-            plan      member     clean    run run run plan plan plan plan
-            plan      member     tainted  run run run plan plan plan plan
+            plan      guest     clean    run run run plan plan plan plan
+            plan      guest     tainted  run run run plan plan plan plan
             plan      automation clean    run run run plan plan plan plan
             plan      automation tainted  run run run plan plan plan plan
             manual    operator   clean    run run run run  ask  ask  ask
             manual    operator   tainted  run run run ask  ask  ask  ask
-            manual    member     clean    run run run ask  ask  ask  ask
-            manual    member     tainted  run run run ask  ask  ask  ask
+            manual    guest     clean    run run run ask  ask  ask  ask
+            manual    guest     tainted  run run run ask  ask  ask  ask
             manual    automation clean    run run run ask  ask  ask  ask
             manual    automation tainted  run run run ask  ask  ask  ask
             ask       operator   clean    run run run run  ask  ask  ask
             ask       operator   tainted  run run run ask  ask  ask  ask
-            ask       member     clean    run run run ask  ask  ask  ask
-            ask       member     tainted  run run run ask  ask  ask  ask
+            ask       guest     clean    run run run ask  ask  ask  ask
+            ask       guest     tainted  run run run ask  ask  ask  ask
             ask       automation clean    run run run ask  ask  ask  ask
             ask       automation tainted  run run run ask  ask  ask  ask
             allowedit operator   clean    run run run run  ask  mode ask
             allowedit operator   tainted  run run run ask  ask  mode ask
-            allowedit member     clean    run run run ask  ask  ask  ask
-            allowedit member     tainted  run run run ask  ask  ask  ask
+            allowedit guest     clean    run run run ask  ask  ask  ask
+            allowedit guest     tainted  run run run ask  ask  ask  ask
             allowedit automation clean    run run run ask  ask  ask  ask
             allowedit automation tainted  run run run ask  ask  ask  ask
             auto      operator   clean    run run run run  ask  ask  ask
             auto      operator   tainted  run run run ask  ask  ask  ask
-            auto      member     clean    run run run ask  ask  ask  ask
-            auto      member     tainted  run run run ask  ask  ask  ask
+            auto      guest     clean    run run run ask  ask  ask  ask
+            auto      guest     tainted  run run run ask  ask  ask  ask
             auto      automation clean    run run run ask  ask  ask  ask
             auto      automation tainted  run run run ask  ask  ask  ask
             bypass    operator   clean    run run run run  mode mode mode
             bypass    operator   tainted  run run run mode mode mode mode
-            bypass    member     clean    run run run ask  ask  ask  ask
-            bypass    member     tainted  run run run ask  ask  ask  ask
+            bypass    guest     clean    run run run ask  ask  ask  ask
+            bypass    guest     tainted  run run run ask  ask  ask  ask
             bypass    automation clean    run run run ask  ask  ask  ask
             bypass    automation tainted  run run run ask  ask  ask  ask
         """.trimIndent().lines().map {
@@ -218,21 +218,21 @@ class PermissionGateTest {
     }
 
     @Test
-    fun `an admin's turn of another kind than a message is no operator's`() = runTest {
+    fun `an operator's turn of another kind than a message is no operator's`() = runTest {
         val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
-        val admin = testUser("admin", isAdmin = true)
-        val command = testTurn(TurnKind.COMMAND) { actor(admin) }
+        val operator = testUser("operator", isOperator = true)
+        val command = testTurn(TurnKind.COMMAND) { actor(operator) }
         setMode(command, PermissionMode.BYPASS, clock.now + Duration.ofHours(1))
 
         assertEquals("ask", outcome(gate(listOf(write)).admit(write, command)))
-        assertEquals("a member's call", approvals.reasons.single())
+        assertEquals("a guest's call", approvals.reasons.single())
     }
 
     @Test
-    fun `the turn of a job that an admin's turn started is an operator's, as the job's principal is the admin`() =
+    fun `the turn of a job that an operator's turn started is an operator's, as the job's principal is the operator`() =
         runTest {
             val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
-            val job = testTurn(TurnKind.JOB) { actor(testUser("admin", isAdmin = true)) }
+            val job = testTurn(TurnKind.JOB) { actor(testUser("operator", isOperator = true)) }
             setMode(job, PermissionMode.BYPASS, clock.now + Duration.ofHours(1))
 
             assertEquals("mode", outcome(gate(listOf(write)).admit(write, job)))
@@ -246,10 +246,10 @@ class PermissionGateTest {
         val gate = gate(listOf(write, persona))
 
         gate.admit(write, operator)
-        gate.admit(write, member)
+        gate.admit(write, guest)
         gate.admit(write, automation)
         gate.admit(persona, operator, tainted = true)
-        gate.admit(persona, member, tainted = true)
+        gate.admit(persona, guest, tainted = true)
         setMode(operator, PermissionMode.MANUAL)
         gate.admit(write, operator)
         gate.admit(write, operator, tainted = true)
@@ -258,10 +258,10 @@ class PermissionGateTest {
         assertEquals(
             listOf(
                 "the chat is in ask mode",
-                "a member's call",
+                "a guest's call",
                 "a call of a turn that nobody sent",
                 "the conversation took in untrusted content (a test)",
-                "a member's call",
+                "a guest's call",
                 "the chat is in manual mode",
                 "the chat is in manual mode",
                 "the conversation took in untrusted content (a test)",
@@ -311,13 +311,13 @@ class PermissionGateTest {
     @Test
     fun `plan mode tells the model to describe the call instead`() = runTest {
         val exec = recordingTool("command.exec", ToolRisk.EXEC)
-        setMode(member, PermissionMode.PLAN)
+        setMode(guest, PermissionMode.PLAN)
 
         assertEquals(
             ToolOutcome.NotRun(NotRunReason.PLAN_MODE) to "[alexandrite:plan_mode] Not run: this chat is in plan " +
                 "mode. Describe what you would do with \"command.exec\" (the exact call and why) instead of doing " +
                 "it. Do not retry.",
-            refused(gate(listOf(exec)).admit(exec, member)),
+            refused(gate(listOf(exec)).admit(exec, guest)),
         )
     }
 
@@ -355,7 +355,7 @@ class PermissionGateTest {
         }
         val gate = gate(listOf(write), builtIn = setOf(write))
 
-        for (turn in listOf(operator, member, automation)) {
+        for (turn in listOf(operator, guest, automation)) {
             for (mode in PermissionMode.entries - PermissionMode.PLAN) {
                 setMode(turn, mode, (clock.now + Duration.ofHours(1)).takeIf { mode == PermissionMode.BYPASS })
                 assertEquals("scratch", outcome(gate.admit(write, turn)), "$mode for $turn")
@@ -460,7 +460,7 @@ class PermissionGateTest {
         val decided = listOf("manual", "ask", "allowedit", "auto").map { mode ->
             setMode(operator, PermissionMode.of(mode))
             outcome(gate.admit(exec))
-        } + outcome(gate.admit(exec, member))
+        } + outcome(gate.admit(exec, guest))
 
         assertEquals(listOf("ask", "rule", "rule", "rule", "ask"), decided)
     }
@@ -768,7 +768,7 @@ private class RecordingJudge : Judge {
         return verdict
     }
 
-    override fun allowedByAdmin(key: AgentChatKey, tool: String) = Unit
+    override fun allowedByOperator(key: AgentChatKey, tool: String) = Unit
 }
 
 /** Approvals that record why they were asked and refuse with [ASKED]. */

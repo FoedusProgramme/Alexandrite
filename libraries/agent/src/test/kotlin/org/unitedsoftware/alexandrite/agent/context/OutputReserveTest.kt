@@ -46,10 +46,10 @@ class OutputReserveTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(read) }
+    ) { channel(operators = setOf("operator")).model(model).tool(read) }
 
     private suspend fun PluginHarness.Running.ask(): TurnOutcome {
-        val admission = channel().receive("Read it.", sender = channel().user("admin"))
+        val admission = channel().receive("Read it.", sender = channel().user("operator"))
         return assertIs<Admission.Accepted>(admission).ticket.outcome()
     }
 

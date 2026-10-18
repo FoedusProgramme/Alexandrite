@@ -85,11 +85,11 @@ class StoreDatabaseTest {
 
         val (conversation, record) = withStore(directory) {
             conversations.conversation(ConversationId("c1"))?.key to
-                records.put("notes", "grants", "k", "1", member.address)
+                records.put("notes", "grants", "k", "1", guest.address)
         }
 
         assertEquals(main, conversation)
-        assertEquals(member.address, record.createdBy)
+        assertEquals(guest.address, record.createdBy)
         connect(file).use {
             assertEquals(STORE_MIGRATIONS.size, it.userVersion())
             assertContains(it.tables(), "records")

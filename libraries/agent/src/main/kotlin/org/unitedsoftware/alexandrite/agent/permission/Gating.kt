@@ -14,11 +14,11 @@ import java.time.Clock
 
 /** Whose authority a turn carries. */
 internal enum class Principal {
-    /** An admin's message turn, the turn of a job that one started, or a sub-agent run under either. */
+    /** An operator's message turn, the turn of a job that one started, or a sub-agent run under either. */
     OPERATOR,
 
     /** A turn of any other person. */
-    MEMBER,
+    GUEST,
 
     /** A turn of nobody, such as a heartbeat. */
     AUTOMATION,
@@ -27,8 +27,8 @@ internal enum class Principal {
     companion object {
         fun of(turn: TurnInfo): Principal = when {
             turn.actor == null -> AUTOMATION
-            turn.actorIsAdmin && turn.kind in OPERATOR_KINDS -> OPERATOR
-            else -> MEMBER
+            turn.actorIsOperator && turn.kind in OPERATOR_KINDS -> OPERATOR
+            else -> GUEST
         }
     }
 }
@@ -78,8 +78,8 @@ internal fun strictest(modes: List<PermissionMode>): PermissionMode =
     STRICTNESS[modes.minOfOrNull { STRICTNESS.indexOf(it).coerceAtLeast(0) } ?: STRICTNESS.indexOf(PermissionMode.ASK)]
 
 /**
- * The kinds of turn whose admin actor makes them an operator's. A sub-agent run carries an admin actor only under an
- * operator's root turn, a reminder only under its operator's mandate.
+ * The kinds of turn whose operator actor makes them an operator's. A sub-agent run carries an operator actor only under
+ * an operator's root turn, a reminder only under its operator's mandate.
  */
 private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED, TurnKind.REMINDER)
 

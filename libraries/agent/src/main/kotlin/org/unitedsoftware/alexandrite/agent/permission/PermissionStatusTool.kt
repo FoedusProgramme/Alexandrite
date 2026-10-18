@@ -93,7 +93,7 @@ internal class PermissionStatusTool(
 
     private fun principal(turn: TurnInfo): String? = when (Principal.of(turn)) {
         Principal.OPERATOR -> null
-        else -> "This turn is no operator's, so its gated calls ask an administrator whatever the mode."
+        else -> "This turn is no operator's, so its gated calls ask an operator whatever the mode."
     }
 
     private fun rules(turn: TurnInfo): List<String> {
@@ -137,7 +137,7 @@ internal class PermissionStatusTool(
     private fun time(instant: Instant, turn: TurnInfo): String = TIME.format(instant.atZone(turn.zone ?: clock.zone))
 
     private companion object {
-        const val HEADER = "Permission status of this chat (only an administrator changes it):"
+        const val HEADER = "Permission status of this chat (only an operator changes it):"
         const val RULES = "Allow rules (on an operator's turn, in ask, allowedit and auto modes, the calls they " +
             "cover run without asking; not in plan or manual mode, nor for an opaque program or a lasting-state " +
             "call):"

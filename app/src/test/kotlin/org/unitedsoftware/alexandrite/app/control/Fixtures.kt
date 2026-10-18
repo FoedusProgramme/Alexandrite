@@ -40,7 +40,7 @@ fun request(
     minutes: Long = 0,
     kind: ChatKind = ChatKind.DIRECT,
     title: String? = null,
-    requester: ChatUser? = ChatUser(UserAddress(WORK, id), "User $id", "user$id", isBot = false, isAdmin = false),
+    requester: ChatUser? = ChatUser(UserAddress(WORK, id), "User $id", "user$id", isBot = false, isOperator = false),
 ): PairingRequest {
     val issued = NOW.minusSeconds(minutes * 60)
     return PairingRequest(chat(id), kind, title, requester, code, issued, issued.plusSeconds(600))

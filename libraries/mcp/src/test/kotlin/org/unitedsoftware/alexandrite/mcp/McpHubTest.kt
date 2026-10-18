@@ -175,7 +175,7 @@ class McpHubTest {
                 val result = server("web").call("echo", JsonObject(emptyMap()), testToolContext())
 
                 assertEquals(
-                    "MCP server web needs a login, so the call did not run. An administrator must send " +
+                    "MCP server web needs a login, so the call did not run. An operator must send " +
                         "/mcp login web in a direct chat with the bot, then try again.",
                     result.text,
                 )

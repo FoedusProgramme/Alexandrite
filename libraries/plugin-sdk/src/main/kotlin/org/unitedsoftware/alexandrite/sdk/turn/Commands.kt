@@ -106,6 +106,8 @@ public class CommandSpec private constructor(
      * only that the command ran, never its arguments.
      */
     public val secretArguments: Boolean,
+    /** The forms of it that only an operator may run, which the agent checks before it runs the command. */
+    public val operatorsOnly: CommandForms,
 ) {
     init {
         require(COMMAND_NAME.matches(name)) {
@@ -115,12 +117,15 @@ public class CommandSpec private constructor(
         require(description.isNotBlank()) { "The description of command '$name' may not be blank." }
     }
 
-    public fun toBuilder(): Builder =
-        Builder(name, description).runsAlongside(runsAlongside).secretArguments(secretArguments)
+    public fun toBuilder(): Builder = Builder(name, description)
+        .runsAlongside(runsAlongside)
+        .secretArguments(secretArguments)
+        .operatorsOnly(operatorsOnly)
 
     public class Builder internal constructor(private var name: String, private var description: String) {
         private var runsAlongside: Boolean = false
         private var secretArguments: Boolean = false
+        private var operatorsOnly: CommandForms = CommandForms.NONE
 
         public fun name(name: String): Builder = apply { this.name = name }
 
@@ -130,7 +135,9 @@ public class CommandSpec private constructor(
 
         public fun secretArguments(secretArguments: Boolean): Builder = apply { this.secretArguments = secretArguments }
 
-        public fun build(): CommandSpec = CommandSpec(name, description, runsAlongside, secretArguments)
+        public fun operatorsOnly(operatorsOnly: CommandForms): Builder = apply { this.operatorsOnly = operatorsOnly }
+
+        public fun build(): CommandSpec = CommandSpec(name, description, runsAlongside, secretArguments, operatorsOnly)
     }
 
     public companion object {
@@ -140,6 +147,17 @@ public class CommandSpec private constructor(
 
 public inline fun CommandSpec.rebuild(block: CommandSpec.Builder.() -> Unit): CommandSpec =
     toBuilder().apply(block).build()
+
+/** Some of the forms a command is run in: bare, or with arguments. */
+public enum class CommandForms {
+    NONE,
+    WITH_ARGUMENTS,
+    ALL,
+    ;
+
+    /** Whether the form with arguments when [withArguments], else the bare one, is among these. */
+    public fun includes(withArguments: Boolean): Boolean = this == ALL || (withArguments && this == WITH_ARGUMENTS)
+}
 
 /** Where a [CommandHandler] runs one invocation. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)

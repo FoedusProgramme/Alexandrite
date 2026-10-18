@@ -76,10 +76,10 @@ class JobTurnsTest {
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).tool(slow).tool(read).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).tool(slow).tool(read).apply(configure) }
 
     private fun PluginHarness.Running.ask(text: String = "Read the big file."): Admission.Accepted =
-        channel().receive(text, sender = channel().user("admin")) as Admission.Accepted
+        channel().receive(text, sender = channel().user("operator")) as Admission.Accepted
 
     private suspend fun stored(): List<TranscriptEntry> = store.transcripts.entries(store.conversations.current(key).id)
 
@@ -157,7 +157,7 @@ class JobTurnsTest {
             val control = get<AgentControl>()
             val status = control.jobs(channel().chat()).single()
             assertEquals(
-                listOf(id, "fs.slow", "/srv/big", channel().user("admin")),
+                listOf(id, "fs.slow", "/srv/big", channel().user("operator")),
                 listOf(status.id, status.tool, status.title, status.by),
             )
             assertEquals(setOf(id), recorded())
@@ -169,7 +169,7 @@ class JobTurnsTest {
             assertEquals(null, reply.request.trigger)
             val turn = checkNotNull(store.conversations.turn(reply.turn.id))
             assertEquals(
-                listOf(TurnKind.JOB, channel().user("admin").address, TurnEndKind.COMPLETED),
+                listOf(TurnKind.JOB, channel().user("operator").address, TurnEndKind.COMPLETED),
                 listOf(turn.kind, turn.actor, turn.end),
             )
             val entries = stored()
@@ -224,7 +224,7 @@ class JobTurnsTest {
 
         harness { tool(write) }.execute {
             channel().holdApprovals()
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
             val admission = ask("Write it.")
             channel().awaitApprovals(1)
             delay(1500.milliseconds)
@@ -273,14 +273,14 @@ class JobTurnsTest {
         harness().execute {
             ask().ticket.outcome()
             val control = get<AgentControl>()
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
 
-            assertTrue(control.cancel(channel().chat(), admin))
+            assertTrue(control.cancel(channel().chat(), operator))
             until { slow.cancelled.size == 1 && recorded().isEmpty() }
             delay(200.milliseconds)
 
             assertEquals(emptyList(), control.jobs(channel().chat()))
-            assertFalse(control.cancel(channel().chat(), admin))
+            assertFalse(control.cancel(channel().chat(), operator))
             assertEquals(2, model.requests.size)
             assertEquals(emptyList(), channel().sent)
         }
@@ -389,7 +389,7 @@ class JobTurnsTest {
             harness().execute {
                 ask().ticket.outcome()
                 val id = job()
-                get<AgentControl>().newConversation(channel().chat(), channel().user("admin"))
+                get<AgentControl>().newConversation(channel().chat(), channel().user("operator"))
                 finish.complete(Unit)
 
                 val sent = channel().awaitEvent { it is Event.Sent } as Event.Sent
@@ -434,7 +434,7 @@ class JobTurnsTest {
             val id = control.jobs(channel().chat()).single().id
             emit.complete(Unit)
             withTimeout(5.seconds) { emitted.await() }
-            assertTrue(control.stopJob(channel().chat(), id, channel().user("admin")))
+            assertTrue(control.stopJob(channel().chat(), id, channel().user("operator")))
             release.complete(Unit)
             assertIs<TurnOutcome.Completed>(ticket.outcome())
             until { control.turns(channel().chat()).isEmpty() && recorded().isEmpty() }

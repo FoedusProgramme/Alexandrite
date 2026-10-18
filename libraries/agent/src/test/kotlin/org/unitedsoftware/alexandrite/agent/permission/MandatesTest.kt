@@ -55,7 +55,7 @@ class MandatesTest {
         ToolResult("A page.")
     }
 
-    private fun harness(admins: Set<String> = setOf("admin")): PluginHarness = agentHarness(
+    private fun harness(operators: Set<String> = setOf("operator")): PluginHarness = agentHarness(
         """
         {
           "previewIntervalMillis": 0,
@@ -63,15 +63,15 @@ class MandatesTest {
             "coder": {
               "model": "scripted/test-model",
               "channels": {"test:main": {}},
-              "tools": {"forMembers": ["tasks.*"]}
+              "tools": {"forGuests": ["tasks.*"]}
             }
           }
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = admins).model(model).tool(make).tool(who).tool(fetch) }
+    ) { channel(operators = operators).model(model).tool(make).tool(who).tool(fetch) }
 
-    private suspend fun PluginHarness.Running.ask(user: String = "admin") {
+    private suspend fun PluginHarness.Running.ask(user: String = "operator") {
         val admission = channel().receive("Set it up.", sender = channel().user(user))
         assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
     }
@@ -105,19 +105,19 @@ class MandatesTest {
             val framing = remind(mandate)
 
             val actor = assertNotNull(actors.single())
-            assertEquals("admin" to true, actor.address.user to actor.isAdmin)
+            assertEquals("operator" to true, actor.address.user to actor.isOperator)
             assertContains(framing, "On behalf of: ${actor.displayName} (operator)")
             assertEquals(Principal.OPERATOR, Principal.of(testTurn(TurnKind.REMINDER) { actor(actor) }))
         }
     }
 
     @Test
-    fun `a member's turn and a tainted one get no mandate`() {
+    fun `a guest's turn and a tainted one get no mandate`() {
         model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
         model.reply { toolCall("web.fetch", "{}") }.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
 
         harness().execute {
-            ask(user = "member")
+            ask(user = "guest")
             ask()
 
             assertEquals(listOf<Mandate?>(null, null), granted)
@@ -159,19 +159,20 @@ class MandatesTest {
     }
 
     @Test
-    fun `a mandate of an operator who is no longer an admin runs as nobody, and the chat is told once`() {
+    fun `a mandate of an operator who is no longer an operator runs as nobody, and the chat is told once`() {
         model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
         harness().execute { ask() }
         val mandate = assertNotNull(granted.single())
 
-        harness(admins = emptySet()).execute {
+        harness(operators = emptySet()).execute {
             val framing = remind(mandate)
             remind(mandate)
 
             assertEquals(listOf<ChatUser?>(null, null), actors)
             assertEquals(false, "On behalf of" in framing)
-            val told = channel().sent.map { it.message.text }.filter { "no longer an admin" in it }
-            val text = "Admin is no longer an admin, so what plugin ${plugin(make)} runs for them here runs as no one."
+            val told = channel().sent.map { it.message.text }.filter { "no longer an operator" in it }
+            val text =
+                "Operator is no longer an operator here, so what plugin ${plugin(make)} runs for them runs as no one."
             assertEquals(listOf(text), told)
         }
     }

@@ -122,7 +122,7 @@ class TelegramChatTest {
             Permission mode: ask (the default)
             Home: coder has no home chat on telegram:work
             Linked: no other chat shares the conversation of coder
-            You are an admin here.
+            You are an operator here.
             """.trimIndent(),
             settings,
         )
@@ -167,7 +167,7 @@ class TelegramChatTest {
 
         assertContains(
             app.fake.botMessages(ADA).first().text,
-            "To share the conversation of coder in this chat with another chat, an admin sends /link ",
+            "To share the conversation of coder in this chat with another chat, an operator sends /link ",
         )
         val (direct, group, restarted) = app.model.requests
         assertEquals(

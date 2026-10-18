@@ -40,8 +40,7 @@ import kotlin.test.assertTrue
 
 /** Logins to MCP servers over HTTP: discovery, registration, PKCE, completion, tokens and their refresh. */
 class OAuthTest {
-    private val admin = testUser("ada", isAdmin = true)
-    private val member = testUser("bob")
+    private val operator = testUser("ada", isOperator = true)
     private val clock = TestClock()
     private val replies = mutableListOf<String>()
 
@@ -67,7 +66,7 @@ class OAuthTest {
     /** The reply to `/mcp [arguments]` from [issuer] in a chat of [kind], and whether the model may see it. */
     private suspend fun Hub.mcp(
         arguments: String,
-        issuer: ChatUser = admin,
+        issuer: ChatUser = operator,
         kind: ChatKind = ChatKind.DIRECT,
     ): Pair<String, Boolean> {
         val chat = testChat()
@@ -78,7 +77,7 @@ class OAuthTest {
         return reply to context.repliesForModel.single()
     }
 
-    private suspend fun Hub.text(arguments: String, issuer: ChatUser = admin, kind: ChatKind = ChatKind.DIRECT) =
+    private suspend fun Hub.text(arguments: String, issuer: ChatUser = operator, kind: ChatKind = ChatKind.DIRECT) =
         mcp(arguments, issuer, kind).first
 
     private fun link(reply: String): String = Regex("https?://\\S+/auth/authorize\\?\\S+").find(reply)!!.value
@@ -121,7 +120,7 @@ class OAuthTest {
                 assertContains(listed, "fake: waiting for a login")
                 assertContains(
                     listed,
-                    "To log in to a server, an administrator sends /mcp login <server> in a direct chat with the bot.",
+                    "To log in to a server, an operator sends /mcp login <server> in a direct chat with the bot.",
                 )
 
                 val (reply, forModel) = mcp("login fake")
@@ -328,7 +327,7 @@ class OAuthTest {
                 val result = call("echo")
                 assertTrue(result.isError)
                 assertEquals(
-                    "MCP server fake needs a login, so the call did not run. An administrator must send /mcp login " +
+                    "MCP server fake needs a login, so the call did not run. An operator must send /mcp login " +
                         "fake in a direct chat with the bot, then try again.",
                     result.text,
                 )
@@ -357,7 +356,7 @@ class OAuthTest {
             val result = call("write")
             assertEquals(
                 "MCP server fake needs a login with more permissions (scope 'files:write'), so the call did not " +
-                    "run. An administrator must send /mcp login fake in a direct chat with the bot, then try again.",
+                    "run. An operator must send /mcp login fake in a direct chat with the bot, then try again.",
                 result.text,
             )
             assertEquals(ServerState.CONNECTED, server("fake").status.value.state)
@@ -366,7 +365,7 @@ class OAuthTest {
                 listed,
                 "fake: connected, protocol 2026-07-28, 2 tools; needs a login with the scope files:write",
             )
-            assertContains(listed, "an administrator sends /mcp login <server>")
+            assertContains(listed, "an operator sends /mcp login <server>")
             assertFalse("refresh" in fake.events)
 
             val link = link(text("login fake"))
@@ -436,25 +435,21 @@ class OAuthTest {
     // The command.
 
     @Test
-    fun `logging in and out is for admins in direct chats, and for servers reached over HTTP`() =
-        FakeOAuthServer().use { fake ->
-            withHub(config(fake), clock = clock) {
-                val private = "Send /mcp login and /mcp logout in a direct chat with the bot: the login link and the " +
-                    "address you send back are credentials."
-                assertEquals(private, text("login fake", kind = ChatKind.GROUP))
-                assertEquals(
-                    private,
-                    text("login fake http://127.0.0.1/callback?code=c&state=s", kind = ChatKind.GROUP),
-                )
-                assertEquals(private, text("logout fake", kind = ChatKind.UNKNOWN))
-                val adminOnly = "Only an administrator can log in to an MCP server or out of it."
-                assertEquals(adminOnly, text("login fake", member))
-                assertEquals(adminOnly, text("logout fake", member, ChatKind.GROUP))
-                assertEquals("MCP server files runs as a command, so it has no login.", text("login files"))
-                assertEquals("No MCP server nope is configured.", text("login nope"))
-                assertFalse(fake.events.any { it.startsWith("register") })
-            }
+    fun `logging in and out is for direct chats, and for servers reached over HTTP`() = FakeOAuthServer().use { fake ->
+        withHub(config(fake), clock = clock) {
+            val private = "Send /mcp login and /mcp logout in a direct chat with the bot: the login link and the " +
+                "address you send back are credentials."
+            assertEquals(private, text("login fake", kind = ChatKind.GROUP))
+            assertEquals(
+                private,
+                text("login fake http://127.0.0.1/callback?code=c&state=s", kind = ChatKind.GROUP),
+            )
+            assertEquals(private, text("logout fake", kind = ChatKind.UNKNOWN))
+            assertEquals("MCP server files runs as a command, so it has no login.", text("login files"))
+            assertEquals("No MCP server nope is configured.", text("login nope"))
+            assertFalse(fake.events.any { it.startsWith("register") })
         }
+    }
 
     @Test
     fun `an authorization response is read from an address or its query`() {

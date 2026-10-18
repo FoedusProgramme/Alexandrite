@@ -51,10 +51,10 @@ class ToolSourceTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(read).toolSource(source) }
+    ) { channel(operators = setOf("operator")).model(model).tool(read).toolSource(source) }
 
     private suspend fun PluginHarness.Running.ask() {
-        val admission = channel().receive("Go.", sender = channel().user("admin"))
+        val admission = channel().receive("Go.", sender = channel().user("operator"))
         assertEquals(TurnOutcome.Completed::class, (admission as Admission.Accepted).ticket.outcome()::class)
     }
 

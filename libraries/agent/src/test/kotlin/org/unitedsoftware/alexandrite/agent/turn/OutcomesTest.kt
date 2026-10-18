@@ -46,7 +46,7 @@ class OutcomesTest {
         lateinit var channel: RecordingChannel
         lateinit var admission: Admission.Accepted
         agentHarness(CONFIG, store.takeUnless { unreadableHistory }) {
-            channel(admins = setOf("admin")).model(model).apply(configure)
+            channel(operators = setOf("operator")).model(model).apply(configure)
             if (unreadableHistory) plugin(StoreIndex(store, transcripts = Unreadable(store.transcripts)))
         }.execute {
             channel = channel()
@@ -123,7 +123,7 @@ class OutcomesTest {
             "held at a shutdown" to seen(stop = true) {
                 val other = channel().chat("other")
                 get<ChatIntakes>().gate(other, TurnId("t-command"))
-                channel().receive("Hi", other, channel().user("admin")) as Admission.Accepted
+                channel().receive("Hi", other, channel().user("operator")) as Admission.Accepted
             },
             "cut off before it stored or showed anything" to seen(stop = true, script = { reply { hang() } }) {
                 ask().also { model().awaitRequests(1) }
@@ -171,7 +171,7 @@ class OutcomesTest {
     }
 
     private fun PluginHarness.Running.ask(text: String = "Hi"): Admission.Accepted =
-        channel().receive(text, sender = channel().user("admin")) as Admission.Accepted
+        channel().receive(text, sender = channel().user("operator")) as Admission.Accepted
 
     /** Transcripts whose conversations cannot be read. */
     private class Unreadable(store: TranscriptStore) : TranscriptStore by store {

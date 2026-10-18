@@ -339,11 +339,11 @@ private class ChatUserForm(
     val displayName: String,
     val username: String? = null,
     val isBot: Boolean,
-    val isAdmin: Boolean,
+    @SerialName("isAdmin") val isOperator: Boolean,
 ) {
-    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isAdmin)
+    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isOperator)
 
-    fun toUser(): ChatUser = ChatUser(address, displayName, username, isBot, isAdmin)
+    fun toUser(): ChatUser = ChatUser(address, displayName, username, isBot, isOperator)
 }
 
 @Serializable

@@ -12,7 +12,6 @@ internal object TextKeys {
     const val WHEN_CRON = "when.cron"
     const val CANCELLED = "cancel.done"
     const val CANCEL_UNKNOWN = "cancel.unknown"
-    const val REFUSED_ADMIN = "refused.admin"
     const val UNAVAILABLE = "unavailable"
     const val NOTICE_CUT_OFF = "notice.cut_off"
     const val NOTICE_MISSED_ONCE = "notice.missed_once"

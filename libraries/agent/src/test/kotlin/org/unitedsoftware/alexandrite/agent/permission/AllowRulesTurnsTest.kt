@@ -48,13 +48,13 @@ class AllowRulesTurnsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(exec) }
+    ) { channel(operators = setOf("operator")).model(model).tool(exec) }
 
-    /** Has the admin ask in [chat] for a turn that runs [argv] and then answers. */
+    /** Has the operator ask in [chat] for a turn that runs [argv] and then answers. */
     private suspend fun PluginHarness.Running.run(vararg argv: String, chat: String = "chat") {
         val arguments = JsonObject(mapOf("argv" to JsonArray(argv.map(::JsonPrimitive))))
         model.reply { toolCall("command.exec", "$arguments") }.reply { text("Done.") }
-        val turn = channel().receive("Run it.", channel().chat(chat), channel().user("admin")) as Admission.Accepted
+        val turn = channel().receive("Run it.", channel().chat(chat), channel().user("operator")) as Admission.Accepted
         turn.ticket.outcome()
     }
 
@@ -67,8 +67,8 @@ class AllowRulesTurnsTest {
     @Test
     fun `always allow grants a rule, so the same call runs unasked while another subcommand asks`() {
         harness().execute {
-            val admin = channel().user("admin")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(admin, always = true), ApprovalAnswer.Denied(admin))
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, always = true), ApprovalAnswer.Denied(operator))
             run("make", "test")
             run("make", "test", "--verbose")
             run("make", "clean")
@@ -80,14 +80,14 @@ class AllowRulesTurnsTest {
                 listOf(
                     ToolOutcome.Succeeded to "Ran make test.",
                     ToolOutcome.Succeeded to "Ran make test --verbose.",
-                    ToolOutcome.NotRun(NotRunReason.DENIED, second.id) to Refusals.DENIED_BY_ADMIN,
+                    ToolOutcome.NotRun(NotRunReason.DENIED, second.id) to Refusals.DENIED_BY_OPERATOR,
                 ),
                 results(),
             )
             assertEquals(listOf(ClearanceKind.HUMAN, ClearanceKind.RULE), exec.cleared.toList())
             val rule = get<AgentControl>().allowRules(channel().chat()).single()
             assertEquals(
-                listOf(1, test, false, admin),
+                listOf(1, test, false, operator),
                 listOf(rule.number, rule.subject, rule.declared, rule.grantedBy),
             )
         }
@@ -96,15 +96,15 @@ class AllowRulesTurnsTest {
     @Test
     fun `new ends the conversation's rules, and another chat never sees them`() {
         harness().execute {
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
             channel().scriptApprovals(
-                ApprovalAnswer.Allowed(admin, always = true),
-                ApprovalAnswer.Denied(admin),
-                ApprovalAnswer.Denied(admin),
+                ApprovalAnswer.Allowed(operator, always = true),
+                ApprovalAnswer.Denied(operator),
+                ApprovalAnswer.Denied(operator),
             )
             run("make", "test", chat = "other")
             run("make", "test")
-            get<AgentControl>().newConversation(channel().chat("other"), admin)
+            get<AgentControl>().newConversation(channel().chat("other"), operator)
             run("make", "test", chat = "other")
 
             assertEquals(3, channel().approvals.size)
@@ -117,7 +117,7 @@ class AllowRulesTurnsTest {
     @Test
     fun `a restart keeps the rules of the current conversation`() {
         harness().execute {
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin"), always = true))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator"), always = true))
             run("make", "test")
         }
 
@@ -132,16 +132,16 @@ class AllowRulesTurnsTest {
     @Test
     fun `the control port lists the declared rules and the granted ones, and revokes a granted one`() {
         harness("""{"allow": ["command.exec(git status)"]}""").execute {
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
             val control = get<AgentControl>()
-            channel().scriptApprovals(ApprovalAnswer.Allowed(admin, always = true), ApprovalAnswer.Denied(admin))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, always = true), ApprovalAnswer.Denied(operator))
             run("make", "test")
             val listed = control.allowRules(channel().chat())
 
             val revoked = listOf(
-                control.revokeAllowRule(channel().chat(), 1, admin),
-                control.revokeAllowRule(channel().chat(), 2, admin),
-                control.revokeAllowRule(channel().chat(), 2, admin),
+                control.revokeAllowRule(channel().chat(), 1, operator),
+                control.revokeAllowRule(channel().chat(), 2, operator),
+                control.revokeAllowRule(channel().chat(), 2, operator),
             )
             run("make", "test")
             run("git", "status")
@@ -163,11 +163,11 @@ class AllowRulesTurnsTest {
     @Test
     fun `permission status shows the model the declared rules, then those granted here with who and when`() {
         harness("""{"allow": ["command.exec(git status)"]}""").execute {
-            val admin = channel().user("admin")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(admin, always = true))
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, always = true))
             run("make", "test")
             model.reply { toolCall("permission.status") }.reply { text("Two rules.") }
-            val asked = channel().receive("What runs unasked?", channel().chat(), admin) as Admission.Accepted
+            val asked = channel().receive("What runs unasked?", channel().chat(), operator) as Admission.Accepted
             asked.ticket.outcome()
 
             val (outcome, text) = results().last()
@@ -213,7 +213,7 @@ class AllowRulesTurnsTest {
 
     private companion object {
         val GRANTED = Regex(
-            """2\. command\.exec: make test \(allowed by Admin at \d{4}-\d\d-\d\d \d\d:\d\d \S+ until /new\)""",
+            """2\. command\.exec: make test \(allowed by Operator at \d{4}-\d\d-\d\d \d\d:\d\d \S+ until /new\)""",
         )
     }
 }

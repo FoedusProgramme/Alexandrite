@@ -116,7 +116,7 @@ class PairingsTest {
 
     @Test
     fun `an approval keeps who approved it`() = runTest {
-        val operator = testUser("grace", isAdmin = true, instance = home)
+        val operator = testUser("grace", isOperator = true, instance = home)
 
         desk.approve(assertNotNull(offer()).text, operator)
 

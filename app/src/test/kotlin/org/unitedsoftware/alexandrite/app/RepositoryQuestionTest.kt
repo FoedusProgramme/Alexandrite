@@ -55,7 +55,7 @@ class RepositoryQuestionTest {
     private val ToolResultEntry.text: String get() = content.joinToString("") { (it as TextPart).text }
 
     @Test
-    fun `an admin asks about a repository and the agent answers from file reads, with a protected read refused`() {
+    fun `an operator asks about a repository and the agent answers from file reads, with a protected read refused`() {
         write(repository.resolve("README.md"), "# Greeter\n")
         write(greeter, "package demo\n\nfun greet(name: String) = \"Hello, \$name!\"\n")
         val model = ScriptedModel()
@@ -72,7 +72,7 @@ class RepositoryQuestionTest {
             .config(config)
             .store(store)
             .model(model)
-            .channel(admins = setOf("admin"))
+            .channel(operators = setOf("operator"))
             .dataRoot(root.resolve("data"))
             .configFile(configFile)
             .build()
@@ -80,7 +80,7 @@ class RepositoryQuestionTest {
         runBlocking {
             withTimeout(20.seconds) {
                 harness.run {
-                    val admission = channel().receive("What does greet do?", sender = channel().user("admin"))
+                    val admission = channel().receive("What does greet do?", sender = channel().user("operator"))
                     val ticket = assertIs<Admission.Accepted>(admission).ticket
                     assertIs<TurnOutcome.Completed>(ticket.outcome())
 

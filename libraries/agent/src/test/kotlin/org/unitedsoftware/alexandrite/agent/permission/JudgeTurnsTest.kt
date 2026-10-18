@@ -62,18 +62,18 @@ class JudgeTurnsTest {
                 "coder": {
                   "model": "scripted/test-model",
                   "channels": {"test:main": {}},
-                  "tools": {"forMembers": ["fs.write"]},
+                  "tools": {"forGuests": ["fs.write"]},
                   "permission": {"mode": "auto", "judge": "judge/test-model"$permission}
                 }
               }
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).model(judge).tool(write).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).model(judge).tool(write).apply(configure) }
 
     private fun PluginHarness.Running.ask(
         text: String = "Write the notes.",
-        user: String = "admin",
+        user: String = "operator",
         block: IncomingMessage.Builder.() -> Unit = {},
     ) = channel().receive(text, channel().chat(), channel().user(user), block) as Admission.Accepted
 
@@ -140,7 +140,7 @@ class JudgeTurnsTest {
     }
 
     @Test
-    fun `the judge's allow runs the call cleared by it, its deny refuses it by policy and its ask asks an admin`() {
+    fun `the judge's allow runs the call cleared by it, its deny refuses it by policy and its ask asks an operator`() {
         repeat(3) { model.reply { toolCall("fs.write") }.reply { text("Done.") } }
         judgeAnswers(
             """{"verdict":"allow"}""",
@@ -149,7 +149,7 @@ class JudgeTurnsTest {
         )
 
         harness().execute {
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
             repeat(3) { ask().ticket.outcome() }
 
             val request = channel().approvals.single()
@@ -160,7 +160,7 @@ class JudgeTurnsTest {
                     ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY) to "[alexandrite:denied by=policy] Not run: " +
                         "the judge refused it: It is unrelated. Do not retry this or an equivalent call; tell the " +
                         "user.",
-                    ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_ADMIN,
+                    ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_OPERATOR,
                 ),
                 results().map { it.outcome to it.text() },
             )
@@ -169,18 +169,18 @@ class JudgeTurnsTest {
     }
 
     @Test
-    fun `a member's or an automation's call asks an admin without reaching the judge`() {
+    fun `a guest's or an automation's call asks an operator without reaching the judge`() {
         repeat(2) { model.reply { toolCall("fs.write") }.reply { text("Asked.") } }
 
         harness().execute {
-            val admin = channel().user("admin")
-            channel().scriptApprovals(ApprovalAnswer.Denied(admin), ApprovalAnswer.Denied(admin))
-            ask(user = "member").ticket.outcome()
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Denied(operator), ApprovalAnswer.Denied(operator))
+            ask(user = "guest").ticket.outcome()
             val reminder = InitiatedTurn.builder(key, TurnKind.REMINDER, "Write the notes.").build()
             (get<TurnInitiation>().initiate("beat", reminder) as Admission.Accepted).ticket.outcome()
 
             assertEquals(
-                listOf("a member's call", "a call of a turn that nobody sent"),
+                listOf("a guest's call", "a call of a turn that nobody sent"),
                 channel().approvals.map { it.reason },
             )
             assertEquals(emptyList(), judge.requests)
@@ -237,14 +237,14 @@ class JudgeTurnsTest {
     }
 
     @Test
-    fun `after three asks the judge is left out for the tool in the chat until an admin allows a call of it`() {
+    fun `after three asks the judge is left out for the tool in the chat until an operator allows a call of it`() {
         repeat(5) { model.reply { toolCall("fs.write") }.reply { text("Done.") } }
         judgeAnswers(*Array(3) { """{"verdict":"ask"}""" }, """{"verdict":"allow"}""")
 
         harness().execute {
-            val admin = channel().user("admin")
-            val denied = ApprovalAnswer.Denied(admin)
-            channel().scriptApprovals(denied, denied, denied, ApprovalAnswer.Allowed(admin))
+            val operator = channel().user("operator")
+            val denied = ApprovalAnswer.Denied(operator)
+            channel().scriptApprovals(denied, denied, denied, ApprovalAnswer.Allowed(operator))
             repeat(5) { ask().ticket.outcome() }
 
             assertEquals(
@@ -253,7 +253,7 @@ class JudgeTurnsTest {
             )
             assertEquals(4, judge.requests.size)
             assertEquals(
-                listOf(Clearance(ClearanceKind.HUMAN, admin), Clearance(ClearanceKind.JUDGE)),
+                listOf(Clearance(ClearanceKind.HUMAN, operator), Clearance(ClearanceKind.JUDGE)),
                 cleared.toList(),
             )
         }
@@ -265,7 +265,7 @@ class JudgeTurnsTest {
         judgeAnswers(*Array(3) { """{"verdict":"ask"}""" }, """{"verdict":"allow"}""")
 
         harness().execute {
-            channel().scriptApprovals(*Array(4) { ApprovalAnswer.Denied(channel().user("admin")) })
+            channel().scriptApprovals(*Array(4) { ApprovalAnswer.Denied(channel().user("operator")) })
             repeat(4) { ask().ticket.outcome() }
         }
         harness().execute { ask().ticket.outcome() }
@@ -275,21 +275,21 @@ class JudgeTurnsTest {
     }
 
     @Test
-    fun `a judge that does not answer in time leaves the call to an admin`() {
+    fun `a judge that does not answer in time leaves the call to an operator`() {
         model.reply { toolCall("fs.write") }.reply { text("Asked.") }
         judge.reply { hang() }
 
         harness(""", "judgeTimeoutSeconds": 1""").execute {
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
             ask().ticket.outcome()
 
             assertEquals("the judge did not answer within 1 s", channel().approvals.single().reason)
-            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, channel().user("admin"))), cleared.toList())
+            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, channel().user("operator"))), cleared.toList())
         }
     }
 
     @Test
-    fun `a call within the configured length goes to the judge, a longer one to an admin`() {
+    fun `a call within the configured length goes to the judge, a longer one to an operator`() {
         val room = 60 - "fs.write".length - """{"content":"","path":"notes.md"}""".length
         for (length in listOf(room, room + 1)) {
             model.reply { toolCall("fs.write", """{"path": "notes.md", "content": "${"a".repeat(length)}"}""") }
@@ -298,7 +298,7 @@ class JudgeTurnsTest {
         judgeAnswers("""{"verdict":"allow"}""")
 
         harness(""", "judgeMaxChars": 60""").execute {
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
             repeat(2) { ask().ticket.outcome() }
 
             assertEquals(

@@ -58,8 +58,8 @@ class UpdateReaderTest {
     }
     private val adaChat = ChatAddress(work, "1001")
     private val group = ChatAddress(work, "-1001234500000")
-    private val ada = ChatUser(UserAddress(work, "1001"), "Ada Lovelace", "ada_test", isBot = false, isAdmin = true)
-    private val bob = ChatUser(UserAddress(work, "1002"), "Bob", null, isBot = false, isAdmin = false)
+    private val ada = ChatUser(UserAddress(work, "1001"), "Ada Lovelace", "ada_test", isBot = false, isOperator = true)
+    private val bob = ChatUser(UserAddress(work, "1002"), "Bob", null, isBot = false, isOperator = false)
     private val bot = UserAddress(work, "1234567890")
     private val sent = Instant.ofEpochSecond(1760169600)
 
@@ -442,7 +442,7 @@ class UpdateReaderTest {
         )
         assertEquals("/model deepseek/chat", command.message.text)
         assertEquals(ref, command.message.ref)
-        assertTrue(command.invocation.issuer.isAdmin)
+        assertTrue(command.invocation.issuer.isOperator)
     }
 
     @Test
@@ -528,7 +528,7 @@ class UpdateReaderTest {
 
     @Test
     fun `an admin who posts on behalf of a chat is no admin, and a message without a sender is ignored`() {
-        assertFalse(message("group_as_admin_via_chat").sender.isAdmin)
+        assertFalse(message("group_as_admin_via_chat").sender.isOperator)
         val anonymous = message("group_anonymous_admin").sender
         assertEquals(UserAddress(work, "1087968824"), anonymous.address)
         assertTrue(anonymous.isBot)

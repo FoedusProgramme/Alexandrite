@@ -52,7 +52,7 @@ class ScheduleToolsTest {
         val task = schedule.control.list(KEY).single()
         assertEquals(When.Once(LocalDateTime.parse("2026-10-19T09:00")), task.schedule)
         assertEquals(SHANGHAI to Instant.parse("2026-10-19T01:00:00Z"), task.zone to task.next)
-        assertEquals(Triple(CHAT, ADMIN.address, "Ada"), Triple(task.chat, task.createdBy, task.creatorName))
+        assertEquals(Triple(CHAT, OPERATOR.address, "Ada"), Triple(task.chat, task.createdBy, task.creatorName))
     }
 
     @Test
@@ -120,13 +120,13 @@ class ScheduleToolsTest {
     // Who may schedule.
 
     @Test
-    fun `a member's turn, an automated turn and a sub-agent may neither schedule nor cancel`() = test {
+    fun `a guest's turn, an automated turn and a sub-agent may neither schedule nor cancel`() = test {
         val schedule = opened()
         val id = schedule.make(mapOf("in" to "1h"))
         val automated = { act: String -> "own message can $act tasks; a scheduled or other automated turn cannot" }
         val turns = mapOf(
-            turn(MEMBER) to { act: String -> "Only an administrator can $act tasks." },
-            turn(ADMIN, kind = TurnKind.REMINDER) to automated,
+            turn(GUEST) to { act: String -> "Only an operator can $act tasks." },
+            turn(OPERATOR, kind = TurnKind.REMINDER) to automated,
             turn(null, kind = TurnKind.HEARTBEAT) to automated,
             testDelegatedTurn(turn()) to { act: String -> "A sub-agent cannot $act tasks." },
         )
@@ -142,12 +142,12 @@ class ScheduleToolsTest {
     }
 
     @Test
-    fun `a member may list the chat's tasks`() = test {
+    fun `a guest may list the chat's tasks`() = test {
         val schedule = opened()
         val id = schedule.make(mapOf("every" to "1d"))
         schedule.make(mapOf("cron" to "30 8 * * *"))
 
-        val listed = schedule.call(schedule.list, emptyMap(), turn(MEMBER))
+        val listed = schedule.call(schedule.list, emptyMap(), turn(GUEST))
 
         assertEquals(
             "The tasks scheduled in this chat:\n" +
@@ -161,7 +161,7 @@ class ScheduleToolsTest {
     // Mandates.
 
     @Test
-    fun `with a mandate the task runs as the admin, trusted, without one as nobody, untrusted`() = test {
+    fun `with a mandate the task runs as the operator, trusted, without one as nobody, untrusted`() = test {
         val schedule = opened()
         val trusted = schedule.make(mapOf("in" to "10m"), mandate = MANDATE)
         val answer = schedule.call(schedule.create, mapOf("prompt" to "Check the logs.", "in" to "20m")).text

@@ -160,7 +160,7 @@ class TurnWorkersTest {
     fun `a running turn takes its principal's messages queued since it started, up to a change of state`() = runTest {
         val bench = bench(perKey = 10)
         val key = AgentChatKey.parse("coder@test:main:1")
-        val member = UserAddress.parse("test:main@member")
+        val guest = UserAddress.parse("test:main@guest")
         val running = bench.receive("test:main:1").turn
         runCurrent()
         val early = bench.receive("test:main:1")
@@ -174,10 +174,10 @@ class TurnWorkersTest {
         val followUps = bench.runner.followUps.getValue(running)
 
         val chat = ChatAddress.parse("test:main:1")
-        val taken = followUps.take(member, chat, since)
+        val taken = followUps.take(guest, chat, since)
 
         assertEquals(listOf(late.turn, later.turn), taken.map { it.plan.id })
-        assertEquals(emptyList(), followUps.take(member, chat, since))
+        assertEquals(emptyList(), followUps.take(guest, chat, since))
         assertEquals(listOf(running, early.turn, other.turn, behind.turn), bench.phases().map { it.first })
         taken.first().complete(TurnOutcome.Absorbed(running))
         followUps.restore(taken.drop(1))
@@ -191,7 +191,7 @@ class TurnWorkersTest {
     @Test
     fun `a running turn learns of a follow-up of its principal once one is queued`() = runTest {
         val bench = bench(perKey = 10)
-        val member = UserAddress.parse("test:main@member")
+        val guest = UserAddress.parse("test:main@guest")
         val chat = ChatAddress.parse("test:main:1")
         val running = bench.receive("test:main:1").turn
         runCurrent()
@@ -200,17 +200,17 @@ class TurnWorkersTest {
         var arrived = false
 
         launch {
-            followUps.await(member, chat, since)
+            followUps.await(guest, chat, since)
             arrived = true
         }
         bench.receive("test:main:1", user = "other")
         runCurrent()
-        val before = arrived to followUps.queued(member, chat, since)
+        val before = arrived to followUps.queued(guest, chat, since)
         bench.receive("test:main:1")
         runCurrent()
 
         assertEquals(false to false, before)
-        assertEquals(true to true, arrived to followUps.queued(member, chat, since))
+        assertEquals(true to true, arrived to followUps.queued(guest, chat, since))
     }
 
     @Test
@@ -274,7 +274,7 @@ class TurnWorkersTest {
         val here = bench.receive("test:main:7")
         val followUps = bench.runner.followUps.getValue(running)
 
-        val taken = followUps.take(UserAddress.parse("test:main@member"), ChatAddress.parse("test:main:7"), Instant.MIN)
+        val taken = followUps.take(UserAddress.parse("test:main@guest"), ChatAddress.parse("test:main:7"), Instant.MIN)
 
         assertEquals(listOf(here.turn), taken.map { it.plan.id })
         assertEquals(listOf(running, elsewhere.turn), bench.phases().map { it.first })
@@ -289,7 +289,7 @@ class TurnWorkersTest {
         val followUps = bench.runner.followUps.getValue(running)
         val taken =
             followUps.take(
-                UserAddress.parse("test:main@member"),
+                UserAddress.parse("test:main@guest"),
                 ChatAddress.parse("test:main:1"),
                 bench.clock.instant(),
             )

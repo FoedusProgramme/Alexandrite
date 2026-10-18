@@ -62,7 +62,7 @@ class TelegramToolsTest {
               "model": "scripted/test-model",
               "channels": {"telegram:work": {}},
               "permission": {${mode?.let { "\"mode\": \"$it\", " }.orEmpty()}"judge": "scripted/$FAST_MODEL"},
-              "tools": {"forMembers": ["telegram.react"]}
+              "tools": {"forGuests": ["telegram.react"]}
             }
           }
         }

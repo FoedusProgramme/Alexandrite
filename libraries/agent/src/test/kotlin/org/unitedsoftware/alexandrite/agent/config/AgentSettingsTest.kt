@@ -49,7 +49,7 @@ class AgentSettingsTest {
                   "maxTurnTokens": 500000,
                   "toolTimeoutSeconds": 30,
                   "foregroundSeconds": 20,
-                  "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forMembers": ["fs.read"]},
+                  "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forGuests": ["fs.read"]},
                   "permission": {"allow": ["command.exec(git status)"], "deny": ["command.exec(./gradlew test)"]},
                   "workspace": "coder-files",
                   "channels": {"test:main": {"default": true, "home": "42#7"}}
@@ -87,7 +87,7 @@ class AgentSettingsTest {
         val tools = coder.tools
         assertEquals(
             listOf(listOf("fs.*"), listOf("fs.write"), listOf("fs.read")),
-            listOf(tools.allow, tools.deny, tools.forMembers),
+            listOf(tools.allow, tools.deny, tools.forGuests),
         )
         assertEquals(
             listOf(listOf("command.exec(git status)"), listOf("command.exec(./gradlew test)")),
@@ -98,6 +98,13 @@ class AgentSettingsTest {
             listOf("test:main", "true", "test:main:42#7"),
             listOf("${attachment.instance}", "${attachment.default}", "${attachment.home}"),
         )
+    }
+
+    @Test
+    fun `the tools for guests are still read from their former key`() {
+        val settings = settings(agents(""""coder": {"description": "Codes.", "tools": {"forMembers": ["fs.read"]}}"""))
+
+        assertEquals(listOf("fs.read"), settings.agents.getValue("coder").tools.forGuests)
     }
 
     @Test
@@ -327,8 +334,8 @@ class AgentSettingsTest {
         assertConfigFails(agents(""""coder": {"tools": {"allow": ["Fs.*"]}}"""), "agents.coder.tools.allow $message")
         assertConfigFails(agents(""""coder": {"tools": {"deny": ["fs..read"]}}"""), "agents.coder.tools.deny $message")
         assertConfigFails(
-            agents(""""coder": {"tools": {"forMembers": ["fs.read."]}}"""),
-            "agents.coder.tools.forMembers $message",
+            agents(""""coder": {"tools": {"forGuests": ["fs.read."]}}"""),
+            "agents.coder.tools.forGuests $message",
         )
     }
 

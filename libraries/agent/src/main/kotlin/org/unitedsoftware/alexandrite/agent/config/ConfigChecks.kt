@@ -123,7 +123,7 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     checkCompaction("$path.compaction", agent.compaction)
     checkGlobs("$path.tools.allow", agent.tools.allow)
     checkGlobs("$path.tools.deny", agent.tools.deny)
-    checkGlobs("$path.tools.forMembers", agent.tools.forMembers)
+    checkGlobs("$path.tools.forGuests", agent.tools.forGuests)
     require(agent.workspace == null || isPath(agent.workspace)) { "$path.workspace is a blank or malformed path" }
     for ((key, attachment) in agent.channels) {
         require(ChannelInstanceId.parseOrNull(key) != null) {

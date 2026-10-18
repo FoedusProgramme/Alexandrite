@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.Capacity
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
@@ -199,12 +200,12 @@ class AgentTurnSubmitterTest {
         }
 
         agentHarness(config(coder)) {
-            channel(admins = setOf("admin")).model(model(0)).commandHandler(handler)
+            channel(operators = setOf("operator")).model(model(0)).commandHandler(handler)
         }.execute {
             val channel = channel()
-            channel.membersMayRun = false
+            channel.guestsMayRun = false
             val refused = channel.receiveCommand("mode", "bypass")
-            val run = channel.receiveCommand("mode", "bypass", issuer = channel.user("admin"))
+            val run = channel.receiveCommand("mode", "bypass", issuer = channel.user("operator"))
 
             val told = outcome(refused)
             val notice = channel.sent.single()
@@ -214,7 +215,39 @@ class AgentTurnSubmitterTest {
                 notice.message.text to notice.message.kind,
             )
             assertEquals(TurnOutcome.Completed(null), outcome(run))
-            assertEquals(listOf("admin"), handled)
+            assertEquals(listOf("operator"), handled)
+        }
+    }
+
+    @Test
+    fun `a command's forms for operators run for operators alone, whatever the channel lets others run`() {
+        val handled = CopyOnWriteArrayList<String>()
+        val handler = object : CommandHandler {
+            override val commands = listOf(
+                CommandSpec.builder("tasks", "Lists or cancels tasks.")
+                    .operatorsOnly(CommandForms.WITH_ARGUMENTS)
+                    .build(),
+            )
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
+                handled += "${invocation.issuer.address.user} ${invocation.arguments}".trim()
+            }
+        }
+
+        agentHarness(config(coder)) {
+            channel(operators = setOf("operator")).model(model(0)).commandHandler(handler)
+        }.execute {
+            val channel = channel()
+            val operator = channel.user("operator")
+            val bare = channel.receiveCommand("tasks")
+            val refused = channel.receiveCommand("tasks", "cancel t-1")
+            val run = channel.receiveCommand("tasks", "cancel t-1", issuer = operator)
+
+            assertEquals(TurnOutcome.Completed(null), outcome(bare))
+            outcome(refused)
+            assertEquals("You may not run /tasks here.", channel.sent.single().message.text)
+            assertEquals(TurnOutcome.Completed(null), outcome(run))
+            assertEquals(listOf("guest", "operator cancel t-1"), handled)
         }
     }
 }

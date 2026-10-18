@@ -1,8 +1,8 @@
 package org.unitedsoftware.alexandrite.commands.link
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
 import org.unitedsoftware.alexandrite.commands.CHINESE
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
@@ -49,7 +49,7 @@ class LinkCommandsTest {
     private val commands = commands()
     private val first = testChat("first")
     private val second = testChat("second")
-    private val other = testUser("other", isAdmin = true)
+    private val other = testUser("other", isOperator = true)
 
     // Offers and redemptions.
 
@@ -63,7 +63,7 @@ class LinkCommandsTest {
         val reply = commands.answer(link(second, code, other))
 
         assertEquals(
-            "To share the conversation of main in this chat with another chat, an admin sends `/link $code` there " +
+            "To share the conversation of main in this chat with another chat, an operator sends `/link $code` there " +
                 "within 10 minutes.",
             offer.text,
         )
@@ -78,7 +78,7 @@ class LinkCommandsTest {
 
     @Test
     fun `the notice to the first chat is in that chat's language and a failed notice changes nothing`() = runTest {
-        control.updateSettings(first, ChatSettingsUpdate.builder().language(CHINESE).build(), ADMIN)
+        control.updateSettings(first, ChatSettingsUpdate.builder().language(CHINESE).build(), OPERATOR)
         val catalog = TextCatalog.builder()
             .text(PLUGIN, CHINESE, "link.anchor_notice", "{chat} 现在和这个聊天共享 {agent} 的对话。")
             .build()
@@ -107,7 +107,7 @@ class LinkCommandsTest {
 
     @Test
     fun `an offer in a linked chat names the chats it shares the conversation with`() = runTest {
-        control.link(AgentId.MAIN, first, testChat("x_y"), ADMIN)
+        control.link(AgentId.MAIN, first, testChat("x_y"), OPERATOR)
 
         val reply = commands.answer(link(first))
 
@@ -116,7 +116,7 @@ class LinkCommandsTest {
 
     @Test
     fun `a code is spent once redeemed, also when the link is refused`() = runTest {
-        control.link(AgentId.MAIN, testChat("elsewhere"), second, ADMIN)
+        control.link(AgentId.MAIN, testChat("elsewhere"), second, OPERATOR)
         val code = offer(first)
 
         assertEquals("test:main:second is linked already.", commands.answer(link(second, code, other)))
@@ -188,17 +188,17 @@ class LinkCommandsTest {
 
     @Test
     fun `unlink takes this chat out of its linked chats`() = runTest {
-        control.link(AgentId.MAIN, first, second, ADMIN)
+        control.link(AgentId.MAIN, first, second, OPERATOR)
 
         assertEquals("test:main:second no longer shares the conversation of main.", commands.answer(unlink(second)))
         assertEquals("This chat shares no conversation of main.", commands.answer(unlink(second)))
-        assertEquals(Call.Unlink(AgentId.MAIN, second, ADMIN), control.calls.last())
+        assertEquals(Call.Unlink(AgentId.MAIN, second, OPERATOR), control.calls.last())
     }
 
     @Test
     fun `unlink with a chat takes that chat out of this chat's linked chats`() = runTest {
-        control.link(AgentId.MAIN, first, second, ADMIN)
-        control.link(AgentId.MAIN, first, testChat("third"), ADMIN)
+        control.link(AgentId.MAIN, first, second, OPERATOR)
+        control.link(AgentId.MAIN, first, testChat("third"), OPERATOR)
 
         assertEquals(
             "test:main:third no longer shares the conversation of main.",
@@ -212,7 +212,7 @@ class LinkCommandsTest {
             "This chat shares no conversation of main.",
             commands.answer(unlink(testChat("fifth"), "test:main:second")),
         )
-        assertEquals(listOf(Call.Unlink(AgentId.MAIN, testChat("third"), ADMIN)), control.calls.drop(2))
+        assertEquals(listOf(Call.Unlink(AgentId.MAIN, testChat("third"), OPERATOR)), control.calls.drop(2))
     }
 
     @Test
@@ -239,7 +239,7 @@ class LinkCommandsTest {
 
     @Test
     fun `a refused unlink replies with the agent's message`() = runTest {
-        control.link(AgentId.MAIN, first, second, ADMIN)
+        control.link(AgentId.MAIN, first, second, OPERATOR)
 
         assertEquals("test:main:first anchors its group.", commands.answer(unlink(first)))
     }
@@ -257,11 +257,11 @@ class LinkCommandsTest {
     private fun commands(texts: Texts = commandTexts()) =
         LinkCommands(control, control, channels, LinkCodes(clock), texts, clock)
 
-    private fun link(chat: ChatAddress, code: String = "", issuer: ChatUser = ADMIN): CommandInvocation =
+    private fun link(chat: ChatAddress, code: String = "", issuer: ChatUser = OPERATOR): CommandInvocation =
         testCommand("link", code, chat, issuer)
 
     private fun unlink(chat: ChatAddress, target: String = ""): CommandInvocation =
-        testCommand("unlink", target, chat, ADMIN)
+        testCommand("unlink", target, chat, OPERATOR)
 
     private suspend fun offer(chat: ChatAddress, commands: LinkCommands = this.commands): String =
         codeIn(commands.answer(link(chat)))

@@ -331,7 +331,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
                     "anchor" to group.anchor,
                 )
             },
-            replies.text(if (invocation.issuer.isAdmin) TextKeys.SETTINGS_ADMIN else TextKeys.SETTINGS_MEMBER),
+            replies.text(if (invocation.issuer.isOperator) TextKeys.SETTINGS_OPERATOR else TextKeys.SETTINGS_OTHER),
         )
         context.reply(lines.joinToString("\n"))
     }

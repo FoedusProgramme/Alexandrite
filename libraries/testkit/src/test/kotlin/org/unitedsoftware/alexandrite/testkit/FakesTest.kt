@@ -72,7 +72,7 @@ class FakesTest {
     // Turns.
 
     @Test
-    fun `a test turn is a member's message in the test chat unless told otherwise`() {
+    fun `a test turn is a guest's message in the test chat unless told otherwise`() {
         val turn = testTurn()
         val heartbeat = testTurn(TurnKind.HEARTBEAT, testChat("other")) { language(LanguageTag("en")) }
 
@@ -81,7 +81,7 @@ class FakesTest {
         assertEquals(ConversationId("test"), turn.conversation)
         assertEquals(TurnKind.MESSAGE, turn.kind)
         assertEquals(testUser(), turn.actor)
-        assertFalse(turn.actorIsAdmin)
+        assertFalse(turn.actorIsOperator)
         assertEquals(AgentId.MAIN, turn.agent)
         assertEquals(ReplyTarget.CHAT, turn.replyTarget)
         assertNull(turn.lineage)
@@ -89,7 +89,7 @@ class FakesTest {
         assertNull(heartbeat.actor)
         assertEquals("test:main:other", heartbeat.chat.toString())
         assertEquals(LanguageTag("en"), heartbeat.language)
-        assertTrue(testTurn { actor(testUser("ada", isAdmin = true)) }.actorIsAdmin)
+        assertTrue(testTurn { actor(testUser("ada", isOperator = true)) }.actorIsOperator)
     }
 
     @Test
@@ -126,9 +126,9 @@ class FakesTest {
     }
 
     @Test
-    fun `test messages and commands come from a member of the test instance`() {
+    fun `test messages and commands come from a guest of the test instance`() {
         val message = testMessage()
-        val command = testCommand("model", "scripted/test-model", issuer = testUser("ada", isAdmin = true))
+        val command = testCommand("model", "scripted/test-model", issuer = testUser("ada", isOperator = true))
 
         assertEquals("hello", message.text)
         assertEquals(ChannelMessageRef(testChat(), "test-message"), message.ref)
@@ -138,7 +138,7 @@ class FakesTest {
         assertEquals(TEST_INSTANCE, message.chat.instance)
         assertEquals(ChannelMessageRef(testChat(), "test-command"), command.trigger)
         assertEquals("scripted/test-model", command.arguments)
-        assertTrue(command.issuer.isAdmin)
+        assertTrue(command.issuer.isOperator)
     }
 
     // Turn ports.
@@ -230,7 +230,7 @@ class FakesTest {
 
     @Test
     fun `a test command context records the notices its handler sends`() {
-        val invocation = testCommand("new", issuer = testUser("ada", isAdmin = true))
+        val invocation = testCommand("new", issuer = testUser("ada", isOperator = true))
         val context = testCommandContext(invocation)
         context.scriptDeliveries(Delivery.NotDelivered(DeliveryFailure.FORBIDDEN))
 
@@ -239,7 +239,7 @@ class FakesTest {
 
         assertEquals(TurnKind.COMMAND, context.turn.kind)
         assertEquals(invocation.chat, context.turn.chat)
-        assertTrue(context.turn.actorIsAdmin)
+        assertTrue(context.turn.actorIsOperator)
         assertEquals(Delivery.NotDelivered(DeliveryFailure.FORBIDDEN), refused)
         assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(invocation.chat, "reply-2"))), delivered)
         assertEquals(listOf("Started.", "Again."), context.replies.map { it.text })
@@ -253,14 +253,14 @@ class FakesTest {
     fun `a recording agent control reports the compaction and the contexts it is scripted with`() = blocking {
         val control = RecordingAgentControl()
         val chat = testChat()
-        val admin = testUser("ada", isAdmin = true)
+        val operator = testUser("ada", isOperator = true)
         val status = ContextStatus(ConversationId("c"), TEST_MODEL, 900, TEST_TIME, 1000, 950, 200, null, 0)
         control.compaction = CompactionReport(3, 900, 150)
         control.scriptContext(chat, status)
 
-        val report = control.compact(chat, "the tests", admin)
+        val report = control.compact(chat, "the tests", operator)
         control.refuseNext("Nothing to compact.")
-        val refused = assertFailsWith<ControlRefusedException> { control.compact(chat, null, admin) }
+        val refused = assertFailsWith<ControlRefusedException> { control.compact(chat, null, operator) }
 
         assertEquals(CompactionReport(3, 900, 150), report)
         assertEquals("Nothing to compact.", refused.message)
@@ -271,8 +271,8 @@ class FakesTest {
         )
         assertEquals(
             listOf(
-                RecordingAgentControl.Call.Compact(chat, "the tests", admin),
-                RecordingAgentControl.Call.Compact(chat, null, admin),
+                RecordingAgentControl.Call.Compact(chat, "the tests", operator),
+                RecordingAgentControl.Call.Compact(chat, null, operator),
             ),
             control.calls,
         )
@@ -282,13 +282,13 @@ class FakesTest {
     fun `a recording agent control lists the jobs of a chat and finds them when it stops or cancels`() {
         val control = RecordingAgentControl()
         val (chat, other) = listOf(testChat(), testChat("other"))
-        val admin = testUser("ada", isAdmin = true)
-        val job = JobStatus(RunId("j-1"), chat, "command.exec", "./gradlew test", TEST_TIME, admin)
+        val operator = testUser("ada", isOperator = true)
+        val job = JobStatus(RunId("j-1"), chat, "command.exec", "./gradlew test", TEST_TIME, operator)
         control.jobStatuses = listOf(job)
 
-        val stopped = control.stopJob(chat, RunId("j-1"), admin)
-        val elsewhere = control.stopJob(other, RunId("j-1"), admin)
-        val cancelled = control.cancel(chat, admin)
+        val stopped = control.stopJob(chat, RunId("j-1"), operator)
+        val elsewhere = control.stopJob(other, RunId("j-1"), operator)
+        val cancelled = control.cancel(chat, operator)
         val run = control.cancelRun(RunId("j-1"), tree = false, by = null)
 
         assertEquals(listOf(job), control.jobs(chat))
@@ -296,9 +296,9 @@ class FakesTest {
         assertEquals(listOf(true, false, true, true), listOf(stopped, elsewhere, cancelled, run))
         assertEquals(
             listOf(
-                RecordingAgentControl.Call.StopJob(chat, RunId("j-1"), admin),
-                RecordingAgentControl.Call.StopJob(other, RunId("j-1"), admin),
-                RecordingAgentControl.Call.Cancel(chat, admin),
+                RecordingAgentControl.Call.StopJob(chat, RunId("j-1"), operator),
+                RecordingAgentControl.Call.StopJob(other, RunId("j-1"), operator),
+                RecordingAgentControl.Call.Cancel(chat, operator),
                 RecordingAgentControl.Call.CancelRun(RunId("j-1"), false, null),
             ),
             control.calls,
@@ -309,17 +309,17 @@ class FakesTest {
     fun `a recording agent control records its calls and answers from the statuses`() {
         val control = RecordingAgentControl()
         val chat = testChat()
-        val admin = testUser("ada", isAdmin = true)
+        val operator = testUser("ada", isOperator = true)
         val running = TurnStatus.builder(testTurn(), TurnPhase.RUNNING, TEST_TIME).startedAt(TEST_TIME).build()
         val delegated = TurnStatus.builder(testDelegatedTurn(), TurnPhase.QUEUED, TEST_TIME).build()
         control.statuses = listOf(running, delegated)
 
-        val cancelled = control.cancel(chat, admin)
+        val cancelled = control.cancel(chat, operator)
         val elsewhere = control.cancel(testChat("other"), null)
-        val turn = control.cancelTurn(TurnId("test-turn"), admin)
-        val run = control.cancelRun(RunId("test-run"), tree = true, by = admin)
+        val turn = control.cancelTurn(TurnId("test-turn"), operator)
+        val run = control.cancelRun(RunId("test-run"), tree = true, by = operator)
         val conversations =
-            blocking { listOf(control.newConversation(chat, admin), control.newConversation(chat, null)) }
+            blocking { listOf(control.newConversation(chat, operator), control.newConversation(chat, null)) }
 
         assertEquals(listOf(running, delegated), blocking { control.turns(chat) })
         assertEquals(emptyList(), blocking { control.turns(testChat("other")) })
@@ -327,11 +327,11 @@ class FakesTest {
         assertEquals(listOf(ConversationId("conversation-1"), ConversationId("conversation-2")), conversations)
         assertEquals(
             listOf(
-                RecordingAgentControl.Call.Cancel(chat, admin),
+                RecordingAgentControl.Call.Cancel(chat, operator),
                 RecordingAgentControl.Call.Cancel(testChat("other"), null),
-                RecordingAgentControl.Call.CancelTurn(TurnId("test-turn"), admin),
-                RecordingAgentControl.Call.CancelRun(RunId("test-run"), true, admin),
-                RecordingAgentControl.Call.NewConversation(chat, admin, conversations[0]),
+                RecordingAgentControl.Call.CancelTurn(TurnId("test-turn"), operator),
+                RecordingAgentControl.Call.CancelRun(RunId("test-run"), true, operator),
+                RecordingAgentControl.Call.NewConversation(chat, operator, conversations[0]),
                 RecordingAgentControl.Call.NewConversation(chat, null, conversations[1]),
             ),
             control.calls,
@@ -400,10 +400,10 @@ class FakesTest {
     fun `a recording agent control resets a home changed at runtime to the declared one from any chat`() {
         val control = RecordingAgentControl()
         val (home, other) = listOf(testChat("home"), testChat("other"))
-        val admin = testUser("ada", isAdmin = true)
+        val operator = testUser("ada", isOperator = true)
         control.declareHome(AgentId.MAIN, home)
         fun update(chat: ChatAddress, block: ChatSettingsUpdate.Builder.() -> Unit) =
-            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().apply(block).build(), admin) }
+            blocking { control.updateSettings(chat, ChatSettingsUpdate.builder().apply(block).build(), operator) }
 
         val declared = control.agents(TEST_INSTANCE).single()
         update(home) { noHome() }
@@ -413,7 +413,7 @@ class FakesTest {
         update(testChat("home", "7")) { home() }
 
         assertEquals(AgentSummary(AgentId.MAIN, "main", null, true, home, home), declared)
-        assertEquals(AgentSummary(AgentId.MAIN, "main", null, true, null, home, TEST_TIME, admin), off)
+        assertEquals(AgentSummary(AgentId.MAIN, "main", null, true, null, home, TEST_TIME, operator), off)
         assertEquals(listOf(declared, declared), listOf(reset, control.agents(TEST_INSTANCE).single()))
     }
 
@@ -489,17 +489,17 @@ class FakesTest {
     fun `a recording agent control refuses an agent it does not list and the refusals the test queues`() {
         val control = RecordingAgentControl()
         val chat = testChat()
-        val admin = testUser("ada", isAdmin = true)
+        val operator = testUser("ada", isOperator = true)
         val coder = ChatSettingsUpdate.builder().agent(AgentId("coder")).build()
 
         val unlisted =
             assertFailsWith<ControlRefusedException> { blocking { control.updateSettings(chat, coder, null) } }
         control.refuseNext("No agent serves $chat.")
         control.refuseNext("Folder /srv is protected.")
-        val queued = assertFailsWith<ControlRefusedException> { blocking { control.newConversation(chat, admin) } }
+        val queued = assertFailsWith<ControlRefusedException> { blocking { control.newConversation(chat, operator) } }
         val folder =
             assertFailsWith<ControlRefusedException> { blocking { control.trustFolder(Path.of("/srv"), null) } }
-        val conversation = blocking { control.newConversation(chat, admin) }
+        val conversation = blocking { control.newConversation(chat, operator) }
 
         assertEquals("Agent 'coder' does not serve test:main.", unlisted.message)
         assertEquals("No agent serves $chat.", queued.message)
@@ -508,9 +508,9 @@ class FakesTest {
         assertEquals(AgentId.MAIN, blocking { control.settings(chat) }.agent)
         assertEquals(
             listOf(
-                RecordingAgentControl.Call.NewConversation(chat, admin, null),
+                RecordingAgentControl.Call.NewConversation(chat, operator, null),
                 RecordingAgentControl.Call.TrustFolder(Path.of("/srv"), null),
-                RecordingAgentControl.Call.NewConversation(chat, admin, conversation),
+                RecordingAgentControl.Call.NewConversation(chat, operator, conversation),
             ),
             control.calls.drop(1),
         )
@@ -537,14 +537,14 @@ class FakesTest {
         val control = RecordingAgentControl()
         val coder = AgentId("coder")
         val (anchor, first, second) = listOf("a", "b", "c").map { testChat(it) }
-        val admin = testUser("ada", isAdmin = true)
+        val operator = testUser("ada", isOperator = true)
 
         val linked = blocking {
-            control.link(coder, anchor, first, admin)
+            control.link(coder, anchor, first, operator)
             control.link(coder, first, second, null)
         }
 
-        val links = mapOf(first to ChatLink(TEST_TIME, admin), second to ChatLink(TEST_TIME, null))
+        val links = mapOf(first to ChatLink(TEST_TIME, operator), second to ChatLink(TEST_TIME, null))
         assertEquals(ChatLinkGroup(coder, anchor, listOf(first, second), links = links), linked)
         assertEquals(listOf(linked), control.links(coder))
         assertEquals(emptyList(), control.links(AgentId.MAIN))
@@ -555,7 +555,7 @@ class FakesTest {
             blocking { listOf(first, second, first).map { control.unlink(coder, it, null) } },
         )
         assertEquals(emptyList(), control.links())
-        assertEquals(RecordingAgentControl.Call.Link(coder, anchor, first, admin), control.calls.first())
+        assertEquals(RecordingAgentControl.Call.Link(coder, anchor, first, operator), control.calls.first())
         assertEquals(RecordingAgentControl.Call.Unlink(coder, first, null), control.calls.last())
     }
 
@@ -596,18 +596,21 @@ class FakesTest {
     @Test
     fun `a recording agent control trusts folders that no trusted folder covers`() {
         val control = RecordingAgentControl()
-        val admin = testUser("ada", isAdmin = true)
+        val operator = testUser("ada", isOperator = true)
         val repository = Path.of("/srv/repo")
         val declared = Path.of("/srv/config")
         control.declareFolder(declared)
 
         val trusted = blocking {
-            listOf(control.trustFolder(repository, admin), control.trustFolder(Path.of("/srv/repo/sub/../lib"), null))
+            listOf(
+                control.trustFolder(repository, operator),
+                control.trustFolder(Path.of("/srv/repo/sub/../lib"), null),
+            )
         }
 
         assertEquals(listOf(repository, repository), trusted)
         assertEquals(
-            listOf(TrustedFolder(declared, true, null, null), TrustedFolder(repository, false, TEST_TIME, admin)),
+            listOf(TrustedFolder(declared, true, null, null), TrustedFolder(repository, false, TEST_TIME, operator)),
             control.trustedFolders(),
         )
         assertFailsWith<IllegalArgumentException> { blocking { control.trustFolder(Path.of("repo"), null) } }
@@ -619,7 +622,7 @@ class FakesTest {
             revoked.map { it.declared to it.removed },
         )
         assertEquals(listOf(declared), control.trustedFolders().map { it.path })
-        assertEquals(RecordingAgentControl.Call.TrustFolder(repository, admin), control.calls.first())
+        assertEquals(RecordingAgentControl.Call.TrustFolder(repository, operator), control.calls.first())
     }
 
     // Chat states.
@@ -652,14 +655,14 @@ class FakesTest {
     @Test
     fun `test records behave as the runtime's and outlive the plugins that use them`() {
         val records = TestRecords()
-        val admin = testUser("ada", isAdmin = true).address
+        val operator = testUser("ada", isOperator = true).address
         val grants = records.of("agent").collection<String>("grants")
 
-        val stored = blocking { grants.put("/srv/repo", "repo", admin) }
+        val stored = blocking { grants.put("/srv/repo", "repo", operator) }
 
         assertSame(records.of("agent"), records.of("agent"))
         assertEquals(listOf(stored), blocking { records.of("agent").collection<String>("grants").list() })
-        assertEquals(admin, blocking { records.store.get("agent", "grants", "/srv/repo") }?.createdBy)
+        assertEquals(operator, blocking { records.store.get("agent", "grants", "/srv/repo") }?.createdBy)
         assertNull(blocking { records.of("other").collection<String>("grants").get("/srv/repo") })
         assertNull(blocking { testRecords("agent").collection<String>("grants").get("/srv/repo") })
         assertFailsWith<IllegalArgumentException> { records.of().collection<Int>("Not A Name") }
@@ -700,7 +703,8 @@ class FakesTest {
     @Test
     fun `the test tool context runs in the default test turn, being reviewed unless cleared`() {
         val context = testToolContext()
-        val cleared = testToolContext(clearance = Clearance(ClearanceKind.HUMAN, testUser("admin", isAdmin = true)))
+        val cleared =
+            testToolContext(clearance = Clearance(ClearanceKind.HUMAN, testUser("operator", isOperator = true)))
 
         assertEquals(testTurn(), context.turn)
         assertEquals(ToolCallId("test-call"), context.call)

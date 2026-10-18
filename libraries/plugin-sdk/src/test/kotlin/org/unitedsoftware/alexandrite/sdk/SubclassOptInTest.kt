@@ -746,8 +746,8 @@ class SubclassOptInTest {
             override val commands = listOf(CommandSpec.builder("new", "Starts a new conversation.").build())
 
             override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
-                if (!invocation.issuer.isAdmin) {
-                    context.reply(texts.text("new.admins_only", context.turn.language, "command" to invocation.name))
+                if (!invocation.issuer.isOperator) {
+                    context.reply(texts.text("new.operators_only", context.turn.language, "command" to invocation.name))
                     return
                 }
                 val conversation = control.newConversation(invocation.chat, invocation.issuer)

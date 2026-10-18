@@ -123,7 +123,7 @@ internal class ApprovalDesk(
     /** The chats [request] is shown in: the chat of an admin's own turn, else the admins' direct chats. */
     private fun recipients(request: ApprovalRequest): List<ChatAddress> {
         val turn = request.turn
-        val chats = if (turn.actorIsAdmin) {
+        val chats = if (turn.actorIsOperator) {
             listOf(turn.chat)
         } else {
             config.adminUserIds.distinct().map { ChatAddress(instance.id, "$it") }
@@ -238,7 +238,7 @@ internal class ApprovalDesk(
         val toast = when {
             press == null -> null
 
-            !presser.isAdmin -> {
+            !presser.isOperator -> {
                 logger.info("{}: {}, who is no admin, pressed a button of an approval", instance.id, presser.address)
                 text(TextKeys.APPROVAL_ADMINS_ONLY, language)
             }

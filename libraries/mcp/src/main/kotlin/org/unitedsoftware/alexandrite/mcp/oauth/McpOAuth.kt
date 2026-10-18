@@ -123,7 +123,7 @@ internal class McpOAuth(
     /** The scopes [server] last asked a wider login for, null when it asked for none. */
     fun widerScopes(server: String): List<String>? = wider[server]
 
-    /** Starts a login to [server], whose authorization link the admin opens. */
+    /** Starts a login to [server], whose authorization link the operator opens. */
     suspend fun start(server: String): LoginStart {
         val transport = settings.servers.firstOrNull { it.name == server }?.transport as? Transport.Http
             ?: throw OAuthException("MCP server $server is not reached over HTTP, so it has no login.")

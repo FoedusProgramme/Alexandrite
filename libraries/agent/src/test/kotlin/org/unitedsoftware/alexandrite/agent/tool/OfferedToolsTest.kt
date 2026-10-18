@@ -66,10 +66,10 @@ class OfferedToolsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).apply { tools.forEach(::tool) } }
+    ) { channel(operators = setOf("operator")).model(model).apply { tools.forEach(::tool) } }
 
     private suspend fun PluginHarness.Running.ask(text: String = "Hi"): TurnOutcome =
-        assertIs<Admission.Accepted>(channel().receive(text, sender = channel().user("admin"))).ticket.outcome()
+        assertIs<Admission.Accepted>(channel().receive(text, sender = channel().user("operator"))).ticket.outcome()
 
     private suspend fun conversation(): ConversationId = store.conversations.current(key).id
 

@@ -61,7 +61,7 @@ internal class SideModelJudge(private val endpoints: Endpoints, private val dire
         return ruling.verdict
     }
 
-    override fun allowedByAdmin(key: AgentChatKey, tool: String) {
+    override fun allowedByOperator(key: AgentChatKey, tool: String) {
         asks.remove(key to tool)
     }
 

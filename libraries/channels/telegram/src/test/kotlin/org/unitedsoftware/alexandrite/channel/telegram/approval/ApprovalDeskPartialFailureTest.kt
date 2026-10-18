@@ -78,7 +78,7 @@ class ApprovalDeskPartialFailureTest {
                 (1..200).joinToString("\n") { "+line $it of the new file" },
             )
             val turn = testTurn(chat = ChatAddress(WORK, "${ada.id}")) {
-                actor(ChatUser(UserAddress(WORK, "${ada.id}"), "Ada", null, isBot = false, isAdmin = true))
+                actor(ChatUser(UserAddress(WORK, "${ada.id}"), "Ada", null, isBot = false, isOperator = true))
             }
             val request = ApprovalRequest(
                 "k3x9",

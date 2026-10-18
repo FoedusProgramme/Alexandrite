@@ -32,7 +32,7 @@ class ToolRegistryTest {
           "agents": {
             "coder": {
               "description": "Codes.",
-              "tools": {"allow": ["fs.*", "notes.find"], "deny": ["fs.secret"], "forMembers": ["fs.g*", "notes.*"]}
+              "tools": {"allow": ["fs.*", "notes.find"], "deny": ["fs.secret"], "forGuests": ["fs.g*", "notes.*"]}
             },
             "helper": {"description": "Helps."},
             "reviewer": {"description": "Reviews.", "tools": {"allow": []}}
@@ -81,7 +81,7 @@ class ToolRegistryTest {
     }
 
     @Test
-    fun `turns offer the agent's tools to a model that takes tools, and members may call those listed for them`() {
+    fun `turns offer the agent's tools to a model that takes tools, and guests may call those listed for them`() {
         agentHarness(config) { tools.forEach(::tool) }.execute {
             val registry = get<ToolRegistry>()
             val model = ModelRef.parse("scripted/test-model")
@@ -92,9 +92,9 @@ class ToolRegistryTest {
             assertEquals(emptyList(), offered(nativeTools = false))
             assertEquals(
                 listOf("fs.glob", "notes.find"),
-                offered(nativeTools = true).filter { registry.permits(coder, admin = false, it) },
+                offered(nativeTools = true).filter { registry.permits(coder, operator = false, it) },
             )
-            assertTrue(offered(nativeTools = true).all { registry.permits(coder, admin = true, it) })
+            assertTrue(offered(nativeTools = true).all { registry.permits(coder, operator = true, it) })
         }
     }
 

@@ -203,13 +203,13 @@ class JobsTest {
     fun `a stopped job stops its tool and hands on nothing, while a shutdown keeps its record`() = runTest {
         val tool = recordingTool("fs.slow") { _, _ -> awaitCancellation() }
         val jobs = jobs()
-        val admin = testUser("admin", isAdmin = true)
+        val operator = testUser("operator", isOperator = true)
         val stopped = job(jobs.execute(tool))
         val kept = job(jobs.execute(tool))
 
-        val elsewhere = jobs.stop(stopped, testChat("other"), admin)
-        val ran = jobs.stop(stopped, turn.chat, admin)
-        val again = jobs.stop(stopped, turn.chat, admin)
+        val elsewhere = jobs.stop(stopped, testChat("other"), operator)
+        val ran = jobs.stop(stopped, turn.chat, operator)
+        val again = jobs.stop(stopped, turn.chat, operator)
         runCurrent()
 
         assertEquals(listOf(false, true, false), listOf(elsewhere, ran, again))

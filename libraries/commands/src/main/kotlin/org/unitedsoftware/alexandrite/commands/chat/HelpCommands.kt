@@ -41,9 +41,9 @@ internal class HelpCommands(
             return
         }
         val channel = channels.channel(invocation.chat.instance)
-        val claimed = handlers.value.all.flatMap { handler -> handler.commands.map { handler to it.name } }
-        val items = claimed.sortedBy { it.second }.mapNotNull { (handler, name) ->
-            item(invocation, channel, handler, name, context.turn.language, replies)
+        val claimed = handlers.value.all.flatMap { handler -> handler.commands.map { handler to it } }
+        val items = claimed.sortedBy { it.second.name }.mapNotNull { (handler, spec) ->
+            item(invocation, channel, handler, spec, context.turn.language, replies)
         }
         val text = if (items.isEmpty()) {
             replies.text(TextKeys.HELP_NONE)
@@ -53,17 +53,21 @@ internal class HelpCommands(
         context.reply(text, forModel = false)
     }
 
-    /** The line of [name], null when the issuer may run it in no form. */
+    /** The line of [spec], null when the issuer may run it in no form. */
     private fun item(
         invocation: CommandInvocation,
         channel: Channel?,
         handler: CommandHandler,
-        name: String,
+        spec: CommandSpec,
         language: LanguageTag?,
         replies: Replies,
     ): String? {
-        val bare = channel?.mayRun(invocation.chat, invocation.issuer, name, false) ?: true
-        val withArguments = channel?.mayRun(invocation.chat, invocation.issuer, name, true) ?: true
+        val name = spec.name
+        fun mayRun(withArguments: Boolean): Boolean =
+            (invocation.issuer.isOperator || !spec.operatorsOnly.includes(withArguments)) &&
+                channel?.mayRun(invocation.chat, invocation.issuer, name, withArguments) ?: true
+        val bare = mayRun(false)
+        val withArguments = mayRun(true)
         if (!bare && !withArguments) return null
         val key = if (withArguments) TextKeys.HELP_ITEM else TextKeys.HELP_ITEM_BARE
         return replies.text(key, "command" to name, "description" to described(handler, name, language))

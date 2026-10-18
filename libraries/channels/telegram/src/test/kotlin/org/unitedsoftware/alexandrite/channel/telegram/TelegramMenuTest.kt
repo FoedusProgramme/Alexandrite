@@ -139,8 +139,8 @@ class TelegramMenuTest {
 
         telegram.run(telegram.builder("work" to opened).commandHandler(ClaimedCommands("purge", "audit"))) {
             val channel = checkNotNull(get<ChannelDirectory>().channel(WORK))
-            val bob = ChatUser(UserAddress(WORK, "$BOB"), "Bob", "bob_test", isBot = false, isAdmin = false)
-            val ada = ChatUser(UserAddress(WORK, "$ADA"), "Ada", "ada_test", isBot = false, isAdmin = true)
+            val bob = ChatUser(UserAddress(WORK, "$BOB"), "Bob", "bob_test", isBot = false, isOperator = false)
+            val ada = ChatUser(UserAddress(WORK, "$ADA"), "Ada", "ada_test", isBot = false, isOperator = true)
             val group = telegram.address(GROUP)
 
             assertTrue(channel.mayRun(bobAddress, bob, "new", false))
@@ -161,9 +161,9 @@ class TelegramMenuTest {
             val group = telegram.address(GROUP)
             val elsewhere = ChannelInstanceId(WORK.type, "home")
 
-            assertTrue(channel.isAdmin(group, UserAddress(WORK, "$ADA")))
-            assertFalse(channel.isAdmin(group, UserAddress(WORK, "$BOB")))
-            assertFalse(channel.isAdmin(group, UserAddress(elsewhere, "$ADA")))
+            assertTrue(channel.isOperator(group, UserAddress(WORK, "$ADA")))
+            assertFalse(channel.isOperator(group, UserAddress(WORK, "$BOB")))
+            assertFalse(channel.isOperator(group, UserAddress(elsewhere, "$ADA")))
         }
     }
 

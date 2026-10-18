@@ -57,7 +57,7 @@ class TelegramIntakeTest {
             assertEquals(Capacity.COUNTED, submission.capacity)
             assertEquals(ChannelMessageRef(telegram.address(ADA), "1"), message.ref)
             assertEquals(
-                ChatUser(UserAddress(WORK, "$ADA"), "Ada Lovelace", "ada_test", isBot = false, isAdmin = true),
+                ChatUser(UserAddress(WORK, "$ADA"), "Ada Lovelace", "ada_test", isBot = false, isOperator = true),
                 message.sender,
             )
             assertEquals(ChatInfo(ChatKind.DIRECT, null, "ada_test"), message.chatInfo)

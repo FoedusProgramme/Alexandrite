@@ -45,13 +45,13 @@ import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
  */
 public class RecordingChannel(
     public val instance: ChannelInstanceId = TEST_INSTANCE,
-    /** The users who are admins of the instance. */
-    admins: Set<String> = emptySet(),
+    /** The users who are operators of the instance. */
+    operators: Set<String> = emptySet(),
     /** How many characters one platform message holds. */
     private val partLength: Int = DEFAULT_PART_LENGTH,
     private val submitter: TurnSubmitter? = null,
 ) : Channel {
-    private val admins = admins.toSet()
+    private val operators = operators.toSet()
     private val lock = Any()
     private val log = MutableStateFlow<List<Event>>(emptyList())
 
@@ -69,9 +69,9 @@ public class RecordingChannel(
     @Volatile
     public var defaultApproval: ApprovalAnswer = NO_APPROVER
 
-    /** Whether a user who is no admin may run every command, which admins alone may when false. */
+    /** Whether a user who is no operator may run every command, which operators alone may when false. */
     @Volatile
-    public var membersMayRun: Boolean = true
+    public var guestsMayRun: Boolean = true
 
     @Volatile
     internal var stopped: Boolean = false
@@ -152,8 +152,8 @@ public class RecordingChannel(
 
     public fun chat(chat: String = "chat", thread: String? = null): ChatAddress = ChatAddress(instance, chat, thread)
 
-    /** A human user, an admin when [user] is one of the instance's admins. */
-    public fun user(user: String = "member"): ChatUser = testUser(user, user in admins, instance)
+    /** A human user, an operator when [user] is one of the instance's operators. */
+    public fun user(user: String = "guest"): ChatUser = testUser(user, user in operators, instance)
 
     /** A message of [sender] in [chat], numbered `in-<n>`, changed by [block]. */
     public fun message(
@@ -255,11 +255,11 @@ public class RecordingChannel(
     }
 
     override fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =
-        membersMayRun || issuer.isAdmin
+        guestsMayRun || issuer.isOperator
 
-    /** Whether [user] is one of the instance's admins. */
-    override suspend fun isAdmin(chat: ChatAddress, user: UserAddress): Boolean =
-        user.instance == instance && user.user in admins
+    /** Whether [user] is one of the instance's operators. */
+    override suspend fun isOperator(chat: ChatAddress, user: UserAddress): Boolean =
+        user.instance == instance && user.user in operators
 
     internal fun <T> read(block: () -> T): T = synchronized(lock, block)
 

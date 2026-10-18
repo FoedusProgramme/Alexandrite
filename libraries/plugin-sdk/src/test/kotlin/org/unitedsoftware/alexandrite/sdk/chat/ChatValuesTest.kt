@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class ChatValuesTest {
     private val work = ChannelInstanceId(ChannelType("telegram"), "work")
     private val chat = ChatAddress(work, "-100")
-    private val admin = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isAdmin = true)
+    private val operator = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isOperator = true)
 
     private fun turn(): TurnInfo.Builder = TurnInfo.builder(TurnId("t1"), chat, ConversationId("c1"), TurnKind.MESSAGE)
 
@@ -25,8 +25,8 @@ class ChatValuesTest {
         assertEquals(ReplyTarget.CHAT, turn.replyTarget)
         assertNull(turn.actor)
         assertNull(turn.lineage)
-        assertFalse(turn.actorIsAdmin)
-        assertTrue(turn().actor(admin).build().actorIsAdmin)
+        assertFalse(turn.actorIsOperator)
+        assertTrue(turn().actor(operator).build().actorIsOperator)
     }
 
     @Test
@@ -55,7 +55,7 @@ class ChatValuesTest {
             ConversationId("c0"),
             depth = 1,
         )
-        val turn = turn().actor(admin).language(LanguageTag("en")).build()
+        val turn = turn().actor(operator).language(LanguageTag("en")).build()
 
         val delegated = turn.rebuild {
             kind(TurnKind.DELEGATED)
@@ -65,7 +65,7 @@ class ChatValuesTest {
 
         assertEquals(turn, turn.toBuilder().build())
         assertEquals(
-            turn().actor(admin).language(LanguageTag("en")).kind(TurnKind.DELEGATED).lineage(lineage)
+            turn().actor(operator).language(LanguageTag("en")).kind(TurnKind.DELEGATED).lineage(lineage)
                 .replyTarget(ReplyTarget.CALLER).build(),
             delegated,
         )
@@ -78,13 +78,13 @@ class ChatValuesTest {
 
     @Test
     fun `a quote is untrusted unless the channel says otherwise`() {
-        val quote = Quote.builder("hello").sender(admin.address).build()
+        val quote = Quote.builder("hello").sender(operator.address).build()
 
         assertEquals(QuoteTrust.UNTRUSTED, quote.trust)
         assertFalse(quote.external)
         assertEquals(quote, quote.toBuilder().build())
         assertEquals("bye", quote.rebuild { text("bye") }.text)
-        assertEquals(admin.address, quote.rebuild { text("bye") }.sender)
+        assertEquals(operator.address, quote.rebuild { text("bye") }.sender)
         assertFailsWith<IllegalArgumentException> { QuoteTrust(live = false, content = true) }
     }
 

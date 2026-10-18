@@ -38,7 +38,7 @@ class SqliteTranscriptStoreTest {
             message("hello"),
             AssistantEntry(null, listOf(TextPart("Hi.")), model),
             ToolResultEntry(null, ToolCallId("c"), "notes.add", listOf(TextPart("Saved.")), ToolOutcome.Succeeded),
-            SummaryEntry(null, "The member said hello.", EntryId(1)),
+            SummaryEntry(null, "The guest said hello.", EntryId(1)),
             NoticeEntry(null, "The model answered with nothing.", NoticeKind.BLANK_REPLY),
             UnknownEntry(null, "poll", json("""{"type":"poll","question":"Lunch?"}""")),
         )

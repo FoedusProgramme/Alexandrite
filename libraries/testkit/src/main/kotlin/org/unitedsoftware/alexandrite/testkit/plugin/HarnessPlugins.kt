@@ -128,7 +128,7 @@ internal class DoublesPlugin(
 /** The settings of one instance of a recording channel. */
 @Serializable
 internal class RecordingChannelConfig(
-    val admins: Set<String> = emptySet(),
+    val operators: Set<String> = emptySet(),
     val partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
 ) {
     init {
@@ -189,7 +189,7 @@ internal class RecordingChannelPlugin(
             val config = r.get(settings)
             RecordingChannel(
                 r.get(key<ChannelInstance>()).id,
-                config.admins,
+                config.operators,
                 config.partLength,
                 r.getOrNull(key<TurnSubmitter>()),
             ).also { channel ->

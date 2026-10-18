@@ -45,10 +45,10 @@ class BarriersTest {
     private fun harness(configure: PluginHarness.Builder.() -> Unit = { model(model) }): PluginHarness = agentHarness(
         """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}""",
         store,
-    ) { channel(admins = setOf("admin")).tool(read).apply(configure) }
+    ) { channel(operators = setOf("operator")).tool(read).apply(configure) }
 
     private fun PluginHarness.Running.ask(text: String = "Hi"): Admission.Accepted =
-        channel().receive(text, sender = channel().user("admin")) as Admission.Accepted
+        channel().receive(text, sender = channel().user("operator")) as Admission.Accepted
 
     /** [model] as an endpoint whose round 1 throws [thrown]. */
     private fun throwingInRound1(model: ScriptedModel, thrown: () -> Throwable): ProvidersIndex {
@@ -91,7 +91,9 @@ class BarriersTest {
                 agentHarness(
                     """{"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}}""",
                     store,
-                ) { channel(admins = setOf("admin")).tool(read).plugin(throwingInRound1(model, thrown)) }.execute {
+                ) {
+                    channel(operators = setOf("operator")).tool(read).plugin(throwingInRound1(model, thrown))
+                }.execute {
                     failed = ask()
                     assertIs<TurnOutcome.Failed>(failed.ticket.outcome())
                     assertEquals(MessageKind.NOTICE, channel().reply(failed.ticket.turn).awaitEnd().completed?.kind)

@@ -1,7 +1,7 @@
 package org.unitedsoftware.alexandrite.commands.trust
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
@@ -37,12 +37,12 @@ class TrustCommandsTest {
             commands.answer(trust("'/srv/my repo'")),
         )
         assertEquals(
-            "Trusted folders, each with the folders below it:\n- /srv/repo (trusted by Admin on 2026-01-01)\n" +
-                "- /srv/my repo (trusted by Admin on 2026-01-01)",
+            "Trusted folders, each with the folders below it:\n- /srv/repo (trusted by Operator on 2026-01-01)\n" +
+                "- /srv/my repo (trusted by Operator on 2026-01-01)",
             commands.answer(trust()),
         )
         assertEquals(
-            listOf("/srv/repo", "/srv/repo/src", "/srv/my repo").map { Call.TrustFolder(Path.of(it), ADMIN) },
+            listOf("/srv/repo", "/srv/repo/src", "/srv/my repo").map { Call.TrustFolder(Path.of(it), OPERATOR) },
             control.calls,
         )
     }
@@ -66,12 +66,12 @@ class TrustCommandsTest {
     @Test
     fun `a folder that the config file declares and a grant trusts too is listed with both, and untrust says so`() =
         runTest {
-            val both = TrustedFolder(Path.of("/srv/both"), true, TEST_TIME, ADMIN)
+            val both = TrustedFolder(Path.of("/srv/both"), true, TEST_TIME, OPERATOR)
             val commands = TrustCommands(DeclaredAndGranted(control, both), commandTexts(), TestClock())
 
             assertEquals(
                 "Trusted folders, each with the folders below it:\n- /srv/both (declared in the config file, and " +
-                    "trusted by Admin on 2026-01-01)",
+                    "trusted by Operator on 2026-01-01)",
                 commands.answer(trust()),
             )
             assertEquals(
@@ -83,11 +83,11 @@ class TrustCommandsTest {
 
     @Test
     fun `untrust stops trusting a trusted folder`() = runTest {
-        control.trustFolder(Path.of("/srv/repo"), ADMIN)
+        control.trustFolder(Path.of("/srv/repo"), OPERATOR)
 
         assertEquals("/srv/repo is no longer trusted.", commands.answer(untrust("\"/srv/repo\"")))
         assertEquals("/srv/repo is not a trusted folder.", commands.answer(untrust("/srv/repo")))
-        assertEquals(Call.UntrustFolder(Path.of("/srv/repo"), ADMIN), control.calls.last())
+        assertEquals(Call.UntrustFolder(Path.of("/srv/repo"), OPERATOR), control.calls.last())
     }
 
     @Test
@@ -116,7 +116,7 @@ class TrustCommandsTest {
 
     @Test
     fun `untaint clears the taint of the chat's conversation and says what it was, or that there was none`() = runTest {
-        val untaint = testCommand("untaint", issuer = ADMIN)
+        val untaint = testCommand("untaint", issuer = OPERATOR)
         control.taints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
 
         assertEquals(
@@ -127,14 +127,14 @@ class TrustCommandsTest {
         assertEquals("This conversation is not tainted.", commands.answer(untaint))
         assertEquals(
             "Send /untaint alone to clear the taint of this conversation.",
-            commands.answer(testCommand("untaint", "now", issuer = ADMIN)),
+            commands.answer(testCommand("untaint", "now", issuer = OPERATOR)),
         )
-        assertEquals(List(2) { Call.Untaint(untaint.chat, ADMIN) }, control.calls)
+        assertEquals(List(2) { Call.Untaint(untaint.chat, OPERATOR) }, control.calls)
     }
 
-    private fun trust(folder: String = "") = testCommand("trust", folder, issuer = ADMIN)
+    private fun trust(folder: String = "") = testCommand("trust", folder, issuer = OPERATOR)
 
-    private fun untrust(folder: String = "") = testCommand("untrust", folder, issuer = ADMIN)
+    private fun untrust(folder: String = "") = testCommand("untrust", folder, issuer = OPERATOR)
 
     /** [control] where [folder] is declared and granted, and an untrust drops a grant of a declared folder. */
     @OptIn(InternalAlexandriteApi::class)

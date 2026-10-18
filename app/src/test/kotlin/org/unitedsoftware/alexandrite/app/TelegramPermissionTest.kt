@@ -109,7 +109,7 @@ class TelegramPermissionTest {
         val id = Regex("#([a-z0-9]+)").find(app.fake.botMessages(ADA).body().first().text)!!.groupValues[1]
         assertEquals(ToolOutcome.NotRun(NotRunReason.DENIED, id), result.outcome)
         assertEquals(
-            "[alexandrite:denied by=admin] Not run: an administrator denied this call. Do not retry it or an " +
+            "[alexandrite:denied by=operator] Not run: an operator denied this call. Do not retry it or an " +
                 "equivalent call; tell the user and go on without it.",
             (result.content.single() as TextPart).text,
         )
@@ -165,14 +165,14 @@ class TelegramPermissionTest {
     fun `a member's gated call is asked about in the admin's direct chat, where the admin allows it`() {
         app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
 
-        app.run(app.builder(directory).tool(write).config(MEMBER_TOOLS)) {
+        app.run(app.builder(directory).tool(write).config(GUEST_TOOLS)) {
             app.send(app.bob, app.bobChat, "Note that I need milk.")
             val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             app.fake.press(app.ada, asked, "Allow")
             app.message(app.bobChat, "Noted.")
             idle()
 
-            assertTrue("\nRequested by: Bob (@bob_test)\nWhy: a member's call\n" in asked.text, asked.text)
+            assertTrue("\nRequested by: Bob (@bob_test)\nWhy: a guest's call\n" in asked.text, asked.text)
             assertTrue("\nChat: telegram:work:$BOB\n" in asked.text, asked.text)
         }
 
@@ -286,7 +286,7 @@ class TelegramPermissionTest {
     }
 
     private companion object {
-        val MEMBER_TOOLS = """
+        val GUEST_TOOLS = """
             {
               "previewIntervalMillis": 0,
               "agents": {
@@ -294,7 +294,7 @@ class TelegramPermissionTest {
                   "name": "Coder",
                   "model": "scripted/test-model",
                   "channels": {"telegram:work": {}},
-                  "tools": {"forMembers": ["notes.write"]}
+                  "tools": {"forGuests": ["notes.write"]}
                 }
               }
             }

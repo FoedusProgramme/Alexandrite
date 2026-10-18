@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.mcp
 
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.testkit.TestCommandContext
 import org.unitedsoftware.alexandrite.testkit.assertTextsComplete
 import org.unitedsoftware.alexandrite.testkit.testChat
@@ -14,11 +15,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class McpCommandTest {
-    private val member = testUser("bob")
-    private val admin = testUser("ada", isAdmin = true)
+    private val guest = testUser("bob")
+    private val operator = testUser("ada", isOperator = true)
 
     /** What `/mcp [arguments]` from [issuer] replies. */
-    private suspend fun Hub.run(arguments: String, issuer: ChatUser = member): String {
+    private suspend fun Hub.run(arguments: String, issuer: ChatUser = guest): String {
         val chat = testChat()
         val context = TestCommandContext(testTurn(TurnKind.COMMAND, chat) { actor(issuer) })
         McpCommand(hub, testTexts(PLUGIN)).handle(testCommand("mcp", arguments, chat, issuer), context)
@@ -43,7 +44,7 @@ class McpCommandTest {
     }
 
     @Test
-    fun `an admin restarts a server, a member may not`() = withHub(
+    fun `the command with arguments is for operators, who restart a server with it`() = withHub(
         "files" to fake(),
         "off" to fake {
             enabled = false
@@ -51,10 +52,13 @@ class McpCommandTest {
     ) {
         connected("files")
 
-        assertEquals("Only an administrator can restart an MCP server.", run("restart files"))
-        assertEquals("Restarting MCP server files.", run("restart files", admin))
-        assertEquals("No MCP server nope is configured.", run("restart nope", admin))
-        assertEquals("MCP server off is disabled in the config.", run("restart off", admin))
+        assertEquals(
+            CommandForms.WITH_ARGUMENTS,
+            McpCommand(hub, testTexts(PLUGIN)).commands.single().operatorsOnly,
+        )
+        assertEquals("Restarting MCP server files.", run("restart files", operator))
+        assertEquals("No MCP server nope is configured.", run("restart nope", operator))
+        assertEquals("MCP server off is disabled in the config.", run("restart off", operator))
         assertEquals(
             "Send /mcp to see the MCP servers, /mcp restart <server> to restart one, or /mcp login <server> and " +
                 "/mcp logout <server> in a direct chat with the bot to log in to one and out again.",

@@ -108,18 +108,18 @@ class RuntimeChangesTest {
             val control = get<AgentControl>()
             val config = Files.readString(file)
             val before = ask(member).turn.conversation
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
 
-            val group = control.link(coder, anchor, member, admin)
+            val group = control.link(coder, anchor, member, operator)
             val linked = stored("links")
             val fromAnchor = ask(anchor)
             val fromMember = ask(member)
             while (sealed.seen.isEmpty()) delay(5)
 
-            val link = ChatLink(group.links.getValue(member).linkedAt, admin)
+            val link = ChatLink(group.links.getValue(member).linkedAt, operator)
             assertEquals(ChatLinkGroup(coder, anchor, listOf(member), links = mapOf(member to link)), group)
             assertEquals(listOf(group), control.links())
-            assertEquals(listOf("coder@$member by ${admin.address}"), linked)
+            assertEquals(listOf("coder@$member by ${operator.address}"), linked)
             assertEquals(fromAnchor.turn.conversation, fromMember.turn.conversation)
             assertEquals(listOf(anchor, member), listOf(fromAnchor, fromMember).map { it.turn.chat })
             assertTrue(listOf(fromAnchor, fromMember).all { it.completed != null })
@@ -154,7 +154,7 @@ class RuntimeChangesTest {
             config = Files.readString(file)
             val control = get<AgentControl>()
             linked = control.link(coder, anchor, member, null)
-            control.updateSettings(home, update { agent(helper).home() }, channel().user("admin"))
+            control.updateSettings(home, update { agent(helper).home() }, channel().user("operator"))
             homed = control.agents(home.instance).single { it.id == helper }
         }
         harness().execute {
@@ -164,12 +164,12 @@ class RuntimeChangesTest {
             assertEquals(AgentChatKey(coder, anchor), ask(member).turn.key)
             assertEquals(homed, control.agents(home.instance).single { it.id == helper })
             assertEquals(listOf(home, null), listOf(homed.home, homed.configuredHome))
-            assertEquals("Admin", homed.homeSetBy?.displayName)
+            assertEquals("Operator", homed.homeSetBy?.displayName)
             assertEquals(snapshot(helper, AgentSource.SELECTED) { home(true) }, control.settings(home))
         }
 
         assertEquals(config, Files.readString(file))
-        assertEquals(listOf("helper@test:main by test:main@admin"), stored("homes"))
+        assertEquals(listOf("helper@test:main by test:main@operator"), stored("homes"))
     }
 
     @Test

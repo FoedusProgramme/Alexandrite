@@ -66,7 +66,7 @@ public fun testMessageOf(turn: TurnInfo, text: String = "hello"): IncomingMessag
 public fun testRecord(id: Long, turn: TurnInfo = testTurn(), createdAt: Instant = TEST_TIME): EntryRecord =
     EntryRecord(EntryId(id), turn.conversation, turn.id, createdAt)
 
-/** What [turn]'s actor, or a member when it has none, said in its chat. */
+/** What [turn]'s actor, or a guest when it has none, said in its chat. */
 public fun testUserEntry(turn: TurnInfo = testTurn(), text: String = "hello", record: EntryRecord? = null): UserEntry {
     val sender = turn.actor ?: testUser(instance = turn.chat.instance)
     val origin = UserOrigin.FromChat(sender, ChannelMessageRef(turn.chat, "test-message"), TEST_TIME, null, null)

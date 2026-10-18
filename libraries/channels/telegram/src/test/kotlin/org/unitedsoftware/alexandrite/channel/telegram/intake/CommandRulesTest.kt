@@ -8,6 +8,11 @@ import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
+import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
+import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
+import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
+import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
@@ -29,7 +34,7 @@ class CommandRulesTest {
         chat: ChatAddress = testChat(),
     ): Pair<String?, String?> {
         val member = testCommand(command, arguments, chat, issuer = testUser("bob"))
-        val admin = testCommand(command, arguments, chat, issuer = testUser("ada", isAdmin = true))
+        val admin = testCommand(command, arguments, chat, issuer = testUser("ada", isOperator = true))
         return rules.refusal(member, kind) to rules.refusal(admin, kind)
     }
 
@@ -98,7 +103,7 @@ class CommandRulesTest {
     fun `anyone lists the scheduled tasks, only admins cancel one`() {
         val rules = CommandRules(listOf(ClaimedCommands("schedule")), control)
         val member = testUser("bob")
-        val admin = testUser("ada", isAdmin = true)
+        val admin = testUser("ada", isOperator = true)
 
         for (kind in kinds) {
             assertEquals(null, rules.refusal(testCommand("schedule", "", issuer = member), kind))
@@ -115,7 +120,7 @@ class CommandRulesTest {
     fun `anyone sees the MCP servers, only admins restart one`() {
         val rules = CommandRules(listOf(ClaimedCommands("mcp")), control)
         val member = testUser("bob")
-        val admin = testUser("ada", isAdmin = true)
+        val admin = testUser("ada", isOperator = true)
 
         for (kind in kinds) {
             assertEquals(null, rules.refusal(testCommand("mcp", "", issuer = member), kind))
@@ -160,9 +165,28 @@ class CommandRulesTest {
     }
 
     @Test
+    fun `the forms a command keeps for operators stay with admins, whatever the config opens`() {
+        val purge = object : CommandHandler {
+            override val commands = listOf(
+                CommandSpec.builder("purge", "Purges.").operatorsOnly(CommandForms.WITH_ARGUMENTS).build(),
+            )
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
+        }
+        val rules = CommandRules(listOf(purge), control, mapOf("purge" to Who.ANYONE))
+        val member = testUser("bob")
+
+        for (kind in kinds) {
+            assertEquals(null, rules.refusal(testCommand("purge", "", issuer = member), kind))
+            assertEquals(TextKeys.REFUSED_ADMIN, rules.refusal(testCommand("purge", "all", issuer = member), kind))
+        }
+        assertEquals(listOf(true, false), listOf(false, true).map { rules.mayRun(testChat(), false, "purge", it) })
+    }
+
+    @Test
     fun `whether an issuer may run a command follows the refusals, the kind of chat told by its id`() {
         val member = testUser("bob")
-        val admin = testUser("ada", isAdmin = true)
+        val admin = testUser("ada", isOperator = true)
         val direct = testChat("42")
         val group = testChat("-100", "7")
 
@@ -212,7 +236,7 @@ class CommandRulesTest {
         runTest {
             val group = testChat("-100")
             val linked = testChat("42")
-            control.link(AgentId.MAIN, group, linked, testUser("ada", isAdmin = true))
+            control.link(AgentId.MAIN, group, linked, testUser("ada", isOperator = true))
 
             for (chat in listOf(linked, testChat("42", "7"))) {
                 for ((command, arguments) in listOf(

@@ -370,18 +370,18 @@ public class PluginHarness private constructor(
 
         /**
          * Configures the instance [name] of the recording channel [type], whose plugin is `<type>-channel`, with the
-         * users [admins] as its admins and [partLength] characters per platform message.
+         * users [operators] as its operators and [partLength] characters per platform message.
          */
         public fun channel(
             name: String = TEST_INSTANCE.name,
             type: String = TEST_INSTANCE.type.value,
-            admins: Set<String> = emptySet(),
+            operators: Set<String> = emptySet(),
             partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
         ): Builder = apply {
             val instance = ChannelInstanceId(ChannelType(type), name)
             val instances = channels.getOrPut(instance.type) { LinkedHashMap() }
             require(name !in instances) { "The harness holds a recording channel of instance $instance already." }
-            instances[name] = RecordingChannelConfig(admins.toSet(), partLength)
+            instances[name] = RecordingChannelConfig(operators.toSet(), partLength)
         }
 
         /** Binds [submitter] as the runtime's TurnSubmitter. */

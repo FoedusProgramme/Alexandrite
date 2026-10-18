@@ -6,8 +6,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 internal interface Judge {
     suspend fun judge(call: CheckedCall): Verdict
 
-    /** Notes that an admin allowed a call of [tool] at [key]. */
-    fun allowedByAdmin(key: AgentChatKey, tool: String)
+    /** Notes that an operator allowed a call of [tool] at [key]. */
+    fun allowedByOperator(key: AgentChatKey, tool: String)
 }
 
 /** What a [Judge] decided. */

@@ -51,7 +51,7 @@ class TaintPersistenceTest {
             .plugin(AlexandriteToolsIndex())
             .config(config)
             .model(model)
-            .channel(admins = setOf("admin"))
+            .channel(operators = setOf("operator"))
             .dataRoot(root.resolve("data"))
             .configFile(configFile)
             .build()
@@ -59,7 +59,7 @@ class TaintPersistenceTest {
     }
 
     private suspend fun PluginHarness.Running.ask() {
-        (channel().receive("Hi", sender = channel().user("admin")) as Admission.Accepted).ticket.outcome()
+        (channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted).ticket.outcome()
     }
 
     private suspend fun PluginHarness.Running.outcomes(): List<ToolOutcome> {
@@ -100,7 +100,7 @@ class TaintPersistenceTest {
                 "fs.read reached ${page.parent}, a folder that is not trusted",
                 get<ConversationStore>().taint(tainted)?.reason,
             )
-            get<AgentControl>().newConversation(channel().chat(), channel().user("admin"))
+            get<AgentControl>().newConversation(channel().chat(), channel().user("operator"))
             ask()
 
             assertEquals(listOf(ToolOutcome.Succeeded), outcomes())

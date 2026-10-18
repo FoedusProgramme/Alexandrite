@@ -66,14 +66,14 @@ class TurnPointsTest {
         }.reply { text("Found.") }.reply { text("Ada asked; the file was read.") }
 
         agentHarness(config, MemoryStore()) {
-            channel(admins = setOf("admin")).model(model).tool(read).commandHandler(commands)
+            channel(operators = setOf("operator")).model(model).tool(read).commandHandler(commands)
             points.forEach { hook(recorder(it, fired)) }
         }.execute {
             commands.control = get()
-            val admin = channel().user("admin")
-            (channel().receive("Hi", sender = admin) as Admission.Accepted).ticket.outcome()
-            (channel().receiveCommand("compact", issuer = admin) as Admission.Accepted).ticket.outcome()
-            (channel().receiveCommand("new", issuer = admin) as Admission.Accepted).ticket.outcome()
+            val operator = channel().user("operator")
+            (channel().receive("Hi", sender = operator) as Admission.Accepted).ticket.outcome()
+            (channel().receiveCommand("compact", issuer = operator) as Admission.Accepted).ticket.outcome()
+            (channel().receiveCommand("new", issuer = operator) as Admission.Accepted).ticket.outcome()
         }
 
         assertEquals(16, ordinaryPoints.size)

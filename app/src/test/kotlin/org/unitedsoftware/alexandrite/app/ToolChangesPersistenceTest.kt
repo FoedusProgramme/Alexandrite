@@ -49,7 +49,7 @@ class ToolChangesPersistenceTest {
             .plugin(AlexandriteToolsIndex())
             .config(config)
             .model(model)
-            .channel(admins = setOf("admin"))
+            .channel(operators = setOf("operator"))
             .apply { tools.forEach(::tool) }
             .dataRoot(directory.resolve("data"))
             .build()
@@ -57,7 +57,7 @@ class ToolChangesPersistenceTest {
     }
 
     private suspend fun PluginHarness.Running.ask() {
-        (channel().receive("Which tools do you have?", sender = channel().user("admin")) as Admission.Accepted)
+        (channel().receive("Which tools do you have?", sender = channel().user("operator")) as Admission.Accepted)
             .ticket.outcome()
     }
 

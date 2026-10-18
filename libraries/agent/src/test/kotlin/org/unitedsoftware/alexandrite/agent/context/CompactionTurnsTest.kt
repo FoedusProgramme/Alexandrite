@@ -82,10 +82,10 @@ class CompactionTurnsTest {
             }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(read).commandHandler(commands).apply(configure) }
+    ) { channel(operators = setOf("operator")).model(model).tool(read).commandHandler(commands).apply(configure) }
 
     private fun PluginHarness.Running.ask(text: String): Admission.Accepted =
-        channel().receive(text, sender = channel().user("admin")) as Admission.Accepted
+        channel().receive(text, sender = channel().user("operator")) as Admission.Accepted
 
     /** Has the model read each of [paths], then answer with [answer]. */
     private fun reads(vararg paths: String, chars: Int = 40_000, answer: String) {
@@ -429,12 +429,16 @@ class CompactionTurnsTest {
 
         harness("{}").execute {
             commands.control = get()
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
             for (text in listOf("First.", "Second.")) ask(text).ticket.outcome()
-            val early = channel().receiveCommand("compact", issuer = admin) as Admission.Accepted
+            val early = channel().receiveCommand("compact", issuer = operator) as Admission.Accepted
             early.ticket.outcome()
             ask("Third.").ticket.outcome()
-            val compact = channel().receiveCommand("compact", "the failing tests", issuer = admin) as Admission.Accepted
+            val compact = channel().receiveCommand(
+                "compact",
+                "the failing tests",
+                issuer = operator,
+            ) as Admission.Accepted
             compact.ticket.outcome()
 
             assertEquals(
@@ -494,7 +498,7 @@ class CompactionTurnsTest {
                 """{"previewIntervalMillis": 0, "agents": {"coder": {"model": "scripted/test-model", """ +
                     """"channels": {"test:main": {}}, "compaction": $config}}}""",
                 MemoryStore(),
-            ) { channel(admins = setOf("admin")).model(model) }.execute {
+            ) { channel(operators = setOf("operator")).model(model) }.execute {
                 ask("First.").ticket.outcome()
                 ask("Second.").ticket.outcome()
             }

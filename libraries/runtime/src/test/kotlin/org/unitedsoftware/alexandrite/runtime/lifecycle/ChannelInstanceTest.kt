@@ -474,7 +474,7 @@ class ChannelInstanceTest {
 
     @Test
     fun `a controlled stop closes, drains, stops and destroys one instance while the others and the root run on`() {
-        val ada = ChatUser(UserAddress(work, "7"), "Ada", null, isBot = false, isAdmin = true)
+        val ada = ChatUser(UserAddress(work, "7"), "Ada", null, isBot = false, isOperator = true)
         val away = ChannelInstanceId(ChannelType("chan"), "away")
 
         val lines = logged {

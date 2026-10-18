@@ -58,10 +58,10 @@ internal val png: ByteArray = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)
 
 internal fun json(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
 
-/** A member's message [text] of [chat], carried by the platform message [id]. */
+/** A guest's message [text] of [chat], carried by the platform message [id]. */
 internal fun message(text: String, id: String = "m-$text", chat: ChatAddress = main.chat): UserEntry = UserEntry(
     null,
-    listOf(ContextPart("message-context", "Sender: Member"), TextPart(text)),
+    listOf(ContextPart("message-context", "Sender: Guest"), TextPart(text)),
     UserOrigin.FromChat(testUser(), ChannelMessageRef(chat, id), TEST_TIME, null, null),
 )
 
@@ -86,7 +86,7 @@ internal fun lineage(parent: TurnInfo, run: String): TurnLineage {
 internal fun samples(photo: StoredMedia): List<TranscriptEntry> = listOf(
     UserEntry(
         null,
-        listOf(ContextPart("message-context", "Sender: Member"), TextPart("What is on this photo?"), mediaPart(photo)),
+        listOf(ContextPart("message-context", "Sender: Guest"), TextPart("What is on this photo?"), mediaPart(photo)),
         UserOrigin.FromChat(
             testUser(),
             ChannelMessageRef(chat, "42"),
@@ -136,7 +136,7 @@ internal fun samples(photo: StoredMedia): List<TranscriptEntry> = listOf(
         listOf(TextPart("The page:"), mediaPart(photo)),
         ToolOutcome.Succeeded,
     ),
-    SummaryEntry(null, "The member asked for notes.", EntryId(3)),
+    SummaryEntry(null, "The guest asked for notes.", EntryId(3)),
     NoticeEntry(null, "The model answered with nothing.", NoticeKind.BLANK_REPLY),
     UnknownEntry(null, "poll", json("""{"type":"poll","question":"Lunch?","options":["a",null,1]}""")),
     UserEntry(

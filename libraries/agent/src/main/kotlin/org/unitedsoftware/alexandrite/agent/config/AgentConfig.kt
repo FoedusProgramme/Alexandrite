@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.config
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -9,6 +10,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonEncoder
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -62,8 +64,10 @@ internal class ToolSelection(
     val allow: List<String> = listOf("*"),
     /** Wins over [allow]. */
     val deny: List<String> = emptyList(),
-    /** The tools that a turn whose principal is no admin may call. */
-    val forMembers: List<String> = emptyList(),
+    /** The tools that a turn whose principal is no operator may call. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("forMembers")
+    val forGuests: List<String> = emptyList(),
 )
 
 @Serializable

@@ -75,7 +75,7 @@ class HarnessDoublesTest {
     fun `the runtime opens the recording channel instances the harness configures`() {
         val work = ChannelInstanceId(ChannelType("test"), "work")
 
-        PluginHarness.builder(probe).channel().channel("work", admins = setOf("ada"), partLength = 5).execute {
+        PluginHarness.builder(probe).channel().channel("work", operators = setOf("ada"), partLength = 5).execute {
             val directory = get<ChannelDirectory>()
             val channel = channel("work")
 
@@ -83,8 +83,8 @@ class HarnessDoublesTest {
             assertSame(channel, directory.channel(work))
             assertEquals(work, channel.instance)
             assertEquals(InstanceState.OPEN, get<ChannelControl>().state(work))
-            assertTrue(channel.user("ada").isAdmin)
-            assertFalse(channel().user("ada").isAdmin)
+            assertTrue(channel.user("ada").isOperator)
+            assertFalse(channel().user("ada").isOperator)
             assertEquals(2, channel.partsNeeded(channel.chat(), "abcdefghij", Markup.PLAIN))
             assertEquals(1, channel().partsNeeded(channel().chat(), "abcdefghij", Markup.PLAIN))
             assertFailsWith<NoSuchElementException> { channel("missing") }

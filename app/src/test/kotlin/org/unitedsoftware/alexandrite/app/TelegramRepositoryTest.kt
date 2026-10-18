@@ -241,7 +241,7 @@ class TelegramRepositoryTest {
         assertEquals(
             listOf(
                 "Coder is working in $repository, which has project instructions (AGENTS.md) that were not loaded. " +
-                    "An admin can trust the folder with /trust $repository; they load the next time the agent " +
+                    "An operator can trust the folder with /trust $repository; they load the next time the agent " +
                     "touches it.",
                 "The project is called Greeter.",
                 "$repository is trusted, and so are the folders below it.",

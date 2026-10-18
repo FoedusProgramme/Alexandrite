@@ -58,7 +58,7 @@ public class InitiatedTurn private constructor(
     public val route: ReplyRoute,
     /**
      * The operator's leave that the turn runs as them under, null for a turn of nobody; it must be the initiating
-     * plugin's, for the turn's agent and chat, and its operator still an admin there, else the turn runs as nobody.
+     * plugin's, for the turn's agent and chat, and its operator still one there, else the turn runs as nobody.
      */
     public val mandate: Mandate?,
 ) {

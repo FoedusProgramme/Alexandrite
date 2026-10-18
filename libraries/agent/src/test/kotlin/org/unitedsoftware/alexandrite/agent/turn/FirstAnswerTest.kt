@@ -100,7 +100,7 @@ class FirstAnswerTest {
         "alexandrite.message",
         listOf(
             "[alexandrite:message]",
-            "From: Member",
+            "From: Guest",
             "Operator: no",
             "Received: 2026-01-01T00:00Z",
             "Chat: $chat",

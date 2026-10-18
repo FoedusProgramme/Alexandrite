@@ -299,7 +299,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun isOperator(context: ToolContext): Boolean =
-        context.turn.actorIsAdmin && context.turn.kind in OPERATOR_KINDS
+        context.turn.actorIsOperator && context.turn.kind in OPERATOR_KINDS
 
     private sealed interface Inspection {
         class Problem(val text: String) : Inspection
@@ -315,7 +315,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
 private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == JsonNull }
 
-/** The kinds of turn whose admin actor makes them an operator's. */
+/** The kinds of turn whose operator actor makes them an operator's. */
 private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)
 
 private val MONITOR_FIELDS = setOf("filter", "batchSeconds", "intervalSeconds", "maxLifetimeSeconds")

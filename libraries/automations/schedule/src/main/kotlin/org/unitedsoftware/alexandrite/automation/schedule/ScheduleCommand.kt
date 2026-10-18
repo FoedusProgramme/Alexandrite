@@ -8,12 +8,13 @@ import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import java.time.Clock
 
-/** `/schedule`: anyone lists the chat's tasks, an admin cancels one. */
+/** `/schedule`: anyone lists the chat's tasks, an operator cancels one. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class ScheduleCommand(control: Lazy<ScheduleControl>, private val texts: Texts, private val clock: Clock) :
@@ -21,7 +22,11 @@ internal class ScheduleCommand(control: Lazy<ScheduleControl>, private val texts
     private val control by control
 
     override val commands: List<CommandSpec> =
-        listOf(CommandSpec.builder(SCHEDULE, texts.text(TextKeys.DESCRIPTION, null)).build())
+        listOf(
+            CommandSpec.builder(SCHEDULE, texts.text(TextKeys.DESCRIPTION, null))
+                .operatorsOnly(CommandForms.WITH_ARGUMENTS)
+                .build(),
+        )
 
     override fun description(command: String, language: LanguageTag?): String =
         texts.text(TextKeys.DESCRIPTION, language)
@@ -34,10 +39,8 @@ internal class ScheduleCommand(control: Lazy<ScheduleControl>, private val texts
             when {
                 words.isEmpty() -> list(context, wording)
 
-                words.size == 2 && words[0].equals(CANCEL, ignoreCase = true) -> when {
-                    !invocation.issuer.isAdmin -> wording.text(TextKeys.REFUSED_ADMIN)
-                    else -> cancel(words[1].lowercase(), invocation, context, wording)
-                }
+                words.size == 2 && words[0].equals(CANCEL, ignoreCase = true) ->
+                    cancel(words[1].lowercase(), invocation, context, wording)
 
                 else -> wording.text(TextKeys.USAGE)
             }

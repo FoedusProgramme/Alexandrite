@@ -37,7 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 internal val chat: ChatAddress = testChat()
 internal val main: AgentChatKey = AgentChatKey(AgentId.MAIN, chat)
-internal val member: ChatUser = testUser()
+internal val guest: ChatUser = testUser()
 internal val png: ByteArray = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)
 
 internal class TestFiles(override val dataDir: Path) : PluginFiles {
@@ -74,7 +74,7 @@ internal class TestStore(directory: Path, val clock: MutableClock) {
         val id = TurnId("turn-${turns.incrementAndGet()}")
         val turn = TurnInfo.builder(id, conversation.key.chat, conversation.id, kind)
             .agent(conversation.key.agent)
-            .actor(member.takeIf { kind == TurnKind.MESSAGE })
+            .actor(guest.takeIf { kind == TurnKind.MESSAGE })
             .build()
         conversations.startTurn(turn)
         return turn
@@ -119,8 +119,8 @@ internal fun json(text: String): JsonObject = Json.parseToJsonElement(text).json
 
 internal fun message(text: String, id: String = "m-$text", chat: ChatAddress = main.chat): UserEntry = UserEntry(
     null,
-    listOf(ContextPart("message-context", "Sender: Member"), TextPart(text)),
-    UserOrigin.FromChat(member, ChannelMessageRef(chat, id), TEST_TIME, null, null),
+    listOf(ContextPart("message-context", "Sender: Guest"), TextPart(text)),
+    UserOrigin.FromChat(guest, ChannelMessageRef(chat, id), TEST_TIME, null, null),
 )
 
 internal fun mediaPart(id: StoredMedia, kind: MediaKind = MediaKind.IMAGE): MediaPart =

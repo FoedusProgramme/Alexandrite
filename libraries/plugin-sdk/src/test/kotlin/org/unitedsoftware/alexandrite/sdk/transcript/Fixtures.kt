@@ -22,7 +22,7 @@ import java.time.Instant
 
 internal val work = ChannelInstanceId(ChannelType("telegram"), "work")
 internal val chat = ChatAddress(work, "-100")
-internal val ada = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isAdmin = true)
+internal val ada = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isOperator = true)
 internal val claude = ModelRef(EndpointId("anthropic"), "claude-opus")
 internal val anthropic = Dialect("anthropic")
 
@@ -51,7 +51,7 @@ internal val goldens: Map<String, List<TranscriptEntry>> = mapOf(
         UserEntry(
             record(1),
             listOf(
-                ContextPart("message-context", "Sender: Ada (@ada, admin)\nTime: 2026-10-07 16:29"),
+                ContextPart("message-context", "Sender: Ada (@ada, operator)\nTime: 2026-10-07 16:29"),
                 TextPart("What is on this \"photo\"?"),
                 MediaPart(MediaKind.IMAGE, "image/png", StoredMedia(MediaId("m-1")), "cat.png", 640, 480),
             ),

@@ -64,16 +64,19 @@ class ApprovalTurnsTest {
                 "coder": {
                   "model": "scripted/test-model",
                   "channels": {"test:main": {}},
-                  "tools": {"forMembers": ["fs.write", "command.exec"]}
+                  "tools": {"forGuests": ["fs.write", "command.exec"]}
                 }
               }
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).tool(write).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).tool(write).apply(configure) }
 
-    private fun PluginHarness.Running.ask(text: String = "Write it.", user: String = "admin", chat: String = "chat") =
-        channel().receive(text, channel().chat(chat), channel().user(user)) as Admission.Accepted
+    private fun PluginHarness.Running.ask(
+        text: String = "Write it.",
+        user: String = "operator",
+        chat: String = "chat",
+    ) = channel().receive(text, channel().chat(chat), channel().user(user)) as Admission.Accepted
 
     private suspend fun entries(): List<TranscriptEntry> =
         store.transcripts.entries(store.conversations.current(key).id)
@@ -91,16 +94,16 @@ class ApprovalTurnsTest {
     // Answers.
 
     @Test
-    fun `an admin's allow runs the call cleared by them, and a denial, an expiry or no approver refuse it`() {
+    fun `an operator's allow runs the call cleared by them, and a denial, an expiry or no approver refuse it`() {
         repeat(4) { model.reply { toolCall("fs.write") }.reply { text("Done.") } }
 
         harness().execute {
-            val admin = channel().user("admin")
+            val operator = channel().user("operator")
             channel().scriptApprovals(
-                ApprovalAnswer.Allowed(admin),
-                ApprovalAnswer.Denied(admin),
+                ApprovalAnswer.Allowed(operator),
+                ApprovalAnswer.Denied(operator),
                 ApprovalAnswer.Expired,
-                ApprovalAnswer.Unavailable("no administrator can be reached"),
+                ApprovalAnswer.Unavailable("no operator can be reached"),
             )
             repeat(4) { ask().ticket.outcome() }
 
@@ -108,32 +111,32 @@ class ApprovalTurnsTest {
             assertEquals(
                 listOf(
                     ToolOutcome.Succeeded to "Written.",
-                    ToolOutcome.NotRun(NotRunReason.DENIED, ids[1]) to Refusals.DENIED_BY_ADMIN,
+                    ToolOutcome.NotRun(NotRunReason.DENIED, ids[1]) to Refusals.DENIED_BY_OPERATOR,
                     ToolOutcome.NotRun(NotRunReason.EXPIRED, ids[2]) to Refusals.EXPIRED,
                     ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY) to "[alexandrite:denied by=policy] Not run: no " +
-                        "administrator can be reached. Do not retry this or an equivalent call; tell the user.",
+                        "operator can be reached. Do not retry this or an equivalent call; tell the user.",
                 ),
                 results().map { it.outcome to it.text() },
             )
-            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, admin)), cleared.toList())
+            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, operator)), cleared.toList())
             assertEquals(4, ids.toSet().size)
         }
     }
 
     @Test
-    fun `an answer of someone who is no admin refuses the call, with a warning`() {
+    fun `an answer of someone who is no operator refuses the call, with a warning`() {
         model.reply { toolCall("fs.write") }.reply { text("Not written.") }
         lateinit var request: ApprovalRequest
 
         val lines = logged {
             harness().execute {
-                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("member")))
+                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("guest")))
                 ask().ticket.outcome()
                 request = channel().approvals.single()
 
                 assertEquals(
                     ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY, request.id) to "[alexandrite:denied " +
-                        "by=policy] Not run: no admin answered. Do not retry this or an equivalent call; tell the user.",
+                        "by=policy] Not run: no operator answered. Do not retry this or an equivalent call; tell the user.",
                     results().single().let { it.outcome to it.text() },
                 )
                 assertEquals(emptyList(), write.calls)
@@ -143,7 +146,7 @@ class ApprovalTurnsTest {
         val turn = request.turn.id
         assertEquals(
             listOf(
-                "WARN Approval ${request.id} in turn $turn was answered by test:main@member, who is no admin, so " +
+                "WARN Approval ${request.id} in turn $turn was answered by test:main@guest, who is no operator, so " +
                     "the call is refused",
             ),
             lines.filter { it.startsWith("WARN Approval") },
@@ -157,7 +160,7 @@ class ApprovalTurnsTest {
 
         val lines = logged {
             harness().execute {
-                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
                 ask().ticket.outcome()
                 request = channel().approvals.single()
             }
@@ -194,10 +197,10 @@ class ApprovalTurnsTest {
             get<AgentControl>().updateSettings(
                 channel().chat(),
                 ChatSettingsUpdate.builder().mode(PermissionMode.MANUAL).build(),
-                channel().user("admin"),
+                channel().user("operator"),
             )
             ask().ticket.outcome()
-            ask(user = "member").ticket.outcome()
+            ask(user = "guest").ticket.outcome()
 
             val (first, second, third) = channel().approvals
             assertEquals(
@@ -214,10 +217,10 @@ class ApprovalTurnsTest {
                 first,
             )
             assertEquals(
-                listOf("the chat is in manual mode", "a member's call"),
+                listOf("the chat is in manual mode", "a guest's call"),
                 listOf(second, third).map { it.reason },
             )
-            assertEquals(channel().user("member"), third.turn.actor)
+            assertEquals(channel().user("guest"), third.turn.actor)
         }
     }
 
@@ -267,7 +270,7 @@ class ApprovalTurnsTest {
 
         harness(""", "maxConcurrentTurns": 1""").execute {
             channel().holdApprovals()
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
             val waiting = ask()
             channel().awaitApprovals(1)
             val other = ask("Hello.", chat = "other")

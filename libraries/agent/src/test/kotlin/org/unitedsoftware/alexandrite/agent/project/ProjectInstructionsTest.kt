@@ -93,7 +93,7 @@ class ProjectInstructionsTest {
             }
             """.trimIndent(),
             store,
-        ) { channel(admins = setOf("admin")).model(model).tool(read).tool(grep).apply(configure) }
+        ) { channel(operators = setOf("operator")).model(model).tool(read).tool(grep).apply(configure) }
 
     /** Scripts a round that reads [paths] and then an answer. */
     private fun reads(vararg paths: Path) {
@@ -107,7 +107,7 @@ class ProjectInstructionsTest {
     }
 
     private suspend fun PluginHarness.Running.ask(): TurnOutcome {
-        val admission = channel().receive("Look.", sender = channel().user("admin"))
+        val admission = channel().receive("Look.", sender = channel().user("operator"))
         return assertIs<Admission.Accepted>(admission).ticket.outcome()
     }
 
@@ -212,7 +212,7 @@ class ProjectInstructionsTest {
                 entries.filterIsInstance<ToolResultEntry>().map { it.text() },
             )
             val notice = "Coder is working in $repository, which has project instructions (AGENTS.md, " +
-                "src/CLAUDE.md) that were not loaded. An admin can trust the folder with /trust $repository; " +
+                "src/CLAUDE.md) that were not loaded. An operator can trust the folder with /trust $repository; " +
                 "they load the next time the agent touches it."
             assertEquals(
                 listOf(NoticeEntry(null, notice, NoticeKind.UNTRUSTED_FOLDER)),
@@ -247,13 +247,13 @@ class ProjectInstructionsTest {
     fun `a folder trusted at runtime is a record of who trusted it, loads from the next touch on and stays trusted`() {
         repository()
         repeat(2) { reads(main) }
-        val admin = "Admin"
+        val operator = "Operator"
         lateinit var config: String
 
         harness { writeConfigFile(file) }.execute {
             config = Files.readString(file)
             val control = get<AgentControl>()
-            val by = channel().user("admin")
+            val by = channel().user("operator")
             ask()
 
             val trusted = control.trustFolder(repository, by)
@@ -266,7 +266,7 @@ class ProjectInstructionsTest {
             assertEquals(listOf("$repository by ${by.address}"), grants())
             val loaded = projects(stored())
             assertEquals(
-                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), admin) },
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), operator) },
                 loaded.map { it.texts().first() },
             )
         }
@@ -277,14 +277,14 @@ class ProjectInstructionsTest {
             ask()
 
             assertEquals(
-                listOf(repository to "Admin"),
+                listOf(repository to "Operator"),
                 control.trustedFolders().map {
                     it.path to
                         it.trustedBy?.displayName
                 },
             )
             assertEquals(
-                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), admin) },
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), operator) },
                 projects(stored()).map { it.texts().first() },
             )
         }
@@ -512,7 +512,7 @@ class ProjectInstructionsTest {
                     "later call touches them.]",
             )
             val notice = "Coder is working in folders whose project instructions were not loaded: " +
-                others.joinToString("; ") { "$it (AGENTS.md)" } + ". An admin can trust a folder with /trust " +
+                others.joinToString("; ") { "$it (AGENTS.md)" } + ". An operator can trust a folder with /trust " +
                 "<folder>; its instructions load the next time the agent touches it."
             assertEquals(
                 listOf(MessageKind.NOTICE to notice),
@@ -536,7 +536,7 @@ class ProjectInstructionsTest {
             ask()
 
             val notice = "Coder is working in folders whose project instructions were not loaded: " +
-                others.take(10).joinToString("; ") { "$it (AGENTS.md)" } + " and 2 more. An admin can trust a " +
+                others.take(10).joinToString("; ") { "$it (AGENTS.md)" } + " and 2 more. An operator can trust a " +
                 "folder with /trust <folder>; its instructions load the next time the agent touches it."
             assertEquals(listOf(notice), channel().sent.map { it.message.text })
         }
@@ -587,7 +587,7 @@ class ProjectInstructionsTest {
             assertEquals(
                 listOf(
                     "Coder is working in $module, which has project instructions (AGENTS.md) that were not loaded. " +
-                        "An admin can trust the folder with /trust $module; they load the next time the agent " +
+                        "An operator can trust the folder with /trust $module; they load the next time the agent " +
                         "touches it.",
                 ),
                 channel().sent.map { it.message.text },

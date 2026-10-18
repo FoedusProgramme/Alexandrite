@@ -14,8 +14,8 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * By default, a message turn of a member who is no admin, in chat `test:main:chat` and conversation `test`, whose call
- * is being reviewed.
+ * By default, a message turn of a guest, in chat `test:main:chat` and conversation `test`, whose call is being
+ * reviewed.
  */
 public fun testToolContext(
     turn: TurnInfo = testTurn(),

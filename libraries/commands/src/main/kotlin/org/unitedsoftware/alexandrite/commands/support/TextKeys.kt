@@ -107,8 +107,8 @@ internal object TextKeys {
     const val SETTINGS_HOME_NONE: String = "settings.home_none"
     const val SETTINGS_LINKED: String = "settings.linked"
     const val SETTINGS_NOT_LINKED: String = "settings.not_linked"
-    const val SETTINGS_ADMIN: String = "settings.admin"
-    const val SETTINGS_MEMBER: String = "settings.member"
+    const val SETTINGS_OPERATOR: String = "settings.operator"
+    const val SETTINGS_OTHER: String = "settings.other"
 
     const val TRUST_LIST: String = "trust.list"
     const val TRUST_NONE: String = "trust.none"

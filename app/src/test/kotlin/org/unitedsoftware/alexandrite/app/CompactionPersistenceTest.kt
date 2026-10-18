@@ -60,14 +60,14 @@ class CompactionPersistenceTest {
             .config(config)
             .model(model)
             .tool(read)
-            .channel(admins = setOf("admin"))
+            .channel(operators = setOf("operator"))
             .dataRoot(directory.resolve("data"))
             .build()
         runBlocking { withTimeout(20.seconds) { harness.run(block) } }
     }
 
     private suspend fun PluginHarness.Running.ask(text: String) {
-        (channel().receive(text, sender = channel().user("admin")) as Admission.Accepted).ticket.outcome()
+        (channel().receive(text, sender = channel().user("operator")) as Admission.Accepted).ticket.outcome()
     }
 
     private fun reads(vararg paths: String, answer: String, usage: Usage? = null) {
@@ -91,7 +91,7 @@ class CompactionPersistenceTest {
         started {
             ask("First.")
             ask("Second.")
-            (channel().receiveCommand("compact", issuer = channel().user("admin")) as Admission.Accepted).ticket
+            (channel().receiveCommand("compact", issuer = channel().user("operator")) as Admission.Accepted).ticket
                 .outcome()
             before = get<AgentControl>().context(channel().chat())
         }

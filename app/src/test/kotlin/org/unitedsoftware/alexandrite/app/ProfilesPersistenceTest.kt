@@ -35,7 +35,7 @@ class ProfilesPersistenceTest {
             .plugin(AlexandriteStoreSqliteIndex())
             .config(config)
             .model(model)
-            .channel(admins = setOf("admin"))
+            .channel(operators = setOf("operator"))
             .tool(recordingTool("notes.write"))
             .dataRoot(directory.resolve("data"))
             .build()
@@ -49,7 +49,7 @@ class ProfilesPersistenceTest {
                 """{"id": "$id", "name": "Reviewer", "description": "Reviews code.", "instructions": "Be strict."}""",
             )
         }.reply { text("Created.") }
-        val admission = channel().receive("Make a profile", sender = channel().user("admin"))
+        val admission = channel().receive("Make a profile", sender = channel().user("operator"))
         (admission as Admission.Accepted).ticket.outcome()
     }
 
@@ -64,7 +64,7 @@ class ProfilesPersistenceTest {
             val reviewer = profiles.single { it.profile.id.value == "reviewer" }
             assertEquals("Reviews code.", reviewer.profile.description)
             val source = assertIs<ProfileSource.Created>(reviewer.source)
-            assertEquals("Admin", source.by?.displayName)
+            assertEquals("Operator", source.by?.displayName)
         }
     }
 }

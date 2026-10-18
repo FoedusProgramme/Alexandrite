@@ -1,9 +1,9 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
 import org.unitedsoftware.alexandrite.commands.CHINESE
-import org.unitedsoftware.alexandrite.commands.MEMBER
+import org.unitedsoftware.alexandrite.commands.GUEST
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
@@ -26,10 +26,10 @@ class JobCommandsTest {
     private val clock = TestClock(TEST_TIME.plusSeconds(3725))
     private val commands = JobCommands(control, commandTexts(), clock)
     private val chat = testChat()
-    private val build = JobStatus(RunId("j-7kq2mx"), chat, "command.exec", "./gradlew build", TEST_TIME, ADMIN)
+    private val build = JobStatus(RunId("j-7kq2mx"), chat, "command.exec", "./gradlew build", TEST_TIME, OPERATOR)
     private val wait = JobStatus(RunId("j-0a1b2c"), chat, "notes.wait", "", TEST_TIME.plusSeconds(3600), null)
 
-    private suspend fun jobs(arguments: String = "", issuer: ChatUser = ADMIN): String =
+    private suspend fun jobs(arguments: String = "", issuer: ChatUser = OPERATOR): String =
         commands.answer(testCommand("jobs", arguments, issuer = issuer))
 
     @Test
@@ -41,9 +41,9 @@ class JobCommandsTest {
         assertEquals("No job runs in this chat.", empty)
         assertEquals(
             "Jobs running in this chat (stop one with /jobs stop <id>):\n" +
-                "j-7kq2mx: command.exec ./gradlew build, running for 1 h 3 min, started by Admin\n" +
+                "j-7kq2mx: command.exec ./gradlew build, running for 1 h 3 min, started by Operator\n" +
                 "j-0a1b2c: notes.wait, running for 3 min",
-            jobs(issuer = MEMBER),
+            jobs(issuer = GUEST),
         )
         assertEquals(emptyList(), control.calls)
     }
@@ -59,7 +59,7 @@ class JobCommandsTest {
             replies,
         )
         assertEquals(
-            listOf(Call.StopJob(chat, RunId("j-7kq2mx"), ADMIN), Call.StopJob(chat, RunId("j-nope"), ADMIN)),
+            listOf(Call.StopJob(chat, RunId("j-7kq2mx"), OPERATOR), Call.StopJob(chat, RunId("j-nope"), OPERATOR)),
             control.calls,
         )
     }
@@ -78,7 +78,7 @@ class JobCommandsTest {
     fun `jobs answers in the language of the chat`() = runTest {
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "jobs.none", "没有后台任务。").build()
         val chinese = JobCommands(control, commandTexts(catalog), clock)
-        val invocation = testCommand("jobs", issuer = ADMIN)
+        val invocation = testCommand("jobs", issuer = OPERATOR)
 
         assertEquals("没有后台任务。", chinese.answer(invocation, commandContext(invocation, language = CHINESE)))
     }

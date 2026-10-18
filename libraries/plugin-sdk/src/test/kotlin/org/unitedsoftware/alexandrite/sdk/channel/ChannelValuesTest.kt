@@ -32,7 +32,7 @@ class ChannelValuesTest {
     private val work = ChannelInstanceId(ChannelType("telegram"), "work")
     private val chat = ChatAddress(work, "-100", "7")
     private val ref = ChannelMessageRef(chat, "42")
-    private val sender = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isAdmin = false)
+    private val sender = ChatUser(UserAddress(work, "1"), "Ada", "ada", isBot = false, isOperator = false)
     private val group = ChatInfo(ChatKind.GROUP, "Team", null)
     private val at = Instant.parse("2026-10-08T09:00:00Z")
     private val photo = MediaContent { maxBytes -> ByteArray(minOf(maxBytes, 3L).toInt()) { 7 } }
@@ -217,7 +217,7 @@ class ChannelValuesTest {
     @Test
     fun `an approval request has a short id of letters, digits, hyphens and underscores, and a tool name`() {
         fun request(id: String, tool: String = "fs.write") =
-            ApprovalRequest(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", null, "a member's call", null)
+            ApprovalRequest(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", null, "a guest's call", null)
 
         assertEquals("a-Z_09", request("a-Z_09").id)
         assertEquals(32, request("x".repeat(32)).id.length)
@@ -236,17 +236,17 @@ class ChannelValuesTest {
     }
 
     @Test
-    fun `a channel that sets no command rules lets admins alone run commands, bare or with arguments`() {
-        val admin = ChatUser(UserAddress(work, "2"), "Grace", null, isBot = false, isAdmin = true)
+    fun `a channel that sets no command rules lets operators alone run commands, bare or with arguments`() {
+        val operator = ChatUser(UserAddress(work, "2"), "Grace", null, isBot = false, isOperator = true)
         for (withArguments in listOf(false, true)) {
             assertFalse(bare.mayRun(chat, sender, "new", withArguments))
-            assertTrue(bare.mayRun(chat, admin, "new", withArguments))
+            assertTrue(bare.mayRun(chat, operator, "new", withArguments))
         }
     }
 
     @Test
-    fun `a channel that names no admins counts no one an admin and splits no text`() {
-        assertFalse(runBlocking { bare.isAdmin(chat, UserAddress(work, "2")) })
+    fun `a channel that names no operators counts no one an operator and splits no text`() {
+        assertFalse(runBlocking { bare.isOperator(chat, UserAddress(work, "2")) })
         assertEquals(1, runBlocking { bare.partsNeeded(chat, "x".repeat(10_000), Markup.PLAIN) })
     }
 

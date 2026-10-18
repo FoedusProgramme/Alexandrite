@@ -1,8 +1,8 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
 import org.unitedsoftware.alexandrite.commands.CHINESE
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
@@ -46,12 +46,12 @@ class AgentCommandsTest {
 
     @Test
     fun `agent with an id switches the chat to that agent`() = runTest {
-        val reply = commands.answer(testCommand("agent", "coder", issuer = ADMIN))
+        val reply = commands.answer(testCommand("agent", "coder", issuer = OPERATOR))
 
         assertEquals("This chat now talks to coder \"Coder\". The conversation with the agent before is kept.", reply)
         assertEquals(CODER, control.settings(chat).agent)
         assertEquals(
-            listOf(Call.UpdateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).build(), ADMIN)),
+            listOf(Call.UpdateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).build(), OPERATOR)),
             control.calls,
         )
     }
@@ -99,24 +99,24 @@ class AgentCommandsTest {
         assertEquals("This chat is not the home chat of main.", commands.answer(testCommand("home", "off")))
         assertEquals(
             "This chat is now the home chat of main on test:main.",
-            commands.answer(testCommand("home", issuer = ADMIN)),
+            commands.answer(testCommand("home", issuer = OPERATOR)),
         )
         assertEquals(
             "This chat talks to main \"Main\": this is its home chat.",
             commands.answer(testCommand("agent")).lines().first(),
         )
         val again = listOf(chat, testChat(thread = "7")).map {
-            commands.answer(testCommand("home", chat = it, issuer = ADMIN))
+            commands.answer(testCommand("home", chat = it, issuer = OPERATOR))
         }
         assertEquals(List(2) { "This chat is the home chat of main on test:main already." }, again)
         assertEquals(
             "This chat is no longer the home chat of main.",
-            commands.answer(testCommand("home", "OFF", issuer = ADMIN)),
+            commands.answer(testCommand("home", "OFF", issuer = OPERATOR)),
         )
         assertEquals(
             listOf(
-                Call.UpdateSettings(chat, ChatSettingsUpdate.builder().home().build(), ADMIN),
-                Call.UpdateSettings(chat, ChatSettingsUpdate.builder().noHome().build(), ADMIN),
+                Call.UpdateSettings(chat, ChatSettingsUpdate.builder().home().build(), OPERATOR),
+                Call.UpdateSettings(chat, ChatSettingsUpdate.builder().noHome().build(), OPERATOR),
             ),
             control.calls,
         )
@@ -126,23 +126,23 @@ class AgentCommandsTest {
     fun `home reset in any chat goes back to the configured home chat, also after home off`() = runTest {
         val home = testChat("home")
         control.declareHome(AgentId.MAIN, home)
-        commands.answer(testCommand("home", "off", chat = home, issuer = ADMIN))
+        commands.answer(testCommand("home", "off", chat = home, issuer = OPERATOR))
 
-        val reply = commands.answer(testCommand("home", "reset", issuer = ADMIN))
+        val reply = commands.answer(testCommand("home", "reset", issuer = OPERATOR))
 
         assertEquals("main uses its configured home chat test:main:home on test:main again.", reply)
         assertEquals(home, control.agents(chat.instance).first().home)
         assertEquals(
-            Call.UpdateSettings(chat, ChatSettingsUpdate.builder().resetHome().build(), ADMIN),
+            Call.UpdateSettings(chat, ChatSettingsUpdate.builder().resetHome().build(), OPERATOR),
             control.calls.last(),
         )
     }
 
     @Test
     fun `home reset of a home with none configured leaves the agent without one`() = runTest {
-        commands.answer(testCommand("home", issuer = ADMIN))
+        commands.answer(testCommand("home", issuer = OPERATOR))
 
-        val reply = commands.answer(testCommand("home", "reset", chat = testChat("other"), issuer = ADMIN))
+        val reply = commands.answer(testCommand("home", "reset", chat = testChat("other"), issuer = OPERATOR))
 
         assertEquals("main has no home chat on test:main again, as configured.", reply)
         assertEquals(null, control.agents(chat.instance).first().home)
@@ -152,7 +152,7 @@ class AgentCommandsTest {
     fun `home reset with no home set at runtime says so and changes nothing`() = runTest {
         control.declareHome(AgentId.MAIN, testChat("home"))
 
-        val reply = commands.answer(testCommand("home", "reset", issuer = ADMIN))
+        val reply = commands.answer(testCommand("home", "reset", issuer = OPERATOR))
 
         assertEquals("Nothing to reset: no home chat of main on test:main is set at runtime.", reply)
         assertEquals(emptyList(), control.calls)
@@ -160,8 +160,8 @@ class AgentCommandsTest {
 
     @Test
     fun `a refused home replies with the agent's message`() = runTest {
-        control.updateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).home().build(), ADMIN)
-        control.updateSettings(chat, ChatSettingsUpdate.builder().agent(AgentId.MAIN).build(), ADMIN)
+        control.updateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).home().build(), OPERATOR)
+        control.updateSettings(chat, ChatSettingsUpdate.builder().agent(AgentId.MAIN).build(), OPERATOR)
 
         val reply = commands.answer(testCommand("home"))
 

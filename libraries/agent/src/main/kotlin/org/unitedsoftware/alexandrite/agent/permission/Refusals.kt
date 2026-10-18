@@ -4,7 +4,7 @@ import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 
 /** What the model reads of the calls that the permission layer refuses. */
 internal object Refusals {
-    const val DENIED_BY_ADMIN: String = "[alexandrite:denied by=admin] Not run: an administrator denied this call. " +
+    const val DENIED_BY_OPERATOR: String = "[alexandrite:denied by=operator] Not run: an operator denied this call. " +
         "Do not retry it or an equivalent call; tell the user and go on without it."
 
     const val EXPIRED: String = "[alexandrite:expired] Not run: nobody answered the approval in time. Do not retry " +
@@ -17,7 +17,7 @@ internal object Refusals {
         "wrote to the agent that delegated this task. End your run with a reply that says what you have done; that " +
         "agent reads their message."
 
-    const val DENIED_IN_TREE: String = "[alexandrite:denied by=admin] Not run: an administrator denied this same " +
+    const val DENIED_IN_TREE: String = "[alexandrite:denied by=operator] Not run: an operator denied this same " +
         "call earlier in this task. Do not retry it or an equivalent call; say so and go on without it."
 
     const val CANCELLED: String = "[alexandrite:cancelled] Not run: the turn was cancelled before this call ran."

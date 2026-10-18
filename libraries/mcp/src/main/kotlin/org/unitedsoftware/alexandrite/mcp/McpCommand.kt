@@ -7,16 +7,22 @@ import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 
-/** `/mcp`: anyone sees the servers' states, an admin restarts one, and logs in to one or out of it in a direct chat. */
+/** `/mcp`: anyone sees the servers' states, an operator restarts one and logs in or out of it in a direct chat. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class McpCommand(private val hub: McpHub, private val texts: Texts) : CommandHandler {
     override val commands: List<CommandSpec> =
-        listOf(CommandSpec.builder(MCP, texts.text(TextKeys.DESCRIPTION, null)).secretArguments(true).build())
+        listOf(
+            CommandSpec.builder(MCP, texts.text(TextKeys.DESCRIPTION, null))
+                .secretArguments(true)
+                .operatorsOnly(CommandForms.WITH_ARGUMENTS)
+                .build(),
+        )
 
     override fun description(command: String, language: LanguageTag?): String =
         texts.text(TextKeys.DESCRIPTION, language)
@@ -27,10 +33,7 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
         val reply = when {
             words.isEmpty() -> list(language)
 
-            words.size == 2 && words[0].equals(RESTART, ignoreCase = true) -> when {
-                !invocation.issuer.isAdmin -> texts.text(TextKeys.REFUSED_ADMIN, language)
-                else -> restart(words[1].lowercase(), language)
-            }
+            words.size == 2 && words[0].equals(RESTART, ignoreCase = true) -> restart(words[1].lowercase(), language)
 
             (words.size >= 2 && words[0].equals(LOGIN, ignoreCase = true)) ||
                 (words.size == 2 && words[0].equals(LOGOUT, ignoreCase = true)) ->
@@ -51,7 +54,6 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
         val name = words[1].lowercase()
         val server = hub.server(name)
         val refusal = when {
-            !invocation.issuer.isAdmin -> texts.text(TextKeys.LOGIN_REFUSED_ADMIN, language)
             invocation.chatKind != ChatKind.DIRECT -> texts.text(TextKeys.LOGIN_REFUSED_GROUP, language)
             server == null -> texts.text(TextKeys.UNKNOWN_SERVER, language, "name" to name)
             server.spec.transport !is Transport.Http -> texts.text(TextKeys.LOGIN_NOT_HTTP, language, "name" to name)
@@ -166,10 +168,8 @@ internal object TextKeys {
     const val RESTART_DONE = "restart.done"
     const val UNKNOWN_SERVER = "server.unknown"
     const val RESTART_DISABLED = "restart.disabled"
-    const val REFUSED_ADMIN = "refused.admin"
     const val STATE_WIDER = "state.wider"
     const val LOGIN_HINT = "login.hint"
-    const val LOGIN_REFUSED_ADMIN = "login.refused_admin"
     const val LOGIN_REFUSED_GROUP = "login.refused_group"
     const val LOGIN_NOT_HTTP = "login.not_http"
     const val LOGIN_LINK = "login.link"

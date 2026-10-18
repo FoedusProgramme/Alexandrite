@@ -420,11 +420,11 @@ private fun chain(parent: DelegatingTurn, profile: AgentProfile, task: String): 
     )
 }
 
-/** The actor of a run below [turn]: its own, an admin only where [turn] is an operator's. */
+/** The actor of a run below [turn]: its own, an operator only where [turn] is an operator's. */
 private fun actorBelow(turn: TurnInfo): ChatUser? {
     val actor = turn.actor ?: return null
-    if (!actor.isAdmin || Principal.of(turn) == Principal.OPERATOR) return actor
-    return ChatUser(actor.address, actor.displayName, actor.username, actor.isBot, isAdmin = false)
+    if (!actor.isOperator || Principal.of(turn) == Principal.OPERATOR) return actor
+    return ChatUser(actor.address, actor.displayName, actor.username, actor.isBot, isOperator = false)
 }
 
 private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"

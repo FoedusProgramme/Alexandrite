@@ -35,15 +35,15 @@ class ProfileTurnsTest {
                 "coder": {
                   "model": "scripted/test-model",
                   "channels": {"test:main": {}},
-                  "tools": {"forMembers": ["profile.create"]}
+                  "tools": {"forGuests": ["profile.create"]}
                 }
               }
             }
         """.trimIndent()
-        return agentHarness(config, store) { channel(admins = setOf("admin")).model(model).tool(fetch) }
+        return agentHarness(config, store) { channel(operators = setOf("operator")).model(model).tool(fetch) }
     }
 
-    private suspend fun PluginHarness.Running.ask(user: String = "admin") {
+    private suspend fun PluginHarness.Running.ask(user: String = "operator") {
         (channel().receive("Hi", sender = channel().user(user)) as Admission.Accepted).ticket.outcome()
     }
 
@@ -73,13 +73,13 @@ class ProfileTurnsTest {
     }
 
     @Test
-    fun `a member's call, and one in a tainted operator's turn, wait for an administrator none can reach yet`() {
+    fun `a guest's call, and one in a tainted operator's turn, wait for an operator none can reach yet`() {
         model.reply { toolCall("profile.create", create("reviewer")) }.reply { text("Not created.") }
             .reply { toolCall("web.fetch") }.reply { toolCall("profile.create", create("writer")) }
             .reply { text("Not created either.") }
 
         harness().execute {
-            ask(user = "member")
+            ask(user = "guest")
             ask()
 
             val refused = ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY)

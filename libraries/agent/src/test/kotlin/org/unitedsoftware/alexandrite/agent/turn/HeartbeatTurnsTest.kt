@@ -49,7 +49,7 @@ class HeartbeatTurnsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(exec).apply(configure) }
+    ) { channel(operators = setOf("operator")).model(model).tool(exec).apply(configure) }
 
     private suspend fun PluginHarness.Running.beat(): TurnOutcome {
         val turn = InitiatedTurn.heartbeat(coder, "Look around.").trust(Trust.TRUSTED).build()
@@ -87,7 +87,7 @@ class HeartbeatTurnsTest {
 
         harness().execute {
             assertIs<TurnOutcome.Completed>(beat())
-            channel().receive("What did you say?", channel().chat("home"), channel().user("admin"))
+            channel().receive("What did you say?", channel().chat("home"), channel().user("operator"))
                 .let { assertIs<Admission.Accepted>(it).ticket.outcome() }
 
             val (refused, sent) = beats().filterIsInstance<ToolResultEntry>()

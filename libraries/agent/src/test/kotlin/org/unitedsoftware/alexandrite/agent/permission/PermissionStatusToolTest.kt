@@ -47,8 +47,8 @@ class PermissionStatusToolTest {
     private val clock = TestClock()
     private val states = SettingsStates(TestChatStates().of("alexandrite-agent"))
     private val store = MemoryStore(clock)
-    private val admin = testUser("admin", isAdmin = true)
-    private val operator: TurnInfo = testTurn { actor(admin) }
+    private val operatorUser = testUser("operator", isOperator = true)
+    private val operator: TurnInfo = testTurn { actor(operatorUser) }
     private val forwarded = ConversationTaint(clock.now, "a forwarded message")
     private val exec = recordingTool("command.exec", ToolRisk.EXEC)
     private val deploy = recordingTool("deploy.run", ToolRisk.EXEC)
@@ -67,7 +67,7 @@ class PermissionStatusToolTest {
         return PermissionStatusTool(states, directory, store.conversations, lazyOf(rules), clock)
     }
 
-    /** Has the admin allow the calls of `command.exec` that start with [argv] in the conversation of [turn] for good. */
+    /** Has the operator allow the calls of `command.exec` that start with [argv] in the conversation of [turn] for good. */
     private suspend fun grant(turn: TurnInfo, vararg argv: String) {
         val subject = RuleSubject("command.exec", argv.toList(), argv.joinToString(" "))
         val review =
@@ -76,7 +76,7 @@ class PermissionStatusToolTest {
         val context = testToolContext(turn)
         val taint = TurnTaint(turn.id, turn.key)
         val gate = GateCall(turn, call, exec, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls)
-        rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), subject, admin)
+        rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), subject, operatorUser)
     }
 
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext = AgentToolContext(
@@ -104,7 +104,7 @@ class PermissionStatusToolTest {
     fun `a clean conversation of an operator's turn in the default mode`() = runTest {
         assertEquals(
             listOf(
-                "Permission status of this chat (only an administrator changes it):",
+                "Permission status of this chat (only an operator changes it):",
                 "Mode: ask (the default).",
                 "Allow rules: none.",
                 "Conversation: not tainted.",
@@ -120,7 +120,7 @@ class PermissionStatusToolTest {
             grant(operator, "make", "test")
             clock.now += Duration.ofMinutes(5)
             grant(operator, "./gradlew", "build")
-            grant(testTurn { actor(admin).conversation(ConversationId("other")) }, "make", "clean")
+            grant(testTurn { actor(operatorUser).conversation(ConversationId("other")) }, "make", "clean")
 
             assertEquals(
                 listOf(
@@ -129,8 +129,8 @@ class PermissionStatusToolTest {
                         "lasting-state call):",
                     "1. command.exec: git status (declared in the config file)",
                     "2. deploy.run: every call (declared in the config file)",
-                    "3. command.exec: make test (allowed by Admin at 2026-01-01 00:00 Z until /new)",
-                    "4. command.exec: ./gradlew build (allowed by Admin at 2026-01-01 00:05 Z until /new)",
+                    "3. command.exec: make test (allowed by Operator at 2026-01-01 00:00 Z until /new)",
+                    "4. command.exec: ./gradlew build (allowed by Operator at 2026-01-01 00:05 Z until /new)",
                 ),
                 status(tool).drop(2).dropLast(1),
             )
@@ -165,11 +165,11 @@ class PermissionStatusToolTest {
 
     @Test
     fun `a turn of anyone but the operator learns that the mode does not decide its calls`() = runTest {
-        val member = testTurn()
+        val guest = testTurn()
 
         assertEquals(
-            "This turn is no operator's, so its gated calls ask an administrator whatever the mode.",
-            status(turn = member)[2],
+            "This turn is no operator's, so its gated calls ask an operator whatever the mode.",
+            status(turn = guest)[2],
         )
     }
 
@@ -206,7 +206,7 @@ class PermissionStatusToolTest {
     @Test
     fun `outside a call of the agent the store says whether the conversation is tainted`() = runTest {
         val conversation = store.conversations.current(operator.key)
-        val turn = testTurn { actor(testUser("admin", isAdmin = true)).conversation(conversation.id) }
+        val turn = testTurn { actor(testUser("operator", isOperator = true)).conversation(conversation.id) }
         store.conversations.markTainted(conversation.id, forwarded.reason, forwarded.at)
 
         val line = status(turn = turn, context = testToolContext(turn)).last()

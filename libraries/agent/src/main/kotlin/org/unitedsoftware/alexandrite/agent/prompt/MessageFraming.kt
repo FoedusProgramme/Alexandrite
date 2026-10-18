@@ -50,7 +50,7 @@ internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Bool
     append("From: ").append(oneLine(sender.displayName))
     sender.username?.let { append(" (@").append(oneLine(it)).append(')') }
     appendLine()
-    appendLine("Operator: ${if (sender.isAdmin) "yes" else "no"}")
+    appendLine("Operator: ${if (sender.isOperator) "yes" else "no"}")
     appendLine("Received: ${TIME.format(message.receivedAt.atZone(zone))}")
     append("Chat: ").append(message.chatInfo.kind)
     message.chatInfo.title?.let { append(" \"").append(oneLine(it)).append('"') }

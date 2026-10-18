@@ -120,7 +120,7 @@ class StoreValuesTest {
         val inline = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(byteArrayOf(1, 2)), "a.png", 2, 1)
         val stored = MediaPart(MediaKind.FILE, "text/plain", StoredMedia(MediaId("kept")))
         val origin = UserOrigin.FromChat(
-            ChatUser(UserAddress(instance, "1"), "Ada", null, isBot = false, isAdmin = false),
+            ChatUser(UserAddress(instance, "1"), "Ada", null, isBot = false, isOperator = false),
             ChannelMessageRef(key.chat, "9"),
             time,
             null,

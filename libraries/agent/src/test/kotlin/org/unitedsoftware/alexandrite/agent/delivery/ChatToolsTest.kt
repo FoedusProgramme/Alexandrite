@@ -45,10 +45,10 @@ class ChatToolsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(fetch) }
+    ) { channel(operators = setOf("operator")).model(model).tool(fetch) }
 
     private suspend fun PluginHarness.Running.ask(chat: String, text: String = "Go.") {
-        val admission = channel().receive(text, channel().chat(chat), channel().user("admin"))
+        val admission = channel().receive(text, channel().chat(chat), channel().user("operator"))
         assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
     }
 
@@ -108,7 +108,7 @@ class ChatToolsTest {
             .reply { text("Sent.") }
 
         harness().execute {
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
             ask("home")
             ask("chat")
 

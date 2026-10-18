@@ -22,9 +22,9 @@ internal const val PLUGIN = "alexandrite-commands"
 
 internal val CHINESE = LanguageTag("zh-CN")
 
-internal val ADMIN: ChatUser = testUser("admin", isAdmin = true)
+internal val OPERATOR: ChatUser = testUser("operator", isOperator = true)
 
-internal val MEMBER: ChatUser = testUser("member")
+internal val GUEST: ChatUser = testUser("guest")
 
 internal fun commandTexts(catalog: TextCatalog = TextCatalog.EMPTY): Texts = testTexts(PLUGIN, catalog = catalog)
 

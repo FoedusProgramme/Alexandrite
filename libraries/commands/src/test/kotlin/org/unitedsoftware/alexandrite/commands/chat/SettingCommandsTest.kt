@@ -4,8 +4,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.ADMIN
 import org.unitedsoftware.alexandrite.commands.CHINESE
+import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
@@ -122,7 +122,7 @@ class SettingCommandsTest {
         assertEquals("This chat now uses the model big/m-02.", commands.answer(testCommand("model", "big/m-02")))
         assertEquals(
             "This chat now uses the model reset/m-01.",
-            commands.answer(testCommand("model", "reset/m-01", issuer = ADMIN)),
+            commands.answer(testCommand("model", "reset/m-01", issuer = OPERATOR)),
         )
         assertEquals(
             "This chat uses the model big/m-01 again (the agent's setting).",
@@ -330,7 +330,7 @@ class SettingCommandsTest {
             Permission mode: ask (the default)
             Home: main has no home chat on test:main
             Linked: no other chat shares the conversation of main
-            You are not an admin here.
+            You are not an operator here.
             """.trimIndent(),
             commands.answer(testCommand("settings")),
         )
@@ -340,15 +340,15 @@ class SettingCommandsTest {
     fun `settings shows the chat's own settings, the home elsewhere and the linked chats`() = runTest {
         val coder = AgentId("coder")
         control.scriptAgent(coder, "Coder", model = ModelRef.parse("big/m-02"))
-        control.updateSettings(testChat("home"), ChatSettingsUpdate.builder().agent(coder).home().build(), ADMIN)
+        control.updateSettings(testChat("home"), ChatSettingsUpdate.builder().agent(coder).home().build(), OPERATOR)
         control.updateSettings(
             chat,
             ChatSettingsUpdate.builder().agent(coder).reasoning(ReasoningEffort.HIGH).language(CHINESE).build(),
-            ADMIN,
+            OPERATOR,
         )
         val bypass = ChatSettingsUpdate.builder().mode(PermissionMode.BYPASS, clock.now + Duration.ofMinutes(90))
-        control.updateSettings(chat, bypass.build(), ADMIN)
-        control.link(coder, testChat("other"), chat, ADMIN)
+        control.updateSettings(chat, bypass.build(), OPERATOR)
+        control.link(coder, testChat("other"), chat, OPERATOR)
         clock.now += Duration.ofMinutes(15)
 
         assertEquals(
@@ -362,15 +362,15 @@ class SettingCommandsTest {
             Permission mode: bypass (set in this chat) for 1 h 15 min more
             Home: the home chat of coder on test:main is test:main:home
             Linked: shares the conversation of coder with test:main:other (anchor test:main:other)
-            You are an admin here.
+            You are an operator here.
             """.trimIndent(),
-            commands.answer(testCommand("settings", issuer = ADMIN)),
+            commands.answer(testCommand("settings", issuer = OPERATOR)),
         )
     }
 
     @Test
     fun `settings shows a home chat as the source of its agent`() = runTest {
-        control.updateSettings(chat, ChatSettingsUpdate.builder().home().build(), ADMIN)
+        control.updateSettings(chat, ChatSettingsUpdate.builder().home().build(), OPERATOR)
 
         val lines = commands.answer(testCommand("settings")).lines()
 

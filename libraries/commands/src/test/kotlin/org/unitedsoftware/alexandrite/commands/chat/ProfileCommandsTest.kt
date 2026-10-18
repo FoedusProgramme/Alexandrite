@@ -44,7 +44,7 @@ class ProfileCommandsTest {
         )
         control.scriptProfile(
             AgentProfile(AgentId("helper"), "Helper", "Helps.", "Be kind."),
-            ProfileSource.Created(testUser("ada", isAdmin = true), Instant.parse("2026-10-01T00:00:00Z")),
+            ProfileSource.Created(testUser("ada", isOperator = true), Instant.parse("2026-10-01T00:00:00Z")),
         )
 
         assertEquals(

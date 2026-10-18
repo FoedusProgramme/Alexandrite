@@ -40,16 +40,16 @@ public interface Channel {
 
     /**
      * Whether [issuer] may run [command] in [chat], bare or with arguments, which the agent checks before it runs a
-     * command; an admin alone may where the channel sets no rules.
+     * command; an operator alone may where the channel sets no rules.
      */
     public fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =
-        issuer.isAdmin
+        issuer.isOperator
 
     /**
-     * Whether [user] is an admin of [chat] now, which the agent checks before a turn runs as the operator of a mandate;
-     * false where the channel names no admins, so that a mandate then lets its turns run as nobody.
+     * Whether [user] is an operator in [chat] now, which the agent checks before a turn runs as the operator of a
+     * mandate; false where the channel names no operators, so that a mandate then lets its turns run as nobody.
      */
-    public suspend fun isAdmin(chat: ChatAddress, user: UserAddress): Boolean = false
+    public suspend fun isOperator(chat: ChatAddress, user: UserAddress): Boolean = false
 }
 
 /** The reply of one turn, which delivers until the channel instance stops and then takes calls without delivering. */

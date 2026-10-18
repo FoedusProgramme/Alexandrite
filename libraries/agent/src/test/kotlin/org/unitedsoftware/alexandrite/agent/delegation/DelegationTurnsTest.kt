@@ -125,7 +125,7 @@ class DelegationTurnsTest {
             "coder": {
               "model": "scripted/test-model",
               "channels": {"test:main": {}},
-              "tools": {"forMembers": ["agent.delegate", "test.read", "fs.write", "command.exec"]}$coder
+              "tools": {"forGuests": ["agent.delegate", "test.read", "fs.write", "command.exec"]}$coder
             },
             "reviewer": {"description": "Reviews.", "instructions": ["$REVIEWER"], "tools": {"allow": ["test.read"]}},
             "writer": {
@@ -164,7 +164,7 @@ class DelegationTurnsTest {
             store,
         ) {
             channel(
-                admins = setOf("admin"),
+                operators = setOf("operator"),
             ).model(model).tool(read).tool(write).tool(fetch).tool(startingInBackground(exec))
             for (point in listOf(TurnPoints.AGENT_SPAWN, TurnPoints.AGENT_RUN_ENDED)) {
                 hook(object : ObserverHook<AgentRunLifecycle> {
@@ -184,12 +184,12 @@ class DelegationTurnsTest {
             }
         }
 
-    private fun PluginHarness.Running.ask(text: String = "Go.", user: String = "admin", chat: String = "chat") =
+    private fun PluginHarness.Running.ask(text: String = "Go.", user: String = "operator", chat: String = "chat") =
         channel().receive(text, channel().chat(chat), channel().user(user)) as Admission.Accepted
 
     private suspend fun PluginHarness.Running.mode(mode: PermissionMode?) {
         val update = ChatSettingsUpdate.builder().apply { if (mode == null) resetMode() else mode(mode) }.build()
-        get<AgentControl>().updateSettings(channel().chat(), update, channel().user("admin"))
+        get<AgentControl>().updateSettings(channel().chat(), update, channel().user("operator"))
     }
 
     /** The tool results of the current conversation of [key]. */
@@ -270,7 +270,7 @@ class DelegationTurnsTest {
             assertEquals(lineage, conversation.lineage)
             val record = checkNotNull(store.conversations.turn(runs[0].ids.turn))
             assertEquals(
-                listOf(TurnKind.DELEGATED, TurnEndKind.COMPLETED, channel().chat(), channel().user("admin").address),
+                listOf(TurnKind.DELEGATED, TurnEndKind.COMPLETED, channel().chat(), channel().user("operator").address),
                 listOf(record.kind, record.end, record.chat, record.actor),
             )
             assertTrue(lineage.run.value.startsWith("r-"), "${lineage.run}")
@@ -285,14 +285,14 @@ class DelegationTurnsTest {
             .reply(ROOT) { text("Done.") }
 
         harness().execute {
-            val admin = channel().user("admin")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(admin))
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator))
             ask("Write the notes.").ticket.outcome()
 
             val request = channel().approvals.single()
             assertEquals(listOf(AgentId("coder"), AgentId("writer")), request.chain)
             assertEquals(
-                listOf(channel().chat(), TurnKind.DELEGATED, ReplyTarget.CALLER, admin, "the chat is in ask mode"),
+                listOf(channel().chat(), TurnKind.DELEGATED, ReplyTarget.CALLER, operator, "the chat is in ask mode"),
                 listOf(
                     request.turn.chat,
                     request.turn.kind,
@@ -301,7 +301,7 @@ class DelegationTurnsTest {
                     request.reason,
                 ),
             )
-            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, admin)), cleared.toList())
+            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, operator)), cleared.toList())
             assertEquals(listOf(ToolOutcome.Succeeded to "Notes written."), rootResults().map { it.shown() })
         }
     }
@@ -398,7 +398,7 @@ class DelegationTurnsTest {
             mode(PermissionMode.BYPASS)
             ask("Plan it.").ticket.outcome()
             mode(null)
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
             ask("Ask for it.").ticket.outcome()
 
             val planned = results(runs(PLANNER)[0].ids.conversation).single()
@@ -415,7 +415,7 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `a run that a member's turn delegates stays the member's, so its write asks an admin`() {
+    fun `a run that a guest's turn delegates stays the guest's, so its write asks an operator`() {
         model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("writer", "Write notes.md.")) }
             .reply(profile(WRITER)) { toolCall("fs.write", """{"path": "notes.md"}""") }
             .reply(profile(WRITER)) { text("Not written.") }
@@ -423,10 +423,10 @@ class DelegationTurnsTest {
 
         harness().execute {
             mode(PermissionMode.BYPASS)
-            ask(user = "member").ticket.outcome()
+            ask(user = "guest").ticket.outcome()
 
             val request = channel().approvals.single()
-            assertEquals(channel().user("member") to "a member's call", request.turn.actor to request.reason)
+            assertEquals(channel().user("guest") to "a guest's call", request.turn.actor to request.reason)
             assertEquals(listOf(AgentId("coder"), AgentId("writer")), request.chain)
             assertEquals(emptyList(), write.calls)
         }
@@ -738,7 +738,7 @@ class DelegationTurnsTest {
             val turn = ask()
             val request = channel().awaitApprovals(1).single()
 
-            assertTrue(get<AgentControl>().cancel(channel().chat(), channel().user("admin")))
+            assertTrue(get<AgentControl>().cancel(channel().chat(), channel().user("operator")))
 
             assertEquals(TurnOutcome.Cancelled, turn.ticket.outcome())
             channel().awaitEvent { it == RecordingChannel.Event.ApprovalWithdrawn(request.id) }
@@ -797,7 +797,7 @@ class DelegationTurnsTest {
             assertEquals(List(2) { TurnPhase.RUNNING to channel().chat() }, runs.map { it.phase to it.turn.chat })
             val first = runs.single { it.turn.lineage?.depth == 1 }.turn
 
-            assertTrue(control.cancelRun(checkNotNull(first.lineage).run, tree = true, channel().user("admin")))
+            assertTrue(control.cancelRun(checkNotNull(first.lineage).run, tree = true, channel().user("operator")))
 
             assertIs<TurnOutcome.Completed>(turn.ticket.outcome())
             assertEquals(1, read.cancelled.size)
@@ -810,7 +810,7 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `an admin's denial in a run refuses the same call again anywhere in the tree without asking`() {
+    fun `an operator's denial in a run refuses the same call again anywhere in the tree without asking`() {
         model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("writer", "Write a.")) }
             .reply(profile(WRITER)) { toolCall("fs.write", """{"path": "a"}""") }
             .reply(profile(WRITER)) { toolCall("fs.write", """{"path": "a"}""") }
@@ -819,14 +819,14 @@ class DelegationTurnsTest {
             .reply(ROOT) { text("Not written either.") }
 
         harness().execute {
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("admin")))
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
             ask().ticket.outcome()
 
             val request = channel().approvals.single()
             val denied = ToolOutcome.NotRun(NotRunReason.DENIED)
             assertEquals(
                 listOf(
-                    ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_ADMIN,
+                    ToolOutcome.NotRun(NotRunReason.DENIED, request.id) to Refusals.DENIED_BY_OPERATOR,
                     denied to Refusals.DENIED_IN_TREE,
                 ),
                 results(request.turn.conversation).map { it.shown() },
@@ -930,7 +930,7 @@ class DelegationTurnsTest {
             ask().ticket.outcome()
             while (read.calls.size < 4) delay(5)
             val control = get<AgentControl>()
-            assertTrue(control.cancel(channel().chat(), channel().user("admin")))
+            assertTrue(control.cancel(channel().chat(), channel().user("operator")))
             while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
             while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
             for (child in runs(REVIEWER).map { it.ids.conversation }.toSet()) {
@@ -1052,7 +1052,7 @@ class DelegationTurnsTest {
             assertEquals(expectedReads - 1, runs(REVIEWER).size)
             assertEquals(null, store.conversations.turn(parent.id)?.end)
 
-            assertTrue(control.cancelRun(parentRun, tree = true, channel().user("admin")))
+            assertTrue(control.cancelRun(parentRun, tree = true, channel().user("operator")))
 
             withTimeout(5_000) {
                 while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
@@ -1080,11 +1080,11 @@ class DelegationTurnsTest {
             .reply(profile(WRITER)) { text("Written.") }
             .reply(ROOT) { text("Report received.") }
         harness().execute {
-            val admin = channel().user("admin")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(admin))
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator))
             ask().ticket.outcome()
             while (cleared.isEmpty()) delay(5)
-            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, admin)), cleared.toList())
+            assertEquals(listOf(Clearance(ClearanceKind.HUMAN, operator)), cleared.toList())
             assertEquals(listOf(AgentId("coder"), AgentId("writer")), channel().approvals.single().chain)
         }
     }

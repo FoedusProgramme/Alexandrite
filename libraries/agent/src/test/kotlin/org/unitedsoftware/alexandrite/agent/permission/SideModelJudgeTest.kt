@@ -51,8 +51,8 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class SideModelJudgeTest {
     private val model = ScriptedModel()
-    private val admin = testUser("admin", isAdmin = true)
-    private val operator: TurnInfo = testTurn { actor(admin) }
+    private val operatorUser = testUser("operator", isOperator = true)
+    private val operator: TurnInfo = testTurn { actor(operatorUser) }
     private val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
     private val exec = recordingTool("command.exec", ToolRisk.EXEC)
 
@@ -484,7 +484,7 @@ class SideModelJudgeTest {
         runTest {
             answers(*Array(3) { """{"verdict":"ask","reason":"unsure"}""" })
             val judge = judge()
-            val elsewhere = testTurn(chat = testChat("elsewhere")) { actor(admin) }
+            val elsewhere = testTurn(chat = testChat("elsewhere")) { actor(operatorUser) }
 
             val asked = List(3) { judge.judge(call()) }
             val tripped = judge.judge(call())
@@ -510,16 +510,16 @@ class SideModelJudgeTest {
     }
 
     @Test
-    fun `an admin's allow of that tool in that chat resets the count`() = runTest {
+    fun `an operator's allow of that tool in that chat resets the count`() = runTest {
         answers(*Array(3) { """{"verdict":"ask"}""" })
         val judge = judge()
         repeat(4) { judge.judge(call()) }
 
-        judge.allowedByAdmin(testTurn(chat = testChat("elsewhere")).key, "fs.write")
-        judge.allowedByAdmin(operator.key, "command.exec")
+        judge.allowedByOperator(testTurn(chat = testChat("elsewhere")).key, "fs.write")
+        judge.allowedByOperator(operator.key, "command.exec")
         judge.judge(call())
         val before = model.requests.size
-        judge.allowedByAdmin(operator.key, "fs.write")
+        judge.allowedByOperator(operator.key, "fs.write")
         answers("""{"verdict":"allow"}""")
 
         assertEquals(Verdict.Allow, judge.judge(call()))

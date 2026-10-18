@@ -54,12 +54,12 @@ internal class ExecFixture(directory: Path) {
 
     /** A context whose call an approver allowed, with the review's [snapshot] when given. */
     fun allowed(snapshot: String? = null): TestToolContext =
-        context(clearance = Clearance(ClearanceKind.HUMAN, testUser("admin", isAdmin = true), snapshot))
+        context(clearance = Clearance(ClearanceKind.HUMAN, testUser("operator", isOperator = true), snapshot))
 }
 
-/** A message turn of an administrator. */
+/** A message turn of an operator. */
 fun operatorTurn(kind: TurnKind = TurnKind.MESSAGE): TurnInfo =
-    testTurn(kind) { actor(testUser("admin", isAdmin = true)) }
+    testTurn(kind) { actor(testUser("operator", isOperator = true)) }
 
 fun arguments(vararg values: Pair<String, Any>): JsonObject = JsonObject(
     values.associate { (name, value) ->

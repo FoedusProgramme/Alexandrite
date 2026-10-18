@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.channel.common.pairing
 import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.pairing.PairingCodes
@@ -248,11 +249,11 @@ internal class Requester(
     val name: String,
     val username: String? = null,
     val bot: Boolean = false,
-    val admin: Boolean = false,
+    @SerialName("admin") val operator: Boolean = false,
 ) {
-    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isAdmin)
+    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isOperator)
 
-    fun user(): ChatUser = ChatUser(address, name, username, bot, admin)
+    fun user(): ChatUser = ChatUser(address, name, username, bot, operator)
 }
 
 private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"

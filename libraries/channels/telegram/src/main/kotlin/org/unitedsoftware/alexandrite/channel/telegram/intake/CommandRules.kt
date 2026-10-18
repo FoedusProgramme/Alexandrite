@@ -15,8 +15,8 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import java.util.Locale
 
 /**
- * Who may run each command that a handler claims, after [DEFAULT_COMMAND_RULES], else after [opened]: admins alone for
- * a claimed command that neither lists.
+ * Who may run each command that a handler claims, after its spec's forms for operators, then [DEFAULT_COMMAND_RULES],
+ * else [opened]: admins alone for a claimed command that neither lists.
  */
 @ChannelInstanceScoped
 internal class CommandRules(
@@ -32,11 +32,13 @@ internal class CommandRules(
     ) : this(handlers, control, config.commands)
 
     private val claimed = handlers.flatMap { it.commands }.mapTo(HashSet()) { it.name.lowercase(Locale.ROOT) }
+    private val operatorsOnly =
+        handlers.flatMap { it.commands }.associate { it.name.lowercase(Locale.ROOT) to it.operatorsOnly }
 
     /** The key of the refusal of [invocation] in a chat of [kind], null when its issuer may run it. */
     fun refusal(invocation: CommandInvocation, kind: ChatKind): String? {
         val name = invocation.name.lowercase(Locale.ROOT)
-        if (invocation.issuer.isAdmin || name !in claimed) return null
+        if (invocation.issuer.isOperator || name !in claimed) return null
         return refusal(name, invocation.arguments.isNotBlank(), kind == ChatKind.DIRECT) { linked(invocation.chat) }
     }
 
@@ -57,6 +59,7 @@ internal class CommandRules(
     }
 
     private fun refusal(name: String, withArguments: Boolean, direct: Boolean, linked: () -> Boolean): String? {
+        if (operatorsOnly[name]?.includes(withArguments) == true) return TextKeys.REFUSED_ADMIN
         val rule = DEFAULT_COMMAND_RULES[name] ?: opened[name]?.let(::CommandRule) ?: ADMIN_ONLY
         return when (if (withArguments) rule.withArguments else rule.bare) {
             Who.ANYONE -> null

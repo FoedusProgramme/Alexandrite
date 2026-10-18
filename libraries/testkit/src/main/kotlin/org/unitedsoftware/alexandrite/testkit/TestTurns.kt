@@ -11,8 +11,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
 
 /**
- * The turn `test-turn` of conversation `test` at [chat], changed by [block], whose actor is a member who is no admin
- * in a message or command turn and nobody in any other.
+ * The turn `test-turn` of conversation `test` at [chat], changed by [block], whose actor is a guest in a message or
+ * command turn and nobody in any other.
  */
 public fun testTurn(
     kind: TurnKind = TurnKind.MESSAGE,

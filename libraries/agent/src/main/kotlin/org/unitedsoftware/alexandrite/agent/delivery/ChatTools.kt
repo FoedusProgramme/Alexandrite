@@ -198,7 +198,7 @@ internal class ChatSendTool(
         val title = request.target.title?.let { " \"$it\"" }.orEmpty()
         CallReview(
             preview = ReviewPreview.Text("Send to ${request.target.chat}$title:\n\n${request.text}"),
-            exempt = untainted && Principal.of(context.turn) != Principal.MEMBER,
+            exempt = untainted && Principal.of(context.turn) != Principal.GUEST,
         )
     } catch (e: ToolRefusal) {
         CallReview(problem = e.message)

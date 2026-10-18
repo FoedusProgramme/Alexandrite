@@ -58,11 +58,11 @@ class AgentMessagesTest {
             }""",
             store,
         ) {
-            channel(admins = setOf("admin")).model(model).tool(read).tool(write)
+            channel(operators = setOf("operator")).model(model).tool(read).tool(write)
             if (home) channel(name = "other")
         }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             while (model.requests.size < 5) delay(10)
             val remote = model.requests.first { it.instructions.any { part -> part.text == "TARGET" } }
@@ -113,17 +113,17 @@ class AgentMessagesTest {
               "agents":{
                 "coder":{"model":"scripted/test-model","instructions":["SENDER"],"channels":{"test:main":{"default":true}},"tools":{"allow":["web.fetch","agent.send"]}},
                 "reviewer":{"model":"scripted/test-model","instructions":["TARGET"],"channels":{"test:main":{}},"tools":{"allow":["test.read"]}},
-                "reader":{"model":"scripted/test-model","instructions":["TARGET"],"channels":{"test:main":{}},"tools":{"allow":["web.fetch"],"forMembers":["web.fetch"]}}
+                "reader":{"model":"scripted/test-model","instructions":["TARGET"],"channels":{"test:main":{}},"tools":{"allow":["web.fetch"],"forGuests":["web.fetch"]}}
               }
             }""",
             store,
         ) {
             channel(
-                admins = setOf("admin"),
+                operators = setOf("operator"),
             ).model(model).tool(fetch).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
         }.execute {
             suspend fun send(chat: String) {
-                val admission = channel().receive("Go.", channel().chat(chat), channel().user("admin"))
+                val admission = channel().receive("Go.", channel().chat(chat), channel().user("operator"))
                 assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
             }
             suspend fun taint(key: String) =
@@ -185,7 +185,7 @@ class AgentMessagesTest {
                 },
                 "reviewer":{
                   "model":"scripted/test-model","instructions":["TARGET"],"channels":{"test:main":{}},
-                  "tools":{"allow":["test.read","test.exhaust","agent.delegate","agent.send"],"forMembers":["test.read","test.exhaust","agent.delegate","agent.send"]}
+                  "tools":{"allow":["test.read","test.exhaust","agent.delegate","agent.send"],"forGuests":["test.read","test.exhaust","agent.delegate","agent.send"]}
                 },
                 "helper":{"description":"Reviews privately.","instructions":["CHILD"],"tools":{"allow":["test.exhaust"]}}
               }
@@ -193,11 +193,11 @@ class AgentMessagesTest {
             store,
         ) {
             channel(
-                admins = setOf("admin"),
+                operators = setOf("operator"),
             ).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY)).tool(exhaust)
         }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             while (model.requests.size < 7) delay(10)
             assertEquals(1, channel().replies.size)
@@ -233,10 +233,10 @@ class AgentMessagesTest {
             }""",
             store,
         ) {
-            channel(admins = setOf("admin")).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
+            channel(operators = setOf("operator")).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
         }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             while (model.requests.size < 11) delay(10)
             val recipient = store.conversations.current(AgentChatKey.parse("reviewer@test:main:chat"))
@@ -265,10 +265,10 @@ class AgentMessagesTest {
               }
             }""",
         ) {
-            channel(admins = setOf("admin")).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
+            channel(operators = setOf("operator")).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
         }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             model.awaitRequests(2)
             assertTrue(admission.ticket.cancel())
             assertEquals(TurnOutcome.Cancelled, admission.ticket.outcome())
@@ -296,17 +296,17 @@ class AgentMessagesTest {
                 "coder":{"model":"scripted/test-model","instructions":["SENDER"],"channels":{"test:main":{"default":true}},"tools":{"allow":["test.read","agent.send"]}},
                 "reviewer":{
                   "model":"scripted/test-model","instructions":["TARGET"],"channels":{"test:main":{}},
-                  "tools":{"allow":["fs.write"],"forMembers":["fs.write"]},"permission":{"mode":"auto"}
+                  "tools":{"allow":["fs.write"],"forGuests":["fs.write"]},"permission":{"mode":"auto"}
                 }
               }
             }""",
         ) {
             channel(
-                admins = setOf("admin"),
+                operators = setOf("operator"),
             ).model(model).tool(write).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
         }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             model.awaitRequests(5)
             assertEquals(listOf("fs.write"), channel().approvals.map { it.tool })
@@ -334,10 +334,10 @@ class AgentMessagesTest {
             }""",
             store,
         ) {
-            channel(admins = setOf("admin")).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
+            channel(operators = setOf("operator")).model(model).tool(recordingTool("test.read", ToolRisk.READ_ONLY))
         }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             val root = store.conversations.current(AgentChatKey.parse("coder@test:main:chat"))
             val texts = store.transcripts.entries(root.id).filterIsInstance<ToolResultEntry>().map { result ->
@@ -369,16 +369,16 @@ class AgentMessagesTest {
               }
             }"""
         val read = recordingTool("test.read", ToolRisk.READ_ONLY)
-        agentHarness(config, store) { channel(admins = setOf("admin")).model(model).tool(read) }.execute {
+        agentHarness(config, store) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             model.awaitRequests(3)
         }
         model.reply(sender) { text("The reviewer was interrupted.") }
-        agentHarness(config, store) { channel(admins = setOf("admin")).model(model).tool(read) }.execute {
+        agentHarness(config, store) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
             val admission =
-                assertIs<Admission.Accepted>(channel().receive("Status?", channel().chat(), channel().user("admin")))
+                assertIs<Admission.Accepted>(channel().receive("Status?", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             val notices = model.requests.last().history.filterIsInstance<UserEntry>().flatMap { entry ->
                 entry.parts.filterIsInstance<ContextPart>().map { it.text }

@@ -47,11 +47,11 @@ class TimeZoneTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(admins = setOf("admin")).model(model).tool(clock) }
+    ) { channel(operators = setOf("operator")).model(model).tool(clock) }
 
     private suspend fun PluginHarness.Running.ask() {
         model.reply { toolCall("clock.read", "{}") }.reply { text("Done.") }
-        val admission = channel().receive("What time is it?", sender = channel().user("admin"))
+        val admission = channel().receive("What time is it?", sender = channel().user("operator"))
         assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
     }
 

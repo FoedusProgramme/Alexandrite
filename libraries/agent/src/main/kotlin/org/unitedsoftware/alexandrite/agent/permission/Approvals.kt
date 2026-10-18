@@ -28,7 +28,7 @@ internal interface Approvals {
     suspend fun ask(call: CheckedCall, reason: String): GateResult
 }
 
-/** Asks through the channel of the call's chat, and takes an answer from an admin only. */
+/** Asks through the channel of the call's chat, and takes an answer from an operator only. */
 @Singleton
 @Binds(Approvals::class)
 internal class ChannelApprovals(
@@ -50,7 +50,7 @@ internal class ChannelApprovals(
         val asked = "${gate.tool.definition.name} $canonical"
         if (gate.calls.deniedInTree(asked)) {
             logger.info(
-                "Call {} in turn {} of {} is refused unasked: an admin denied the same call in a run of its tree",
+                "Call {} in turn {} of {} is refused unasked: an operator denied the same call in a run of its tree",
                 gate.call.id,
                 turn.id,
                 turn.key,
@@ -97,7 +97,7 @@ internal class ChannelApprovals(
             withContext(NonCancellable) { record { awaiting.remove(turn.id, gate.call.id) } }
         }
         val result = answered(call, request, answer, grantable)
-        if (answer is ApprovalAnswer.Denied && answer.by.isAdmin && turn.lineage != null) gate.calls.denied(asked)
+        if (answer is ApprovalAnswer.Denied && answer.by.isOperator && turn.lineage != null) gate.calls.denied(asked)
         return result
     }
 
@@ -109,14 +109,14 @@ internal class ChannelApprovals(
         grantable: RuleSubject?,
     ): GateResult {
         val by = (answer as? ApprovalAnswer.Allowed)?.by ?: (answer as? ApprovalAnswer.Denied)?.by
-        if (by != null && !by.isAdmin) {
+        if (by != null && !by.isOperator) {
             logger.warn(
-                "Approval {} in turn {} was answered by {}, who is no admin, so the call is refused",
+                "Approval {} in turn {} was answered by {}, who is no operator, so the call is refused",
                 request.id,
                 request.turn.id,
                 by.address,
             )
-            return refused(NotRunReason.DENIED_BY_POLICY, request, Refusals.deniedByPolicy("no admin answered"))
+            return refused(NotRunReason.DENIED_BY_POLICY, request, Refusals.deniedByPolicy("no operator answered"))
         }
         return when (answer) {
             null -> {
@@ -128,14 +128,14 @@ internal class ChannelApprovals(
                 val always = grantable?.takeIf { answer.always }
                 logged(request, "is allowed by ${answer.by.address}" + if (always != null) " for good" else "")
                 always?.let { rules.grant(call, it, answer.by) }
-                judge.allowedByAdmin(request.turn.key, request.tool)
+                judge.allowedByOperator(request.turn.key, request.tool)
                 val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
                 GateResult.Admitted(clearance, call.review.preview, call.review.exempt)
             }
 
             is ApprovalAnswer.Denied -> {
                 logged(request, "is denied by ${answer.by.address}")
-                refused(NotRunReason.DENIED, request, Refusals.DENIED_BY_ADMIN)
+                refused(NotRunReason.DENIED, request, Refusals.DENIED_BY_OPERATOR)
             }
 
             ApprovalAnswer.Expired -> {

@@ -274,7 +274,7 @@ class ApprovalDeskTest {
     fun `the names and titles that Telegram gives are escaped like the rest of the request`() = runTest {
         val desk = Desk(this)
         desk.titles.note(ChatAddress(WORK, "$GROUP"), "Back\u202Eend")
-        val sender = ChatUser(UserAddress(WORK, "$BOB"), "Bo\u200Bb", "bob\u2066x", isBot = false, isAdmin = false)
+        val sender = ChatUser(UserAddress(WORK, "$BOB"), "Bo\u200Bb", "bob\u2066x", isBot = false, isOperator = false)
 
         asking(desk, request(turnOf(sender, GROUP)))
         advanceTimeBy(5.seconds)
@@ -543,7 +543,7 @@ class ApprovalDeskTest {
     }
 
     private fun user(id: Long, name: String, admin: Boolean) =
-        ChatUser(UserAddress(WORK, "$id"), name, null, isBot = false, isAdmin = admin)
+        ChatUser(UserAddress(WORK, "$id"), name, null, isBot = false, isOperator = admin)
 
     private companion object {
         const val ADA = 1001L
