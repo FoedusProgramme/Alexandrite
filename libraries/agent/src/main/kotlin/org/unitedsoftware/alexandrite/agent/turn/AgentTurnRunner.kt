@@ -109,6 +109,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -1213,6 +1214,9 @@ internal class AgentTurnRunner(
                 ?: (turn.replyTarget == ReplyTarget.CHAT)
 
             override val callable: Set<String> get() = this@Run.callable
+
+            override val chatKind: ChatKind?
+                get() = delegation?.parent?.chatKind ?: plan.input.message?.chatInfo?.kind
 
             override val overBudget: Boolean get() = this@Run.overBudget()
 

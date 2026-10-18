@@ -7,13 +7,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.text.snippet
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
+import org.unitedsoftware.alexandrite.sdk.store.TranscriptMatch
 import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
+import org.unitedsoftware.alexandrite.sdk.store.searchWords
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryId
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryRecord
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
@@ -23,6 +28,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UnknownEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
+import java.sql.ResultSet
 
 @Singleton
 @Binds(TranscriptStore::class)
@@ -87,10 +93,50 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
         }
         for (id in ids) {
             execute("DELETE FROM entry_media WHERE entry_id = ?", id)
+            unindexText(id)
             execute("DELETE FROM entries WHERE id = ?", id)
         }
         media.deleteUnreferenced(this, referred)
         ids.size
+    }
+
+    /**
+     * Ranks the matches by `bm25`, then the newest first. A word shorter than a trigram, which the index cannot look up,
+     * only filters by `LIKE`.
+     */
+    override suspend fun search(query: String, keys: Set<AgentChatKey>, limit: Int): List<TranscriptMatch> {
+        require(limit >= 1) { "A search finds at least one entry, was $limit." }
+        val words = searchWords(query)
+        if (words.isEmpty()) return emptyList()
+        val (indexed, short) = words.partition { it.codePointCount(0, it.length) >= TRIGRAM }
+        return database.transaction {
+            val scopes = keys.mapNotNull { key -> chatIdOrNull(key.chat)?.let { Scope(key.agent, it) to key } }.toMap()
+            if (scopes.isEmpty()) return@transaction emptyList()
+            val conditions = mutableListOf<String>()
+            val arguments = mutableListOf<Any?>()
+            if (indexed.isNotEmpty()) {
+                conditions += "entry_text MATCH ?"
+                arguments += indexed.joinToString(" ") { "\"${it.replace("\"", "\"\"")}\"" }
+            }
+            for (word in short) {
+                conditions += "entry_text.text LIKE ? ESCAPE '\\'"
+                arguments += "%${word.replace(LIKE_SPECIAL, "\\\\$0")}%"
+            }
+            conditions += scopes.keys.joinToString(" OR ", "(", ")") { "(c.agent = ? AND c.chat_id = ?)" }
+            for (scope in scopes.keys) arguments.addAll(listOf(scope.agent.value, scope.chat))
+            val order = if (indexed.isEmpty()) "e.id DESC" else "bm25(entry_text), e.id DESC"
+            query(
+                "SELECT e.id, e.conversation, e.turn, e.created_at, e.format, e.type, e.body, c.agent, c.chat_id, " +
+                    "entry_text.text AS text FROM entry_text JOIN entries e ON e.id = entry_text.rowid " +
+                    "JOIN conversations c ON c.id = e.conversation WHERE ${conditions.joinToString(" AND ")} " +
+                    "ORDER BY $order LIMIT ?",
+                *arguments.toTypedArray(),
+                limit,
+            ) {
+                val key = scopes.getValue(Scope(AgentId(getString("agent")), getLong("chat_id")))
+                Hit(row(), key, getString("text"))
+            }
+        }.map { TranscriptMatch(it.row.entry(), it.key, snippet(it.text, words, SNIPPET_CHARS)) }
     }
 
     private fun Tx.insert(conversation: ConversationId, turn: TurnId, encoded: Encoded): TranscriptEntry {
@@ -113,25 +159,30 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
             }
             execute("INSERT INTO entry_media (entry_id, media_id) VALUES (?, ?)", id, mediaId.value)
         }
+        indexText(id, encoded.entry)
         return encoded.entry.withRecord(EntryRecord(EntryId(id), conversation, turn, now))
     }
 
     private fun Tx.rows(where: String, vararg arguments: Any?): List<Row> = query(
         "SELECT id, conversation, turn, created_at, format, type, body FROM entries $where",
         *arguments,
-    ) {
-        Row(
-            EntryRecord(
-                EntryId(getLong("id")),
-                ConversationId(getString("conversation")),
-                TurnId(getString("turn")),
-                instant("created_at"),
-            ),
-            getInt("format"),
-            getString("type"),
-            getString("body"),
-        )
-    }
+    ) { row() }
+
+    private fun ResultSet.row(): Row = Row(
+        EntryRecord(
+            EntryId(getLong("id")),
+            ConversationId(getString("conversation")),
+            TurnId(getString("turn")),
+            instant("created_at"),
+        ),
+        getInt("format"),
+        getString("type"),
+        getString("body"),
+    )
+
+    private data class Scope(val agent: AgentId, val chat: Long)
+
+    private class Hit(val row: Row, val key: AgentChatKey, val text: String)
 
     private class Encoded(val entry: TranscriptEntry, val body: String) {
         val type: String = Json.parseToJsonElement(body).jsonObject.getValue("type").jsonPrimitive.content
@@ -165,6 +216,13 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
         }
     }
 }
+
+/** The fewest characters that the trigram index looks up. */
+private const val TRIGRAM = 3
+
+private const val SNIPPET_CHARS = 240
+
+private val LIKE_SPECIAL = Regex("[%_\\\\]")
 
 /** The field of an unknown entry's JSON that holds a body that is no JSON object. */
 private const val BODY = "body"

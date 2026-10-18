@@ -61,6 +61,7 @@ class ToolRegistryTest {
                     "fs.read",
                     "fs.secret",
                     "fs.write",
+                    "history.search",
                     "notes.add",
                     "notes.find",
                     "permission.status",

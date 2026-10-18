@@ -1,13 +1,18 @@
 package org.unitedsoftware.alexandrite.sdk.store
 
+import dev.drewhamilton.poko.Poko
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.di.BoundSpi
+import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryId
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryRecord
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
+import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UnknownEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
@@ -59,4 +64,42 @@ public interface TranscriptStore {
      * returns how many entries.
      */
     public suspend fun deleteMessage(message: ChannelMessageRef): Int
+
+    /**
+     * The stored entries of every conversation of [keys] whose [searchText] holds each of the [searchWords] of [query],
+     * ignoring case, the best matches first and at most [limit] of them; empty for a store that does not search.
+     * Throws [IllegalArgumentException] when [limit] is less than 1.
+     */
+    public suspend fun search(query: String, keys: Set<AgentChatKey>, limit: Int): List<TranscriptMatch> {
+        require(limit >= 1) { "A search finds at least one entry, was $limit." }
+        return emptyList()
+    }
 }
+
+/** An entry that [TranscriptStore.search] found in a conversation of [key]. */
+@Poko
+public class TranscriptMatch(
+    public val entry: TranscriptEntry,
+    public val key: AgentChatKey,
+    /** A part of the entry's [searchText] around a match. */
+    public val snippet: String,
+)
+
+/** The words that [TranscriptStore.search] looks for in [query]. */
+public fun searchWords(query: String): List<String> = query.split(WHITESPACE).filter { it.isNotEmpty() }
+
+/**
+ * The text of this entry that [TranscriptStore.search] looks through: the text parts of what a person or a plugin
+ * wrote, of a model's answers and of tool results, one per line.
+ */
+public fun TranscriptEntry.searchText(): String {
+    val parts = when (this) {
+        is UserEntry -> parts.takeIf { origin is UserOrigin.FromChat || origin is UserOrigin.Initiated }.orEmpty()
+        is AssistantEntry -> parts
+        is ToolResultEntry -> content
+        else -> emptyList()
+    }
+    return parts.filterIsInstance<TextPart>().joinToString("\n") { it.text }
+}
+
+private val WHITESPACE = Regex("\\s+")

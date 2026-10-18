@@ -10,6 +10,9 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
+import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
+import org.unitedsoftware.alexandrite.sdk.transcript.NoticeKind
+import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptCodec
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -113,8 +116,39 @@ class StoreDatabaseTest {
         assertEquals(null, before)
         assertEquals(true, marked)
         assertEquals(ConversationTaint(at, "a forwarded message"), after)
+        connect(file).use { assertEquals(STORE_MIGRATIONS.size, it.userVersion()) }
+    }
+
+    @Test
+    fun `a store of version 5 gets its readable entries' text indexed`() {
+        storeWithTurn(version = 5)
+        val now = MutableClock().instant
+        val bodies = listOf(
+            TranscriptCodec.FORMAT_VERSION to TranscriptCodec.encode(message("Old rocket notes")),
+            TranscriptCodec.FORMAT_VERSION to TranscriptCodec.encode(NoticeEntry(null, "rocket", NoticeKind.FAILED)),
+            TranscriptCodec.FORMAT_VERSION + 1 to TranscriptCodec.encode(message("rocket of the future")),
+            TranscriptCodec.FORMAT_VERSION to TranscriptCodec.encode(message("The rocket is back")),
+        )
+        openStore(file, STORE_MIGRATIONS.take(5), now).use { connection ->
+            connection.inTransaction(now) {
+                for ((format, body) in bodies) {
+                    execute(
+                        "INSERT INTO entries (conversation, turn, type, created_at, format, body) " +
+                            "VALUES ('c1', 't1', 'user', 0, ?, ?)",
+                        format,
+                        body,
+                    )
+                }
+            }
+        }
+
+        val found = withStore(directory) {
+            transcripts.search("rocket", setOf(main), 10).map { it.entry.record?.id?.value to it.snippet }
+        }
+
+        assertEquals(setOf(1L to "Old rocket notes", 4L to "The rocket is back"), found.toSet())
         connect(file).use {
-            assertEquals(5, STORE_MIGRATIONS.size)
+            assertEquals(6, STORE_MIGRATIONS.size)
             assertEquals(STORE_MIGRATIONS.size, it.userVersion())
         }
     }

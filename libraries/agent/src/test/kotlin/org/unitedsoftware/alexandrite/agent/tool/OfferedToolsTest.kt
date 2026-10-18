@@ -116,6 +116,7 @@ class OfferedToolsTest {
                         "chat.send",
                         "chat.send_file",
                         "fs.read",
+                        "history.search",
                         "notes.write",
                         "permission.status",
                         "profile.create",
@@ -158,7 +159,7 @@ class OfferedToolsTest {
             assertEquals(entries.take(5), model.requests[2].history.take(5))
             val tools = setOf(
                 "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.list", "chat.send",
-                "chat.send_file", "fs.edit", "fs.read",
+                "chat.send_file", "fs.edit", "fs.read", "history.search",
                 "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
                 "skill.load",
             )
@@ -222,7 +223,7 @@ class OfferedToolsTest {
             assertEquals(listOf("UserEntry", "AssistantEntry"), kinds(stored()))
             val tools = setOf(
                 "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.list", "chat.send",
-                "chat.send_file", "fs.edit", "fs.read",
+                "chat.send_file", "fs.edit", "fs.read", "history.search",
                 "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
                 "skill.load",
             )

@@ -106,6 +106,7 @@ class RepositoryQuestionTest {
                 "fs.grep",
                 "fs.read",
                 "fs.write",
+                "history.search",
                 "permission.status",
                 "persona.edit",
                 "profile.create",

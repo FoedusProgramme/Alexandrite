@@ -6,6 +6,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.ReplySink
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
@@ -61,6 +62,9 @@ internal interface DelegatingTurn : TurnCalls {
 
     /** The names of the tools that the turn may call. */
     val callable: Set<String>
+
+    /** The kind of the chat that the root turn's message came from, null when it came from none. */
+    val chatKind: ChatKind? get() = null
 
     /** Whether the turn or one it descends from used up its token budget. */
     val overBudget: Boolean

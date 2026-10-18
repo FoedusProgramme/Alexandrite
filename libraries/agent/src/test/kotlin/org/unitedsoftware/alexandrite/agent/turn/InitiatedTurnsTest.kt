@@ -183,6 +183,7 @@ class InitiatedTurnsTest {
                     "chat.send",
                     "chat.send_file",
                     "fs.read",
+                    "history.search",
                     "permission.status",
                     "profile.create",
                     "profile.edit",

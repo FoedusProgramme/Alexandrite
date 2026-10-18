@@ -137,6 +137,7 @@ class ToolRoundsTest {
                     "chat.send",
                     "chat.send_file",
                     "fs.read",
+                    "history.search",
                     "permission.status",
                     "profile.create",
                     "profile.edit",
@@ -384,6 +385,7 @@ class ToolRoundsTest {
                     "chat.send",
                     "chat.send_file",
                     "fs.read",
+                    "history.search",
                     "permission.status",
                     "profile.create",
                     "profile.edit",
@@ -548,9 +550,8 @@ class ToolRoundsTest {
                 List(3) {
                     listOf(
                         "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.list", "chat.send",
-                        "chat.send_file", "fs.glob", "fs.read",
-                        "fs.write", "permission.status", "profile.create", "profile.edit", "profile.list",
-                        "profile.remove",
+                        "chat.send_file", "fs.glob", "fs.read", "fs.write", "history.search",
+                        "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
                         "skill.load",
                     ) to ToolChoice.Auto
                 },
@@ -588,6 +589,7 @@ class ToolRoundsTest {
                         "chat.send",
                         "chat.send_file",
                         "fs.read",
+                        "history.search",
                         "permission.status",
                         "profile.create",
                         "profile.edit",
@@ -625,6 +627,7 @@ class ToolRoundsTest {
                         "chat.send",
                         "chat.send_file",
                         "fs.read",
+                        "history.search",
                         "permission.status",
                         "profile.create",
                         "profile.edit",

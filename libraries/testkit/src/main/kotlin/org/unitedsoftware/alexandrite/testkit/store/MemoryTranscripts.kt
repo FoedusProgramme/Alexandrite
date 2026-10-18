@@ -1,10 +1,15 @@
 package org.unitedsoftware.alexandrite.testkit.store
 
+import org.unitedsoftware.alexandrite.internal.text.snippet
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
+import org.unitedsoftware.alexandrite.sdk.store.TranscriptMatch
 import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
+import org.unitedsoftware.alexandrite.sdk.store.searchText
+import org.unitedsoftware.alexandrite.sdk.store.searchWords
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryId
 import org.unitedsoftware.alexandrite.sdk.transcript.EntryRecord
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
@@ -74,8 +79,44 @@ internal class MemoryTranscripts(private val data: MemoryData) : TranscriptStore
         deleted.size
     }
 
+    /** Ranks the matches by how often the words occur, then the newest first. */
+    override suspend fun search(query: String, keys: Set<AgentChatKey>, limit: Int): List<TranscriptMatch> {
+        require(limit >= 1) { "A search finds at least one entry, was $limit." }
+        val words = searchWords(query)
+        if (words.isEmpty()) return emptyList()
+        val searched = data.locked {
+            entries.values.mapNotNull { stored ->
+                conversations[stored.record.conversation]?.key?.takeIf { it in keys }?.let { stored to it }
+            }
+        }
+        val found = searched.mapNotNull { (stored, key) ->
+            val entry = stored.read()
+            val text = entry.searchText()
+            if (!words.all { text.contains(it, ignoreCase = true) }) return@mapNotNull null
+            val score = words.sumOf { occurrences(text, it) }
+            Found(TranscriptMatch(entry, key, snippet(text, words, SNIPPET_CHARS)), score, stored.record.id.value)
+        }
+        return found.sortedWith(BEST_FIRST).take(limit).map { it.match }
+    }
+
     private fun StoredEntry.read(): TranscriptEntry = TranscriptCodec.decode(body).withRecord(record)
 }
+
+private class Found(val match: TranscriptMatch, val score: Int, val id: Long)
+
+private val BEST_FIRST = compareByDescending<Found> { it.score }.thenByDescending { it.id }
+
+private fun occurrences(text: String, word: String): Int {
+    var count = 0
+    var at = text.indexOf(word, ignoreCase = true)
+    while (at >= 0) {
+        count++
+        at = text.indexOf(word, at + word.length, ignoreCase = true)
+    }
+    return count
+}
+
+private const val SNIPPET_CHARS = 240
 
 private fun TranscriptEntry.storedMedia(): Set<MediaId> =
     mediaParts().mapNotNullTo(LinkedHashSet()) { (it.source as? StoredMedia)?.id }
