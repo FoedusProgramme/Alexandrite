@@ -10,7 +10,7 @@ plugins {
 val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
 
 group = module.group
-version = "0.1.0-SNAPSHOT"
+version = providers.gradleProperty("alexandrite.version").getOrElse("0.1.0-SNAPSHOT")
 
 val libs = the<VersionCatalogsExtension>().named("libs")
 

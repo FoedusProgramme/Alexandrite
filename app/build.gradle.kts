@@ -50,3 +50,24 @@ tasks.test {
         .withPropertyName("exampleConfig")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
+
+tasks.distTar {
+    compression = Compression.GZIP
+    archiveExtension = "tar.gz"
+}
+
+val installScriptTest = tasks.register<Exec>("installScriptTest") {
+    val script = file("src/installTest/install-test.sh")
+    val archive = tasks.distTar.flatMap { it.archiveFile }
+    val stamp = layout.buildDirectory.file("install-script-test/passed")
+    inputs.files(script, rootProject.file("website/install.sh")).withPathSensitivity(PathSensitivity.RELATIVE)
+    inputs.file(archive).withPathSensitivity(PathSensitivity.NONE)
+    outputs.file(stamp)
+    onlyIf { !System.getProperty("os.name").startsWith("Windows") }
+    commandLine("sh", script.absolutePath, archive.get().asFile.absolutePath)
+    doLast { stamp.get().asFile.writeText("") }
+}
+
+tasks.check {
+    dependsOn(installScriptTest)
+}
