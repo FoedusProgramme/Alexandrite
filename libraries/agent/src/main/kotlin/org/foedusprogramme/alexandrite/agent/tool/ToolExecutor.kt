@@ -27,6 +27,7 @@ import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.tool.ReviewPreview
@@ -88,6 +89,7 @@ internal class ToolExecutor(
         callable: Set<String>,
         taint: TurnTaint,
         calls: TurnCalls,
+        trigger: ChannelMessageRef?,
     ): ToolCallEnd {
         val tool = tools[call.name]
             ?: return ended(call, "No tool named '${call.name}' is offered.", NotRunReason.UNKNOWN_TOOL, calls)
@@ -97,7 +99,7 @@ internal class ToolExecutor(
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS, calls)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
-        val reviewing = AgentToolContext(turn, call.id, workspaces, directories, null, taint)
+        val reviewing = AgentToolContext(turn, call.id, workspaces, directories, null, taint, trigger)
         val admission = try {
             gate.admit(GateCall(turn, call, tool, arguments, limit, taint, reviewing, calls))
         } finally {
@@ -120,6 +122,7 @@ internal class ToolExecutor(
                     directories,
                     admission.clearance,
                     taint,
+                    trigger,
                     delegating,
                     startsInBackground = admission.background && tool !is InTurnTool,
                     granting = { grants.grant(turn, tool) },

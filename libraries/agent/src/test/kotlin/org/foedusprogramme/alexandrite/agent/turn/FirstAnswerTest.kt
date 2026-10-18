@@ -96,13 +96,14 @@ class FirstAnswerTest {
 
     private suspend fun end(turn: TurnId): TurnEndKind? = store.conversations.turn(turn)?.end
 
-    private fun framing(chat: String = "direct"): ContextPart = ContextPart(
+    private fun framing(chat: String = "direct", id: String = "in-1"): ContextPart = ContextPart(
         "alexandrite.message",
         listOf(
             "[alexandrite:message]",
             "From: Member",
             "Operator: no",
             "Received: 2026-01-01T00:00Z",
+            "Message id: $id",
             "Chat: $chat",
             "[/alexandrite:message]",
         ).joinToString("\n"),

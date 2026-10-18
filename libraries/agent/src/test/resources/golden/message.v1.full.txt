@@ -2,6 +2,7 @@
 From: Bob Smith
 Operator: no
 Received: 2026-03-01T09:30Z
+Message id: 1
 Chat: group "Team chat" on telegram:work
 Forwarded from: News (chat)
 Quoting: unknown (verified)
