@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.sdk.chat
 
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
+import java.time.ZoneId
 
 /**
  * The identity of one turn, carried by every turn-scoped payload.
@@ -26,6 +27,8 @@ public class TurnInfo private constructor(
     /** The principal whose authority the turn carries, which delegated turns and approval continuations inherit. */
     public val actor: ChatUser?,
     public val language: LanguageTag?,
+    /** The zone the chat's times are told in, null where nothing named one and the host's applies. */
+    public val zone: ZoneId?,
     public val agent: AgentId,
     /** How a delegated turn descends from a top-level one, null for a top-level turn. */
     public val lineage: TurnLineage?,
@@ -44,6 +47,7 @@ public class TurnInfo private constructor(
     public fun toBuilder(): Builder = Builder(id, chat, conversation, kind)
         .actor(actor)
         .language(language)
+        .zone(zone)
         .agent(agent)
         .lineage(lineage)
         .replyTarget(replyTarget)
@@ -57,6 +61,7 @@ public class TurnInfo private constructor(
     ) {
         private var actor: ChatUser? = null
         private var language: LanguageTag? = null
+        private var zone: ZoneId? = null
         private var agent: AgentId = AgentId.MAIN
         private var lineage: TurnLineage? = null
         private var replyTarget: ReplyTarget = ReplyTarget.CHAT
@@ -74,6 +79,8 @@ public class TurnInfo private constructor(
 
         public fun language(language: LanguageTag?): Builder = apply { this.language = language }
 
+        public fun zone(zone: ZoneId?): Builder = apply { this.zone = zone }
+
         public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
         public fun lineage(lineage: TurnLineage?): Builder = apply { this.lineage = lineage }
@@ -90,6 +97,7 @@ public class TurnInfo private constructor(
             kind,
             actor,
             language,
+            zone,
             agent,
             lineage,
             replyTarget,

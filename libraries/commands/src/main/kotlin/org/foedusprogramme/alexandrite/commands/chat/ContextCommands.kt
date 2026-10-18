@@ -32,7 +32,7 @@ internal class ContextCommands(private val control: AgentControl, private val te
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
-        val replies = texts.replies(context.turn.language)
+        val replies = texts.replies(context.turn)
         when {
             commandWord(invocation.name) == COMPACT -> compact(invocation, context, replies)
             invocation.arguments.isNotBlank() -> context.reply(replies.usage(CONTEXT))
@@ -64,7 +64,7 @@ internal class ContextCommands(private val control: AgentControl, private val te
 
     private fun used(status: ContextStatus, replies: Replies): String {
         val prompt = status.promptTokens ?: return replies.text(TextKeys.CONTEXT_UNMEASURED)
-        val time = status.measuredAt?.let(::timeOf)
+        val time = status.measuredAt?.let { timeOf(it, replies) }
         val window = status.window
             ?: return replies.text(TextKeys.CONTEXT_USED_NO_WINDOW, "prompt" to prompt, "time" to time)
         return replies.text(
@@ -83,10 +83,11 @@ internal class ContextCommands(private val control: AgentControl, private val te
 
     private fun summary(status: ContextStatus, replies: Replies): String {
         val at = status.compactedAt ?: return replies.text(TextKeys.CONTEXT_NOT_COMPACTED)
-        return replies.text(TextKeys.CONTEXT_COMPACTED, "time" to timeOf(at), "count" to status.summarized)
+        return replies.text(TextKeys.CONTEXT_COMPACTED, "time" to timeOf(at, replies), "count" to status.summarized)
     }
 
-    private fun timeOf(instant: Instant): String = TIME.format(instant.atZone(clock.zone))
+    private fun timeOf(instant: Instant, replies: Replies): String =
+        TIME.format(instant.atZone(replies.zone ?: clock.zone))
 
     private companion object {
         const val COMPACT = "compact"

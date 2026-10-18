@@ -25,6 +25,7 @@ import org.foedusprogramme.alexandrite.agent.context.contextView
 import org.foedusprogramme.alexandrite.agent.control.PendingCommands
 import org.foedusprogramme.alexandrite.agent.control.PendingComparison
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
+import org.foedusprogramme.alexandrite.agent.control.effectiveZone
 import org.foedusprogramme.alexandrite.agent.delegation.DELEGATE_TOOL
 import org.foedusprogramme.alexandrite.agent.delegation.Delegation
 import org.foedusprogramme.alexandrite.agent.delegation.MAX_DEPTH
@@ -156,6 +157,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.time.ZoneId
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -361,10 +363,12 @@ internal class AgentTurnRunner(
             agent = checkNotNull(directory.agent(key.agent)) { "No agent '${key.agent}' is configured." }
             val delegation = delegation
             val language: LanguageTag?
+            val zone: ZoneId
             if (delegation == null) {
                 model = settings.model(key) ?: checkNotNull(agent.model) { "Agent '${agent.id}' has no model." }
                 reasoning = settings.reasoning(key) ?: agent.reasoning
                 language = settings.language(key) ?: agent.language
+                zone = settings.effectiveZone(key, agent, clock)
                 maxRounds = agent.config.maxRounds
                 maxTurnTokens = agent.config.maxTurnTokens
             } else {
@@ -372,6 +376,7 @@ internal class AgentTurnRunner(
                 model = profile.model ?: delegation.parent.model
                 reasoning = profile.reasoning ?: delegation.parent.reasoning
                 language = delegation.parent.turn.language
+                zone = delegation.parent.turn.zone ?: clock.zone
                 maxRounds = profile.maxRounds
                 maxTurnTokens = profile.maxTurnTokens
             }
@@ -394,6 +399,7 @@ internal class AgentTurnRunner(
             val turn = TurnInfo.builder(plan.id, plan.origin, conversation.id, plan.kind)
                 .actor(plan.actor)
                 .language(language)
+                .zone(zone)
                 .agent(key.agent)
                 .lineage(delegation?.lineage)
                 .replyTarget(plan.replyTarget)
@@ -484,7 +490,15 @@ internal class AgentTurnRunner(
 
             is TurnSource.FromInitiated -> {
                 if (input.trust == Trust.UNTRUSTED) taint.mark("an untrusted prompt of plugin '${input.plugin}'")
-                initiatedEntry(input.plugin, turn.kind, input.trust, plan.queuedAt, text, clock.zone, baked)
+                initiatedEntry(
+                    input.plugin,
+                    turn.kind,
+                    input.trust,
+                    plan.queuedAt,
+                    text,
+                    turn.zone ?: clock.zone,
+                    baked,
+                )
             }
 
             is TurnSource.FromAgentMessage -> {
@@ -495,7 +509,7 @@ internal class AgentTurnRunner(
                     Trust.UNTRUSTED,
                     plan.queuedAt,
                     "Agent ${input.message.sender.agent}:\n$text",
-                    clock.zone,
+                    turn.zone ?: clock.zone,
                     baked,
                 )
             }
@@ -513,7 +527,7 @@ internal class AgentTurnRunner(
             val carried = job.result.content.zip(stored.content).mapNotNull { (part, kept) ->
                 (kept as? UserPart)?.takeIf { part is MediaPart }
             }
-            return jobEntry(job, text, clock.zone, carried)
+            return jobEntry(job, text, turn.zone ?: clock.zone, carried)
         }
 
         /** Whether the conversation of [job] still takes entries. */
@@ -575,7 +589,13 @@ internal class AgentTurnRunner(
             baked: List<ContextPart>,
         ): UserEntry {
             val linked = topology.group(turn.agent, message.chat) != null
-            return messageEntry(message, text, clock.zone, linked, baked + media.put(turn, message, images))
+            return messageEntry(
+                message,
+                text,
+                turn.zone ?: clock.zone,
+                linked,
+                baked + media.put(turn, message, images),
+            )
         }
 
         /** Marks the turn tainted where [message] was forwarded or quotes what its channel does not vouch for. */

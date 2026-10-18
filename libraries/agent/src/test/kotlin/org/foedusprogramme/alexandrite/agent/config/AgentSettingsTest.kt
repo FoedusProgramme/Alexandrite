@@ -191,7 +191,7 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `a model, reasoning effort or language that does not parse fails the start`() {
+    fun `a model, reasoning effort, language or zone that does not parse fails the start`() {
         assertConfigFails(
             agents(""""coder": {"model": "sonnet"}"""),
             "agents.coder.model is no model reference: write <endpoint>/<model>, such as " +
@@ -204,6 +204,11 @@ class AgentSettingsTest {
         assertConfigFails(
             agents(""""coder": {"language": "no tag"}"""),
             "agents.coder.language is no BCP 47 language tag, such as \"zh-CN\"",
+        )
+        assertConfigFails(
+            agents(""""coder": {"zone": "Mars/Olympus"}"""),
+            "agents.coder.zone is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as " +
+                "\"+08:00\"",
         )
     }
 

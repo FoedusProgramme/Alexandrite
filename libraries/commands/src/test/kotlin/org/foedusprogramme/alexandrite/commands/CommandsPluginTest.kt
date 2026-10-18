@@ -101,6 +101,7 @@ class CommandsPluginTest {
             "profiles",
             "reasoning",
             "settings",
+            "timezone",
             "trust",
             "unlink",
             "untaint",

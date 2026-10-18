@@ -56,6 +56,10 @@ internal object TextKeys {
     const val LANGUAGE_SET: String = "language.set"
     const val LANGUAGE_RESET: String = "language.reset"
     const val LANGUAGE_MALFORMED: String = "language.malformed"
+    const val TIMEZONE_CURRENT: String = "timezone.current"
+    const val TIMEZONE_SET: String = "timezone.set"
+    const val TIMEZONE_RESET: String = "timezone.reset"
+    const val TIMEZONE_MALFORMED: String = "timezone.malformed"
 
     const val MODE_CURRENT: String = "mode.current"
     const val MODE_CURRENT_BYPASS: String = "mode.current_bypass"
@@ -95,6 +99,7 @@ internal object TextKeys {
     const val SETTINGS_MODEL: String = "settings.model"
     const val SETTINGS_REASONING: String = "settings.reasoning"
     const val SETTINGS_LANGUAGE: String = "settings.language"
+    const val SETTINGS_TIMEZONE: String = "settings.timezone"
     const val SETTINGS_MODE: String = "settings.mode"
     const val SETTINGS_MODE_BYPASS: String = "settings.mode_bypass"
     const val SETTINGS_HOME_HERE: String = "settings.home_here"
@@ -141,6 +146,7 @@ internal object TextKeys {
     const val SOURCE_NO_MODEL: String = "source.no_model"
     const val SOURCE_MODEL_DEFAULT: String = "source.model_default"
     const val SOURCE_HOST_DEFAULT: String = "source.host_default"
+    const val SOURCE_HOST_ZONE: String = "source.host_zone"
     const val SOURCE_DEFAULT: String = "source.default"
 
     const val VALUE_DEFAULT: String = "value.default"

@@ -118,6 +118,7 @@ class TelegramChatTest {
             Model: scripted/$FAST_MODEL (set in this chat)
             Reasoning effort: low (the agent's setting)
             Language: default (the host's language)
+            Time zone: UTC (the host's time zone)
             Permission mode: ask (the default)
             Home: coder has no home chat on telegram:work
             Linked: no other chat shares the conversation of coder

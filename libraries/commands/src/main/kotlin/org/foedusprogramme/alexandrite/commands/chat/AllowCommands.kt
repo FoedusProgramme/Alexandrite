@@ -32,7 +32,7 @@ internal class AllowCommands(private val control: AgentControl, private val text
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
-        val replies = texts.replies(context.turn.language)
+        val replies = texts.replies(context.turn)
         val words = words(invocation.arguments)
         val number = words.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }
         when {
@@ -74,8 +74,8 @@ internal class AllowCommands(private val control: AgentControl, private val text
         val by = rule.grantedBy
         val source = when {
             at == null -> replies.text(TextKeys.ALLOW_DECLARED)
-            by == null -> replies.text(TextKeys.ALLOW_GRANTED_BY_HOST, "date" to dateOf(at))
-            else -> replies.text(TextKeys.ALLOW_GRANTED, "user" to by.displayName, "date" to dateOf(at))
+            by == null -> replies.text(TextKeys.ALLOW_GRANTED_BY_HOST, "date" to dateOf(at, replies))
+            else -> replies.text(TextKeys.ALLOW_GRANTED, "user" to by.displayName, "date" to dateOf(at, replies))
         }
         val subject = rule.subject
         return replies.text(
@@ -87,7 +87,8 @@ internal class AllowCommands(private val control: AgentControl, private val text
         )
     }
 
-    private fun dateOf(instant: Instant): LocalDate = LocalDate.ofInstant(instant, clock.zone)
+    private fun dateOf(instant: Instant, replies: Replies): LocalDate =
+        LocalDate.ofInstant(instant, replies.zone ?: clock.zone)
 
     private companion object {
         const val ALLOW = "allow"

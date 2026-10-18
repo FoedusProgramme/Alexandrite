@@ -100,6 +100,7 @@ internal class CommandRules(
             "agent" to CommandRule(Who.ANYONE, Who.DIRECT),
             "reasoning" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "language" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
+            "timezone" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
             "model" to CommandRule(Who.ANYONE, Who.ADMIN),
             "mode" to CommandRule(Who.ANYONE, Who.ADMIN),
             "jobs" to CommandRule(Who.ANYONE, Who.ADMIN),

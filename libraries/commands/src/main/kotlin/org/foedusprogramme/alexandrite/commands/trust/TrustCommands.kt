@@ -33,7 +33,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
-        val replies = texts.replies(context.turn.language)
+        val replies = texts.replies(context.turn)
         val argument = unquoted(invocation.arguments.trim())
         when (val name = commandWord(invocation.name)) {
             TRUST -> when {
@@ -58,7 +58,12 @@ internal class TrustCommands(private val control: AgentControl, private val text
         val cleared = context.refusing { control.untaint(invocation.chat, invocation.issuer) }
         val text = when {
             cleared == null -> replies.text(TextKeys.UNTAINT_CLEAN)
-            else -> replies.text(TextKeys.UNTAINT_DONE, "reason" to cleared.reason, "date" to dateOf(cleared.at))
+
+            else -> replies.text(
+                TextKeys.UNTAINT_DONE,
+                "reason" to cleared.reason,
+                "date" to dateOf(cleared.at, replies),
+            )
         }
         context.reply(text)
     }
@@ -107,22 +112,23 @@ internal class TrustCommands(private val control: AgentControl, private val text
                 TextKeys.TRUST_DECLARED_GRANTED,
                 "folder" to folder.path,
                 "user" to (by?.displayName ?: replies.text(TextKeys.VALUE_HOST)),
-                "date" to dateOf(at),
+                "date" to dateOf(at, replies),
             )
 
             by == null ->
-                replies.text(TextKeys.TRUST_GRANTED_BY_HOST, "folder" to folder.path, "date" to dateOf(at))
+                replies.text(TextKeys.TRUST_GRANTED_BY_HOST, "folder" to folder.path, "date" to dateOf(at, replies))
 
             else -> replies.text(
                 TextKeys.TRUST_GRANTED,
                 "folder" to folder.path,
                 "user" to by.displayName,
-                "date" to dateOf(at),
+                "date" to dateOf(at, replies),
             )
         }
     }
 
-    private fun dateOf(instant: Instant): LocalDate = LocalDate.ofInstant(instant, clock.zone)
+    private fun dateOf(instant: Instant, replies: Replies): LocalDate =
+        LocalDate.ofInstant(instant, replies.zone ?: clock.zone)
 
     /** The absolute folder [text] names, null once the reply says why it names none. */
     private suspend fun folder(command: String, text: String, context: CommandContext, replies: Replies): Path? {

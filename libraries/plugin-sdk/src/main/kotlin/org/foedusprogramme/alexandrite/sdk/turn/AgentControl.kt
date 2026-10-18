@@ -24,6 +24,7 @@ import org.foedusprogramme.alexandrite.sdk.transcript.EndpointId
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.Path
 import java.time.Instant
+import java.time.ZoneId
 
 /**
  * The agent's control primitives, which check no permissions and record who asked as `by`.
@@ -382,6 +383,8 @@ public class ChatSettingsSnapshot private constructor(
     /** When the chat's [PermissionMode.BYPASS] ends. */
     public val modeUntil: Instant?,
     public val defaultMode: PermissionMode?,
+    public val zone: ZoneId?,
+    public val defaultZone: ZoneId?,
 ) {
     init {
         require(modeUntil == null || mode == PermissionMode.BYPASS) {
@@ -395,6 +398,9 @@ public class ChatSettingsSnapshot private constructor(
     /** The permission mode of the chat, [PermissionMode.ASK] when neither the chat nor [agent] sets one. */
     public val effectiveMode: PermissionMode get() = mode ?: defaultMode ?: PermissionMode.ASK
 
+    /** The zone [agent] tells the chat's times in, null when the host's zone applies. */
+    public val effectiveZone: ZoneId? get() = zone ?: defaultZone
+
     public fun toBuilder(): Builder = Builder(agent)
         .model(model)
         .reasoning(reasoning)
@@ -406,6 +412,8 @@ public class ChatSettingsSnapshot private constructor(
         .defaultLanguage(defaultLanguage)
         .mode(mode, modeUntil)
         .defaultMode(defaultMode)
+        .zone(zone)
+        .defaultZone(defaultZone)
 
     public class Builder internal constructor(private var agent: AgentId) {
         private var model: ModelRef? = null
@@ -419,6 +427,8 @@ public class ChatSettingsSnapshot private constructor(
         private var mode: PermissionMode? = null
         private var modeUntil: Instant? = null
         private var defaultMode: PermissionMode? = null
+        private var zone: ZoneId? = null
+        private var defaultZone: ZoneId? = null
 
         public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
@@ -447,6 +457,10 @@ public class ChatSettingsSnapshot private constructor(
 
         public fun defaultMode(defaultMode: PermissionMode?): Builder = apply { this.defaultMode = defaultMode }
 
+        public fun zone(zone: ZoneId?): Builder = apply { this.zone = zone }
+
+        public fun defaultZone(defaultZone: ZoneId?): Builder = apply { this.defaultZone = defaultZone }
+
         public fun build(): ChatSettingsSnapshot = ChatSettingsSnapshot(
             agent,
             model,
@@ -460,6 +474,8 @@ public class ChatSettingsSnapshot private constructor(
             mode,
             modeUntil,
             defaultMode,
+            zone,
+            defaultZone,
         )
     }
 
@@ -514,6 +530,7 @@ public class ChatSettingsUpdate private constructor(
     public val mode: SettingChange<PermissionMode>,
     /** When the bypass that [mode] sets ends, at most a day after the update, null for an hour after it. */
     public val modeUntil: Instant?,
+    public val zone: SettingChange<ZoneId>,
 ) {
     init {
         require(modeUntil == null || (mode as? SettingChange.SetTo)?.value == PermissionMode.BYPASS) {
@@ -521,7 +538,7 @@ public class ChatSettingsUpdate private constructor(
         }
     }
 
-    public fun toBuilder(): Builder = Builder(agent, model, reasoning, language, home, mode, modeUntil)
+    public fun toBuilder(): Builder = Builder(agent, model, reasoning, language, home, mode, modeUntil, zone)
 
     public class Builder internal constructor(
         private var agent: SettingChange<AgentId>,
@@ -531,6 +548,7 @@ public class ChatSettingsUpdate private constructor(
         private var home: SettingChange<Boolean>,
         private var mode: SettingChange<PermissionMode>,
         private var modeUntil: Instant?,
+        private var zone: SettingChange<ZoneId>,
     ) {
         public fun agent(agent: AgentId): Builder = apply { this.agent = SettingChange.SetTo(agent) }
 
@@ -565,8 +583,12 @@ public class ChatSettingsUpdate private constructor(
             modeUntil = null
         }
 
+        public fun zone(zone: ZoneId): Builder = apply { this.zone = SettingChange.SetTo(zone) }
+
+        public fun resetZone(): Builder = apply { zone = SettingChange.Reset }
+
         public fun build(): ChatSettingsUpdate =
-            ChatSettingsUpdate(agent, model, reasoning, language, home, mode, modeUntil)
+            ChatSettingsUpdate(agent, model, reasoning, language, home, mode, modeUntil, zone)
     }
 
     public companion object {
@@ -578,6 +600,7 @@ public class ChatSettingsUpdate private constructor(
             home = SettingChange.Keep,
             mode = SettingChange.Keep,
             modeUntil = null,
+            zone = SettingChange.Keep,
         )
     }
 }

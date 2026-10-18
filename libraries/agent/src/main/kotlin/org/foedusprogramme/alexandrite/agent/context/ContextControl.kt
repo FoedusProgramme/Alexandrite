@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.control.SettingsStates
+import org.foedusprogramme.alexandrite.agent.control.effectiveZone
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
 import org.foedusprogramme.alexandrite.agent.model.Endpoints
@@ -63,6 +64,7 @@ internal class ContextControl(
         val turn = TurnInfo.builder(newTurnId(clock.instant()), chat, conversation, TurnKind.COMMAND)
             .actor(by)
             .language(states.language(key) ?: agent.language)
+            .zone(states.effectiveZone(key, agent, clock))
             .agent(key.agent)
             .key(key)
             .build()

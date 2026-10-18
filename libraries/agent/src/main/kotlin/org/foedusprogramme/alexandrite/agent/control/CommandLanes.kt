@@ -261,10 +261,11 @@ internal class CommandLanes(
         val served = router.resolve(command.chat) as? Resolution.Served
             ?: throw IllegalStateException("No agent serves ${command.chat}.")
         val key = served.key
-        val language = states.language(key) ?: directory.agent(key.agent)?.language
+        val agent = directory.agent(key.agent)
         return TurnInfo.builder(invocation.turn, command.chat, conversations.current(key).id, TurnKind.COMMAND)
             .actor(command.issuer)
-            .language(language)
+            .language(states.language(key) ?: agent?.language)
+            .zone(states.effectiveZone(key, agent, clock))
             .agent(key.agent)
             .key(key)
             .build()

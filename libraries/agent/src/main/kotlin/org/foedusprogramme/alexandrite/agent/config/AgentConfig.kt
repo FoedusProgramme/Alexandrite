@@ -25,6 +25,8 @@ internal class AgentConfig(
     val reasoning: String? = null,
     /** A BCP 47 tag. */
     val language: String? = null,
+    /** The zone the agent tells times in, such as `Asia/Shanghai`, the host's when null. */
+    val zone: String? = null,
     val maxOutputTokens: Int? = null,
     val temperature: Double? = null,
     /** The tool rounds of one turn, unlimited when null. */

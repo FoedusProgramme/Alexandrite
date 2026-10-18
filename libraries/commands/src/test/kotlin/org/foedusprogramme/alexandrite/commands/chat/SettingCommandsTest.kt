@@ -30,6 +30,8 @@ import org.foedusprogramme.alexandrite.testkit.testChat
 import org.foedusprogramme.alexandrite.testkit.testCommand
 import java.io.IOException
 import java.time.Duration
+import java.time.ZoneId
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -260,6 +262,57 @@ class SettingCommandsTest {
         assertEquals(emptyList(), control.calls)
     }
 
+    // /timezone.
+
+    @Test
+    fun `timezone shows, sets and resets the zone, each with the time there`() = runTest {
+        control.scriptAgent(AgentId.MAIN, "Main", zone = ZoneId.of("Europe/Berlin"))
+
+        assertEquals(
+            "Time zone: Europe/Berlin (the agent's setting). It is 2026-01-01 01:00 +01:00 there now.",
+            commands.answer(testCommand("timezone")),
+        )
+        assertEquals(
+            "The time zone of this chat is now Asia/Shanghai. It is 2026-01-01 08:00 +08:00 there now.",
+            commands.answer(testCommand("timezone", "asia/shanghai")),
+        )
+        assertEquals(
+            "Time zone: Asia/Shanghai (set in this chat). It is 2026-01-01 08:00 +08:00 there now.",
+            commands.answer(testCommand("timezone")),
+        )
+        commands.answer(testCommand("timezone", "+05:30"))
+        assertEquals(
+            "The time zone is Europe/Berlin again (the agent's setting). It is 2026-01-01 01:00 +01:00 there now.",
+            commands.answer(testCommand("timezone", "reset")),
+        )
+        assertEquals(
+            listOf(
+                ChatSettingsUpdate.builder().zone(ZoneId.of("Asia/Shanghai")).build(),
+                ChatSettingsUpdate.builder().zone(ZoneOffset.ofHoursMinutes(5, 30)).build(),
+                ChatSettingsUpdate.builder().resetZone().build(),
+            ),
+            control.calls.map { (it as Call.UpdateSettings).update },
+        )
+    }
+
+    @Test
+    fun `timezone falls back to the host's zone, and a zone that is none changes nothing`() = runTest {
+        assertEquals(
+            "Time zone: UTC (the host's time zone). It is 2026-01-01 00:00 Z there now.",
+            commands.answer(testCommand("timezone")),
+        )
+        assertEquals(
+            "'Mars/Olympus' is no time zone. Give a region such as Asia/Shanghai or an offset such as +08:00.",
+            commands.answer(testCommand("timezone", "Mars/Olympus")),
+        )
+        assertEquals(
+            "Send /timezone to see the time zone, /timezone <zone> (such as Asia/Shanghai, Europe/Berlin or +08:00) " +
+                "to set it, or /timezone reset to go back to the default.",
+            commands.answer(testCommand("timezone", "Asia Shanghai")),
+        )
+        assertEquals(emptyList(), control.calls)
+    }
+
     // /settings.
 
     @Test
@@ -273,6 +326,7 @@ class SettingCommandsTest {
             Model: big/m-01 (the agent's setting)
             Reasoning effort: default (the model decides)
             Language: default (the host's language)
+            Time zone: UTC (the host's time zone)
             Permission mode: ask (the default)
             Home: main has no home chat on test:main
             Linked: no other chat shares the conversation of main
@@ -304,6 +358,7 @@ class SettingCommandsTest {
             Model: big/m-02 (the agent's setting)
             Reasoning effort: high (set in this chat)
             Language: zh-CN (set in this chat)
+            Time zone: UTC (the host's time zone)
             Permission mode: bypass (set in this chat) for 1 h 15 min more
             Home: the home chat of coder on test:main is test:main:home
             Linked: shares the conversation of coder with test:main:other (anchor test:main:other)
@@ -320,7 +375,7 @@ class SettingCommandsTest {
         val lines = commands.answer(testCommand("settings")).lines()
 
         assertEquals("Agent: main \"Main\" (this is its home chat)", lines[1])
-        assertEquals("Home: this chat is the home chat of main on test:main", lines[6])
+        assertEquals("Home: this chat is the home chat of main on test:main", lines[7])
     }
 
     @Test

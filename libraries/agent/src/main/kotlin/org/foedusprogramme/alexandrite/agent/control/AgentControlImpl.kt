@@ -76,6 +76,7 @@ import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
 
 /** The agent's control port and the chat settings it shows other plugins. */
@@ -293,6 +294,11 @@ internal class AgentControlImpl(
         return states.language(key) ?: directory.agent(key.agent)?.language
     }
 
+    override suspend fun zone(chat: ChatAddress): ZoneId? {
+        val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
+        return states.zone(key) ?: directory.agent(key.agent)?.zone
+    }
+
     private suspend fun served(chat: ChatAddress): Resolution.Served =
         router.resolve(chat) as? Resolution.Served ?: throw Refused(TextKeys.NO_AGENT, "chat" to chat)
 
@@ -323,6 +329,8 @@ internal class AgentControlImpl(
             .defaultLanguage(agent?.language)
             .mode(mode?.mode, mode?.until)
             .defaultMode(agent?.mode)
+            .zone(states.zone(key))
+            .defaultZone(agent?.zone)
             .build()
     }
 
@@ -431,6 +439,7 @@ internal class AgentControlImpl(
             ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
                 .actor(by)
                 .language(states.language(key) ?: directory.agent(key.agent)?.language)
+                .zone(states.effectiveZone(key, directory.agent(key.agent), clock))
                 .agent(key.agent)
                 .key(key)
                 .build()
@@ -487,10 +496,14 @@ internal class AgentControlImpl(
 }
 
 /** The changes of [update] to the settings kept per agent and chat, as a log shows them. */
-private fun settingChanges(update: ChatSettingsUpdate): String =
-    listOf("model" to update.model, "reasoning" to update.reasoning, "language" to update.language)
-        .filter { it.second != SettingChange.Keep }
-        .joinToString { (name, change) -> "$name ${(change as? SettingChange.SetTo)?.value ?: "reset"}" }
+private fun settingChanges(update: ChatSettingsUpdate): String = listOf(
+    "model" to update.model,
+    "reasoning" to update.reasoning,
+    "language" to update.language,
+    "zone" to update.zone,
+)
+    .filter { it.second != SettingChange.Keep }
+    .joinToString { (name, change) -> "$name ${(change as? SettingChange.SetTo)?.value ?: "reset"}" }
 
 private fun who(by: ChatUser?): String = by?.address?.toString() ?: "the host"
 

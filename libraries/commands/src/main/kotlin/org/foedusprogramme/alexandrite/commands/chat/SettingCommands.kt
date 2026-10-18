@@ -11,6 +11,7 @@ import org.foedusprogramme.alexandrite.commands.support.groupOf
 import org.foedusprogramme.alexandrite.commands.support.isKeyword
 import org.foedusprogramme.alexandrite.commands.support.refusing
 import org.foedusprogramme.alexandrite.commands.support.replies
+import org.foedusprogramme.alexandrite.commands.support.shown
 import org.foedusprogramme.alexandrite.commands.support.spec
 import org.foedusprogramme.alexandrite.commands.support.updateSettings
 import org.foedusprogramme.alexandrite.commands.support.words
@@ -29,15 +30,18 @@ import org.foedusprogramme.alexandrite.sdk.turn.CommandInvocation
 import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.time.DateTimeException
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
-/** `/model`, `/reasoning`, `/language` and `/settings`. */
+/** `/model`, `/reasoning`, `/language`, `/timezone` and `/settings`. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class SettingCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
-    override val commands: List<CommandSpec> = listOf(MODEL, REASONING, LANGUAGE, SETTINGS).map(texts::spec)
+    override val commands: List<CommandSpec> = listOf(MODEL, REASONING, LANGUAGE, TIMEZONE, SETTINGS).map(texts::spec)
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
@@ -66,6 +70,13 @@ internal class SettingCommands(private val control: AgentControl, private val te
                 words.size > 1 -> context.reply(replies.usage(name))
                 words[0].isKeyword(RESET) -> resetLanguage(invocation, context)
                 else -> setLanguage(words[0], invocation, context, replies)
+            }
+
+            TIMEZONE -> when {
+                words.isEmpty() -> zone(invocation, context, replies)
+                words.size > 1 -> context.reply(replies.usage(name))
+                words[0].isKeyword(RESET) -> resetZone(invocation, context)
+                else -> setZone(words[0], invocation, context, replies)
             }
 
             SETTINGS -> when {
@@ -221,6 +232,51 @@ internal class SettingCommands(private val control: AgentControl, private val te
         context.reply(text)
     }
 
+    private suspend fun zone(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
+        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val zone = replies.zone(snapshot, clock.zone)
+        context.reply(
+            replies.text(
+                TextKeys.TIMEZONE_CURRENT,
+                "zone" to zone.value,
+                "source" to zone.source,
+                "time" to now(snapshot.effectiveZone),
+            ),
+        )
+    }
+
+    private suspend fun setZone(
+        text: String,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val zone = zoneOrNull(text)
+        if (zone == null) {
+            context.reply(replies.text(TextKeys.TIMEZONE_MALFORMED, "text" to text))
+            return
+        }
+        val snapshot = context.updateSettings(control, invocation) { zone(zone) } ?: return
+        val set = texts.replies(snapshot.effectiveLanguage)
+        context.reply(set.text(TextKeys.TIMEZONE_SET, "zone" to shown(zone), "time" to now(zone)))
+    }
+
+    private suspend fun resetZone(invocation: CommandInvocation, context: CommandContext) {
+        val snapshot = context.updateSettings(control, invocation) { resetZone() } ?: return
+        val replies = texts.replies(snapshot.effectiveLanguage)
+        val zone = replies.zone(snapshot, clock.zone)
+        val text = replies.text(
+            TextKeys.TIMEZONE_RESET,
+            "zone" to zone.value,
+            "source" to zone.source,
+            "time" to now(snapshot.effectiveZone),
+        )
+        context.reply(text)
+    }
+
+    /** The time now in [zone], the host's when null. */
+    private fun now(zone: ZoneId?): String = CLOCK_TIME.format(clock.instant().atZone(zone ?: clock.zone))
+
     private suspend fun settings(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val chat = invocation.chat
         val snapshot = context.refusing { control.settings(chat) } ?: return
@@ -231,6 +287,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
         val model = replies.model(snapshot)
         val effort = replies.reasoning(snapshot)
         val language = replies.language(snapshot)
+        val zone = replies.zone(snapshot, clock.zone)
         val mode = replies.mode(snapshot)
         val bypassLeft = replies.bypassLeft(snapshot, clock.instant())
         val home = summary?.home
@@ -245,6 +302,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
             replies.text(TextKeys.SETTINGS_MODEL, "model" to model.value, "source" to model.source),
             replies.text(TextKeys.SETTINGS_REASONING, "effort" to effort.value, "source" to effort.source),
             replies.text(TextKeys.SETTINGS_LANGUAGE, "language" to language.value, "source" to language.source),
+            replies.text(TextKeys.SETTINGS_TIMEZONE, "zone" to zone.value, "source" to zone.source),
             if (bypassLeft == null) {
                 replies.text(TextKeys.SETTINGS_MODE, "mode" to mode.value, "source" to mode.source)
             } else {
@@ -285,10 +343,22 @@ internal class SettingCommands(private val control: AgentControl, private val te
         const val MODEL = "model"
         const val REASONING = "reasoning"
         const val LANGUAGE = "language"
+        const val TIMEZONE = "timezone"
         const val SETTINGS = "settings"
         const val MAX_LISTED = 40
         val LISTING_TIMEOUT = 10.seconds
         val EFFORTS = ReasoningEffort.entries.joinToString(", ")
+        val CLOCK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)
         val logger = LoggerFactory.getLogger(SettingCommands::class.java)
+    }
+}
+
+/** The zone [text] names, a region id in any case or an offset such as `+08:00`, null when it names none. */
+internal fun zoneOrNull(text: String): ZoneId? {
+    val region = ZoneId.getAvailableZoneIds().firstOrNull { it.equals(text, ignoreCase = true) }
+    return try {
+        ZoneId.of(region ?: text.uppercase(Locale.ROOT))
+    } catch (e: DateTimeException) {
+        null
     }
 }

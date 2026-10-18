@@ -282,7 +282,7 @@ class TelegramPermissionTest {
         )
         val (set, settings) = app.fake.botMessages(ADA).map { it.text }
         assertEquals("The permission mode of this chat is now bypass for 2 h, then ask.", set)
-        assertEquals("Permission mode: bypass (set in this chat) for 2 h more", settings.lines()[5])
+        assertEquals("Permission mode: bypass (set in this chat) for 2 h more", settings.lines()[6])
     }
 
     private companion object {

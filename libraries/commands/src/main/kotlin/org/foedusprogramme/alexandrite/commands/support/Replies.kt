@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.commands.support
 
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
+import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.permission.PermissionMode
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
@@ -9,9 +10,11 @@ import org.foedusprogramme.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.foedusprogramme.alexandrite.sdk.turn.CommandSpec
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 
-/** The plugin's texts in [language]. */
-internal class Replies(private val texts: Texts, private val language: LanguageTag?) {
+/** The plugin's texts in [language], with times in [zone], the host's when null. */
+internal class Replies(private val texts: Texts, private val language: LanguageTag?, val zone: ZoneId? = null) {
     fun text(key: String, vararg args: Pair<String, Any?>): String = texts.text(key, language, *args)
 
     fun usage(command: String): String = text(TextKeys.usage(command))
@@ -32,6 +35,13 @@ internal class Replies(private val texts: Texts, private val language: LanguageT
 
     fun language(snapshot: ChatSettingsSnapshot): Setting =
         setting(snapshot.language, snapshot.defaultLanguage, TextKeys.VALUE_DEFAULT, TextKeys.SOURCE_HOST_DEFAULT)
+
+    /** The zone of [snapshot], [host] when neither the chat nor its agent names one. */
+    fun zone(snapshot: ChatSettingsSnapshot, host: ZoneId): Setting = when {
+        snapshot.zone != null -> Setting(shown(snapshot.zone), text(TextKeys.SOURCE_CHAT))
+        snapshot.defaultZone != null -> Setting(shown(snapshot.defaultZone), text(TextKeys.SOURCE_AGENT))
+        else -> Setting(shown(host), text(TextKeys.SOURCE_HOST_ZONE))
+    }
 
     fun mode(snapshot: ChatSettingsSnapshot): Setting = when {
         snapshot.mode != null -> Setting("${snapshot.mode}", text(TextKeys.SOURCE_CHAT))
@@ -67,10 +77,16 @@ internal class Replies(private val texts: Texts, private val language: LanguageT
     }
 }
 
+/** [zone] as people write it: `UTC` rather than `Z`. */
+internal fun shown(zone: ZoneId?): String = if (zone == ZoneOffset.UTC) "UTC" else "$zone"
+
 /** A setting's value in force and why it is in force. */
 internal class Setting(val value: String, val source: String)
 
 internal fun Texts.replies(language: LanguageTag?): Replies = Replies(this, language)
+
+/** The texts in the language of [turn], with times in its zone. */
+internal fun Texts.replies(turn: TurnInfo): Replies = Replies(this, turn.language, turn.zone)
 
 /** The command [name], described in the host's language. */
 internal fun Texts.spec(name: String): CommandSpec = CommandSpec.builder(name, description(name, null)).build()
