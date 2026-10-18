@@ -5,5 +5,28 @@
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
     "plugins": []
+  },
+  "mcp": {
+    "servers": {
+      "files": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/srv/projects"],
+        "env": {},
+        "tools": {"allow": ["*"], "deny": ["move_file"]},
+        "risk": {"read_*": "read_only", "list_*": "read_only", "search_files": "read_only", "*": "workspace_write"},
+        "trustAnnotations": false,
+        "trusted": false,
+        "timeoutSeconds": 60,
+        "enabled": false
+      },
+      "docs": {
+        "url": "https://mcp.example.com/mcp",
+        "oauth": {"scopes": ["read"]},
+        "tools": {"allow": ["search_*", "fetch_*"]},
+        "risk": {"*": "network_read"},
+        "timeoutSeconds": 30,
+        "enabled": false
+      }
+    }
   }
 }

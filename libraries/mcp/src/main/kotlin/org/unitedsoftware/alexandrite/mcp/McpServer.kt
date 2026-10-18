@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.mcp.client.McpConnectionException
 import org.unitedsoftware.alexandrite.mcp.client.McpEnvironment
 import org.unitedsoftware.alexandrite.mcp.client.McpException
 import org.unitedsoftware.alexandrite.mcp.client.McpHttpConnection
+import org.unitedsoftware.alexandrite.mcp.client.McpHttpStatusException
 import org.unitedsoftware.alexandrite.mcp.client.McpImplementation
 import org.unitedsoftware.alexandrite.mcp.client.McpRpcException
 import org.unitedsoftware.alexandrite.mcp.client.McpStdioConnection
@@ -39,6 +40,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -54,6 +56,8 @@ internal data class ServerStatus(
     val tools: Int = 0,
     /** Why the server last failed, null when it has not. */
     val lastError: String? = null,
+    /** The server errors in a row on the current connection. */
+    val serverErrors: Int = 0,
 )
 
 internal class McpTimings(
@@ -156,13 +160,27 @@ internal class McpServer(
         } catch (e: McpRpcException) {
             taint(context)
             val message = cutWithEllipsis(e.rpcMessage, MAX_ERROR)
+            val status = serverError(e)
+            if (status != null) {
+                return serverFailed(
+                    active,
+                    status,
+                    "MCP server ${spec.name} failed the call with HTTP $status: $message (${e.code}).",
+                )
+            }
+            answered(active)
             return error("MCP server ${spec.name} refused the call: $message (${e.code}).")
         } catch (e: McpConnectionException) {
             active.broken.complete(e)
             return error("MCP server ${spec.name} went down during the call: ${e.message}")
         } catch (e: McpException) {
+            val status = serverError(e)
+            if (status != null) {
+                return serverFailed(active, status, "MCP server ${spec.name} failed the call with HTTP $status.")
+            }
             return error("The call to MCP server ${spec.name} failed: ${e.message}")
         }
+        answered(active)
         taint(context)
         return when (outcome) {
             is McpCallOutcome.Completed -> McpResults.completed(outcome)
@@ -185,7 +203,7 @@ internal class McpServer(
 
     /** Connects and serves until the connection ends, and returns why it did or why it could not connect. */
     private suspend fun serve(): Ended {
-        current.update { it.copy(state = ServerState.CONNECTING, protocolVersion = null) }
+        current.update { it.copy(state = ServerState.CONNECTING, protocolVersion = null, serverErrors = 0) }
         val client = try {
             McpClient.connect(open(), shared.client, shared.clientOptions)
         } catch (e: CancellationException) {
@@ -255,6 +273,7 @@ internal class McpServer(
                 active.broken.complete(e)
                 return
             } catch (e: McpException) {
+                serverError(e)?.let { status -> if (counted(active, status) >= MAX_SERVER_ERRORS) return }
                 logger.warn(
                     "MCP server {} could not list its tools again, which stay as they were: {}",
                     spec.name,
@@ -262,6 +281,7 @@ internal class McpServer(
                 )
                 continue
             }
+            answered(active)
             offer(listed)
             ttl = listed.ttl
         }
@@ -334,6 +354,29 @@ internal class McpServer(
         }
     }
 
+    /** [text] as the error of a call that got the server error [status] on [active]. */
+    private fun serverFailed(active: Session, status: Int, text: String): ToolResult {
+        val count = counted(active, status)
+        if (count < MAX_SERVER_ERRORS) return error(text)
+        return error("$text It failed $count times in a row, so it counts as down and connects again.")
+    }
+
+    /** Counts the server error [status] on [active], which ends the connection at [MAX_SERVER_ERRORS] in a row. */
+    private fun counted(active: Session, status: Int): Int {
+        val count = active.serverErrors.incrementAndGet()
+        current.update { if (session === active) it.copy(serverErrors = count, lastError = "HTTP $status") else it }
+        if (count >= MAX_SERVER_ERRORS) {
+            active.broken.complete(McpException("HTTP $status from $count requests in a row"))
+        }
+        return count
+    }
+
+    /** Ends the run of server errors of [active], which answered. */
+    private fun answered(active: Session) {
+        if (active.serverErrors.getAndSet(0) == 0) return
+        current.update { if (session === active) it.copy(serverErrors = 0) else it }
+    }
+
     private fun invalid(line: String) {
         if (warnedInvalid.compareAndSet(false, true)) {
             logger.warn("MCP server {} wrote output that is no JSON-RPC message, such as: {}", spec.name, line)
@@ -368,6 +411,7 @@ internal class McpServer(
 
     private class Session(val client: McpClient) {
         val broken = CompletableDeferred<Exception>()
+        val serverErrors = AtomicInteger()
     }
 
     /** Why a connection ended, and when it was made, null when it never was. */
@@ -377,6 +421,15 @@ internal class McpServer(
         const val FORBIDDEN = 403
         const val MAX_ERROR = 300
         const val MAX_STDERR = 1000
+        const val MAX_SERVER_ERRORS = 3
+        val SERVER_ERRORS = 500..599
+
+        /** The HTTP status of [e] when it is a server error, null when it is none. */
+        fun serverError(e: McpException): Int? = when (e) {
+            is McpRpcException -> e.httpStatus
+            is McpHttpStatusException -> e.status
+            else -> null
+        }?.takeIf { it in SERVER_ERRORS }
 
         fun error(text: String) = ToolResult(text, isError = true)
 

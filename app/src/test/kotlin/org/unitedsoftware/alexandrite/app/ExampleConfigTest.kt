@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.app
 
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
@@ -27,6 +29,17 @@ class ExampleConfigTest {
         val settings = AppConfig.serializer().descriptor
 
         assertEquals(List(settings.elementsCount, settings::getElementName).toSet(), tree?.keys)
+    }
+
+    @Test
+    fun `the example config shows an MCP server run as a command and one reached over HTTP, both off`() {
+        val servers = ConfigFile.read(example, emptyMap()).tree("mcp.servers").orEmpty()
+
+        assertEquals(listOf("files", "docs"), servers.keys.toList())
+        val (files, docs) = servers.values.map { it.jsonObject }
+        assertEquals(listOf(true, false), listOf("command" in files, "url" in files))
+        assertEquals(listOf(false, true), listOf("command" in docs, "url" in docs))
+        assertTrue(servers.values.all { it.jsonObject["enabled"] == JsonPrimitive(false) })
     }
 
     @Test

@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.mcp
 
+import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.mcp.client.FakeHttpServer
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
@@ -8,6 +10,7 @@ import org.unitedsoftware.alexandrite.testkit.assertTextsComplete
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import org.unitedsoftware.alexandrite.testkit.testTexts
+import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import org.unitedsoftware.alexandrite.testkit.testUser
 import kotlin.test.Test
@@ -41,6 +44,22 @@ class McpCommandTest {
         assertEquals("files: connected, protocol 2026-07-28, 8 tools", lines[1])
         assertTrue(lines[2].startsWith("broken: down; last error: Cannot start /nonexistent/mcp-server: "), lines[2])
         assertEquals("off: disabled", lines[3])
+    }
+
+    @Test
+    fun `a connected server's run of server errors is shown`() {
+        FakeHttpServer().use { web ->
+            withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {
+                connected("web")
+                repeat(2) { server("web").call("unavailable", JsonObject(emptyMap()), testToolContext()) }
+
+                assertEquals(
+                    "MCP servers:\nweb: connected, protocol 2026-07-28, 5 tools, 2 server errors in a row; " +
+                        "last error: HTTP 503",
+                    run(""),
+                )
+            }
+        }
     }
 
     @Test

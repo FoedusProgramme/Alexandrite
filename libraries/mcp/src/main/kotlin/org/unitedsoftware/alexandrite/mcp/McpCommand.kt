@@ -96,14 +96,24 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
                         "version" to status.protocolVersion,
                         "tools" to status.tools,
                     )
+                    val failing = if (status.serverErrors == 0) {
+                        connected
+                    } else {
+                        texts.text(
+                            TextKeys.STATE_FAILING,
+                            language,
+                            "state" to connected,
+                            "count" to status.serverErrors,
+                        )
+                    }
                     val wider = hub.oauth.widerScopes(server.spec.name)
                     if (wider == null) {
-                        connected
+                        failing
                     } else {
                         texts.text(
                             TextKeys.STATE_WIDER,
                             language,
-                            "state" to connected,
+                            "state" to failing,
                             "scope" to wider.joinToString(" "),
                         )
                     }
@@ -169,6 +179,7 @@ internal object TextKeys {
     const val UNKNOWN_SERVER = "server.unknown"
     const val RESTART_DISABLED = "restart.disabled"
     const val STATE_WIDER = "state.wider"
+    const val STATE_FAILING = "state.failing"
     const val LOGIN_HINT = "login.hint"
     const val LOGIN_REFUSED_GROUP = "login.refused_group"
     const val LOGIN_NOT_HTTP = "login.not_http"

@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.mcp.client.FakeHttpServer
 import org.unitedsoftware.alexandrite.mcp.client.McpEnvironment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
 import org.unitedsoftware.alexandrite.testkit.testToolContext
@@ -42,14 +43,15 @@ class McpHubTest {
         }
 
     @Test
-    fun `an approver is shown the server, the tool's own name and the arguments`() = withHub("files" to fake()) {
-        connected("files")
-        val review = (tool("mcp.files.echo") as ReviewedTool).review(args("text" to "hi"), testToolContext())
+    fun `an approver is shown the server, the tool's own name and the arguments, and may allow the tool for good`() =
+        withHub("files" to fake()) {
+            connected("files")
+            val review = (tool("mcp.files.echo") as ReviewedTool).review(args("text" to "hi"), testToolContext())
 
-        val shown = (review.preview as ReviewPreview.Text).text
-        assertEquals("MCP server files, tool echo\n\n{\n    \"text\": \"hi\"\n}", shown)
-        assertEquals(null, review.rule)
-    }
+            val shown = (review.preview as ReviewPreview.Text).text
+            assertEquals("MCP server files, tool echo\n\n{\n    \"text\": \"hi\"\n}", shown)
+            assertEquals(RuleSubject("mcp.files.echo", emptyList(), "mcp.files.echo"), review.rule)
+        }
 
     @Test
     fun `a call's content, errors, timeouts and requests for input reach the model`() =
@@ -163,6 +165,80 @@ class McpHubTest {
                 )
                 assertEquals("héllo", tool("mcp.web.h_llo").execute(JsonObject(emptyMap()), testToolContext()).text)
                 until("listed again") { web.received.count { it.rpcMethod == "tools/list" } >= 4 }
+            }
+        }
+    }
+
+    @Test
+    fun `a server error is the call's error, and an answer ends the run of them`() {
+        FakeHttpServer().use { web ->
+            withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {
+                connected("web")
+                val mcp = server("web")
+                val context = testToolContext()
+
+                val crashed = mcp.call("crash", JsonObject(emptyMap()), context)
+                assertEquals(
+                    "MCP server web failed the call with HTTP 500: Internal error (-32603)." to true,
+                    crashed.text to crashed.isError,
+                )
+                val unavailable = mcp.call("unavailable", JsonObject(emptyMap()), context)
+                assertEquals(
+                    "MCP server web failed the call with HTTP 503." to true,
+                    unavailable.text to unavailable.isError,
+                )
+                assertEquals(2 to "HTTP 503", mcp.status.value.let { it.serverErrors to it.lastError })
+                assertEquals("hi", mcp.call("echo", args("text" to "hi"), context).text)
+                assertEquals(0, mcp.status.value.serverErrors)
+                mcp.call("unavailable", JsonObject(emptyMap()), context)
+                mcp.call("unavailable", JsonObject(emptyMap()), context)
+
+                assertEquals(ServerState.CONNECTED to 2, mcp.status.value.let { it.state to it.serverErrors })
+            }
+            assertEquals(1, web.received.count { it.rpcMethod == "server/discover" })
+        }
+    }
+
+    @Test
+    fun `three server errors in a row mark a server down, and it connects again`() {
+        FakeHttpServer().use { web ->
+            withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {
+                connected("web")
+                val context = testToolContext()
+
+                repeat(2) { server("web").call("unavailable", JsonObject(emptyMap()), context) }
+                val third = server("web").call("crash", JsonObject(emptyMap()), context)
+                assertEquals(
+                    "MCP server web failed the call with HTTP 500: Internal error (-32603). It failed 3 times in a " +
+                        "row, so it counts as down and connects again.",
+                    third.text,
+                )
+                until("connected again") { web.received.count { it.rpcMethod == "server/discover" } == 2 }
+                connected("web")
+
+                val status = server("web").status.value
+                assertEquals(0 to "HTTP 500 from 3 requests in a row", status.serverErrors to status.lastError)
+                assertEquals("hi", tool("mcp.web.echo").execute(args("text" to "hi"), context).text)
+            }
+        }
+    }
+
+    @Test
+    fun `listings that fail with server errors count toward marking a server down`() {
+        FakeHttpServer(ttlMs = 100).use { web ->
+            withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {
+                connected("web")
+                val errors = CopyOnWriteArrayList<String?>()
+                val watching = launch(Dispatchers.Default) { server("web").status.collect { errors += it.lastError } }
+                web.listingFails = true
+
+                until("down") { server("web").status.value.state == ServerState.DOWN }
+                web.listingFails = false
+                connected("web")
+                watching.cancel()
+
+                assertContains(errors, "HTTP 503 from 3 requests in a row")
+                assertEquals(5, names.size)
             }
         }
     }

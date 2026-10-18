@@ -30,12 +30,14 @@ internal class Received(val method: String, val headers: Map<String, String>, va
 /**
  * A Streamable HTTP MCP server on the loopback interface: a modern one, or a legacy one with sessions when [legacy].
  *
- * [sse] answers requests with event streams, and [token] makes it demand that bearer token.
+ * [sse] answers requests with event streams, [token] makes it demand that bearer token, and [ttlMs] is the freshness of
+ * its tool list.
  */
 internal class FakeHttpServer(
     private val legacy: Boolean = false,
     private val sse: Boolean = false,
     private val token: String? = null,
+    private val ttlMs: Int = 5000,
 ) : AutoCloseable {
     private val server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
     private val executor: ExecutorService = Executors.newCachedThreadPool { Thread(it).apply { isDaemon = true } }
@@ -46,6 +48,10 @@ internal class FakeHttpServer(
 
     @Volatile
     private var session: String? = null
+
+    /** Whether listing the tools fails with HTTP 503. */
+    @Volatile
+    var listingFails: Boolean = false
 
     val received = CopyOnWriteArrayList<Received>()
     val events = Lines()
@@ -262,6 +268,7 @@ internal class FakeHttpServer(
     private fun common(exchange: HttpExchange, id: JsonElement, method: String, params: JsonObject, request: Received) {
         when (method) {
             "tools/list" -> {
+                if (listingFails) return exchange.sendResponseHeaders(503, -1)
                 val cursor = params.string("cursor")
                 answer(
                     exchange,
@@ -276,7 +283,7 @@ internal class FakeHttpServer(
                         }
                         put("tools", buildJsonArray { names.forEach { add(tool(it)) } })
                         if (cursor == null) put("nextCursor", "page-2")
-                        put("ttlMs", 5000)
+                        put("ttlMs", ttlMs)
                     },
                 )
             }
@@ -320,6 +327,10 @@ internal class FakeHttpServer(
                         events.add("abandoned ${id.content}")
                     }
                 }
+
+                "crash" -> error(exchange, 500, id, -32603, "Internal error")
+
+                "unavailable" -> exchange.sendResponseHeaders(503, -1)
 
                 else -> error(exchange, 200, id, -32602, "Unknown tool: $name")
             }

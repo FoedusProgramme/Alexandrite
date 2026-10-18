@@ -16,7 +16,9 @@ import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -27,8 +29,23 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+
+private val DENYING_AGENT = """
+    {
+      "previewIntervalMillis": 0,
+      "agents": {
+        "coder": {
+          "name": "Coder",
+          "model": "scripted/test-model",
+          "channels": {"telegram:work": {}},
+          "permission": {"deny": ["mcp.files.fail"]}
+        }
+      }
+    }
+""".trimIndent()
 
 /** MCP servers' tools over a fake Bot API: gated as EXEC unless the operator lowers them, and tainting. */
 class TelegramMcpTest {
@@ -50,6 +67,20 @@ class TelegramMcpTest {
         AlexandriteMcpIndex(),
         """{"servers": {"files": {$launch}, "safe": {$launch, "risk": {"echo": "read_only"}}}}""",
     )
+
+    private suspend fun PluginHarness.Running.mcpTools() {
+        val source = getAll<ToolSource>().single { it.namespace == "mcp" }
+        withTimeout(20.seconds) { while (source.tools.value.size < 16) delay(20.milliseconds) }
+    }
+
+    /** Presses the button that [chosen] picks on the approval request in Ada's chat and returns its text. */
+    private fun press(chosen: (String) -> Boolean): String {
+        val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+        val button = asked.buttons.flatten().first { chosen(it.text) }.text
+        app.fake.press(app.ada, asked, button)
+        app.fake.await(WAIT) { botMessage(ADA, asked.id)?.takeIf { it.buttons.isEmpty() } }
+        return button
+    }
 
     /** The text of the tool result that the model read in its request [index]. */
     private fun result(index: Int): String = app.model.requests[index].history.filterIsInstance<ToolResultEntry>()
@@ -85,6 +116,71 @@ class TelegramMcpTest {
         assertContains(assertNotNull(taint).reason, "output of MCP server files")
         assertEquals("from safe", result(3))
         assertEquals(1, app.fake.botMessages(ADA).count { it.text.startsWith("Approval needed") })
+    }
+
+    @Test
+    fun `always allow grants a rule for that one MCP tool, whose later calls run unasked`() {
+        app.model.reply { toolCall("mcp.files.echo", """{"text": "one"}""") }
+            .reply { text("One.") }
+            .reply { toolCall("mcp.files.echo", """{"text": "two"}""") }
+            .reply { text("Two.") }
+            .reply { toolCall("mcp.files.kinds", "{}") }
+            .reply { text("Kinds.") }
+        lateinit var always: String
+
+        app.run(builder()) {
+            mcpTools()
+            app.send(app.ada, app.adaChat, "Echo one.")
+            always = press { it.startsWith("Always allow") }
+            app.message(app.adaChat, "One.")
+            app.send(app.ada, app.adaChat, "Echo two.")
+            app.message(app.adaChat, "Two.")
+            app.send(app.ada, app.adaChat, "Show the kinds.")
+            press { it == "Deny" }
+            app.message(app.adaChat, "Kinds.")
+            idle()
+        }
+
+        assertEquals("Always allow mcp.files.echo", always)
+        assertEquals(listOf("one", "two"), listOf(result(1), result(3)))
+        assertEquals(2, app.fake.botMessages(ADA).count { it.text.startsWith("Approval needed") })
+    }
+
+    @Test
+    fun `a deny rule refuses an MCP tool unasked, and a persistent_state one is never allowed for good`() {
+        app.model.reply { toolCall("mcp.files.fail", "{}") }
+            .reply { text("Refused.") }
+            .reply { toolCall("mcp.files.echo", """{"text": "taint"}""") }
+            .reply { text("Tainted.") }
+            .reply { toolCall("mcp.keep.echo", """{"text": "kept"}""") }
+            .reply { text("Kept.") }
+        lateinit var buttons: List<String>
+        val builder = app.builder(directory).plugin(AlexandriteMcpIndex()).config(
+            AlexandriteMcpIndex(),
+            """{"servers": {"files": {$launch}, "keep": {$launch, "risk": {"*": "persistent_state"}}}}""",
+        ).config(DENYING_AGENT)
+
+        app.run(builder) {
+            mcpTools()
+            app.send(app.ada, app.adaChat, "Fail.")
+            app.message(app.adaChat, "Refused.")
+            app.send(app.ada, app.adaChat, "Taint.")
+            press { it == "Allow" }
+            app.message(app.adaChat, "Tainted.")
+            app.send(app.ada, app.adaChat, "Keep.")
+            buttons = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+                .buttons.flatten().map { it.text }
+            press { it == "Allow" }
+            app.message(app.adaChat, "Kept.")
+            idle()
+        }
+
+        val refused = app.model.requests[1].history.filterIsInstance<ToolResultEntry>().last()
+        assertEquals(NotRunReason.DENIED_BY_POLICY, (refused.outcome as ToolOutcome.NotRun).reason)
+        assertContains(result(1), "the operator's rule mcp.files.fail denies it")
+        assertEquals("kept", result(5))
+        assertTrue("Allow" in buttons && buttons.none { it.startsWith("Always allow") }, "$buttons")
+        assertEquals(2, app.fake.botMessages(ADA).count { it.text.startsWith("Approval needed") })
     }
 
     @Test

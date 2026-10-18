@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.mcp.client.McpTool
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -28,6 +29,7 @@ internal fun mcpServerTool(definition: ToolDefinition, serverTool: String, serve
             val shown = PRETTY.encodeToString(JsonObject.serializer(), arguments)
             return CallReview(
                 preview = ReviewPreview.Text("MCP server ${server.spec.name}, tool $serverTool\n\n$shown"),
+                rule = RuleSubject(definition.name, emptyList(), definition.name),
                 untrusted = !server.spec.trusted,
             )
         }
