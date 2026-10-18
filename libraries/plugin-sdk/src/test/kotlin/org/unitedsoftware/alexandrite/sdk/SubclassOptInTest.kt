@@ -158,6 +158,12 @@ class SubclassOptInTest {
             override suspend fun edit(block: org.unitedsoftware.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
         }
 
+        class Host : org.unitedsoftware.alexandrite.sdk.config.HostConfig {
+            override suspend fun get(path: String) = TODO()
+            override suspend fun edit(block: org.unitedsoftware.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
+            override suspend fun replace(text: String) = TODO()
+        }
+
         class Edit : org.unitedsoftware.alexandrite.sdk.config.ConfigEdit {
             override fun get(path: String) = TODO()
             override fun getLiteral(path: String) = TODO()
@@ -894,6 +900,16 @@ class SubclassOptInTest {
                 null
             } catch (e: ConfigEditException) {
                 if (e.refusal in ConfigEditRefusal.entries) e.message else ConfigEditRefusal.of(e.refusal.id).id
+            }
+        }
+
+        class Operator(private val config: HostConfig) {
+            suspend fun model(agent: String, model: String): List<String>? = try {
+                val changes = config.edit { set("agent.agents.${'$'}agent.model", JsonPrimitive(model)) }
+                config.get("agent.agents.${'$'}agent")
+                changes.changed + changes.restart
+            } catch (e: ConfigEditException) {
+                listOfNotNull(e.message)
             }
         }
     """.trimIndent()

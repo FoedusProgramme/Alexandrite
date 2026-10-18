@@ -1,5 +1,9 @@
 package org.unitedsoftware.alexandrite.app
 
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import org.unitedsoftware.alexandrite.app.control.ChatView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
 import org.unitedsoftware.alexandrite.app.control.NoDaemonException
@@ -81,8 +85,64 @@ internal fun control(
         ControlReply.NoDesk -> refused("No channel takes pairing codes.")
 
         is ControlReply.Failure -> refused(shown(reply.message))
+
+        else -> refused("The running Alexandrite gave an unexpected answer.")
     }
 }
+
+/** Prints the waiting and the paired chats, as JSON when [json]. */
+internal fun pairings(cli: Cli, json: Boolean): Int {
+    if (!json) return control(cli.locations.dataDir, ControlRequest.ListPairings, cli.out, cli.err)
+    val reply = asked(cli, ControlRequest.ListPairings) ?: return ExitCode.UNAVAILABLE
+    if (reply !is ControlReply.Pairings) return answered(cli, reply)
+    cli.printJson(
+        buildJsonObject {
+            put("waiting", PROTOCOL.encodeToJsonElement(ListSerializer(RequestView.serializer()), reply.requests))
+            put("paired", PROTOCOL.encodeToJsonElement(ListSerializer(PairedView.serializer()), reply.paired))
+        },
+    )
+    return ExitCode.OK
+}
+
+/** Prints the paired chats and the agent that serves each, as JSON when [json]. */
+internal fun chats(cli: Cli, json: Boolean): Int {
+    val reply = asked(cli, ControlRequest.Chats) ?: return ExitCode.UNAVAILABLE
+    if (reply !is ControlReply.Chats) return answered(cli, reply)
+    if (json) {
+        cli.printJson(PROTOCOL.encodeToJsonElement(ListSerializer(ChatView.serializer()), reply.chats))
+        return ExitCode.OK
+    }
+    if (reply.chats.isEmpty()) return cli.done("No chat is paired.")
+    for (chat in reply.chats) {
+        val about = listOfNotNull(
+            chat.kind?.let { kind -> chat.title?.let { "$kind \"${shown(it)}\"" } ?: kind },
+            chat.agent?.let { "agent $it" + if (chat.home) " (its home)" else "" },
+            chat.model?.let { "model $it" },
+        )
+        cli.out.println("${shown(chat.chat)}  ${about.joinToString(", ").ifEmpty { "declared in the config file" }}")
+    }
+    return ExitCode.OK
+}
+
+/** The running app's answer to [request], null after printing that none runs or why it failed. */
+private fun asked(cli: Cli, request: ControlRequest): ControlReply? = try {
+    cli.ask(request) ?: run {
+        val socket = controlSocket(cli.locations.dataDir)
+        cli.fail("No Alexandrite runs with the data directory ${socket.parent}.", ExitCode.UNAVAILABLE)
+        null
+    }
+} catch (e: IOException) {
+    cli.fail(e.message ?: "$e")
+    null
+}
+
+private fun answered(cli: Cli, reply: ControlReply): Int = when (reply) {
+    ControlReply.NoDesk -> cli.fail("No channel takes pairing codes.")
+    is ControlReply.Failure -> cli.fail(shown(reply.message))
+    else -> cli.fail("The running Alexandrite gave an unexpected answer.")
+}
+
+private val PROTOCOL = Json { encodeDefaults = true }
 
 private fun pairings(reply: ControlReply.Pairings, time: DateTimeFormatter, day: DateTimeFormatter): String =
     buildString {

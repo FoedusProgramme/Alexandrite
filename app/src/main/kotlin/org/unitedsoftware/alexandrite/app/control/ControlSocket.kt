@@ -98,7 +98,7 @@ internal class ControlSocket private constructor(
                     null -> ControlReply.Failure("The request is longer than $MAX_REQUEST_BYTES bytes.")
                     else -> answered(line, answer)
                 }
-                interruptible { writeLine(connection, encodeReply(reply)) }
+                withContext(NonCancellable) { interruptible { writeLine(connection, encodeReply(reply)) } }
             }
         } catch (e: TimeoutCancellationException) {
             logger.warn("A control request was not answered within {}", REQUEST_TIMEOUT)
@@ -127,7 +127,7 @@ internal class ControlSocket private constructor(
 
     companion object {
         private val REQUEST_TIMEOUT = 30.seconds
-        private const val MAX_REQUEST_BYTES = 64 * 1024
+        private const val MAX_REQUEST_BYTES = 1024 * 1024
 
         private val SOCKET_PERMISSIONS = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
         private val OWNER_PERMISSIONS = SOCKET_PERMISSIONS + PosixFilePermission.OWNER_EXECUTE

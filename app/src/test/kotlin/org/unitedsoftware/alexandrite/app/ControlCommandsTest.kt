@@ -52,8 +52,8 @@ class ControlCommandsTest {
         request: ControlRequest,
         vararg desks: PairingDesk = arrayOf(desk),
         control: AgentControl? = null,
-    ): Printed {
-        lateinit var result: Printed
+    ): Answered {
+        lateinit var result: Answered
         served(directory, *desks, control = control) {
             val out = ByteArrayOutputStream()
             val err = ByteArrayOutputStream()
@@ -163,4 +163,4 @@ class ControlCommandsTest {
     }
 }
 
-private typealias Printed = Triple<Int, String, String>
+private typealias Answered = Triple<Int, String, String>

@@ -8,7 +8,11 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.app.control.ContributedDesks
 import org.unitedsoftware.alexandrite.app.control.ControlAnswers
+import org.unitedsoftware.alexandrite.app.control.ControlReply
+import org.unitedsoftware.alexandrite.app.control.RunningApp
+import org.unitedsoftware.alexandrite.app.control.RunningInstances
 import org.unitedsoftware.alexandrite.app.control.serveControl
+import org.unitedsoftware.alexandrite.mcp.McpControl
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
@@ -21,16 +25,23 @@ import org.unitedsoftware.alexandrite.runtime.get
 import org.unitedsoftware.alexandrite.runtime.getOrNull
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
+import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
 import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import java.io.IOException
 import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Instant
 import java.util.Properties
 import kotlin.system.exitProcess
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
-private val logger: Logger = LoggerFactory.getLogger("org.unitedsoftware.alexandrite.app")
+private val logger: Logger by lazy { LoggerFactory.getLogger("org.unitedsoftware.alexandrite.app") }
+
+/** The system property that sets the log level. */
+private const val LOG_LEVEL = "alexandrite.log.level"
 
 private const val VERSION_RESOURCE = "/alexandrite-version.properties"
 
@@ -53,6 +64,9 @@ internal val alexandriteVersion: String by lazy {
 }
 
 fun main(args: Array<String>) {
+    if (parseArguments(args.toList()) !is Command.Run && System.getProperty(LOG_LEVEL) == null) {
+        System.setProperty(LOG_LEVEL, "ERROR")
+    }
     exitProcess(run(args.toList(), System.getenv()))
 }
 
@@ -69,6 +83,7 @@ internal fun run(
     },
     install: Path? = installDirectory(appLocation()),
     textsInterval: Duration = TEXTS_INTERVAL,
+    machine: Machine = LocalMachine,
 ): Int {
     fun located(options: Options): Locations? = try {
         locations(options, environment, osName, home)
@@ -90,8 +105,21 @@ internal fun run(
             }
         }
 
-        Command.Help -> {
-            out.println(usage(located(Options()) ?: return ExitCode.CONFIG))
+        is Command.Act -> {
+            val locations = located(command.options) ?: return ExitCode.CONFIG
+            val cli = Cli(locations, environment, out, err, machine, platformOf(osName), home, install)
+            return try {
+                command.action.run(cli)
+            } catch (e: Exception) {
+                logger.error("Unexpected error", e)
+                err.println("alexandrite: unexpected error: $e")
+                ExitCode.FAILURE
+            }
+        }
+
+        is Command.Help -> {
+            val help = command.command?.let(::usage) ?: usage(located(Options()) ?: return ExitCode.CONFIG)
+            out.println(help)
             return ExitCode.OK
         }
 
@@ -103,7 +131,7 @@ internal fun run(
         is Command.Invalid -> {
             err.println("alexandrite: ${command.message}")
             err.println()
-            err.println(usage(located(Options()) ?: return ExitCode.USAGE))
+            err.println(command.command?.let(::usage) ?: usage(located(Options()) ?: return ExitCode.USAGE))
             return ExitCode.USAGE
         }
     }
@@ -125,8 +153,13 @@ private fun host(
     install: Path?,
     textsInterval: Duration,
 ): Int {
+    val secrets = secretsFile(locations.configFile)
+    val readEnvironment = { withSecrets(environment, secrets) }
     val source = try {
-        ConfigFile.read(locations.configFile, environment)
+        ConfigFile.read(locations.configFile, readEnvironment())
+    } catch (e: IOException) {
+        err.println("alexandrite: Cannot read $secrets: ${e.message ?: e}")
+        return ExitCode.CONFIG
     } catch (e: ConfigFileException.Missing) {
         err.println(
             "alexandrite: ${e.message} Create it from the example at ${exampleConfig(install)}, or name another " +
@@ -169,6 +202,14 @@ private fun host(
     }
     val spec = RuntimeSpec.builder(config, plugins)
         .pluginConfig(source, locations.configFile)
+        .configEnvironment {
+            try {
+                readEnvironment()
+            } catch (e: IOException) {
+                logger.warn("Cannot read {}, so a change is checked without it: {}", secrets, "$e")
+                environment
+            }
+        }
         .texts(texts.catalog)
         .build()
     logger.info(
@@ -182,9 +223,10 @@ private fun host(
         val termination = runBlocking {
             execute(spec) {
                 logger.info("Alexandrite {} is ready", alexandriteVersion)
+                val app = HostedApp(this, locations, Instant.now())
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
-                    val answers = ControlAnswers(alexandriteVersion, { services.getOrNull<AgentControl>() }) {
+                    val answers = ControlAnswers(alexandriteVersion, { services.getOrNull<AgentControl>() }, app) {
                         services.get<ContributedDesks>().desks
                     }
                     launch { serveControl(locations.dataDir, answers::answer) }
@@ -197,6 +239,35 @@ private fun host(
         if (e.stopRequest == null) err.println("alexandrite: ${e.message}")
         exitCode(e)
     }
+}
+
+/** What the running [runtime] gives the control socket. */
+private class HostedApp(
+    private val runtime: AlexandriteRuntime,
+    private val locations: Locations,
+    private val startedAt: Instant,
+) : RunningApp {
+    override val configFile: Path = locations.configFile.toAbsolutePath()
+
+    override fun status(): ControlReply.Status {
+        val instances = runtime.services.getOrNull<RunningInstances>()?.views().orEmpty()
+        return ControlReply.Status(
+            alexandriteVersion,
+            ProcessHandle.current().pid(),
+            startedAt,
+            "$configFile",
+            "${locations.dataDir.toAbsolutePath()}",
+            instances,
+        )
+    }
+
+    override fun stop() {
+        runtime.stop(StopRequest.shutdown("requested on the control socket"))
+    }
+
+    override fun config(): HostConfig? = runtime.services.getOrNull<HostConfig>()
+
+    override fun mcp(): McpControl? = runtime.services.getOrNull<McpControl>()
 }
 
 /** The directory of the distribution whose `lib` directory holds the jar [location], null when none does. */

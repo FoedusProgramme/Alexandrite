@@ -16,7 +16,13 @@ private const val DATA = "data"
 /** The data directory in `%LOCALAPPDATA%\Alexandrite` on Windows, kept out of the roaming profile. */
 private const val WINDOWS_DATA = "Data"
 
-private enum class Platform { MAC, WINDOWS, UNIX }
+internal enum class Platform { MAC, WINDOWS, UNIX }
+
+internal fun platformOf(osName: String): Platform = when {
+    osName.startsWith("Mac", ignoreCase = true) || osName.startsWith("Darwin", ignoreCase = true) -> Platform.MAC
+    osName.startsWith("Windows", ignoreCase = true) -> Platform.WINDOWS
+    else -> Platform.UNIX
+}
 
 /** Throws [IllegalArgumentException] for a variable that names no valid path. */
 internal fun locations(options: Options, environment: Map<String, String>, osName: String, home: Path): Locations {
@@ -29,11 +35,7 @@ internal fun locations(options: Options, environment: Map<String, String>, osNam
     }
     fun xdg(name: String): Path? = own(name)?.takeIf { it.isAbsolute }?.resolve(NAME)
 
-    val platform = when {
-        osName.startsWith("Mac", ignoreCase = true) || osName.startsWith("Darwin", ignoreCase = true) -> Platform.MAC
-        osName.startsWith("Windows", ignoreCase = true) -> Platform.WINDOWS
-        else -> Platform.UNIX
-    }
+    val platform = platformOf(osName)
     val roaming by lazy { own("APPDATA") ?: home.resolve("AppData").resolve("Roaming") }
     val local by lazy { own("LOCALAPPDATA") ?: home.resolve("AppData").resolve("Local") }
     val support = home.resolve("Library").resolve("Application Support").resolve(TITLE)

@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.runtime.chat.UnreadableStateListener
 import org.unitedsoftware.alexandrite.runtime.config.ConfigResolution
 import org.unitedsoftware.alexandrite.runtime.config.ConfigWriter
 import org.unitedsoftware.alexandrite.runtime.config.EnabledPlugin
+import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
 import org.unitedsoftware.alexandrite.runtime.config.PluginConfigEditor
 import org.unitedsoftware.alexandrite.runtime.config.resolveConfig
 import org.unitedsoftware.alexandrite.runtime.configFailure
@@ -187,6 +188,7 @@ internal class Assembly(
         CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.texts.collect(texts::install) }
         val writer = ConfigWriter(spec.writableFile, spec.environment, name)
         val editors = enabled.associate { it.id to PluginConfigEditor(it, writer) }
+        val hostConfig = HostConfigFile(spec.writableFile, spec.plugins, spec.environment, name)
         val runtime = runtimeBindings(
             spec.config,
             spec.configFile,
@@ -199,6 +201,7 @@ internal class Assembly(
             texts,
             control,
             editors::getValue,
+            hostConfig,
             scopes,
             directory,
             channels,

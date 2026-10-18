@@ -226,8 +226,6 @@ class PairingCliTest {
         assertTrue(offered)
     }
 
-    private data class Printed(val code: Int, val out: String, val err: String)
-
     private companion object {
         const val ADA = 1001L
         const val BOB = 1002L

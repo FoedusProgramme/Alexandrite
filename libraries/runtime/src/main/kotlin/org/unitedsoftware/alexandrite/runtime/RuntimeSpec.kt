@@ -24,13 +24,15 @@ public class RuntimeSpec private constructor(
     public val agentPlaces: (HostPaths) -> AgentPlaces,
     /** The file that changes are written back to, null for none. */
     internal val writableFile: Path?,
-    internal val environment: Map<String, String>,
+    /** Reads the variables that a change to the config file resolves its references with. */
+    internal val environment: () -> Map<String, String>,
 ) {
     public class Builder internal constructor(private val config: RuntimeConfig, private val plugins: PluginSet) {
         private var pluginConfig: ConfigSource = ConfigSource.EMPTY
         private var configFile: Path? = null
         private var writableFile: Path? = null
         private var environment: Map<String, String> = emptyMap()
+        private var configEnvironment: (() -> Map<String, String>)? = null
         private var texts: StateFlow<TextCatalog> = NO_TEXTS
         private var listener = RuntimeListener {}
         private var agentPlaces: (HostPaths) -> AgentPlaces = ::ConventionalAgentPlaces
@@ -56,6 +58,9 @@ public class RuntimeSpec private constructor(
             environment = read?.environment.orEmpty()
         }
 
+        /** Reads the variables that a change to the config file is checked with, by default those it was read with. */
+        public fun configEnvironment(read: () -> Map<String, String>): Builder = apply { configEnvironment = read }
+
         public fun texts(texts: StateFlow<TextCatalog>): Builder = apply { this.texts = texts }
 
         public fun texts(texts: TextCatalog): Builder = texts(MutableStateFlow(texts).asStateFlow())
@@ -74,7 +79,7 @@ public class RuntimeSpec private constructor(
             listener,
             agentPlaces,
             writableFile,
-            environment,
+            configEnvironment ?: environment.let { read -> { read } },
         )
     }
 

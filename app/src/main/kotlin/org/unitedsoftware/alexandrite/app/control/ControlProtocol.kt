@@ -10,6 +10,8 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -42,6 +44,46 @@ internal sealed interface ControlRequest {
     @Serializable
     @SerialName("unpair")
     class Unpair(val chat: String) : ControlRequest
+
+    @Serializable
+    @SerialName("status")
+    data object Status : ControlRequest
+
+    /** Stops the app for good. */
+    @Serializable
+    @SerialName("stop")
+    data object Stop : ControlRequest
+
+    @Serializable
+    @SerialName("chats")
+    data object Chats : ControlRequest
+
+    /** Makes all [changes] to the config file, or none. */
+    @Serializable
+    @SerialName("config_change")
+    class ChangeConfig(val changes: List<ConfigChangeView>) : ControlRequest
+
+    /** Writes [text] in the place of the whole config file. */
+    @Serializable
+    @SerialName("config_replace")
+    class ReplaceConfig(val text: String) : ControlRequest
+
+    @Serializable
+    @SerialName("mcp_servers")
+    data object McpServers : ControlRequest
+
+    @Serializable
+    @SerialName("mcp_login")
+    class McpLogin(val server: String) : ControlRequest
+
+    /** Completes the login to [server] with the [address] the browser was sent back to. */
+    @Serializable
+    @SerialName("mcp_complete")
+    class McpComplete(val server: String, val address: String) : ControlRequest
+
+    @Serializable
+    @SerialName("mcp_logout")
+    class McpLogout(val server: String) : ControlRequest
 }
 
 /** What the running app answers. */
@@ -103,11 +145,88 @@ internal sealed interface ControlReply {
     @SerialName("no_desk")
     data object NoDesk : ControlReply
 
+    @Serializable
+    @SerialName("status")
+    class Status(
+        val version: String,
+        val pid: Long,
+        @Serializable(with = InstantText::class)
+        val startedAt: Instant,
+        val configFile: String? = null,
+        val dataDir: String,
+        val instances: List<InstanceView> = emptyList(),
+    ) : ControlReply
+
+    @Serializable
+    @SerialName("stopping")
+    data object Stopping : ControlReply
+
+    @Serializable
+    @SerialName("chats")
+    class Chats(val chats: List<ChatView>) : ControlReply
+
+    /** The config [file] holds the changes, of which [restart] apply once the app starts again. */
+    @Serializable
+    @SerialName("config_changed")
+    class ConfigChanged(val file: String, val changed: List<String>, val restart: List<String>) : ControlReply
+
+    /** The config file refused the change for [refusal], a `ConfigEditRefusal` id. */
+    @Serializable
+    @SerialName("config_refused")
+    class ConfigRefused(val refusal: String, val message: String) : ControlReply
+
+    @Serializable
+    @SerialName("mcp_servers")
+    class McpServers(val servers: List<McpServerView>) : ControlReply
+
+    /** A login to [server] waits for the browser at [url], which the app follows itself when [loopback]. */
+    @Serializable
+    @SerialName("mcp_login")
+    class McpLoginStarted(val server: String, val url: String, val loopback: Boolean) : ControlReply
+
+    @Serializable
+    @SerialName("mcp_logged_in")
+    class McpLoggedIn(val server: String) : ControlReply
+
+    /** [server] is logged out, where [had] tells whether it had tokens or a pending login. */
+    @Serializable
+    @SerialName("mcp_logged_out")
+    class McpLoggedOut(val server: String, val had: Boolean) : ControlReply
+
     /** A request the app could not answer. */
     @Serializable
     @SerialName("failure")
     class Failure(val message: String) : ControlReply
 }
+
+/** [value] set at [path] from the config file's root, or that member removed when [remove] is true. */
+@Serializable
+internal class ConfigChangeView(val path: String, val value: JsonElement = JsonNull, val remove: Boolean = false)
+
+/** A channel instance and its state. */
+@Serializable
+internal class InstanceView(val id: String, val state: String)
+
+/** A paired chat and the agent that serves it. */
+@Serializable
+internal class ChatView(
+    val chat: String,
+    val kind: String? = null,
+    val title: String? = null,
+    val agent: String? = null,
+    val home: Boolean = false,
+    val model: String? = null,
+)
+
+@Serializable
+internal class McpServerView(
+    val name: String,
+    val transport: String,
+    val state: String,
+    val tools: Int = 0,
+    val lastError: String? = null,
+    val widerScopes: List<String>? = null,
+)
 
 /** A chat's request to be paired. */
 @Serializable

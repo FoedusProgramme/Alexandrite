@@ -14,9 +14,12 @@ internal class PluginConfigEditor(private val plugin: EnabledPlugin, private val
     }
 }
 
-/** One edit of the plugin whose config root is [root], which opens the file at its first call. */
+/**
+ * One edit of the plugin whose config root is [root], or of the whole file when [root] is empty, which opens the file
+ * at its first call.
+ */
 internal class PluginEdit(private val root: String, private val open: () -> OpenFile) : ConfigEdit {
-    private val rootKeys = root.split('.')
+    private val rootKeys = if (root.isEmpty()) emptyList() else root.split('.')
 
     val changes = mutableListOf<ConfigChange>()
 
@@ -74,7 +77,7 @@ internal class PluginEdit(private val root: String, private val open: () -> Open
         if (keys.any(String::isEmpty)) {
             throw refused(
                 ConfigEditRefusal.INVALID_PATH,
-                "Cannot $action the config at '$root.$path': a path is keys joined by dots, none of them empty.",
+                "Cannot $action the config at '${absolute(path)}': a path is keys joined by dots, none of them empty.",
             )
         }
         return keys
@@ -82,12 +85,14 @@ internal class PluginEdit(private val root: String, private val open: () -> Open
 
     private fun changeable(path: String): List<String> {
         val keys = keys("change", path)
-        if (keys.first() == PluginIds.ENABLED_KEY) {
+        if (rootKeys.isNotEmpty() && keys.first() == PluginIds.ENABLED_KEY) {
             throw refused(
                 ConfigEditRefusal.INVALID_PATH,
-                "Cannot change the config at '$root.$path': only the operator switches a plugin on and off.",
+                "Cannot change the config at '${absolute(path)}': only the operator switches a plugin on and off.",
             )
         }
         return keys
     }
+
+    private fun absolute(path: String): String = if (root.isEmpty()) path else "$root.$path"
 }

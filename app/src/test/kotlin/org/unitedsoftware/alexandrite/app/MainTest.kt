@@ -94,7 +94,7 @@ class MainTest {
         assertContains(stdout(), "Usage: alexandrite [--config <file>] [--data-dir <dir>] [--cache-dir <dir>]")
         assertContains(stdout(), "by default ${home.resolve(".config/alexandrite/alexandrite.json")}")
         assertContains(stdout(), "by default /srv/alexandrite")
-        assertContains(stdout(), "\n  pair <code>         pair the chat that was offered <code>\n")
+        assertContains(stdout(), "\n  pair <code>                   pair the chat that was offered <code>\n")
         assertEquals("", stderr())
     }
 

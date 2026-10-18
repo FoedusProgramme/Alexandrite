@@ -17,6 +17,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
 import org.unitedsoftware.alexandrite.sdk.di.container.DependencyKind
 import org.unitedsoftware.alexandrite.sdk.di.container.PluginBindings
@@ -64,6 +65,7 @@ internal fun runtimeBindings(
     texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
     editors: (plugin: String) -> ConfigEditor,
+    hostConfig: HostConfig,
     scopes: PluginScopes,
     directory: ChannelDirectory,
     channels: ChannelControl,
@@ -100,6 +102,7 @@ internal fun runtimeBindings(
         instanceBinding(key<AgentPlaces>(), agentPlaces(paths), RUNTIME_PLUGIN, "AgentPlaces"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
+        instanceBinding(key<HostConfig>(), hostConfig, RUNTIME_PLUGIN, "HostConfig"),
         binding(key<PluginOrigins>(), RUNTIME_PLUGIN, "PluginOrigins", managed = false) { r ->
             ResolvedOrigins(r, builtIns)
         },

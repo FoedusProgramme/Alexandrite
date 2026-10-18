@@ -151,7 +151,7 @@ class ControlSocketTest {
             """{"protocol": 1, "request": {"type": "reboot"}}""" to "The line is malformed: ",
             """{"protocol": 1, "request": {"type": "pair"}}""" to "The line is malformed: ",
             """{"protocol": 1}""" to "The line is malformed: ",
-            "x".repeat(65_600) to "The request is longer than 65536 bytes.",
+            "x".repeat(1_048_600) to "The request is longer than 1048576 bytes.",
         )
 
         served(directory, FakeDesk()) { path ->

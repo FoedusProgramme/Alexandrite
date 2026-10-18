@@ -1,0 +1,147 @@
+package org.unitedsoftware.alexandrite.app
+
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.test.Test
+import kotlin.test.assertContains
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class InstallationTest {
+    @TempDir
+    lateinit var directory: Path
+
+    private val root: Path get() = directory.resolve("home/.local/lib/alexandrite")
+
+    /** A distribution installed as the install script lays it out, which the command runs from. */
+    private fun installed(cli: Commands): Path {
+        val version = Files.createDirectories(root.resolve("versions/1.2.3"))
+        Files.createSymbolicLink(root.resolve("current"), version)
+        cli.install = version
+        return version
+    }
+
+    @Test
+    fun `update runs the installed install script in its update mode for the config and data in use`() {
+        val cli = Commands(directory, environment = mapOf("ALEXANDRITE_INSTALL_DIR" to "$root"))
+        cli.machine.attach = { 0 }
+
+        val printed = cli("update", "--version", "1.3.0")
+
+        assertEquals(0, printed.code, printed.err)
+        assertEquals(
+            listOf(
+                "sh",
+                "${root.resolve("install.sh")}",
+                "--update",
+                "--version",
+                "1.3.0",
+                "--config",
+                "${cli.configFile.toAbsolutePath()}",
+                "--data-dir",
+                "${cli.dataDir.toAbsolutePath()}",
+            ),
+            cli.machine.attached.single(),
+        )
+    }
+
+    @Test
+    fun `update passes on the script's exit code and needs an installation by the script`() {
+        val cli = Commands(directory, environment = mapOf("ALEXANDRITE_INSTALL_DIR" to "$root"))
+        cli.machine.attach = { 1 }
+        val refused = cli("update")
+        cli.environment = emptyMap()
+        val unknown = cli("update")
+
+        assertEquals(1, refused.code)
+        assertEquals(1, unknown.code)
+        assertContains(unknown.err, "was not installed by the install script")
+        assertEquals(1, cli.machine.attached.size)
+    }
+
+    @Test
+    fun `update on Windows runs the PowerShell script, and a malformed release is refused`() {
+        val cli = Commands(directory, environment = mapOf("ALEXANDRITE_INSTALL_DIR" to "$root"), osName = "Windows 11")
+
+        cli("update", "--version", "v1.3.0")
+        val release = cli("update", "--version", "1.3; rm -rf /")
+
+        assertEquals(
+            listOf(
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "${root.resolve("install.ps1")}",
+            ) +
+                listOf("-Update", "-Version", "v1.3.0", "-Config", "${cli.configFile.toAbsolutePath()}") +
+                listOf("-DataDir", "${cli.dataDir.toAbsolutePath()}"),
+            cli.machine.attached.single(),
+        )
+        assertEquals(1, release.code)
+        assertContains(release.err, "is no release")
+    }
+
+    @Test
+    fun `uninstall removes the service, the program, the launcher, the config, the secrets and the data`() {
+        val cli = Commands(directory)
+        installed(cli)
+        val bin = Files.createDirectories(cli.home.resolve(".local/bin"))
+        Files.createSymbolicLink(bin.resolve("alexandrite"), root.resolve("current/bin/alexandrite"))
+        val unit = cli.home.resolve(".config/systemd/user/alexandrite.service")
+        Files.createDirectories(unit.parent)
+        Files.writeString(unit, "[Service]\n")
+        cli.config("{}")
+        Files.writeString(cli.secrets, "A=1\n")
+        Files.createDirectories(cli.dataDir)
+        Files.writeString(cli.dataDir.resolve("runtime.lock"), "")
+        val cache = Files.createDirectories(cli.dataDir.resolve("cache/plugins"))
+
+        val printed = cli("uninstall", "--yes")
+
+        assertEquals(0, printed.code, printed.err)
+        assertContains(printed.out, "This removes:\n  the systemd user unit alexandrite.service ($unit)\n")
+        assertContains(printed.out, "Alexandrite is uninstalled.")
+        for (gone in listOf(unit, root, bin.resolve("alexandrite"), cli.configFile.parent, cli.dataDir, cache)) {
+            assertFalse(Files.exists(gone), "$gone")
+        }
+        assertContains(cli.machine.executed, listOf("systemctl", "--user", "disable", "--now", "alexandrite.service"))
+    }
+
+    @Test
+    fun `uninstall keeps the data when asked, and asks before it removes anything`() {
+        val cli = Commands(directory)
+        installed(cli)
+        cli.config("{}")
+        Files.createDirectories(cli.dataDir)
+        Files.writeString(cli.dataDir.resolve("runtime.lock"), "")
+
+        val refused = cli("uninstall")
+        val kept = cli("uninstall", "--keep-data", "--yes")
+
+        assertEquals(Printed(1, refused.out, "alexandrite: Nothing was removed: add --yes.\n"), refused)
+        assertTrue(Files.exists(cli.configFile))
+        assertEquals(0, kept.code, kept.err)
+        assertContains(kept.out, "The config file, the secrets, the data and the cache stay.")
+        assertFalse(Files.exists(root))
+        assertTrue(Files.exists(cli.configFile))
+        assertTrue(Files.exists(cli.dataDir.resolve("runtime.lock")))
+    }
+
+    @Test
+    fun `a data directory that holds no runtime's data is not removed`() {
+        val cli = Commands(directory)
+        cli.config("{}")
+        Files.createDirectories(cli.dataDir)
+        Files.writeString(cli.dataDir.resolve("notes.txt"), "mine")
+
+        val printed = cli("uninstall", "--yes")
+
+        assertEquals(0, printed.code, printed.err)
+        assertTrue(Files.exists(cli.dataDir.resolve("notes.txt")))
+        assertFalse(Files.exists(cli.configFile))
+    }
+}

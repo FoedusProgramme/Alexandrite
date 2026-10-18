@@ -116,7 +116,7 @@ class SpecTest {
             Files.writeString(file, "{}")
 
             assertEquals(file, spec.configFile)
-            assertEquals(environment, spec.environment)
+            assertEquals(environment, spec.environment())
             assertEquals(JsonPrimitive("s3cret-value"), spec.pluginConfig.tree("plugins.notes")?.get("token"))
             assertNull(builder.pluginConfig(ConfigSource.EMPTY).build().configFile)
             assertFailsWith<ConfigFileException.Missing> { builder.configFile(file.resolveSibling("missing.json")) }

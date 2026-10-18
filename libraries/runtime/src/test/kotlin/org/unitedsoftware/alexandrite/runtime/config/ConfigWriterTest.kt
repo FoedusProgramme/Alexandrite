@@ -126,7 +126,7 @@ class ConfigWriterTest {
     private fun editor(index: PluginIndex = notes, type: ChannelType? = null, file: Path? = this.file): ConfigEditor {
         val member = PluginSet.Member(index, null, true)
         val plugin = EnabledPlugin(member, emptyList(), type, PluginConfig(emptyList(), emptyList()))
-        return PluginConfigEditor(plugin, ConfigWriter(file, environment, "test"))
+        return PluginConfigEditor(plugin, ConfigWriter(file, { environment }, "test"))
     }
 
     private fun ConfigEditor.change(block: ConfigEdit.() -> Unit) = runBlocking { edit(block) }
