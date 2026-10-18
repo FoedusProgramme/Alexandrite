@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.commands.support
 
+import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
+
 /** The keys of the plugin's texts for people. */
 internal object TextKeys {
     const val NEW_DONE: String = "new.done"
@@ -26,6 +28,22 @@ internal object TextKeys {
     const val JOBS_ITEM_BY: String = "jobs.item_by"
     const val JOBS_STOPPED: String = "jobs.stopped"
     const val JOBS_UNKNOWN: String = "jobs.unknown"
+
+    const val USED_CHAT: String = "used.chat"
+    const val USED_AGENT: String = "used.agent"
+    const val USED_NONE: String = "used.none"
+    const val USED_TOTAL: String = "used.total"
+    const val USED_TOTAL_COST: String = "used.total_cost"
+    const val USED_MODEL: String = "used.model"
+    const val USED_MODEL_COST: String = "used.model_cost"
+    const val USED_TODAY: String = "used.today"
+    const val USED_LAST_7_DAYS: String = "used.last_7_days"
+    const val USED_THIS_MONTH: String = "used.this_month"
+    const val USED_BUDGET: String = "used.budget"
+    const val USED_BUDGET_DAILY: String = "used.budget_daily"
+    const val USED_BUDGET_MONTHLY: String = "used.budget_monthly"
+    const val USED_TOKENS: String = "used.tokens"
+    const val USED_MONEY: String = "used.money"
 
     const val AGENT_CURRENT: String = "agent.current"
     const val AGENT_CHOICES: String = "agent.choices"
@@ -191,6 +209,15 @@ internal object TextKeys {
     const val DURATION_HOURS_MINUTES: String = "duration.hours_minutes"
 
     fun description(command: String): String = "command.$command.description"
+
+    fun usedPeriod(period: UsagePeriod): String = when (period) {
+        UsagePeriod.TODAY -> USED_TODAY
+        UsagePeriod.LAST_7_DAYS -> USED_LAST_7_DAYS
+        else -> USED_THIS_MONTH
+    }
+
+    fun usedBudgetPeriod(period: UsagePeriod): String =
+        if (period == UsagePeriod.TODAY) USED_BUDGET_DAILY else USED_BUDGET_MONTHLY
 
     fun usage(command: String): String = "usage.$command"
 }

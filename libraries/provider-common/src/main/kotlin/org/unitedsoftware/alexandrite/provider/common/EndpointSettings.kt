@@ -10,9 +10,11 @@ import kotlinx.serialization.encoding.Encoder
 import org.unitedsoftware.alexandrite.internal.http.HttpTimeouts
 import org.unitedsoftware.alexandrite.internal.http.isHeaderValue
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
+import java.math.BigDecimal
 import java.net.URI
 import java.net.URISyntaxException
 import kotlin.time.Duration.Companion.seconds
@@ -120,6 +122,8 @@ public class ModelConfig(
     /** Media kinds such as `image`. */
     public val inputMedia: Set<String>? = null,
     public val reasoningEfforts: Set<ReasoningEffort>? = null,
+    /** Wins over the price that the backend lists. */
+    public val price: PriceConfig? = null,
 ) {
     init {
         require(contextWindow == null || contextWindow > 0) { "contextWindow must be positive" }
@@ -145,7 +149,26 @@ public class ModelConfig(
         parallelToolCalls = parallelToolCalls,
         inputMedia = inputMedia?.mapTo(mutableSetOf(), MediaKind::of),
         reasoningEfforts = reasoningEfforts,
+        price = price?.price(),
     )
+}
+
+/** What a model costs, in US dollars per million tokens. */
+@Serializable
+public class PriceConfig(
+    public val input: Double,
+    public val output: Double,
+    /** Prompt tokens read from the cache, at the [input] price when null. */
+    public val cached: Double? = null,
+) {
+    init {
+        for ((name, price) in listOf("input" to input, "output" to output, "cached" to cached)) {
+            require(price == null || (price.isFinite() && price >= 0)) { "price.$name must be a number of at least 0" }
+        }
+    }
+
+    internal fun price(): ModelPrice =
+        ModelPrice(BigDecimal.valueOf(input), BigDecimal.valueOf(output), cached?.let(BigDecimal::valueOf))
 }
 
 /** How long an endpoint waits for its backend. */

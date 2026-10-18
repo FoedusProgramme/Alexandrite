@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.agent.routing.ChatRouter
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.routing.LinkGroup
 import org.unitedsoftware.alexandrite.agent.routing.Resolution
+import org.unitedsoftware.alexandrite.agent.usage.UsageSums
 import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.agent.worker.AgentTurnInitiation
 import org.unitedsoftware.alexandrite.agent.worker.ChatIntakes
@@ -70,6 +71,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReport
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
@@ -101,6 +103,7 @@ internal class AgentControlImpl(
     private val profileCatalog: Profiles,
     private val runs: DelegatedRuns,
     private val clock: Clock,
+    private val usageSums: UsageSums,
 ) : AgentControl,
     ChatSettings {
     override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
@@ -157,6 +160,9 @@ internal class AgentControlImpl(
         )
         return report
     }
+
+    override suspend fun usage(chat: ChatAddress, everyAgent: Boolean): UsageReport =
+        usageSums.report(refusing(null) { served(chat).key.agent }, chat, everyAgent)
 
     override suspend fun context(chat: ChatAddress): ContextStatus =
         contexts.status(refusing(null) { served(chat).key })

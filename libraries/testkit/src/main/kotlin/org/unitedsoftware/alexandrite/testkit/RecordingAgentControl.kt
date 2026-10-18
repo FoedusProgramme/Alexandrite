@@ -24,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.AgentSource
 import org.unitedsoftware.alexandrite.sdk.turn.AgentSummary
+import org.unitedsoftware.alexandrite.sdk.turn.AgentUsage
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLink
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinkGroup
@@ -33,6 +34,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CompactionReport
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
+import org.unitedsoftware.alexandrite.sdk.turn.PeriodUsage
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
@@ -40,6 +42,8 @@ import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
+import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReport
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Duration
@@ -80,6 +84,7 @@ public class RecordingAgentControl(
     private val agentProfiles = mutableListOf<ProfileSummary>()
     private val refusals = ArrayDeque<String>()
     private val contexts = HashMap<ChatAddress, ContextStatus>()
+    private val usages = HashMap<ChatAddress, UsageReport>()
     private var conversations = 0
 
     /** The running and queued turns that [turns] lists and the cancels find. */
@@ -140,6 +145,11 @@ public class RecordingAgentControl(
     /** Makes [context] report [status] at [chat]. */
     public fun scriptContext(chat: ChatAddress, status: ContextStatus) {
         synchronized(lock) { contexts[chat] = status }
+    }
+
+    /** Makes [usage] report [report] at [chat], whatever it is asked. */
+    public fun scriptUsage(chat: ChatAddress, report: UsageReport) {
+        synchronized(lock) { usages[chat] = report }
     }
 
     /** Lists [rule] as a trust rule that the config file declares. */
@@ -226,6 +236,14 @@ public class RecordingAgentControl(
         recorded += Call.Untaint(chat, by)
         refuseQueued()
         taints.remove(chat)
+    }
+
+    /** The report scripted at [chat], else one of the chat's agent that used nothing and has no budgets. */
+    override suspend fun usage(chat: ChatAddress, everyAgent: Boolean): UsageReport = synchronized(lock) {
+        usages[chat] ?: run {
+            val none = UsagePeriod.entries.map { PeriodUsage(it, emptyList()) }
+            UsageReport(chat, listOf(AgentUsage(snapshot(chat).agent, clock.zone, none, none, emptyList())))
+        }
     }
 
     /** The status scripted at [chat], else that of an unmeasured conversation of a model with an unknown window. */

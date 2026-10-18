@@ -169,6 +169,7 @@ class PublicApiTest {
             control.jobStatuses = emptyList()
             control.compaction = CompactionReport(1, 2, 1)
             control.scriptContext(testChat(), ContextStatus(ConversationId("c"), null, null, null, null, null, null, null, 0))
+            control.scriptUsage(testChat(), UsageReport(testChat(), emptyList()))
             control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
             control.scriptProfile(AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict."))

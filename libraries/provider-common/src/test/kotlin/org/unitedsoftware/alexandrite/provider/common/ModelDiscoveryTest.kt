@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.provider.common
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -12,16 +13,19 @@ import org.unitedsoftware.alexandrite.provider.common.chat.chatEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.testkit.FakeModelServer
 import org.unitedsoftware.alexandrite.testkit.FakeResponse
 import org.unitedsoftware.alexandrite.testkit.fakeResponse
+import java.math.BigDecimal
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ModelDiscoveryTest {
@@ -94,6 +98,32 @@ class ModelDiscoveryTest {
         val extra = models.getValue("extra-model")
         assertEquals(4096 to "Extra", extra.contextWindow to extra.displayName)
         assertFalse(extra.nativeTools || extra.parallelToolCalls)
+    }
+
+    @Test
+    fun `a configured price wins over the one the backend lists, and a model priced by neither has none`() {
+        val listing = object : ModelListing() {
+            override fun facts(model: JsonObject): ModelFacts = ModelFacts(
+                id = model.string("id"),
+                price = ModelPrice(BigDecimal.ONE, BigDecimal.TEN),
+            )
+        }
+        server.enqueue(fakeResponse { body(listing(model("listed"), model("mine"))) }, "/v1/models")
+        val configured = mapOf(
+            "mine" to
+                Json.decodeFromString<ModelConfig>("""{"price": {"input": 0.27, "output": 1.1, "cached": 0.07}}"""),
+            "extra" to ModelConfig(),
+        )
+
+        val models = models(ChatFlavor(Dialect("custom"), listing), configured)
+
+        assertEquals(ModelPrice(BigDecimal.ONE, BigDecimal.TEN), models.getValue("listed").price)
+        assertEquals(
+            ModelPrice(BigDecimal("0.27"), BigDecimal("1.1"), BigDecimal("0.07")),
+            models.getValue("mine").price,
+        )
+        assertNull(models.getValue("extra").price)
+        assertFailsWith<IllegalArgumentException> { PriceConfig(input = -1.0, output = 1.0) }
     }
 
     @Test

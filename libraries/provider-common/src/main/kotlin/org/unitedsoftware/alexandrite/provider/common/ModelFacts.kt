@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.provider.common
 
 import dev.drewhamilton.poko.Poko
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
@@ -17,6 +18,7 @@ public class ModelFacts(
     public val parallelToolCalls: Boolean? = null,
     public val inputMedia: Set<MediaKind>? = null,
     public val reasoningEfforts: Set<ReasoningEffort>? = null,
+    public val price: ModelPrice? = null,
 )
 
 /** The model [id] as [configured], [listed] and [defaults] describe it, in that order, [listed] token limits first. */
@@ -39,5 +41,6 @@ internal fun modelInfo(
         .inputMedia(first { it.inputMedia }.orEmpty())
         .reasoningEfforts(first { it.reasoningEfforts }.orEmpty())
         .streaming(true)
+        .price(first { it.price })
         .build()
 }

@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
+import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
@@ -42,6 +43,7 @@ import org.unitedsoftware.alexandrite.testkit.FakeResponse
 import org.unitedsoftware.alexandrite.testkit.fakeResponse
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import org.unitedsoftware.alexandrite.testkit.testUserEntry
+import java.math.BigDecimal
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -214,7 +216,7 @@ class OpenRouterFlavorTest {
     }
 
     @Test
-    fun `the listing pages and reads each model's parameters`() {
+    fun `the listing pages and reads each model's parameters and price`() {
         val data = OpenRouterFixture().listing()["data"]!!.jsonArray
         val first = buildJsonObject {
             putJsonArray("data") { add(data[0]) }
@@ -232,8 +234,10 @@ class OpenRouterFlavorTest {
         assertEquals("Router chat-model" to OPENROUTER, chat.displayName to chat.dialect)
         assertEquals(setOf(MediaKind.IMAGE), chat.inputMedia)
         assertEquals(ReasoningEffort.entries.toSet() - ReasoningEffort.MAX, chat.reasoningEfforts)
+        assertEquals(ModelPrice(BigDecimal("3"), BigDecimal("15"), BigDecimal("0.3")), chat.price)
         val plain = models.getValue("plain-model")
         assertFalse(plain.nativeTools)
+        assertNull(plain.price)
         assertEquals(emptySet(), plain.reasoningEfforts)
         assertEquals("/v1/models?offset=1", server.requests.last().path)
     }

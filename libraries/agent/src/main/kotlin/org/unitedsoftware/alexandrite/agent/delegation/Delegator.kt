@@ -34,6 +34,7 @@ import org.unitedsoftware.alexandrite.agent.turn.TurnPermit
 import org.unitedsoftware.alexandrite.agent.turn.TurnPlan
 import org.unitedsoftware.alexandrite.agent.turn.TurnRunner
 import org.unitedsoftware.alexandrite.agent.turn.TurnSource
+import org.unitedsoftware.alexandrite.agent.usage.Budgets
 import org.unitedsoftware.alexandrite.agent.worker.newTurnId
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
@@ -86,6 +87,7 @@ internal class Delegator(
     private val hooks: Hooks,
     private val inboxes: JobInboxes,
     private val runRecords: RunRecords,
+    private val budgets: Budgets,
     settings: AgentSettings,
 ) {
     private val permits = Semaphore(settings.maxBackgroundRuns)
@@ -108,6 +110,10 @@ internal class Delegator(
         if (depth > MAX_DEPTH) {
             logger.info("Turn {} of {} may not delegate: it is a run at depth {}", turn.id, turn.key, depth - 1)
             return InTurnResult(DELEGATION_LIMIT_RESULT, ToolOutcome.NotRun(NotRunReason.DELEGATION_LIMIT))
+        }
+        if (background && budgets.exhausted(turn.agent)) {
+            logger.info("Turn {} of {} starts no background run: its agent used up a budget", turn.id, turn.key)
+            return InTurnResult(BUDGET_SPENT_RESULT, ToolOutcome.NotRun(NotRunReason.BUDGET))
         }
         val root = turn.lineage?.rootConversation ?: turn.conversation
         val earlier = if (resume == null) {

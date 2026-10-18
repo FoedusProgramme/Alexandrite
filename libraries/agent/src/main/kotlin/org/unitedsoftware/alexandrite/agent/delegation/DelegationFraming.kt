@@ -42,6 +42,11 @@ internal const val DELEGATION_LIMIT_RESULT: String =
     "[alexandrite:delegation_limit] Not run: sub-agents may delegate only $MAX_DEPTH levels deep, and this run is " +
         "at the last level. Do the task yourself."
 
+/** What the model reads of a background delegation once its agent used up a budget. */
+internal const val BUDGET_SPENT_RESULT: String =
+    "[alexandrite:budget] Not run: the agent has used up its budget, so it starts no background runs until the " +
+        "budget renews. Do the task yourself, or tell the user."
+
 /** What the model reads of the delegate call of a run that a restart cut off. */
 internal const val RUN_INTERRUPTED_RESULT: String =
     "[alexandrite:interrupted] Not run to its end: Alexandrite stopped while the sub-agent worked on this task, and " +

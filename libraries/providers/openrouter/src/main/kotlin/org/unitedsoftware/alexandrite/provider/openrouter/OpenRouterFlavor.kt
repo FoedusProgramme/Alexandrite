@@ -25,6 +25,7 @@ import org.unitedsoftware.alexandrite.provider.common.string
 import org.unitedsoftware.alexandrite.provider.common.strings
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.Warning
@@ -34,6 +35,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.ReasoningPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ReasoningSeal
 import org.unitedsoftware.alexandrite.sdk.transcript.SealKind
+import java.math.BigDecimal
 
 internal val OPENROUTER: Dialect = Dialect("openrouter")
 
@@ -67,8 +69,19 @@ internal object OpenRouterListing : ModelListing() {
                 MediaKind.entries.firstOrNull { it.id == modality }
             },
             reasoningEfforts = parameters?.let { if ("reasoning" in it) EFFORTS else emptySet() },
+            price = model.obj("pricing")?.let(::price),
         )
     }
+
+    /** The price that [pricing] lists in dollars per token, null when it lists no input or output price. */
+    private fun price(pricing: JsonObject): ModelPrice? {
+        val input = pricing.perMillion("prompt") ?: return null
+        val output = pricing.perMillion("completion") ?: return null
+        return ModelPrice(input, output, pricing.perMillion("input_cache_read"))
+    }
+
+    private fun JsonObject.perMillion(name: String): BigDecimal? =
+        string(name)?.toBigDecimalOrNull()?.takeIf { it.signum() >= 0 }?.movePointRight(6)?.stripTrailingZeros()
 }
 
 /** The efforts that OpenRouter's `reasoning.effort` takes. */

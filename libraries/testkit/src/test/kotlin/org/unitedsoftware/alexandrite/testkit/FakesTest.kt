@@ -48,6 +48,8 @@ import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
+import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReport
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
@@ -276,6 +278,21 @@ class FakesTest {
             ),
             control.calls,
         )
+    }
+
+    @Test
+    fun `a recording agent control reports the usage it is scripted with, else none of the chat's agent`() = blocking {
+        val control = RecordingAgentControl()
+        val chat = testChat()
+        val scripted = UsageReport(chat, emptyList())
+        control.scriptUsage(chat, scripted)
+
+        val other = control.usage(testChat("other"), everyAgent = true).agents.single()
+
+        assertEquals(scripted, control.usage(chat))
+        assertEquals(AgentId.MAIN, other.agent)
+        assertEquals(UsagePeriod.entries, other.total.map { it.period })
+        assertTrue(other.total.all { it.models.isEmpty() } && other.budgets.isEmpty())
     }
 
     @Test

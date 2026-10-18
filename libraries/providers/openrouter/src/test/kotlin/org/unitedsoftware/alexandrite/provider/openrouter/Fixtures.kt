@@ -30,6 +30,15 @@ internal class OpenRouterFixture : ChatFixture(OPENROUTER_FLAVOR) {
                         val extra = listOf("tools", "tool_choice", "parallel_tool_calls", "reasoning").takeIf { rich }
                         val parameters = listOf("temperature") + extra.orEmpty()
                         put("supported_parameters", JsonArray(parameters.map(::JsonPrimitive)))
+                        if (rich) {
+                            putJsonObject("pricing") {
+                                put("prompt", "0.000003")
+                                put("completion", "0.000015")
+                                put("input_cache_read", "0.0000003")
+                            }
+                        } else {
+                            putJsonObject("pricing") { put("prompt", "-1") }
+                        }
                     },
                 )
             }

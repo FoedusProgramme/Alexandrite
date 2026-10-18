@@ -353,6 +353,12 @@ class AgentSettingsTest {
             agents(""""coder": {"maxTurnTokens": 0}""") to "agents.coder.maxTurnTokens must be positive",
             agents(""""coder": {"toolTimeoutSeconds": 0}""") to "agents.coder.toolTimeoutSeconds must be positive",
             agents(""""coder": {"foregroundSeconds": 0}""") to "agents.coder.foregroundSeconds must be positive",
+            agents(""""coder": {"budget": {"daily": {}}}""") to
+                "agents.coder.budget.daily sets neither tokens nor money",
+            agents(""""coder": {"budget": {"daily": {"tokens": 0}}}""") to
+                "agents.coder.budget.daily.tokens must be positive",
+            agents(""""coder": {"budget": {"monthly": {"money": -2.5}}}""") to
+                "agents.coder.budget.monthly.money must be a positive number of US dollars",
             """{"maxJobsPerChat": 0}""" to "maxJobsPerChat must be positive",
         )
 

@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.model
 
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.usage.metered
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
@@ -33,6 +34,7 @@ internal suspend fun collectResponse(
         if (!started || e.error.outputStarted) throw e
         throw ModelException(e.error.rebuild { outputStarted(true) }, e)
     }
+    completed?.let { metered(request.model, it.usage) }
     return completed ?: throw ModelException(
         ModelError.builder(
             ModelErrorKind.PROTOCOL,

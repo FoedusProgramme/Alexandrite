@@ -30,6 +30,8 @@ public class ModelInfo private constructor(
     public val streaming: Boolean,
     /** Whether [ModelEndpoint.webSearch] searches the web with the backend's own search for the model. */
     public val webSearch: Boolean,
+    /** Null when unknown. */
+    public val price: ModelPrice?,
 ) {
     init {
         requireOpaqueId(id, "model")
@@ -50,6 +52,7 @@ public class ModelInfo private constructor(
         .reasoningEfforts(reasoningEfforts)
         .streaming(streaming)
         .webSearch(webSearch)
+        .price(price)
 
     public class Builder internal constructor(private var id: String, private var dialect: Dialect) {
         private var displayName: String? = null
@@ -61,6 +64,7 @@ public class ModelInfo private constructor(
         private var reasoningEfforts: Set<ReasoningEffort> = emptySet()
         private var streaming: Boolean = false
         private var webSearch: Boolean = false
+        private var price: ModelPrice? = null
 
         public fun id(id: String): Builder = apply { this.id = id }
 
@@ -86,6 +90,8 @@ public class ModelInfo private constructor(
 
         public fun webSearch(webSearch: Boolean): Builder = apply { this.webSearch = webSearch }
 
+        public fun price(price: ModelPrice?): Builder = apply { this.price = price }
+
         public fun build(): ModelInfo = ModelInfo(
             id,
             dialect,
@@ -98,6 +104,7 @@ public class ModelInfo private constructor(
             reasoningEfforts,
             streaming,
             webSearch,
+            price,
         )
     }
 

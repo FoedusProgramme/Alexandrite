@@ -50,7 +50,16 @@ internal class AgentConfig(
     val channels: Map<String, AttachmentConfig> = emptyMap(),
     /** Groups of chat addresses that share one conversation, kept at the first chat of each. */
     val linkedChats: List<List<String>> = emptyList(),
+    val budget: BudgetConfig = BudgetConfig(),
 )
+
+/** The agent's budgets per period in its zone. */
+@Serializable
+internal class BudgetConfig(val daily: BudgetLimit? = null, val monthly: BudgetLimit? = null)
+
+/** What one period may take: input and output tokens together, and US dollars. */
+@Serializable
+internal class BudgetLimit(val tokens: Long? = null, val money: Double? = null)
 
 @Serializable
 internal class AttachmentConfig(

@@ -135,6 +135,8 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.toolTimeoutSeconds > 0) { "$path.toolTimeoutSeconds must be positive" }
     require(agent.foregroundSeconds > 0) { "$path.foregroundSeconds must be positive" }
     checkCompaction("$path.compaction", agent.compaction)
+    checkBudget("$path.budget.daily", agent.budget.daily)
+    checkBudget("$path.budget.monthly", agent.budget.monthly)
     checkGlobs("$path.tools.allow", agent.tools.allow)
     checkGlobs("$path.tools.deny", agent.tools.deny)
     checkGlobs("$path.tools.forGuests", agent.tools.forGuests)
@@ -202,6 +204,15 @@ private fun checkCompaction(path: String, compaction: CompactionConfig) {
     require(compaction.maxSummaryTokens > 0) { "$path.maxSummaryTokens must be positive" }
     require(compaction.model == null || ModelRef.parseOrNull(compaction.model) != null) {
         "$path.model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\""
+    }
+}
+
+private fun checkBudget(path: String, limit: BudgetLimit?) {
+    limit ?: return
+    require(limit.tokens != null || limit.money != null) { "$path sets neither tokens nor money" }
+    require(limit.tokens == null || limit.tokens > 0) { "$path.tokens must be positive" }
+    require(limit.money == null || (limit.money.isFinite() && limit.money > 0)) {
+        "$path.money must be a positive number of US dollars"
     }
 }
 

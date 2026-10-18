@@ -106,6 +106,7 @@ class CommandsPluginTest {
             "unlink",
             "untaint",
             "untrust",
+            "usage",
         )
     }
 }

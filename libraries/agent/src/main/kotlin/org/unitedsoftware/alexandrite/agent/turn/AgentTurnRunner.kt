@@ -94,6 +94,9 @@ import org.unitedsoftware.alexandrite.agent.tool.TurnCalls
 import org.unitedsoftware.alexandrite.agent.tool.relativized
 import org.unitedsoftware.alexandrite.agent.tool.textResult
 import org.unitedsoftware.alexandrite.agent.tool.toolTitle
+import org.unitedsoftware.alexandrite.agent.usage.Budgets
+import org.unitedsoftware.alexandrite.agent.usage.HeldJobs
+import org.unitedsoftware.alexandrite.agent.usage.UsageMeter
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelCapabilities
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
@@ -210,6 +213,8 @@ internal class AgentTurnRunner(
     private val notices: Notices,
     private val routes: Routes,
     private val clock: Clock,
+    private val budgets: Budgets,
+    private val heldJobs: HeldJobs,
 ) : TurnRunner {
     override suspend fun run(
         plan: TurnPlan,
@@ -222,7 +227,7 @@ internal class AgentTurnRunner(
             ?: (plan.input as? TurnSource.FromJob)?.job?.job?.carried?.get(MessageBudget)
             ?: currentCoroutineContext()[MessageBudget] ?: MessageBudget(plan.id)
         return try {
-            withContext(budget) { run.execute() }
+            withContext(budget + run.meter) { run.execute() }
         } catch (e: Throwable) {
             val cause = (e as? CancellationException)?.let(::turnCause)
             if (cause != null) {
@@ -246,6 +251,7 @@ internal class AgentTurnRunner(
         private val resolved: (ConversationId) -> Unit,
     ) {
         private val startedAt = clock.instant()
+        val meter = UsageMeter(budgets)
         private lateinit var agent: Agent
         private lateinit var model: ModelRef
         private var reasoning: ReasoningEffort? = null
@@ -295,6 +301,7 @@ internal class AgentTurnRunner(
             val message = input.message
             if (input is TurnSource.FromJob && input.job.cancelled()) return TurnOutcome.TakenBack
             if (input is TurnSource.FromJob && !stillActive(input.job)) return dropped(input.job)
+            if (!runsPastBudgets(input) && budgets.exhausted(plan.key.agent)) return overBudget(input)
             val turn = dequeue()
             if (!openReply(turn)) return TurnOutcome.Failed("Channel instance ${turn.chat.instance} is not open.")
             withContext(NonCancellable) {
@@ -348,6 +355,7 @@ internal class AgentTurnRunner(
             val turnTools = TurnTools((offered + toolset.unoffered).associateBy { it.definition.name }, callable)
             val unstored =
                 listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, sent?.notice, opening)
+            absorbHeldJobs(turn)
             if (input !is TurnSource.FromJob) {
                 return rounds(parts, unstored, turnTools, comparison, commands, interrupted, sent)
             }
@@ -448,6 +456,7 @@ internal class AgentTurnRunner(
                 .key(key)
                 .build()
             this.turn = turn
+            meter.turn = turn
             delegation?.started(turn, taint)
             return turn
         }
@@ -626,6 +635,49 @@ internal class AgentTurnRunner(
             }
             if (job.final) jobs.delivered(started)
             TurnOutcome.Completed(null)
+        }
+
+        /** Whether [input] runs once its agent used up a budget: an operator's own message, or a run in its turn. */
+        private fun runsPastBudgets(input: TurnSource): Boolean = when (input) {
+            is TurnSource.FromMessage -> plan.actor?.isOperator == true
+            is TurnSource.FromDelegation -> !input.delegation.background
+            else -> false
+        }
+
+        /** Refuses the turn past a budget, holding a job's result and telling the chat where that is news. */
+        private suspend fun overBudget(input: TurnSource): TurnOutcome = withContext(NonCancellable) {
+            val agent = plan.key.agent
+            logger.info("Turn {} of {} is refused: agent '{}' used up a budget", plan.id, plan.key, agent)
+            val job = (input as? TurnSource.FromJob)?.job
+            val chat = job?.job?.turn?.chat ?: plan.origin
+            val message = input is TurnSource.FromMessage
+            if (job?.final != false && (message || budgets.firstRefusal(agent, chat))) {
+                val name = directory.agent(agent)?.name ?: agent.value
+                val text = if (job == null) {
+                    notices.text(plan.key, TextKeys.BUDGET_REFUSED, "agent" to name)
+                } else {
+                    val call = described(job.job)
+                    notices.text(
+                        plan.key,
+                        TextKeys.BUDGET_JOB_REFUSED,
+                        "agent" to name,
+                        "job" to job.job.id,
+                        "call" to call,
+                    )
+                }
+                val delivery = channels.channel(chat.instance)?.let { channel ->
+                    delivered { channel.send(chat, notice(text, plan.trigger.takeIf { message }, null)) }
+                }
+                if (delivery !is Delivery.Delivered) {
+                    logger.warn("Chat {} is not told that turn {} is refused: {}", chat, plan.id, delivery)
+                }
+            }
+            job?.let(heldJobs::hold)
+            if (input is TurnSource.FromDelegation) {
+                TurnOutcome.Failed("Agent '$agent' used up a budget.")
+            } else {
+                TurnOutcome.Completed(null)
+            }
         }
 
         /** Stores the [opening] entries before the first round. */
@@ -1008,6 +1060,26 @@ internal class AgentTurnRunner(
                 while (taken.isNotEmpty()) absorbJob(turn, taken)
             } finally {
                 if (taken.isNotEmpty()) followUps.restore(taken.toList())
+            }
+        }
+
+        /** Takes in the results of the jobs whose own turns were refused past a budget. */
+        private suspend fun absorbHeldJobs(turn: TurnInfo) {
+            for (job in heldJobs.take(turn.conversation)) {
+                if (job.cancelled()) {
+                    job.consumed()
+                    continue
+                }
+                val entry = jobOpening(turn, job, job.text)
+                withContext(NonCancellable) {
+                    try {
+                        append(entry)
+                        if (job.final) jobs.delivered(job.job)
+                        logger.debug("Turn {} of {} takes in the held result of job {}", turn.id, turn.key, job.job.id)
+                    } finally {
+                        job.consumed()
+                    }
+                }
             }
         }
 

@@ -184,6 +184,10 @@ public interface AgentControl {
      * when its first listing fails.
      */
     public suspend fun models(endpoint: EndpointId): List<ModelInfo>
+
+    /** The usage of the agent that serves [chat], there and in all, and of every other agent when [everyAgent]. */
+    public suspend fun usage(chat: ChatAddress, everyAgent: Boolean = false): UsageReport =
+        throw ControlRefusedException("This agent records no usage.")
 }
 
 /** What revoking a grant did. */

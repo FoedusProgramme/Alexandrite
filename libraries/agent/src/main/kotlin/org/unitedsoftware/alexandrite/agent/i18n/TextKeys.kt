@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.i18n
 
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
+import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
 
 /** The keys of the agent's texts for people. */
 internal object TextKeys {
@@ -65,6 +66,26 @@ internal object TextKeys {
     /** Takes `{kind}`. */
     const val MODEL_FAILED: String = "notice.model.failed"
 
+    /** Takes `{agent}`, `{percent}`, `{period}`, `{spent}` and `{limit}`. */
+    const val BUDGET_WARNING: String = "notice.budget.warning"
+
+    /** Takes `{agent}`, `{period}`, `{spent}` and `{limit}`. */
+    const val BUDGET_SPENT: String = "notice.budget.spent"
+
+    /** Takes `{agent}`. */
+    const val BUDGET_REFUSED: String = "notice.budget.refused"
+
+    /** Takes `{agent}`, `{job}` and `{call}`. */
+    const val BUDGET_JOB_REFUSED: String = "notice.budget.job_refused"
+    const val BUDGET_DAILY: String = "notice.budget.daily"
+    const val BUDGET_MONTHLY: String = "notice.budget.monthly"
+
+    /** Takes `{count}`. */
+    const val AMOUNT_TOKENS: String = "notice.amount.tokens"
+
+    /** Takes `{amount}`, in dollars. */
+    const val AMOUNT_MONEY: String = "notice.amount.money"
+
     /** Takes `{chat}`. */
     const val NO_AGENT: String = "control.no_agent"
 
@@ -116,6 +137,9 @@ internal object TextKeys {
     const val NOTHING_TO_COMPACT: String = "control.nothing_to_compact"
     const val COMPACT_FAILED: String = "control.compact_failed"
     const val COMPACT_STOPPED: String = "control.compact_stopped"
+
+    /** The key of the word for a budget of [period]. */
+    fun budgetPeriod(period: UsagePeriod): String = if (period == UsagePeriod.TODAY) BUDGET_DAILY else BUDGET_MONTHLY
 
     /** The key of the notice for a model call that failed with [kind]. */
     fun modelFailure(kind: ModelErrorKind): String = when (kind) {
