@@ -76,6 +76,7 @@ internal class SkillLoadTool(private val skills: Skills) :
             preview = ReviewPreview.Text(preview),
             snapshot = text.sha256,
             rule = RuleSubject(NAME, listOf(skill.name, text.sha256), "skill ${skill.name} as it reads now"),
+            untrusted = true,
         )
     }
 

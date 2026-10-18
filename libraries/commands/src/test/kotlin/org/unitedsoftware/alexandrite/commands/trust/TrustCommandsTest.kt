@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
@@ -92,14 +93,17 @@ class TrustCommandsTest {
 
     @Test
     fun `a relative or invalid folder changes nothing`() = runTest {
-        assertEquals("Give the folder as an absolute path, not repo.", commands.answer(trust("repo")))
+        assertEquals("Give the folder as an absolute path, not ./repo.", commands.answer(trust("./repo")))
         assertEquals("Give the folder as an absolute path, not ~/repo.", commands.answer(untrust("~/repo")))
         assertEquals(
-            "Send /trust to see the trusted folders, or /trust <folder> with the folder's absolute path to trust it.",
+            "Send /trust to see what is trusted, /trust <folder> with the folder's absolute path to trust it, or " +
+                "/trust <rule>, such as /trust command.exec(git), so that the output of the calls it covers no " +
+                "longer taints this conversation.",
             commands.answer(trust("/srv/\u0000")),
         )
         assertEquals(
-            "Send /untrust <folder> with the folder's absolute path to stop trusting it.",
+            "Send /untrust <folder> with the folder's absolute path, or /untrust <rule> as /trust wrote it, to stop " +
+                "trusting it.",
             commands.answer(untrust()),
         )
         assertEquals(emptyList(), control.calls)
@@ -130,6 +134,73 @@ class TrustCommandsTest {
             commands.answer(testCommand("untaint", "now", issuer = OPERATOR)),
         )
         assertEquals(List(2) { Call.Untaint(untaint.chat, OPERATOR) }, control.calls)
+    }
+
+    // Trust rules.
+
+    @Test
+    fun `a rule trusts the output of the calls it covers in the conversation, and untrust stops it`() = runTest {
+        assertEquals(
+            "The output of the calls that command.exec(git) covers no longer taints this conversation; a taint it " +
+                "has already stays.",
+            commands.answer(trust("command.exec(git)")),
+        )
+        commands.answer(trust("mcp.files.*"))
+        control.declareTrust("web.fetch")
+
+        assertEquals(
+            "No folder is trusted.\n\nCalls whose output does not taint this conversation:\n" +
+                "- web.fetch (declared in the config file)\n- command.exec(git) (trusted by Operator on 2026-01-01)\n" +
+                "- mcp.files.* (trusted by Operator on 2026-01-01)",
+            commands.answer(trust()),
+        )
+        assertEquals(
+            "The output of the calls that command.exec(git) covers taints this conversation again.",
+            commands.answer(untrust("command.exec(git)")),
+        )
+        assertEquals(
+            "command.exec(git) is no trust rule of this conversation.",
+            commands.answer(untrust("command.exec(git)")),
+        )
+        assertEquals(
+            "The config file trusts web.fetch: edit the file to stop trusting it.",
+            commands.answer(untrust("web.fetch")),
+        )
+        val chat = trust().chat
+        assertEquals(
+            listOf(
+                Call.Trust(chat, "command.exec(git)", OPERATOR),
+                Call.Trust(chat, "mcp.files.*", OPERATOR),
+                Call.Untrust(chat, "command.exec(git)", OPERATOR),
+                Call.Untrust(chat, "command.exec(git)", OPERATOR),
+                Call.Untrust(chat, "web.fetch", OPERATOR),
+            ),
+            control.calls,
+        )
+    }
+
+    @Test
+    fun `trusting a shell whole says that it trusts the output of any script`() = runTest {
+        assertEquals(
+            "The output of the calls that command.exec(sh) covers no longer taints this conversation; a taint it " +
+                "has already stays. This rule trusts a program that runs whatever code it is given, such as a " +
+                "shell: the output of any script it runs is trusted.",
+            commands.answer(trust("command.exec(sh)")),
+        )
+    }
+
+    @Test
+    fun `a rule the agent refuses replies with its message`() = runTest {
+        control.refuseNext("'command.exec(a && b)' holds shell syntax.")
+
+        assertEquals("'command.exec(a && b)' holds shell syntax.", commands.answer(trust("command.exec(a && b)")))
+    }
+
+    @Test
+    fun `only an operator may trust or untrust, in every form`() {
+        val forms = commands.commands.associate { it.name to it.operatorsOnly }
+
+        assertEquals(CommandForms.ALL to CommandForms.ALL, forms["trust"] to forms["untrust"])
     }
 
     private fun trust(folder: String = "") = testCommand("trust", folder, issuer = OPERATOR)

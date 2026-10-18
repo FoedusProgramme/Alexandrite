@@ -229,6 +229,41 @@ class TelegramPermissionTest {
         assertTrue(rules.startsWith(listed) && rules.endsWith(" until /new)") && "\n2." !in rules, rules)
     }
 
+    @Test
+    fun `allow and trust runs a call that would taint and leaves the conversation untainted, allow alone taints`() {
+        val folder = script("first")
+        app.model
+            .reply { toolCall("command.exec", gradle("test", folder)) }.reply { text("Tested.") }
+            .reply { toolCall("command.exec", gradle("test", folder)) }.reply { text("Tested again.") }
+        lateinit var buttons: List<List<String>>
+        lateinit var answered: String
+        var trusted: ConversationTaint? = null
+        var allowed: ConversationTaint? = null
+
+        app.run(app.builder(directory)) {
+            val conversations = get<ConversationStore>()
+            app.send(app.ada, app.adaChat, "Run the tests.")
+            val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            buttons = asked.buttons.map { row -> row.map { it.text } }
+            press { it == "Allow and trust" }
+            app.message(app.adaChat, "Tested.")
+            idle()
+            answered = app.fake.botMessage(ADA, asked.id)!!.text
+            trusted = conversations.taint(conversations.current(app.key(app.adaChat)).id)
+            app.send(app.ada, app.adaChat, "Run them again.")
+            press { it == "Allow" }
+            app.message(app.adaChat, "Tested again.")
+            idle()
+            allowed = conversations.taint(conversations.current(app.key(app.adaChat)).id)
+        }
+
+        assertEquals(listOf("Allow", "Deny"), buttons.first())
+        assertEquals(listOf("Allow and trust"), buttons[1])
+        assertEquals("Allowed by Ada Lovelace (@ada_test), its output trusted.", answered.substringAfterLast("\n"))
+        assertNull(trusted)
+        assertContains(allowed?.reason.orEmpty(), "command.exec ran gradlew")
+    }
+
     /** A folder [name] beside the app's data holding an executable `gradlew` that echoes its arguments. */
     private fun script(name: String): Path {
         val folder = directory.toRealPath().resolve(name).createDirectories()

@@ -81,7 +81,12 @@ class CallRulesTest {
         val rules = AgentCallRules(directory, registry, records, store.conversations, states, clock)
         val approvals = OfferingApprovals(rules)
         val gate =
-            PermissionGate(TurnHooks(Proceeding), registry, rules, UnsureJudge, approvals, states, directory, clock)
+            PermissionGate(
+                TurnHooks(
+                    Proceeding,
+                ),
+                registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock,
+            )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */
         suspend fun decide(tool: Tool, review: CallReview, turn: TurnInfo, tainted: Boolean = false): String {
@@ -266,7 +271,7 @@ class CallRulesTest {
 
         assertEquals("ask", decided)
         assertEquals(listOf<RuleSubject?>(null), setup.approvals.offered)
-        assertEquals(subject, setup.rules.grantable(lowered))
+        assertEquals(listOf(subject), setup.rules.grantable(lowered))
     }
 
     @Test
@@ -282,9 +287,9 @@ class CallRulesTest {
             rules.grantable(checked(automation(), exec, review)),
             rules.grantable(checked(operator(), exec, foreign)),
             rules.grantable(checked(operator(), exec, CallReview())),
-        ).also { setMode(PermissionMode.MANUAL) } + rules.grantable(checked(operator(), exec, review))
+        ).also { setMode(PermissionMode.MANUAL) } + listOf(rules.grantable(checked(operator(), exec, review)))
 
-        assertEquals(listOf(subject, null, null, null, null, null), offered)
+        assertEquals(listOf(listOf(subject)) + List(5) { emptyList() }, offered)
     }
 
     // Session rules.
@@ -297,7 +302,7 @@ class CallRulesTest {
         val other = testTurn(chat = testChat("other")) { actor(operator).conversation(elsewhere) }
         val before = setup.decide(exec, test, operator())
 
-        setup.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
+        setup.rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
 
         assertEquals(
             listOf("ask", "rule", "ask", "ask", "ask"),
@@ -330,11 +335,11 @@ class CallRulesTest {
         val lines = logged {
             blocking {
                 setMode(PermissionMode.MANUAL)
-                rules.grant(checked(operator(), exec, test), test.rule!!, operator)
+                rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
                 setMode(PermissionMode.ASK)
                 rules.grant(
                     checked(operator(), exec, test),
-                    RuleSubject("command.exec", listOf("make"), "make"),
+                    listOf(RuleSubject("command.exec", listOf("make"), "make")),
                     operator,
                 )
             }
@@ -356,14 +361,14 @@ class CallRulesTest {
         val test = run("make", "test")
         val lint = run("make", "lint")
         val sealed = conversation()
-        first.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
+        first.rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
         store.conversations.newConversation(key)
         first.rules.sealed(sealed)
         val sealedRules = first.rules.inForce(AgentId.MAIN, sealed)
         val stillCurrent = conversation()
-        first.rules.grant(checked(operator(), exec, lint), lint.rule!!, operator)
+        first.rules.grant(checked(operator(), exec, lint), listOf(lint.rule!!), operator)
         store.conversations.newConversation(key)
-        first.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
+        first.rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
         val restarted = Setup()
 
         restarted.rules.onStart()
@@ -386,7 +391,7 @@ class CallRulesTest {
     fun `the rules in force are the declared ones, then the conversation's with who and when`() = runTest {
         val setup = Setup("""{"allow": ["command.exec(git status)", "deploy.run"]}""")
         val sneaky = RuleSubject("command.exec", listOf("cat", "a‮b"), "cat a‮b")
-        setup.rules.grant(checked(operator(), exec, run("cat", "a‮b").withRule(sneaky)), sneaky, operator)
+        setup.rules.grant(checked(operator(), exec, run("cat", "a‮b").withRule(sneaky)), listOf(sneaky), operator)
 
         assertEquals(
             listOf(
@@ -411,8 +416,8 @@ class CallRulesTest {
             val status = run("/usr/bin/git", "status", executable = "/usr/bin/git")
                 .withRule(RuleSubject("command.exec", listOf("git", "status"), "git status"))
             val test = run("make", "test")
-            setup.rules.grant(checked(operator(), exec, test), test.rule!!, operator)
-            setup.rules.grant(checked(operator(), exec, status), status.rule!!, operator)
+            setup.rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
+            setup.rules.grant(checked(operator(), exec, status), listOf(status.rule!!), operator)
 
             val revoked = listOf(
                 setup.rules.revoke(AgentId.MAIN, conversation(), 1, operator),
@@ -476,7 +481,7 @@ class CallRulesTest {
         val offered = mutableListOf<RuleSubject?>()
 
         override suspend fun ask(call: CheckedCall, reason: String): GateResult {
-            offered += rules.grantable(call)
+            offered += rules.grantable(call).firstOrNull()
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }
     }

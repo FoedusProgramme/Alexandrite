@@ -327,14 +327,19 @@ class ExecToolTest {
     @Test
     fun `an opaque program is reviewed as opaque with no rule, and runs only once allowed`() {
         val marker = fs.workspace.resolve("marker")
-        val command = "env sh -c 'touch marker'"
+        val command = "env -u UNUSED sh -c 'touch marker'"
 
         val reviewed = review(command, fs.context(turn = operatorTurn()))
 
         val env = Path.of("/usr/bin/env").toRealPath()
         assertEquals(ToolRisk.EXEC to null, reviewed.risk to reviewed.rule)
         assertEquals(
-            ReviewPreview.Command(listOf("env", "sh", "-c", "touch marker"), fs.workspace, env, opaque = true),
+            ReviewPreview.Command(
+                listOf("env", "-u", "UNUSED", "sh", "-c", "touch marker"),
+                fs.workspace,
+                env,
+                opaque = true,
+            ),
             reviewed.preview,
         )
         assertFailed(notAllowed("env"), run(command))

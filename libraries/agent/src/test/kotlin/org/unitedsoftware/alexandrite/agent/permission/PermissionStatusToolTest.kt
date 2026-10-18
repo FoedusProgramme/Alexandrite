@@ -76,7 +76,7 @@ class PermissionStatusToolTest {
         val context = testToolContext(turn)
         val taint = TurnTaint(turn.id, turn.key)
         val gate = GateCall(turn, call, exec, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls)
-        rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), subject, operatorUser)
+        rules.grant(CheckedCall(gate, review, ToolRisk.EXEC, null), listOf(subject), operatorUser)
     }
 
     private fun context(turn: TurnInfo, taint: TurnTaint): ToolContext = AgentToolContext(

@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -11,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
+import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -24,7 +27,7 @@ internal class FloorRefusal(override val message: String) : Exception(message)
 /** The arguments of a call: [cwd] is null for the workspace. */
 internal class Request(val argv: List<String>, val cwd: Path?, val timeout: Duration)
 
-/** What a call runs once it is allowed. */
+/** What a program of a call runs once it is allowed. */
 internal class PlannedRun(
     val argv: List<String>,
     /** Canonical. */
@@ -42,12 +45,59 @@ internal class PlannedRun(
     val rule: RuleSubject?,
     /** The existing paths that the arguments of a vetted program name, canonical. */
     val reached: List<Path>,
+    /** The variables that the program gets beside the usual ones. */
+    val environment: Map<String, String> = emptyMap(),
+    /** How long a wrapper such as `timeout` lets the program run, null for as long as the call. */
+    val limit: Duration? = null,
 ) {
     /** The program as the call names it. */
     val name: String get() = argv.first()
 
     /** The base name of [name]. */
     val program: String get() = name.substringAfterLast('/')
+}
+
+/** A step of a planned call: [run], or a change of directory to [cwd] when that is null. */
+internal class PlannedStep(val joint: SegmentJoint?, val words: List<String>, val cwd: Path, val run: PlannedRun?)
+
+/** What a call runs once it is allowed: its [steps] in turn. */
+internal class PlannedCall(
+    /** As the call gives it. */
+    val argv: List<String>,
+    /** Canonical. */
+    val cwd: Path,
+    val steps: List<PlannedStep>,
+    /** Whether a failed step that ends a list stops the call, as a shell's `-e` does. */
+    val errexit: Boolean,
+    /** Whether [steps] run in place of [argv], whose own program never runs. */
+    val segmented: Boolean,
+    /** The real path of the program that [argv] names, null when it cannot be resolved. */
+    val executable: Path?,
+    val timeout: Duration,
+) {
+    val programs: List<PlannedRun> get() = steps.mapNotNull { it.run }
+
+    /** Whether every program is vetted read-only. */
+    val vetted: Boolean get() = programs.all { it.vetted }
+
+    val opaque: Boolean get() = programs.any { it.opaque }
+
+    val readOnly: Boolean get() = programs.all { it.readOnly }
+
+    /** What the tool compares again before it acts. */
+    val snapshot: String
+        get() = if (!segmented) {
+            programs.single().snapshot
+        } else {
+            buildJsonArray {
+                for (step in steps) add(step.run?.snapshot ?: "cd ${step.cwd}")
+            }.toString()
+        }
+
+    /** The rule that would allow the call for good, null for one of several steps. */
+    val rule: RuleSubject? get() = if (segmented) null else programs.single().rule
+
+    val reached: List<Path> get() = programs.flatMap { it.reached }.distinct()
 }
 
 /** Plans the calls of [agent]'s turns in [conversation], a turn of the operator's when [operator]. */
@@ -58,16 +108,91 @@ internal class Planner(
     private val operator: Boolean,
 ) {
     /**
-     * What [request] runs in [cwd], which may not exist yet when [missingAllowed].
+     * What [request] runs in [cwd], which may not exist yet when [missingAllowed], where a leading `~` of a chain's
+     * word is [home].
      *
      * Throws [CallProblem] for a call that cannot run as given and [FloorRefusal] for one that the floor refuses.
      */
-    fun plan(request: Request, cwd: Path, missingAllowed: Boolean): PlannedRun {
+    fun plan(request: Request, cwd: Path, missingAllowed: Boolean, home: String?): PlannedCall {
         val directory = allowed(floor.checkTree(cwd, agent, conversation)) { "The working directory $cwd reaches $it" }
         if (!(missingAllowed && Files.notExists(directory)) && !Files.isDirectory(directory)) {
             throw CallProblem("The working directory $cwd is no directory.")
         }
         val argv = request.argv
+        val outer = unwrap(argv)
+        val chain = outer?.let { shellChain(it.argv, home) }
+        if (outer == null || (chain == null && outer.argv == argv)) {
+            val run = program(argv, directory, request.timeout)
+            return PlannedCall(
+                argv,
+                directory,
+                listOf(PlannedStep(null, argv, directory, run)),
+                false,
+                false,
+                run.executable,
+                request.timeout,
+            )
+        }
+        val named = quietly(argv.first(), directory)
+        if (chain == null) {
+            val run = program(outer.argv, directory, request.timeout, outer.environment, outer.timeout)
+            return PlannedCall(
+                argv,
+                directory,
+                listOf(PlannedStep(null, outer.argv, directory, run)),
+                false,
+                true,
+                named,
+                request.timeout,
+            )
+        }
+        var current = directory
+        val steps = chain.steps.map { step ->
+            if (step.changesDirectory) {
+                current = changed(step.words[1], current)
+                return@map PlannedStep(step.joint, step.words, current, null)
+            }
+            val inner = unwrap(step.words)
+            val run = if (inner == null) {
+                program(step.words, current, request.timeout, outer.environment, outer.timeout)
+            } else {
+                val limit = listOfNotNull(outer.timeout, inner.timeout).minOrNull()
+                program(inner.argv, current, request.timeout, outer.environment + inner.environment, limit)
+            }
+            PlannedStep(step.joint, step.words, current, run)
+        }
+        return PlannedCall(argv, directory, steps, chain.errexit, true, named, request.timeout)
+    }
+
+    /**
+     * The canonical directory that `cd [target]` changes [from] to, which may not exist yet.
+     *
+     * Throws [FloorRefusal] for one that the floor refuses and [CallProblem] for a file that is no directory.
+     */
+    fun changed(target: String, from: Path): Path {
+        val directory = allowed(floor.checkTree(candidatePath(target, from), agent, conversation)) {
+            "cd $target reaches $it"
+        }
+        if (Files.exists(directory) &&
+            !Files.isDirectory(directory)
+        ) {
+            throw CallProblem("cd $target names no directory.")
+        }
+        return directory
+    }
+
+    /**
+     * What [argv] runs in [directory] with [environment] beside the usual variables, for [limit] at most.
+     *
+     * Throws [CallProblem] for a call that cannot run as given and [FloorRefusal] for one that the floor refuses.
+     */
+    fun program(
+        argv: List<String>,
+        directory: Path,
+        timeout: Duration,
+        environment: Map<String, String> = emptyMap(),
+        limit: Duration? = null,
+    ): PlannedRun {
         val name = argv.first()
         val resolved = resolveProgram(name, directory, searchPath(System.getenv()))
             ?: throw CallProblem(
@@ -83,7 +208,7 @@ internal class Planner(
         val real = executable.fileName.toString()
         val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
-        val vetted = !opaque && system && program in VETTED_READ_ONLY
+        val vetted = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
         val parsed = CommandOptions.parse(argv, withTable = vetted)
         val reached = mutableListOf<Path>()
         if (vetted) {
@@ -110,15 +235,29 @@ internal class Planner(
             cwd = directory,
             resolved = resolved,
             executable = executable,
-            timeout = request.timeout,
+            timeout = timeout,
             vetted = vetted,
             opaque = opaque,
             readOnly = vetted && operator && !parsed.isRecursive && program !in NEVER_READ_ONLY &&
                 !setsState(program, parsed),
             snapshot = snapshot(executable, system, parsed.operands, directory),
-            rule = if (opaque) null else rule(name, executable, parsed.operands.firstOrNull()),
+            rule = if (opaque ||
+                environment.isNotEmpty()
+            ) {
+                null
+            } else {
+                rule(name, executable, parsed.operands.firstOrNull())
+            },
             reached = reached.distinct(),
+            environment = environment,
+            limit = limit,
         )
+    }
+
+    /** The real path of the program [name] in [directory], null when there is none or the floor refuses it. */
+    private fun quietly(name: String, directory: Path): Path? {
+        val resolved = resolveProgram(name, directory, searchPath(System.getenv())) ?: return null
+        return (floor.checkRead(resolved, agent, conversation) as? FloorCheck.Allowed)?.canonical
     }
 
     /** The canonical path of [candidate], which the floor allows. */

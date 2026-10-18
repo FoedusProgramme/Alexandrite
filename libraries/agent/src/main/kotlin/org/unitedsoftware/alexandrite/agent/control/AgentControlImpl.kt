@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
+import org.unitedsoftware.alexandrite.agent.permission.TrustRules
 import org.unitedsoftware.alexandrite.agent.profile.Profiles
 import org.unitedsoftware.alexandrite.agent.project.FolderTrust
 import org.unitedsoftware.alexandrite.agent.routing.ChatRouter
@@ -66,6 +67,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
+import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
 import java.nio.file.Path
@@ -91,6 +93,7 @@ internal class AgentControlImpl(
     private val endpoints: Endpoints,
     private val trust: FolderTrust,
     private val rules: CallRules,
+    private val trusts: TrustRules,
     private val seals: List<ConversationSeals>,
     private val contexts: ContextControl,
     private val hooks: TurnHooks,
@@ -271,6 +274,21 @@ internal class AgentControlImpl(
     override suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation {
         val key = refusing(null) { served(chat).key }
         return rules.revoke(key.agent, conversations.current(key).id, number, by)
+    }
+
+    override suspend fun trustRules(chat: ChatAddress): List<TrustRule> {
+        val key = refusing(null) { served(chat).key }
+        return trusts.inForce(key.agent, conversations.current(key).id)
+    }
+
+    override suspend fun trust(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule {
+        val key = refusing(null) { served(chat).key }
+        return refusing(key) { trusts.grant(key.agent, conversations.current(key).id, rule, by) }
+    }
+
+    override suspend fun untrust(chat: ChatAddress, rule: String, by: ChatUser?): Revocation {
+        val key = refusing(null) { served(chat).key }
+        return trusts.revoke(key.agent, conversations.current(key).id, rule, by)
     }
 
     override fun endpoints(): List<EndpointId> = endpoints.ids.toList()

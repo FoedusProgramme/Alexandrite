@@ -7,6 +7,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class RuleEntryTest {
     private fun parse(text: String): RuleEntry = RuleEntry.parse(text, "/home/ada")
@@ -170,5 +171,28 @@ class RuleEntryTest {
                 tool.allows(RuleSubject("command.exec", emptyList(), "everything")),
             ),
         )
+    }
+
+    @Test
+    fun `a trust rule may name its tool by a glob and its program by a path, and trusts what it covers`() {
+        val shell = RuleEntry.parse("command.exec(sh)", "/home/ada", trust = true)
+        val gradle = RuleEntry.parse("command.exec(./gradlew)", "/home/ada", trust = true)
+        val files = RuleEntry.parse("mcp.files.*", "/home/ada", trust = true)
+
+        assertNull(RuleEntry.problem("mcp.files.*", trust = true))
+        assertTrue(RuleEntry.problem("mcp.files.*")!!.startsWith("is no rule"))
+        assertTrue(RuleEntry.problem("mcp.*(x)", trust = true)!!.startsWith("is no rule"))
+        assertEquals(
+            listOf(true, false, true, true, false, false),
+            listOf(
+                gradle.trusts("command.exec", listOf("./gradlew", "test")),
+                gradle.trusts("command.exec", listOf("gradle", "test")),
+                files.trusts("mcp.files.read", null),
+                files.trusts("mcp.files.list", null),
+                files.trusts("mcp.web.read", null),
+                gradle.trusts("command.exec", null),
+            ),
+        )
+        assertEquals(listOf(true, false, false), listOf(shell, gradle, files).map { it.anyCode })
     }
 }

@@ -151,6 +151,26 @@ public interface AgentControl {
      */
     public suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation
 
+    /**
+     * The trust rules in force at [chat]: those the config file declares for its agent, then those granted in its
+     * current conversation.
+     */
+    public suspend fun trustRules(chat: ChatAddress): List<TrustRule> = emptyList()
+
+    /**
+     * Trusts the output of the calls that [rule], written like a trust rule of the config file, covers in the current
+     * conversation at [chat], and returns the rule.
+     */
+    public suspend fun trust(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule =
+        throw ControlRefusedException("This agent keeps no trust rules.")
+
+    /**
+     * Stops trusting the calls that [rule] covers in the current conversation at [chat], removing its grant whenever
+     * there is one, and tells whether the config file still declares it.
+     */
+    public suspend fun untrust(chat: ChatAddress, rule: String, by: ChatUser?): Revocation =
+        throw ControlRefusedException("This agent keeps no trust rules.")
+
     /** The profiles a delegating agent may run as a sub-agent, config ones first, then plugin ones, then created ones. */
     public suspend fun profiles(): List<ProfileSummary> = emptyList()
 
@@ -199,6 +219,21 @@ public class AllowRule(
     public val grantedAt: Instant?,
     /** Who granted the rule, null for a declared one or the host. */
     public val grantedBy: ChatUser?,
+)
+
+/** A rule whose calls' output does not taint the conversation. */
+@Poko
+public class TrustRule(
+    /** As the config file writes it. */
+    public val rule: String,
+    /** Whether the config file declares the rule. */
+    public val declared: Boolean,
+    /** When the rule was granted in the conversation, null for a declared one. */
+    public val grantedAt: Instant?,
+    /** Who granted the rule, null for a declared one or the host. */
+    public val grantedBy: ChatUser?,
+    /** Whether the rule trusts programs that run whatever code they are given, such as a shell. */
+    public val anyCode: Boolean = false,
 )
 
 /** Chats whose messages to [agent] continue one conversation, kept at [anchor]. */

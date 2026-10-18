@@ -95,7 +95,7 @@ class PermissionGateTest {
             override fun isBuiltIn(instance: Any): Boolean = builtIn.any { it === instance }
         }
         val registry = ToolRegistry(tools, emptyList(), directory, origins)
-        return PermissionGate(TurnHooks(hooks), registry, rules, judge, approvals, states, directory, clock)
+        return PermissionGate(TurnHooks(hooks), registry, rules, NoTrust, judge, approvals, states, directory, clock)
     }
 
     private suspend fun setMode(turn: TurnInfo, mode: PermissionMode, until: Instant? = null) {
@@ -636,6 +636,7 @@ class PermissionGateTest {
             TurnHooks(hooks),
             registry,
             rules,
+            NoTrust,
             judge,
             approvals,
             SettingsStates(FailingChatStates()),
@@ -797,9 +798,10 @@ private class ScriptedRules : CallRules {
         return allowed
     }
 
-    override suspend fun grantable(call: CheckedCall): RuleSubject? = null
+    override suspend fun grantable(call: CheckedCall): List<RuleSubject> = emptyList()
 
-    override suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser) = error("Nothing is granted.")
+    override suspend fun grant(call: CheckedCall, subjects: List<RuleSubject>, by: ChatUser) =
+        error("Nothing is granted.")
 
     override fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule> = emptyList()
 

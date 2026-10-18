@@ -78,6 +78,8 @@ internal class PermissionConfig(
     val allow: List<String> = emptyList(),
     /** The calls that never run, written like [allow]. */
     val deny: List<String> = emptyList(),
+    /** The calls whose output does not taint the conversation, written like [allow] or as a glob of tool names. */
+    val trust: List<String> = emptyList(),
     /** `<endpoint>/<model>` of the judge in auto mode, the agent's model when null. */
     val judge: String? = null,
     val judgeTimeoutSeconds: Int = 20,

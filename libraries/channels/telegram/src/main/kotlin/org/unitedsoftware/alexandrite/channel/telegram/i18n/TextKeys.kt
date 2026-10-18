@@ -22,10 +22,11 @@ internal object TextKeys {
 
     const val STREAMING_USAGE: String = "streaming.usage"
 
-    /** Takes `{mode}` and `{quote}`. */
+    /** Takes `{mode}`, `{mode_source}`, `{quote}` and `{quote_source}`. */
     const val STREAMING_NOW: String = "streaming.now"
 
     const val STREAMING_BOT_DEFAULT: String = "streaming.bot_default"
+    const val STREAMING_CHAT: String = "streaming.chat"
 
     const val STREAMING_ELSEWHERE: String = "streaming.elsewhere"
 
@@ -71,8 +72,17 @@ internal object TextKeys {
 
     const val APPROVAL_PROGRAM_UNKNOWN: String = "approval.program_unknown"
     const val APPROVAL_OPAQUE: String = "approval.opaque"
+
+    /** Takes `{count}`. */
+    const val APPROVAL_STEPS: String = "approval.steps"
+
+    /** Takes `{rules}`. */
+    const val APPROVAL_ALWAYS_RULES: String = "approval.always_rules"
+
+    const val APPROVAL_TRUST_OPAQUE: String = "approval.trust_opaque"
     const val APPROVAL_ARGUMENTS: String = "approval.arguments"
     const val APPROVAL_ALLOW: String = "approval.allow"
+    const val APPROVAL_ALLOW_TRUST: String = "approval.allow_trust"
 
     /** Takes `{rule}`. */
     const val APPROVAL_ALWAYS: String = "approval.always"
@@ -84,6 +94,9 @@ internal object TextKeys {
 
     /** Takes `{name}` and `{rule}`. */
     const val APPROVAL_ALLOWED_ALWAYS: String = "approval.allowed_always"
+
+    /** Takes `{name}`. */
+    const val APPROVAL_ALLOWED_TRUSTED: String = "approval.allowed_trusted"
 
     /** Takes `{name}`. */
     const val APPROVAL_DENIED: String = "approval.denied"

@@ -37,8 +37,10 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
+import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.testkit.testDelegatedTurn
 import org.unitedsoftware.alexandrite.testkit.testRecords
@@ -119,6 +121,8 @@ class ApprovalDeskTest {
         preview: ReviewPreview? = null,
         always: RuleSubject? = null,
         id: String = "k3x9",
+        rules: List<RuleSubject> = listOfNotNull(always),
+        taints: Boolean = false,
     ) = ApprovalRequest(
         id,
         turn,
@@ -128,6 +132,8 @@ class ApprovalDeskTest {
         preview,
         "the chat is in ask mode",
         always,
+        alwaysRules = rules,
+        taints = taints,
     )
 
     // Where requests go.
@@ -437,6 +443,84 @@ class ApprovalDeskTest {
     }
 
     @Test
+    fun `allow and trust is offered only for a call that would taint, and answers with the output trusted`() = runTest {
+        val desk = Desk(this)
+        val tainting = asking(desk, request(taints = true))
+        val clean = asking(desk, request(id = "clean"))
+        advanceTimeBy(5.seconds)
+
+        assertEquals(
+            listOf(
+                listOf("apv:k3x9:a", "apv:k3x9:d", "apv:k3x9:t"),
+                listOf("apv:clean:a", "apv:clean:d"),
+            ),
+            callbacks(desk, ADA),
+        )
+        desk.press(ada, "apv:k3x9:t", message = 101)
+        desk.press(ada, "apv:clean:t", message = 102)
+        advanceTimeBy(5.seconds)
+
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), tainting.await())
+        assertEquals(ApprovalAnswer.Allowed(ada), clean.await())
+        assertEquals(
+            listOf("Allowed by Ada, its output trusted.", "Allowed by Ada."),
+            desk.shown(ADA).map { it.substringAfterLast("\n") },
+        )
+    }
+
+    @Test
+    fun `a chain shows its steps, the rules that always allow grants, and what trusting an opaque program means`() =
+        runTest {
+            val desk = Desk(this)
+            val chain = ReviewPreview.Command(
+                listOf("sh", "-c", "cd sub && make && A=1 make test"),
+                Path.of("/srv/repo"),
+                Path.of("/bin/sh"),
+                opaque = false,
+                segments = listOf(
+                    CommandSegment(listOf("cd", "sub"), Path.of("/srv/repo/sub"), null, null, changesDirectory = true),
+                    CommandSegment(listOf("make"), Path.of("/srv/repo/sub"), null, SegmentJoint.AND),
+                    CommandSegment(
+                        listOf("make", "test"),
+                        Path.of("/srv/repo/sub"),
+                        null,
+                        SegmentJoint.AND,
+                        environment = mapOf("A" to "1"),
+                    ),
+                ),
+            )
+            val rules = listOf(
+                RuleSubject("command.exec", listOf("make"), "make"),
+                RuleSubject("command.exec", listOf("make", "test"), "make test"),
+            )
+            val opaque = ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), Path.of("/srv"), null, opaque = true)
+            asking(desk, request(preview = chain, always = rules.first(), rules = rules))
+            asking(desk, request(preview = opaque, id = "opaque", taints = true))
+            advanceTimeBy(5.seconds)
+
+            val (shownChain, shownOpaque) = desk.shown(ADA)
+            assertEquals(
+                """
+                Directory: /srv/repo
+                Steps: Alexandrite runs the 3 steps below itself, as plain programs without a shell.
+                Always allow grants: make, make test
+
+                sh -c 'cd sub && make && A=1 make test'
+
+                1. cd sub
+                2. && make
+                3. && A=1 make test [Allow|Deny|Always allow make, make test]
+                """.trimIndent(),
+                shownChain.substringAfter("(workspace_write)\n"),
+            )
+            assertTrue(
+                "Allow and trust trusts whatever this program prints, as Alexandrite cannot see what it runs." in
+                    shownOpaque,
+                shownOpaque,
+            )
+        }
+
+    @Test
     fun `a request nobody answers expires after the configured minutes and loses its buttons`() = runTest {
         val desk = Desk(this)
         val answer = asking(desk, request())
@@ -536,7 +620,7 @@ class ApprovalDeskTest {
         keyboard.inlineKeyboard.flatten().joinToString("|", "[", "]") { it.text }
 
     private fun ApprovalRequest.rebuildChain(chain: List<AgentId>) =
-        ApprovalRequest(id, turn, tool, risk, arguments, preview, reason, always, chain)
+        ApprovalRequest(id, turn, tool, risk, arguments, preview, reason, always, chain, alwaysRules, taints)
 
     private fun turnOf(actor: ChatUser, chat: Long): TurnInfo = testTurn(chat = ChatAddress(WORK, "$chat")) {
         actor(actor)

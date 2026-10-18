@@ -260,6 +260,18 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `a trust rule may be a glob of tool names or name a program by its path, and fails the start otherwise`() {
+        assertConfigFails(
+            agents(""""coder": {"permission": {"trust": ["web.fetch", "git log"]}}"""),
+            "agents.coder.permission.trust[1] is no rule: write a tool name, or command.exec with the start of a " +
+                "command line in parentheses, such as \"command.exec(git push)\"",
+        )
+        val trusted = """"coder": {"description": "Codes.", "permission": {"trust": """ +
+            """["mcp.files.*", "command.exec(./gradlew)", "command.exec(git)"]}}"""
+        agentHarness(agents(trusted)).execute {}
+    }
+
+    @Test
     fun `a declared allow rule that names a program by its path fails the start, a deny rule may`() {
         val named = "names a program by its path: declare a program by its bare name, such as \"git status\"; " +
             "allow a script per session through the approval's \"Always allow\", which binds its real path"

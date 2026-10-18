@@ -42,6 +42,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
+import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -147,6 +148,9 @@ internal class ApprovalDesk(
         )
         val (introduction, body) = preview(request, language)
         lines += introduction
+        if (request.alwaysRules.size > 1) {
+            lines += text(TextKeys.APPROVAL_ALWAYS_RULES, language, "rules" to rules(request))
+        }
         val head = "$title\n${lines.joinToString("\n")}" + if (body.isBlank()) "" else "\n\n"
         return split(head, title.length, body)
     }
@@ -159,11 +163,14 @@ internal class ApprovalDesk(
 
             is ReviewPreview.Command -> {
                 val program = preview.executable ?: text(TextKeys.APPROVAL_PROGRAM_UNKNOWN, language)
+                val segments = preview.segments
                 listOfNotNull(
                     text(TextKeys.APPROVAL_DIRECTORY, language, "directory" to preview.cwd),
-                    text(TextKeys.APPROVAL_PROGRAM, language, "program" to program),
+                    text(TextKeys.APPROVAL_PROGRAM, language, "program" to program).takeIf { segments.isEmpty() },
                     text(TextKeys.APPROVAL_OPAQUE, language).takeIf { preview.opaque },
-                ) to commandLine(preview.argv)
+                    text(TextKeys.APPROVAL_STEPS, language, "count" to segments.size).takeIf { segments.isNotEmpty() },
+                    text(TextKeys.APPROVAL_TRUST_OPAQUE, language).takeIf { preview.opaque && request.taints },
+                ) to commandLine(preview.argv) + steps(segments)
             }
 
             is ReviewPreview.Text -> emptyList<String>() to preview.text
@@ -224,11 +231,13 @@ internal class ApprovalDesk(
     private fun keyboard(request: ApprovalRequest, language: LanguageTag?): InlineKeyboardMarkup {
         val allow = InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW, language), "$PREFIX${request.id}:$ALLOW")
         val deny = InlineKeyboardButton(text(TextKeys.APPROVAL_DENY, language), "$PREFIX${request.id}:$DENY")
+        val trust = InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW_TRUST, language), "$PREFIX${request.id}:$TRUST")
+            .takeIf { request.taints }
         val always = request.always?.let {
-            val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(it.display))
+            val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
             InlineKeyboardButton(label, "$PREFIX${request.id}:$ALWAYS")
         }
-        return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), always?.let(::listOf)))
+        return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), trust?.let(::listOf), always?.let(::listOf)))
     }
 
     private suspend fun answer(query: CallbackQuery, presser: ChatUser) {
@@ -247,12 +256,11 @@ internal class ApprovalDesk(
                 val (id, action) = press
                 val waiting = pending[id]
                 val always = action == ALWAYS && waiting?.request?.always != null
-                val answer = if (action ==
-                    DENY
-                ) {
+                val trust = action == TRUST && waiting?.request?.taints == true
+                val answer = if (action == DENY) {
                     ApprovalAnswer.Denied(presser)
                 } else {
-                    ApprovalAnswer.Allowed(presser, always)
+                    ApprovalAnswer.Allowed(presser, always, trust)
                 }
                 if (waiting?.ending?.complete(Ending.Answered(answer)) == true) {
                     null
@@ -315,11 +323,14 @@ internal class ApprovalDesk(
 
         is Ending.Answered -> when (val answer = ending.answer) {
             is ApprovalAnswer.Allowed -> {
-                val rule = request.always?.takeIf { answer.always }?.let { ending(it.display) }
-                if (rule == null) {
-                    text(TextKeys.APPROVAL_ALLOWED, language, "name" to named(answer.by))
-                } else {
-                    text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to named(answer.by), "rule" to rule)
+                val rule = request.always?.takeIf { answer.always }?.let { ending(rules(request)) }
+                when {
+                    rule != null ->
+                        text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to named(answer.by), "rule" to rule)
+
+                    answer.trust -> text(TextKeys.APPROVAL_ALLOWED_TRUSTED, language, "name" to named(answer.by))
+
+                    else -> text(TextKeys.APPROVAL_ALLOWED, language, "name" to named(answer.by))
                 }
             }
 
@@ -368,8 +379,11 @@ internal class ApprovalDesk(
 
             override val state: String
                 get() = when (answer) {
-                    is ApprovalAnswer.Allowed -> (if (answer.always) "allowed for good by " else "allowed by ") +
-                        named(answer.by)
+                    is ApprovalAnswer.Allowed -> when {
+                        answer.always -> "allowed for good by "
+                        answer.trust -> "allowed and trusted by "
+                        else -> "allowed by "
+                    } + named(answer.by)
 
                     is ApprovalAnswer.Denied -> "denied by ${named(answer.by)}"
 
@@ -394,12 +408,25 @@ internal class ApprovalDesk(
         const val PREFIX = "apv:"
         const val ALLOW = "a"
         const val ALWAYS = "A"
+        const val TRUST = "t"
         const val DENY = "d"
-        val PRESS = Regex("apv:([A-Za-z0-9_-]{1,32}):([aAd])")
+        val PRESS = Regex("apv:([A-Za-z0-9_-]{1,32}):([aAtd])")
 
         val UNREACHABLE = ApprovalAnswer.Unavailable("no administrator can be reached")
         val TOO_LARGE = ApprovalAnswer.Unavailable("too large to review")
     }
+}
+
+/** The rules that allowing [request] for good grants, as one text. */
+private fun rules(request: ApprovalRequest): String = request.alwaysRules.joinToString(", ") { it.display }
+
+/** [segments] one per line under a blank one, each after how it follows the one before it, none for no segments. */
+private fun steps(segments: List<CommandSegment>): String = segments.withIndex().joinToString("") { (index, segment) ->
+    val joint = segment.joint?.let { "${it.operator} " }.orEmpty()
+    val variables = segment.environment.entries.joinToString("") { (name, value) ->
+        "${commandLine(listOf("$name=$value"))} "
+    }
+    (if (index == 0) "\n\n" else "\n") + "${index + 1}. $joint$variables${commandLine(segment.argv)}"
 }
 
 /** [user]'s name as an approver sees it, escaped. */

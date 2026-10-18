@@ -106,6 +106,10 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     checkRules("$path.permission.allow", agent.permission.allow, allow = true)
     checkRules("$path.permission.deny", agent.permission.deny, allow = false)
+    for ((index, entry) in agent.permission.trust.withIndex()) {
+        val problem = RuleEntry.problem(entry, trust = true)
+        require(problem == null) { "$path.permission.trust[$index] $problem" }
+    }
     require(agent.permission.judge == null || ModelRef.parseOrNull(agent.permission.judge) != null) {
         "$path.permission.judge is no model reference: write <endpoint>/<model>, such as " +
             "\"anthropic/claude-haiku-5-5\""

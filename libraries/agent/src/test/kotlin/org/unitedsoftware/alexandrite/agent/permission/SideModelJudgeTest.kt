@@ -24,7 +24,9 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
@@ -350,6 +352,48 @@ class SideModelJudgeTest {
                 """.trimIndent(),
             ),
             shown,
+        )
+    }
+
+    @Test
+    fun `the judge reads each step of a chain, with how it follows the one before and its variables`() = runTest {
+        answers("""{"verdict":"ask"}""")
+        val sub = Path.of("/srv/repo/sub")
+        val chain = ReviewPreview.Command(
+            listOf("sh", "-c", "cd sub && A=1 make || echo failed"),
+            Path.of("/srv/repo"),
+            Path.of("/bin/sh"),
+            opaque = false,
+            segments = listOf(
+                CommandSegment(listOf("cd", "sub"), sub, null, null, changesDirectory = true),
+                CommandSegment(
+                    listOf("make"),
+                    sub,
+                    Path.of("/usr/bin/make"),
+                    SegmentJoint.AND,
+                    environment = mapOf("A" to "1"),
+                ),
+                CommandSegment(listOf("echo", "failed"), sub, null, SegmentJoint.OR, opaque = true),
+            ),
+        )
+
+        judge().judge(call(tool = exec, preview = chain))
+
+        assertEquals(
+            """
+            Tool: command.exec
+            Risk: EXEC
+            Working directory: /srv/repo
+            Program: /bin/sh
+            Opaque: no
+            Alexandrite runs these steps itself, as plain programs, in place of the command line:
+            Step 1: cd sub — changes the directory to /srv/repo/sub
+            Step 2 (after &&): make — program /usr/bin/make, variable A=1
+            Step 3 (after ||): echo failed — program not found, opaque
+            Command line:
+            | sh -c 'cd sub && A=1 make || echo failed'
+            """.trimIndent(),
+            sent().substringAfter("The call:\n"),
         )
     }
 

@@ -68,6 +68,10 @@ internal object TextKeys {
     /** Takes `{endpoint}`. */
     const val UNKNOWN_ENDPOINT: String = "control.unknown_endpoint"
 
+    const val TRUST_RULE_MALFORMED: String = "control.trust_rule_malformed"
+
+    const val TRUST_RULE_UNKNOWN_TOOL: String = "control.trust_rule_unknown_tool"
+
     /** Takes `{endpoint}` and `{model}`. */
     const val UNKNOWN_MODEL: String = "control.unknown_model"
 

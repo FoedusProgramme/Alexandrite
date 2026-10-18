@@ -3,6 +3,8 @@ package org.unitedsoftware.alexandrite.channel.telegram.reply
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.channel.telegram.StreamingConfig
+import org.unitedsoftware.alexandrite.channel.telegram.TelegramBots
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -70,10 +72,17 @@ internal class ReplyStyles(private val config: TelegramInstanceConfig, private v
     }
 }
 
-/** `/streaming`, which shows or sets how replies come in a Telegram chat: `edit`, `natural`, `quote`, `noquote`, `default`. */
+/**
+ * `/streaming`, which sets how replies come in a Telegram chat, `edit`, `natural`, `quote`, `noquote` or `default`, and
+ * shows how they come then and why.
+ */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class StreamingCommand(private val choices: StreamingChoices, private val texts: Texts) : CommandHandler {
+internal class StreamingCommand(
+    private val choices: StreamingChoices,
+    private val bots: TelegramBots,
+    private val texts: Texts,
+) : CommandHandler {
     override val commands: List<CommandSpec> =
         listOf(CommandSpec.builder(NAME, texts.text(TextKeys.STREAMING_DESCRIPTION, null)).build())
 
@@ -107,10 +116,20 @@ internal class StreamingCommand(private val choices: StreamingChoices, private v
             }
         }
         if (words.isNotEmpty()) choices.set(invocation.chat, choice)
-        val mode = choice.mode?.name?.lowercase() ?: texts.text(TextKeys.STREAMING_BOT_DEFAULT, language)
-        val quote =
-            choice.quote?.let { if (it) "quote" else "noquote" } ?: texts.text(TextKeys.STREAMING_BOT_DEFAULT, language)
-        context.reply(texts.text(TextKeys.STREAMING_NOW, language, "mode" to mode, "quote" to quote))
+        val bot = bots.streaming(invocation.chat.instance) ?: StreamingConfig()
+        fun source(chosen: Any?) =
+            texts.text(if (chosen == null) TextKeys.STREAMING_BOT_DEFAULT else TextKeys.STREAMING_CHAT, language)
+        val quote = if (choice.quote ?: bot.quote) "quote" else "noquote"
+        context.reply(
+            texts.text(
+                TextKeys.STREAMING_NOW,
+                language,
+                "mode" to (choice.mode ?: bot.mode).name.lowercase(),
+                "mode_source" to source(choice.mode),
+                "quote" to quote,
+                "quote_source" to source(choice.quote),
+            ),
+        )
     }
 
     private companion object {

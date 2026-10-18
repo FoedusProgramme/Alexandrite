@@ -188,6 +188,9 @@ class PublicApiTest {
             control.declareAllowRule(RuleSubject("notes.add", emptyList(), "notes.add"))
             control.grantAllowRule(testChat(), RuleSubject("command.exec", listOf("make"), "make"), null)
             control.revokeAllowRule(testChat(), 2, null)
+            control.declareTrust("web.fetch")
+            control.trust(testChat(), "command.exec(git)", null)
+            control.untrust(testChat(), "command.exec(git)", null)
             val call = when (val recorded = control.calls.first()) {
                 is RecordingAgentControl.Call.Cancel -> listOf(recorded.chat, recorded.by)
                 is RecordingAgentControl.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
@@ -203,6 +206,8 @@ class PublicApiTest {
                 is RecordingAgentControl.Call.TrustFolder -> listOf(recorded.folder, recorded.by)
                 is RecordingAgentControl.Call.UntrustFolder -> listOf(recorded.folder, recorded.by)
                 is RecordingAgentControl.Call.RevokeAllowRule -> listOf(recorded.chat, recorded.number, recorded.by)
+                is RecordingAgentControl.Call.Trust -> listOf(recorded.chat, recorded.rule, recorded.by)
+                is RecordingAgentControl.Call.Untrust -> listOf(recorded.chat, recorded.rule, recorded.by)
                 else -> emptyList()
             }
             val states = TestChatStates()
@@ -215,6 +220,7 @@ class PublicApiTest {
                 control.context(testChat()), control.compaction,
                 control.trustedFolders(),
                 control.allowRules(testChat()),
+                control.trustRules(testChat()),
                 control.agents(TEST_INSTANCE), control.profiles(), control.language(testChat()), control.endpoints(),
                 control.models(EndpointId("scripted")),
                 states.of("probe"),

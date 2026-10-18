@@ -8,14 +8,17 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.unitedsoftware.alexandrite.internal.process.destroyTree
+import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 /** How a program run ended: [exitCode] is null when it timed out. */
 internal class ProgramOutcome(val exitCode: Int?, val output: String)
@@ -158,3 +161,145 @@ private val STOP_GRACE = 1.seconds
 private val READER_WAIT = 1.seconds
 
 private const val CHUNK = 8192
+
+/**
+ * Runs the steps of [call] in turn, without a shell, each program with [environment] and its own variables, all of
+ * them for at most [timeout], keeping [maxChars] of their output.
+ *
+ * A step is checked again by [planner] right before it runs, and the call stops where the check finds a change.
+ */
+internal suspend fun runSteps(
+    call: PlannedCall,
+    planner: Planner,
+    environment: Map<String, String>,
+    timeout: Duration,
+    maxChars: Int,
+    onLine: ((String) -> Unit)? = null,
+): ProgramOutcome {
+    val start = TimeSource.Monotonic.markNow()
+    val single = call.steps.size == 1
+    val shown = mutableListOf<String>()
+    var status = 0
+    var cwd = call.cwd
+    for ((index, step) in call.steps.withIndex()) {
+        val header = "$ ${commandLine(step.words)}"
+        val runs = when (step.joint) {
+            SegmentJoint.AND -> status == 0
+            SegmentJoint.OR -> status != 0
+            else -> true
+        }
+        if (!runs) {
+            shown += "$header [not run]"
+            continue
+        }
+        val run = step.run
+        if (run == null) {
+            val target = step.words[1]
+            val checked = recheck(call, step) { planner.changed(target, cwd) }
+            when {
+                checked is Checked.Stopped -> return stopped(shown, header, checked.why, single, maxChars)
+
+                Files.isDirectory(step.cwd) -> {
+                    cwd = step.cwd
+                    status = 0
+                    shown += header
+                }
+
+                else -> {
+                    status = 1
+                    shown += "$header [exit 1]\ncd: $target: no such directory"
+                }
+            }
+        } else {
+            val checked = recheck(call, step) {
+                planner.program(run.argv, cwd, run.timeout, run.environment, run.limit).executable
+            }
+            if (checked is Checked.Stopped) return stopped(shown, header, checked.why, single, maxChars)
+            val left = timeout - start.elapsedNow()
+            if (!left.isPositive()) return ProgramOutcome(null, joined(shown, maxChars))
+            val limited = run.limit?.takeIf { it < left }
+            val outcome = runProgram(
+                listOf(run.resolved.toString()) + run.argv.drop(1),
+                cwd,
+                environment + run.environment,
+                limited ?: left,
+                maxChars,
+                onLine,
+            )
+            val output = outcome.output.trimEnd()
+            val code = outcome.exitCode ?: if (limited != null) TIMED_OUT else null
+            if (single) {
+                val note = if (outcome.exitCode == null && code != null) {
+                    "\n[stopped by its timeout after ${limited?.inWholeSeconds} s]"
+                } else {
+                    ""
+                }
+                return ProgramOutcome(code, output + note)
+            }
+            val ending = when {
+                code == null -> " [timed out]"
+                outcome.exitCode == null -> " [stopped by its timeout, exit $code]"
+                code != 0 -> " [exit $code]"
+                else -> ""
+            }
+            shown += header + ending + if (output.isEmpty()) "" else "\n$output"
+            code ?: return ProgramOutcome(null, joined(shown, maxChars))
+            status = code
+        }
+        val next = call.steps.getOrNull(index + 1)?.joint
+        if (call.errexit && status != 0 && (next == null || next == SegmentJoint.THEN)) break
+    }
+    return ProgramOutcome(status, joined(shown, maxChars))
+}
+
+/** Whether [step] of [call] still plans as it did, where [planned] plans it again. */
+private fun recheck(call: PlannedCall, step: PlannedStep, planned: () -> Path): Checked {
+    val again = try {
+        planned()
+    } catch (e: CallProblem) {
+        return Checked.Stopped(e.message)
+    } catch (e: FloorRefusal) {
+        return Checked.Stopped(e.message)
+    }
+    val expected = step.run?.executable ?: step.cwd
+    if (again != expected) {
+        return Checked.Stopped("${step.words.first()} changed since ${call.argv.first()} was reviewed.")
+    }
+    return Checked.Same
+}
+
+private sealed interface Checked {
+    data object Same : Checked
+
+    class Stopped(val why: String) : Checked
+}
+
+/** The outcome of a call stopped at the step of [header] for [why]. */
+private fun stopped(shown: List<String>, header: String, why: String, single: Boolean, maxChars: Int): ProgramOutcome {
+    if (single) return ProgramOutcome(NOT_RUN, "[not run: $why]")
+    return ProgramOutcome(NOT_RUN, joined(shown + "$header [not run: $why]", maxChars))
+}
+
+/** [blocks] one after the other, cut in the middle to [maxChars]. */
+private fun joined(blocks: List<String>, maxChars: Int): String {
+    val text = blocks.joinToString("\n")
+    if (text.length <= maxChars) return text
+    val collector = OutputCollector(maxChars)
+    collector.append(text.toCharArray(), text.length)
+    return collector.text()
+}
+
+/** [words] as one command line, each word that a shell would split or expand in single quotes. */
+internal fun commandLine(words: List<String>): String = words.joinToString(" ") { word ->
+    val plain = word.isNotEmpty() && word.all { it.isLetterOrDigit() || it in PLAIN }
+    if (plain) word else "'${word.replace("'", "'\\''")}'"
+}
+
+/** The characters a shell takes as part of a word. */
+private const val PLAIN = "-_./=:,+@%~"
+
+/** The exit code of a program that its `timeout` stopped. */
+private const val TIMED_OUT = 124
+
+/** The exit code of a step that could not run. */
+private const val NOT_RUN = 126

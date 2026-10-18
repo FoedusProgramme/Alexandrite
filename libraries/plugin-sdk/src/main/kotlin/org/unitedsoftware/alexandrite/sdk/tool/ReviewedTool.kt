@@ -31,6 +31,8 @@ public class CallReview(
     public val exempt: Boolean = false,
     /** Whether the call runs as a background job from its start, which [ToolContext.background] then hands it. */
     public val background: Boolean = false,
+    /** Whether the call's output joins the conversation as untrusted content, which [ToolContext.untrusted] reports. */
+    public val untrusted: Boolean = false,
 ) {
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -41,7 +43,8 @@ public class CallReview(
         rule: RuleSubject? = null,
         problem: String? = null,
         exempt: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false)
+        background: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, false)
 
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -51,7 +54,18 @@ public class CallReview(
         snapshot: String? = null,
         rule: RuleSubject? = null,
         problem: String? = null,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false)
+        exempt: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false, false)
+
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false, false)
 }
 
 /** What an approver is shown of a call. */
@@ -72,7 +86,13 @@ public interface ReviewPreview {
         public val executable: Path?,
         /** Whether the program runs code that the floor cannot see, such as a shell's. */
         public val opaque: Boolean,
+        /** The steps that the call runs in turn in place of [argv], empty when it runs [argv] itself. */
+        public val segments: List<CommandSegment> = emptyList(),
     ) : ReviewPreview {
+        @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+        public constructor(argv: List<String>, cwd: Path, executable: Path?, opaque: Boolean) :
+            this(argv, cwd, executable, opaque, emptyList())
+
         init {
             require(argv.isNotEmpty()) { "A command names its program." }
         }
@@ -99,6 +119,49 @@ public interface ReviewPreview {
             require(size >= 0) { "A file holds at least 0 bytes, was $size." }
         }
     }
+}
+
+/** One step of a [ReviewPreview.Command] that runs several: a program, or a change of directory. */
+@Poko
+public class CommandSegment(
+    public val argv: List<String>,
+    /** Where the program runs, or where a change of directory leads. */
+    public val cwd: Path,
+    /** The real path of the program, null for a change of directory or a program that cannot be resolved. */
+    public val executable: Path?,
+    /** How the step follows the one before it, null for the first. */
+    public val joint: SegmentJoint?,
+    /** Whether the program runs code that the floor cannot see. */
+    public val opaque: Boolean = false,
+    /** Whether the step only changes the directory of the steps after it. */
+    public val changesDirectory: Boolean = false,
+    /** Whether the program only reads, so that it needs no approval. */
+    public val readOnly: Boolean = false,
+    /** Whether the program's output joins the conversation as untrusted content. */
+    public val untrusted: Boolean = false,
+    /** The variables that the program gets beside the usual ones. */
+    public val environment: Map<String, String> = emptyMap(),
+    /** What allowing such programs for good would cover, null when it may not be offered. */
+    public val rule: RuleSubject? = null,
+) {
+    init {
+        require(argv.isNotEmpty()) { "A command segment names its program." }
+    }
+}
+
+/** How a [CommandSegment] follows the one before it. */
+public enum class SegmentJoint(
+    /** As a shell writes it. */
+    public val operator: String,
+) {
+    /** It runs only when the one before succeeded. */
+    AND("&&"),
+
+    /** It runs only when the one before failed. */
+    OR("||"),
+
+    /** It runs whatever the one before did. */
+    THEN(";"),
 }
 
 /** The calls that an allow rule covers: those of [tool] whose subject starts with [tokens]. */

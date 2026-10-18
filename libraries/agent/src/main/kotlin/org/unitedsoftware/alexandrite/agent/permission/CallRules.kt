@@ -47,11 +47,11 @@ internal interface CallRules {
     /** Whether an allow rule lets [call] run. */
     suspend fun allowed(call: CheckedCall): Boolean
 
-    /** What an approver of [call] may allow for good, null when nothing. */
-    suspend fun grantable(call: CheckedCall): RuleSubject?
+    /** What an approver of [call] may allow for good, empty when nothing. */
+    suspend fun grantable(call: CheckedCall): List<RuleSubject>
 
-    /** Lets the calls that [subject] covers run in the session of [call], as [by] allowed. */
-    suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser)
+    /** Lets the calls that [subjects] cover run in the session of [call], as [by] allowed. */
+    suspend fun grant(call: CheckedCall, subjects: List<RuleSubject>, by: ChatUser)
 
     /** The allow rules in force for [agent] in [conversation], the declared ones first. */
     fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule>
@@ -122,32 +122,30 @@ internal class AgentCallRules(
         return entry?.let { "the operator's rule $it denies it" }
     }
 
-    override suspend fun allowed(call: CheckedCall): Boolean {
-        val subject = allowable(call) ?: return false
-        val gate = call.call
-        val name = gate.tool.definition.name
-        if (declared[gate.turn.agent]?.allow.orEmpty().any { it.allows(name, call.review) }) {
-            return true
-        }
-        val session = session(gate.turn)
-        return granted.any { it.conversation == session && it.covers(subject) }
-    }
+    override suspend fun allowed(call: CheckedCall): Boolean = uncovered(call, offered = false)?.isEmpty() == true
 
-    override suspend fun grantable(call: CheckedCall): RuleSubject? =
-        allowable(call)?.takeIf { mode(call.call) != PermissionMode.MANUAL }
+    override suspend fun grantable(call: CheckedCall): List<RuleSubject> =
+        uncovered(call, offered = true)?.takeIf { mode(call.call) != PermissionMode.MANUAL }.orEmpty()
 
-    override suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser) {
+    override suspend fun grant(call: CheckedCall, subjects: List<RuleSubject>, by: ChatUser) {
         val turn = call.call.turn
         val offered = grantable(call)
-        if (offered == null || offered.tool != subject.tool || offered.tokens != subject.tokens) {
-            logger.warn(
-                "Call {} in turn {} offers no rule '{}' to grant, so none is granted",
-                call.call.call.id,
-                turn.id,
-                subject.display,
-            )
-            return
+        for (subject in subjects) {
+            if (offered.none { it.tool == subject.tool && it.tokens == subject.tokens }) {
+                logger.warn(
+                    "Call {} in turn {} offers no rule '{}' to grant, so none is granted",
+                    call.call.call.id,
+                    turn.id,
+                    subject.display,
+                )
+                continue
+            }
+            grant(call, subject, by)
         }
+    }
+
+    private suspend fun grant(call: CheckedCall, subject: RuleSubject, by: ChatUser) {
+        val turn = call.call.turn
         val conversation = session(turn)
         val key = key(conversation, subject)
         try {
@@ -227,16 +225,36 @@ internal class AgentCallRules(
         logger.info("The {} allow rule(s) of conversation {} end with it", ended.size, conversation)
     }
 
-    /** The subject of [call] that a rule may allow, null when no rule may. */
-    private fun allowable(call: CheckedCall): RuleSubject? {
+    /**
+     * The subjects of [call] that no rule allows yet, each once, or null when no rule may allow the call: a call of
+     * several programs needs one for each that does not only read. A call of one program [offered] for good keeps its
+     * subject even when a rule allows it.
+     */
+    private fun uncovered(call: CheckedCall, offered: Boolean): List<RuleSubject>? {
         val gate = call.call
-        val opaque = (call.review.preview as? ReviewPreview.Command)?.opaque == true
-        return call.review.rule?.takeIf {
-            Principal.of(gate.turn) == Principal.OPERATOR &&
-                it.tool == gate.tool.definition.name &&
-                call.risk != ToolRisk.PERSISTENT_STATE &&
-                !opaque
+        if (Principal.of(gate.turn) != Principal.OPERATOR || call.risk == ToolRisk.PERSISTENT_STATE) return null
+        val name = gate.tool.definition.name
+        val allow = declared[gate.turn.agent]?.allow.orEmpty()
+        val session = session(gate.turn)
+        val command = call.review.preview as? ReviewPreview.Command
+        if (command?.opaque == true) return null
+        if (command == null || command.segments.isEmpty()) {
+            val subject = call.review.rule?.takeIf { it.tool == name } ?: return null
+            val covered = !offered && (
+                allow.any { it.allows(name, call.review) } ||
+                    granted.any { it.conversation == session && it.covers(subject) }
+                )
+            return if (covered) emptyList() else listOf(subject)
         }
+        val left = mutableListOf<RuleSubject>()
+        for (segment in command.segments) {
+            if (segment.changesDirectory || segment.readOnly) continue
+            if (segment.environment.isEmpty() && allow.any { it.allows(name, segment.argv) }) continue
+            val subject = segment.rule?.takeIf { it.tool == name } ?: return null
+            if (granted.any { it.conversation == session && it.covers(subject) }) continue
+            if (left.none { it.tokens == subject.tokens }) left += subject
+        }
+        return left
     }
 
     /** The mode of [call] as the gate takes it, `manual` when the mode at its key cannot be read. */

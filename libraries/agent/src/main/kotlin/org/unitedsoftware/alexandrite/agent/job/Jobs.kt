@@ -84,7 +84,7 @@ internal class BackgroundJob(
 internal class EndedJob(
     val job: BackgroundJob,
     val result: ToolResultEntry,
-    /** The paths that the call reported as touched. */
+    /** The paths that the call reported as touched, those of a call trusted whole left out. */
     val touched: List<Path>,
     /** Why the turn that takes the result counts as tainted, null when it need not. */
     val untrusted: String?,
@@ -377,7 +377,7 @@ internal class Jobs(
         val ended = EndedJob(
             job.job,
             result,
-            job.context.touchedPaths,
+            job.context.taintingPaths,
             reason,
             final = false,
             cancelled = { synchronized(lock) { job.cause != null } },
@@ -399,7 +399,7 @@ internal class Jobs(
         val ended = EndedJob(
             job.job,
             result,
-            job.context.touchedPaths,
+            job.context.taintingPaths,
             untrusted,
             cancelled = { synchronized(lock) { job.cause != null } },
         )

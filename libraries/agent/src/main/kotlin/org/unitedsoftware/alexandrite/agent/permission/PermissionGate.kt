@@ -43,6 +43,7 @@ internal class PermissionGate(
     private val hooks: TurnHooks,
     private val tools: ToolRegistry,
     private val rules: CallRules,
+    private val trusts: TrustRules,
     private val judge: Judge,
     private val approvals: Approvals,
     private val settings: SettingsStates,
@@ -105,7 +106,7 @@ internal class PermissionGate(
 
     /** [review] without its exemption, which only a built-in tool may claim. */
     private fun unexempted(review: CallReview): CallReview = with(review) {
-        CallReview(risk, refusal, preview, snapshot, rule, problem, exempt = false, background = background)
+        CallReview(risk, refusal, preview, snapshot, rule, problem, false, background, untrusted)
     }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
@@ -153,18 +154,25 @@ internal class PermissionGate(
     }
 
     /**
-     * [result], having marked the turn of [call] tainted when it lets a third-party tool read the network, and carrying
-     * the review's wish to start in the background.
+     * [result] with how far the output of [call] is trusted, having marked its turn tainted when it lets a third-party
+     * tool read the network, and carrying the review's wish to start in the background.
      */
     private suspend fun running(call: CheckedCall, result: GateResult): GateResult {
         if (result !is GateResult.Admitted) return result
         val gate = call.call
+        val trust = if (result.trust == CallTrust.WHOLE) CallTrust.WHOLE else trusts.trust(call)
         val network = ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk)
-        if (network && !tools.isBuiltIn(gate.tool)) {
+        if (network && !tools.isBuiltIn(gate.tool) && trust != CallTrust.WHOLE) {
             gate.taint.mark("a call of ${gate.tool.definition.name}, which reads the network")
         }
-        if (!call.review.background) return result
-        return GateResult.Admitted(result.clearance, result.preview, result.scratch, background = true)
+        if (trust != CallTrust.NONE) logged(gate, "is trusted (${trust.name.lowercase()})")
+        return GateResult.Admitted(
+            result.clearance,
+            result.preview,
+            result.scratch,
+            background = call.review.background,
+            trust = trust,
+        )
     }
 
     private fun refused(call: GateCall, reason: NotRunReason, text: String): GateResult {

@@ -61,6 +61,8 @@ internal class ToolCallEnd(
     val touched: List<Path> = emptyList(),
     /** The trusted instructions that the call loads after its round. */
     val loads: List<UserEntry> = emptyList(),
+    /** The [touched] paths that may taint the conversation. */
+    val tainting: List<Path> = touched,
 )
 
 /** Runs the tool calls of a turn's responses. */
@@ -124,6 +126,7 @@ internal class ToolExecutor(
                     delegating,
                     startsInBackground = admission.background && tool !is InTurnTool,
                     granting = { grants.grant(turn, tool) },
+                    trust = admission.trust,
                 )
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
@@ -132,7 +135,7 @@ internal class ToolExecutor(
                 }
                 val content = contentOf(tool.definition.activity, admission.preview, result, admission.scratch)
                 calls.ended(call.id, statusOf(result.outcome), content)
-                ToolCallEnd(result, null, context.touchedPaths, context.loads)
+                ToolCallEnd(result, null, context.touchedPaths, context.loads, context.taintingPaths)
             }
         }
     }

@@ -13,22 +13,29 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
+import org.unitedsoftware.alexandrite.sdk.turn.rebuild
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 
-/** `/trust`, `/untrust` and `/untaint`. */
+/** `/trust`, `/untrust` and `/untaint`: of folders, and of the calls that trust rules cover. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class TrustCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
-    override val commands: List<CommandSpec> = listOf(texts.spec(TRUST), texts.spec(UNTRUST), texts.spec(UNTAINT))
+    override val commands: List<CommandSpec> = listOf(
+        texts.spec(TRUST).rebuild { operatorsOnly(CommandForms.ALL) },
+        texts.spec(UNTRUST).rebuild { operatorsOnly(CommandForms.ALL) },
+        texts.spec(UNTAINT),
+    )
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 
@@ -37,12 +44,14 @@ internal class TrustCommands(private val control: AgentControl, private val text
         val argument = unquoted(invocation.arguments.trim())
         when (val name = commandWord(invocation.name)) {
             TRUST -> when {
-                argument.isEmpty() -> trusted(context, replies)
+                argument.isEmpty() -> trusted(invocation, context, replies)
+                isRule(argument) -> trustRule(argument, invocation, context, replies)
                 else -> trust(argument, invocation, context, replies)
             }
 
             UNTRUST -> when {
                 argument.isEmpty() -> context.reply(replies.usage(name))
+                isRule(argument) -> untrustRule(argument, invocation, context, replies)
                 else -> untrust(argument, invocation, context, replies)
             }
 
@@ -74,6 +83,33 @@ internal class TrustCommands(private val control: AgentControl, private val text
         context.reply(replies.text(TextKeys.TRUST_DONE, "folder" to trusted))
     }
 
+    private suspend fun trustRule(
+        rule: String,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val trusted = context.refusing { control.trust(invocation.chat, rule, invocation.issuer) } ?: return
+        val done = replies.text(TextKeys.TRUST_RULE_DONE, "rule" to trusted.rule)
+        context.reply(if (trusted.anyCode) "$done ${replies.text(TextKeys.TRUST_RULE_ANY_CODE)}" else done)
+    }
+
+    private suspend fun untrustRule(
+        rule: String,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val revocation = context.refusing { control.untrust(invocation.chat, rule, invocation.issuer) } ?: return
+        val key = when {
+            revocation.declared && revocation.removed -> TextKeys.UNTRUST_RULE_DECLARED_REMOVED
+            revocation.declared -> TextKeys.UNTRUST_RULE_DECLARED
+            revocation.removed -> TextKeys.UNTRUST_RULE_DONE
+            else -> TextKeys.UNTRUST_RULE_NOT_TRUSTED
+        }
+        context.reply(replies.text(key, "rule" to rule.trim()))
+    }
+
     private suspend fun untrust(
         text: String,
         invocation: CommandInvocation,
@@ -91,14 +127,39 @@ internal class TrustCommands(private val control: AgentControl, private val text
         context.reply(replies.text(key, "folder" to folder))
     }
 
-    private suspend fun trusted(context: CommandContext, replies: Replies) {
+    private suspend fun trusted(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val folders = control.trustedFolders()
+        val rules = context.refusing { control.trustRules(invocation.chat) } ?: return
         val text = if (folders.isEmpty()) {
             replies.text(TextKeys.TRUST_NONE)
         } else {
             replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders.map { described(it, replies) }))
         }
-        context.reply(text)
+        if (rules.isEmpty()) {
+            context.reply(text)
+            return
+        }
+        val listed = replies.text(TextKeys.TRUST_RULES, "rules" to replies.list(rules.map { described(it, replies) }))
+        context.reply("$text\n\n$listed")
+    }
+
+    /** [rule] with where it comes from. */
+    private fun described(rule: TrustRule, replies: Replies): String {
+        val at = rule.grantedAt
+        val by = rule.grantedBy
+        return when {
+            at == null -> replies.text(TextKeys.TRUST_RULE_DECLARED, "rule" to rule.rule)
+
+            by == null ->
+                replies.text(TextKeys.TRUST_RULE_GRANTED_BY_HOST, "rule" to rule.rule, "date" to dateOf(at, replies))
+
+            else -> replies.text(
+                TextKeys.TRUST_RULE_GRANTED,
+                "rule" to rule.rule,
+                "user" to by.displayName,
+                "date" to dateOf(at, replies),
+            )
+        }
     }
 
     /** [folder] with where its trust comes from. */
@@ -152,7 +213,14 @@ internal class TrustCommands(private val control: AgentControl, private val text
     }
 }
 
+/** Whether [text] is written as a rule, `tool` or `tool(pattern)`, rather than as a folder. */
+private fun isRule(text: String): Boolean = text.first() !in PATH_STARTS && RULE.matches(text)
+
 private fun unquoted(text: String): String =
     if (text.length >= 2 && text.first() in QUOTES && text.last() == text.first()) text.drop(1).dropLast(1) else text
 
 private const val QUOTES = "\"'"
+
+private const val PATH_STARTS = "/~."
+
+private val RULE = Regex("[A-Za-z*][A-Za-z0-9_.*]*(\\(.*\\))?", RegexOption.DOT_MATCHES_ALL)

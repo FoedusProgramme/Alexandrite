@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
@@ -45,10 +46,13 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         description = "Runs one program with its arguments, without a shell, and returns its exit code and its " +
             "output (stdout and stderr together; of a long output, the start and the end). Give either 'command', " +
             "one line split like a shell splits it (quotes and backslashes; a leading ~ is the home directory) but " +
-            "with no pipes, redirects, chaining, variables, globs or substitutions, or 'argv'. For shell features " +
-            "run sh -c '…' explicitly. The program gets no input and a reduced environment, runs in 'cwd' and is " +
-            "stopped with every process it started after 'timeoutSeconds'. Refuses calls that reach protected " +
-            "places. Set background to true to start immediately as a job. A monitor starts a background job " +
+            "with no pipes, redirects, chaining, variables, globs or substitutions, or 'argv'. Run programs " +
+            "directly and set 'cwd' instead of using cd. Prefer separate calls, or a plain chain such as " +
+            "sh -c 'make && make test' (only words, quotes, &&, ||, ; and cd), which runs as plain programs; any " +
+            "other shell script is opaque and needs a person's approval more often. The program gets no input and " +
+            "a reduced environment, runs in 'cwd' and is stopped with every process it started after " +
+            "'timeoutSeconds'. Refuses calls that reach protected places. Set background to true to start " +
+            "immediately as a job. A monitor starts a background job " +
             "and wakes you with filtered output batches until the program exits or its lifetime expires. " +
             "Monitor buffers are bounded and excess output can be dropped with a count.",
         parameters = schema {
@@ -81,8 +85,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             property(
                 "cwd",
                 "string",
-                "The directory to run in: an absolute path, or one relative to your workspace (~ is home). " +
-                    "Default your workspace.",
+                "The directory to run in, instead of cd: an absolute path, or one relative to your workspace " +
+                    "(~ is home). Default your workspace.",
             )
             property(
                 "timeoutSeconds",
@@ -102,13 +106,14 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
             is Inspection.Refused -> CallReview(refusal = inspection.text)
 
-            is Inspection.Ready -> with(inspection.run) {
+            is Inspection.Ready -> with(inspection.call) {
                 CallReview(
                     risk = if (readOnly) ToolRisk.READ_ONLY else ToolRisk.EXEC,
-                    preview = ReviewPreview.Command(argv, cwd, executable, opaque),
+                    preview = ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)),
                     snapshot = snapshot,
                     rule = rule,
                     background = startsInBackground(arguments),
+                    untrusted = !vetted,
                 )
             }
         }
@@ -119,34 +124,40 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             is Inspection.Refused -> return ToolResult(inspection.text, isError = true)
             is Inspection.Ready -> inspection
         }
-        val run = ready.run
+        val call = ready.call
         val monitor = ready.monitor
         val clearance = context.clearance
         val reviewed = clearance?.snapshot
-        if (reviewed != null && reviewed != run.snapshot) {
+        val named = call.argv.first()
+        if (reviewed != null && reviewed != call.snapshot) {
             return ToolResult(
-                "${run.name} or a file it is given changed since the call was reviewed, so it is not run: call " +
+                "$named or a file it is given changed since the call was reviewed, so it is not run: call " +
                     "again to have it reviewed anew.",
                 isError = true,
             )
         }
-        if (!run.vetted && (clearance == null || clearance.kind == ClearanceKind.NONE)) {
+        val unvetted = call.programs.filterNot { it.vetted }
+        if (unvetted.isNotEmpty() && (clearance == null || clearance.kind == ClearanceKind.NONE)) {
             return ToolResult(
-                "${run.name} is no vetted read-only program, so it runs only once the permission layer allowed " +
-                    "the call, which it did not.",
+                "${unvetted.first().name} is no vetted read-only program, so it runs only once the permission layer " +
+                    "allowed the call, which it did not.",
                 isError = true,
             )
         }
-        context.touched(run.cwd)
-        run.reached.forEach(context::touched)
-        if (!run.vetted) context.untrusted("command.exec ran ${run.program}")
+        context.touched(call.cwd)
+        call.steps.forEach { if (it.cwd != call.cwd) context.touched(it.cwd) }
+        call.reached.forEach(context::touched)
+        if (unvetted.isNotEmpty()) {
+            context.untrusted("command.exec ran ${unvetted.map { it.program }.distinct().joinToString(", ")}")
+        }
+        val planner = ready.planner
         var finalMonitorOutput = "[monitor ended]"
         val outcome = try {
-            suspend fun runWithLines(onLine: ((String) -> Unit)?): ProgramOutcome = runProgram(
-                listOf(run.resolved.toString()) + run.argv.drop(1),
-                run.cwd,
+            suspend fun runWithLines(onLine: ((String) -> Unit)?): ProgramOutcome = runSteps(
+                call,
+                planner,
                 childEnvironment(System.getenv(), config.environment),
-                monitor?.lifetime ?: run.timeout,
+                monitor?.lifetime ?: call.timeout,
                 config.maxOutputChars,
                 onLine,
             )
@@ -167,7 +178,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             }
         } catch (e: IOException) {
             return ToolResult(
-                "${run.name} could not be started: ${e.message ?: e.javaClass.simpleName}",
+                "$named could not be started: ${e.message ?: e.javaClass.simpleName}",
                 isError = true,
             )
         }
@@ -183,7 +194,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             )
         } else {
             ToolResult(
-                "The program timed out after ${run.timeout.inWholeSeconds} s and was stopped with the processes it " +
+                "The program timed out after ${call.timeout.inWholeSeconds} s and was stopped with the processes it " +
                     "started. Its output until then:\n$output",
                 isError = true,
             )
@@ -202,8 +213,11 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
         val planner = Planner(floor, context.turn.agent, context.turn.rootConversation, isOperator(context))
         val missing = parsed.cwd == null && !running
-        val run = Request(parsed.argv, cwd, parsed.timeout)
-        Inspection.Ready(runInterruptible(Dispatchers.IO) { planner.plan(run, cwd, missingAllowed = missing) }, monitor)
+        val request = Request(parsed.argv, cwd, parsed.timeout)
+        val call = runInterruptible(Dispatchers.IO) {
+            planner.plan(request, cwd, missingAllowed = missing, homeDirectory())
+        }
+        Inspection.Ready(call, planner, monitor)
     } catch (e: CallProblem) {
         Inspection.Problem(e.message)
     } catch (e: FloorRefusal) {
@@ -306,11 +320,34 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
         class Refused(val text: String) : Inspection
 
-        class Ready(val run: PlannedRun, val monitor: MonitorOptions?) : Inspection
+        class Ready(val call: PlannedCall, val planner: Planner, val monitor: MonitorOptions?) : Inspection
     }
 
     /** The call's arguments before 'cwd' is resolved against the workspace. */
     private class ParsedRequest(val argv: List<String>, val cwd: String?, val timeout: Duration)
+}
+
+/** The steps of [call] as an approver is shown them, none when it runs its own program. */
+private fun segments(call: PlannedCall): List<CommandSegment> {
+    if (!call.segmented) return emptyList()
+    return call.steps.map { step ->
+        val run = step.run
+        if (run == null) {
+            CommandSegment(step.words, step.cwd, null, step.joint, changesDirectory = true, readOnly = true)
+        } else {
+            CommandSegment(
+                run.argv,
+                run.cwd,
+                run.executable,
+                step.joint,
+                opaque = run.opaque,
+                readOnly = run.readOnly,
+                untrusted = !run.vetted,
+                environment = run.environment,
+                rule = run.rule,
+            )
+        }
+    }
 }
 
 private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == JsonNull }

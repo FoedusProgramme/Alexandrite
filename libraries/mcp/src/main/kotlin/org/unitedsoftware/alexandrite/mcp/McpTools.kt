@@ -28,6 +28,7 @@ internal fun mcpServerTool(definition: ToolDefinition, serverTool: String, serve
             val shown = PRETTY.encodeToString(JsonObject.serializer(), arguments)
             return CallReview(
                 preview = ReviewPreview.Text("MCP server ${server.spec.name}, tool $serverTool\n\n$shown"),
+                untrusted = !server.spec.trusted,
             )
         }
 

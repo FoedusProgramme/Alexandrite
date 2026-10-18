@@ -36,6 +36,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
+import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
@@ -73,6 +74,8 @@ public class RecordingAgentControl(
     private val trusted = mutableListOf<TrustedFolder>()
     private val declaredRules = mutableListOf<RuleSubject>()
     private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
+    private val declaredTrust = mutableListOf<String>()
+    private val grantedTrust = HashMap<ChatAddress, List<TrustRule>>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
     private val agentProfiles = mutableListOf<ProfileSummary>()
     private val refusals = ArrayDeque<String>()
@@ -125,8 +128,8 @@ public class RecordingAgentControl(
 
     /**
      * Makes the next call that changes something, of [newConversation], [compact], [updateSettings], [link], [unlink],
-     * [trustFolder], [untrustFolder] or [revokeAllowRule], record itself and throw [ControlRefusedException] with
-     * [message].
+     * [trustFolder], [untrustFolder], [revokeAllowRule], [trust] or [untrust], record itself and throw
+     * [ControlRefusedException] with [message].
      */
     public fun refuseNext(message: String) {
         synchronized(lock) { refusals.addLast(message) }
@@ -135,6 +138,11 @@ public class RecordingAgentControl(
     /** Makes [context] report [status] at [chat]. */
     public fun scriptContext(chat: ChatAddress, status: ContextStatus) {
         synchronized(lock) { contexts[chat] = status }
+    }
+
+    /** Lists [rule] as a trust rule that the config file declares. */
+    public fun declareTrust(rule: String) {
+        synchronized(lock) { declaredTrust += rule }
     }
 
     /** Lists [folder] as a trusted folder that the config file declares. */
@@ -417,6 +425,32 @@ public class RecordingAgentControl(
             Revocation(removed = true, declared = still)
         }
 
+    /** The declared trust rules, then those granted at [chat]. */
+    override suspend fun trustRules(chat: ChatAddress): List<TrustRule> = synchronized(lock) {
+        declaredTrust.map { TrustRule(it, true, null, null, anyCode(it)) } + grantedTrust[chat].orEmpty()
+    }
+
+    /** Trusts [rule] at [chat] at [TEST_TIME], refusing one without a tool name. */
+    override suspend fun trust(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule = synchronized(lock) {
+        recorded += Call.Trust(chat, rule, by)
+        refuseQueued()
+        val written = rule.trim()
+        refuseIf(!TRUST_RULE.matches(written)) { "'$written' is no rule." }
+        TrustRule(written, false, TEST_TIME, by, anyCode(written)).also { trusted ->
+            grantedTrust[chat] = grantedTrust[chat].orEmpty().filterNot { it.rule == written } + trusted
+        }
+    }
+
+    /** Stops trusting [rule] at [chat], reporting it declared when the config file declares it too. */
+    override suspend fun untrust(chat: ChatAddress, rule: String, by: ChatUser?): Revocation = synchronized(lock) {
+        recorded += Call.Untrust(chat, rule, by)
+        refuseQueued()
+        val written = rule.trim()
+        val before = grantedTrust[chat].orEmpty()
+        grantedTrust[chat] = before.filterNot { it.rule == written }
+        Revocation(removed = before.any { it.rule == written }, declared = written in declaredTrust)
+    }
+
     /** The endpoints that [scriptModels] listed, in order. */
     override fun endpoints(): List<EndpointId> = synchronized(lock) { endpointModels.keys.toList() }
 
@@ -546,12 +580,23 @@ public class RecordingAgentControl(
         public class UntrustFolder(public val folder: Path, public val by: ChatUser?) : Call
 
         @Poko
+        public class Trust(public val chat: ChatAddress, public val rule: String, public val by: ChatUser?) : Call
+
+        @Poko
+        public class Untrust(public val chat: ChatAddress, public val rule: String, public val by: ChatUser?) : Call
+
+        @Poko
         public class RevokeAllowRule(public val chat: ChatAddress, public val number: Int, public val by: ChatUser?) :
             Call
     }
 }
 
 private val BYPASS: Duration = Duration.ofHours(1)
+
+private val TRUST_RULE = Regex("[a-z*][a-z0-9_.*]*(\\(.+\\))?")
+
+/** Whether [rule] trusts a shell, as the agent tells it. */
+private fun anyCode(rule: String): Boolean = rule == "command.exec" || rule.startsWith("command.exec(sh")
 
 private val MAX_BYPASS: Duration = Duration.ofHours(24)
 

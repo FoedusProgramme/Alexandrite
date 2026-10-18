@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.tool
 
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
@@ -39,6 +40,8 @@ internal sealed interface GateResult {
         val scratch: Boolean = false,
         /** Whether the call runs as a background job from its start. */
         val background: Boolean = false,
+        /** How far the call's output is trusted. */
+        val trust: CallTrust = CallTrust.NONE,
     ) : GateResult
 
     /** The model reads [text] as the result of the call, which does not run, and the chat is told [notice]. */

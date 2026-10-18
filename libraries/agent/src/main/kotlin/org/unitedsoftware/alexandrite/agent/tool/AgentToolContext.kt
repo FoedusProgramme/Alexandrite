@@ -4,6 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
+import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
@@ -34,6 +35,8 @@ internal class AgentToolContext(
     val startsInBackground: Boolean = false,
     /** Grants the call's plugin a mandate of the turn's operator, null when the call may get none. */
     private val granting: (suspend () -> Mandate?)? = null,
+    /** How far the call's output is trusted. */
+    val trust: CallTrust = CallTrust.NONE,
 ) : ToolContext {
     @Volatile
     private var open = true
@@ -92,6 +95,9 @@ internal class AgentToolContext(
     /** The paths that the call reported as touched, each once, in order. */
     val touchedPaths: List<Path> get() = reported.distinct()
 
+    /** The [touchedPaths] that may taint the conversation, none for a call trusted whole. */
+    val taintingPaths: List<Path> get() = if (trust == CallTrust.WHOLE) emptyList() else touchedPaths
+
     private val loading = CopyOnWriteArrayList<UserEntry>()
 
     /** The trusted instructions that the call loads, added to the conversation once its round ends. */
@@ -110,6 +116,7 @@ internal class AgentToolContext(
 
     override fun untrusted(reason: String) {
         checkOpen()
+        if (trust != CallTrust.NONE) return
         taint.note("call $call reported untrusted content: $reason")
     }
 

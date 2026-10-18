@@ -6,6 +6,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
+import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
@@ -15,8 +16,10 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
+import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import java.nio.file.Path
@@ -34,6 +37,8 @@ internal interface Approvals {
 internal class ChannelApprovals(
     private val channels: ChannelDirectory,
     private val rules: CallRules,
+    private val trusts: TrustRules,
+    private val tools: ToolRegistry,
     private val awaiting: AwaitingCalls,
     private val judge: Judge,
 ) : Approvals {
@@ -58,6 +63,7 @@ internal class ChannelApprovals(
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), Refusals.DENIED_IN_TREE)
         }
         val grantable = rules.grantable(call)
+        val shown = grantable.map { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) }
         val request = ApprovalRequest(
             newId(),
             turn,
@@ -66,8 +72,10 @@ internal class ChannelApprovals(
             ReviewText.escape(canonical),
             call.review.preview?.let { escaped(it) },
             ReviewText.escape(reason),
-            grantable?.let { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) },
+            shown.firstOrNull(),
             gate.calls.chain?.agents.orEmpty(),
+            shown,
+            taints(call),
         )
         if (turn.chat.instance == ChatAddress.AGENTS) {
             return unavailable(request, "the turn belongs to no chat, so nobody can be asked")
@@ -101,12 +109,21 @@ internal class ChannelApprovals(
         return result
     }
 
+    /** Whether the output of [call] would taint a conversation that it has not tainted yet. */
+    private fun taints(call: CheckedCall): Boolean {
+        val gate = call.call
+        if (gate.taint.tainted || trusts.trust(call) == CallTrust.WHOLE) return false
+        val network =
+            ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk) && !tools.isBuiltIn(gate.tool)
+        return call.review.untrusted || network
+    }
+
     /** What [answer] to [request] about [call] decides, where an approver may allow [grantable] for good. */
     private suspend fun answered(
         call: CheckedCall,
         request: ApprovalRequest,
         answer: ApprovalAnswer?,
-        grantable: RuleSubject?,
+        grantable: List<RuleSubject>,
     ): GateResult {
         val by = (answer as? ApprovalAnswer.Allowed)?.by ?: (answer as? ApprovalAnswer.Denied)?.by
         if (by != null && !by.isOperator) {
@@ -125,12 +142,15 @@ internal class ChannelApprovals(
             }
 
             is ApprovalAnswer.Allowed -> {
-                val always = grantable?.takeIf { answer.always }
-                logged(request, "is allowed by ${answer.by.address}" + if (always != null) " for good" else "")
-                always?.let { rules.grant(call, it, answer.by) }
+                val always = grantable.takeIf { answer.always }.orEmpty()
+                val trusted = answer.trust && request.taints
+                val how = (if (always.isNotEmpty()) " for good" else "") + (if (trusted) ", its output trusted" else "")
+                logged(request, "is allowed by ${answer.by.address}$how")
+                if (always.isNotEmpty()) rules.grant(call, always, answer.by)
                 judge.allowedByOperator(request.turn.key, request.tool)
                 val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
-                GateResult.Admitted(clearance, call.review.preview, call.review.exempt)
+                val trust = if (trusted) CallTrust.WHOLE else CallTrust.NONE
+                GateResult.Admitted(clearance, call.review.preview, call.review.exempt, trust = trust)
             }
 
             is ApprovalAnswer.Denied -> {
@@ -193,6 +213,22 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
         escaped(preview.cwd),
         preview.executable?.let { escaped(it) },
         preview.opaque,
+        preview.segments.map { segment ->
+            CommandSegment(
+                segment.argv.map { ReviewText.escape(it) },
+                escaped(segment.cwd),
+                segment.executable?.let { escaped(it) },
+                segment.joint,
+                segment.opaque,
+                segment.changesDirectory,
+                segment.readOnly,
+                segment.untrusted,
+                segment.environment.entries.associate { (name, value) ->
+                    ReviewText.escape(name) to ReviewText.escape(value)
+                },
+                segment.rule?.let { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) },
+            )
+        },
     )
 
     is ReviewPreview.Text -> ReviewPreview.Text(ReviewText.escape(preview.text, keepNewlines = true))

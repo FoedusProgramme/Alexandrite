@@ -52,9 +52,11 @@ internal class BotSession(
             bots.release(bot, instance.id)
             throw e
         }
+        bots.started(instance.id, config.streaming)
     }
 
     override fun onStop() {
+        bots.stopped(instance.id)
         bots.release(bot, instance.id)
     }
 
