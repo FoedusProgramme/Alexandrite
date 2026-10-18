@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import org.foedusprogramme.alexandrite.agent.cancel.TurnCancelled
 import org.foedusprogramme.alexandrite.agent.config.AgentDirectory
 import org.foedusprogramme.alexandrite.agent.config.AgentSettings
+import org.foedusprogramme.alexandrite.agent.permission.Mandates
 import org.foedusprogramme.alexandrite.agent.routing.ChatRouter
 import org.foedusprogramme.alexandrite.agent.routing.ChatTopology
 import org.foedusprogramme.alexandrite.agent.routing.Resolution
@@ -21,6 +22,7 @@ import org.foedusprogramme.alexandrite.sdk.turn.Admission
 import org.foedusprogramme.alexandrite.sdk.turn.AgentSource
 import org.foedusprogramme.alexandrite.sdk.turn.Capacity
 import org.foedusprogramme.alexandrite.sdk.turn.InitiatedTurn
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
 import org.foedusprogramme.alexandrite.sdk.turn.RefusalReason
 import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiation
 import org.foedusprogramme.alexandrite.sdk.turn.TurnOutcome
@@ -44,6 +46,7 @@ internal class AgentTurnInitiation(
     private val directory: AgentDirectory,
     private val topology: ChatTopology,
     private val channels: ChannelDirectory,
+    private val mandates: Mandates,
     private val clock: Clock,
 ) : TurnInitiation {
     private val perKey = settings.queue.perKey
@@ -80,10 +83,19 @@ internal class AgentTurnInitiation(
         }
     }
 
-    /** How a turn that runs as [agent] at [chat] resolves. */
+    override suspend fun revoke(plugin: String, mandate: Mandate) {
+        mandates.revoke(plugin, mandate)
+    }
+
+    /** How a turn that runs as [agent] at [chat] resolves, its own chat included. */
     private fun named(agent: AgentId, chat: ChatAddress): Resolution = when {
+        chat == ChatAddress.ofAgent(agent) && directory.agent(agent) != null ->
+            Resolution.Served(AgentChatKey(agent, chat), chat, AgentSource.SELECTED)
+
         chat.instance !in channels.instances -> Resolution.Unknown
+
         directory.attached(chat.instance).none { it.id == agent } -> Resolution.NoAgent
+
         else -> Resolution.Served(topology.key(agent, chat), chat, AgentSource.SELECTED)
     }
 
@@ -156,7 +168,7 @@ internal class AgentTurnInitiation(
             key = key,
             origin = turn.chat,
             kind = turn.kind,
-            input = TurnSource.FromInitiated(initiation.plugin, turn.prompt, turn.trust),
+            input = TurnSource.FromInitiated(initiation.plugin, turn.prompt, turn.trust, turn.mandate),
             actor = null,
             replyTarget = ReplyTarget.CALLER,
             trigger = null,

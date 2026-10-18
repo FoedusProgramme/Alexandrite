@@ -61,6 +61,7 @@ import org.foedusprogramme.alexandrite.agent.model.plus
 import org.foedusprogramme.alexandrite.agent.model.requestOptions
 import org.foedusprogramme.alexandrite.agent.model.select
 import org.foedusprogramme.alexandrite.agent.permission.ConversationTaints
+import org.foedusprogramme.alexandrite.agent.permission.Mandates
 import org.foedusprogramme.alexandrite.agent.permission.ReadTaint
 import org.foedusprogramme.alexandrite.agent.permission.Refusals
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
@@ -103,9 +104,11 @@ import org.foedusprogramme.alexandrite.sdk.channel.ReplySink
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
 import org.foedusprogramme.alexandrite.sdk.channel.TurnEventKind
+import org.foedusprogramme.alexandrite.sdk.chat.AgentChatKey
 import org.foedusprogramme.alexandrite.sdk.chat.AgentId
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.ConversationId
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
 import org.foedusprogramme.alexandrite.sdk.chat.ReplyTarget
@@ -192,6 +195,7 @@ internal class AgentTurnRunner(
     private val jobs: Jobs,
     private val interruptedJobs: InterruptedJobs,
     private val sentMessages: SentMessages,
+    private val mandates: Mandates,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
     private val reads: ReadTaint,
@@ -293,7 +297,7 @@ internal class AgentTurnRunner(
             val definitions = offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
             val narrowed = hooks.turnStart(turn, message, definitions).or { return stopped(it) }.map { it.name }
             val callable = (narrowed + toolset.callableUnoffered)
-                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsAdmin, it) }
+                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsAdmin || operatorSet(turn), it) }
             this.callable = callable
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
@@ -402,7 +406,7 @@ internal class AgentTurnRunner(
             resolved(conversation.id)
             taint = taints.open(plan.id, key, conversation.id)
             val turn = TurnInfo.builder(plan.id, plan.origin, conversation.id, plan.kind)
-                .actor(plan.actor)
+                .actor(plan.actor ?: mandated(input, key))
                 .language(language)
                 .zone(zone)
                 .agent(key.agent)
@@ -413,6 +417,20 @@ internal class AgentTurnRunner(
             this.turn = turn
             delegation?.started(turn, taint)
             return turn
+        }
+
+        /**
+         * The operator whose mandate [input] runs under, null for a turn of nobody: when it is no initiated turn of a
+         * mandate, the mandate is not its plugin's at [key], or the conversation took in something untrusted.
+         */
+        private suspend fun mandated(input: TurnSource, key: AgentChatKey): ChatUser? {
+            val mandate = (input as? TurnSource.FromInitiated)?.mandate ?: return null
+            val actor = mandates.actor(mandate, input.plugin, key) ?: return null
+            if (taint.tainted) {
+                logger.info("Turn {} of {} runs as nobody, not as {}: its conversation is tainted", plan.id, key, actor)
+                return null
+            }
+            return actor
         }
 
         /** The entries of the conversations that [conversation] forks, up to each fork point. */
@@ -503,6 +521,7 @@ internal class AgentTurnRunner(
                     text,
                     turn.zone ?: clock.zone,
                     baked,
+                    turn.actor,
                 )
             }
 
@@ -664,7 +683,7 @@ internal class AgentTurnRunner(
                     message.blank && finish == FinishKind.MAX_OUTPUT_TOKENS ->
                         return unanswered(first, NoticeKind.OUTPUT_LIMIT, TextKeys.OUTPUT_LIMIT_UNANSWERED)
 
-                    message.blank && turn.kind != TurnKind.JOB ->
+                    message.blank && turn.kind !in SILENT_KINDS ->
                         return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
                 }
                 val reply = withContext(NonCancellable) {
@@ -999,7 +1018,7 @@ internal class AgentTurnRunner(
         private suspend fun answer(reply: AssistantEntry, after: Pair<NoticeKind, String>?): TurnOutcome {
             val turn = checkNotNull(turn)
             val text = visibleText(reply)
-            if (text.isBlank() && turn.kind == TurnKind.JOB && after == null) {
+            if (text.isBlank() && turn.kind in SILENT_KINDS && after == null) {
                 return end(TurnOutcome.Completed(reply), TurnEndKind.COMPLETED)
             }
             if (text.isEmpty()) {
@@ -1370,3 +1389,12 @@ private const val MAX_PARALLEL_CALLS = 4
 private const val MAX_NAMED_FOLDERS = 10
 
 private val logger = LoggerFactory.getLogger(AgentTurnRunner::class.java)
+
+/**
+ * Whether [turn] may call every tool an admin's turn may, though it has no admin: a heartbeat, which the operator's
+ * config sets up and whose gated calls are refused, as it has nobody to ask.
+ */
+private fun operatorSet(turn: TurnInfo): Boolean = turn.kind == TurnKind.HEARTBEAT && turn.actor == null
+
+/** The kinds of turn that may end saying nothing: a job's that has nothing to add, a heartbeat's. */
+private val SILENT_KINDS = setOf(TurnKind.JOB, TurnKind.HEARTBEAT)

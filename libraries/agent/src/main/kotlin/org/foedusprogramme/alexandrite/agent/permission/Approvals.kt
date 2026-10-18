@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.internal.text.ReviewText
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.Binds
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
@@ -68,6 +69,9 @@ internal class ChannelApprovals(
             grantable?.let { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) },
             gate.calls.chain?.agents.orEmpty(),
         )
+        if (turn.chat.instance == ChatAddress.AGENTS) {
+            return unavailable(request, "the turn belongs to no chat, so nobody can be asked")
+        }
         val channel = channels.channel(turn.chat.instance)
             ?: return unavailable(request, "the channel of the chat is not open")
         logger.info(

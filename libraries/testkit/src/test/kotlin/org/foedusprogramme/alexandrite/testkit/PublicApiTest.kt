@@ -4,6 +4,7 @@ package org.foedusprogramme.alexandrite.testkit
 
 import com.tschuchort.compiletesting.KotlinCompilation
 import com.tschuchort.compiletesting.SourceFile
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
 import org.jetbrains.kotlin.compiler.plugin.ExperimentalCompilerApi
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -147,6 +148,7 @@ class PublicApiTest {
             initiator.refuseNext(RefusalReason.NO_AGENT)
             val initiated = InitiatedTurn.builder(testChat("c", null, TEST_INSTANCE), TurnKind.REMINDER, "Go.").build()
             initiator.initiate(initiated)
+            initiator.revoke(Mandate("m-test"))
             val first: RecordingTurnInitiator.Initiated = initiator.awaitInitiated(1).first()
             val ticket = TestTurnTicket(TurnId("t"))
             ticket.complete(TurnOutcome.Completed(null))
@@ -267,11 +269,13 @@ class PublicApiTest {
             val context: TestToolContext = testToolContext(workspace = Path.of("/srv/work"), clearance = cleared)
             context.touched(Path.of("/srv/work/notes.md"))
             context.untrusted("a web page")
+            val mandate = context.mandate()
             val background = context.background()
             testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             val quotaRefusal = context.conversationQuotaRefusal(Path.of("/srv/conversation/notes.md"), 10L)
             return listOf(
+                mandate,
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
                 context.turn, context.call, context.model, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
                 context.clearance, context.untrustedReasons, context.conversationDirectory,

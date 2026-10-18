@@ -10,6 +10,8 @@ import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.TextPart
 import org.foedusprogramme.alexandrite.sdk.transcript.ToolOutputPart
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
+import org.foedusprogramme.alexandrite.sdk.turn.TurnInitiator
 import java.nio.file.Path
 import kotlin.time.Duration
 
@@ -100,6 +102,13 @@ public interface ToolContext {
 
     /** Reports that the call brought untrusted content into the conversation, for [reason]. */
     public fun untrusted(reason: String)
+
+    /**
+     * A [Mandate] for turns that the tool's plugin initiates later at this turn's chat to run as the turn's operator,
+     * null unless this is an operator's own turn in a conversation that took in nothing untrusted. The agent keeps it
+     * until the plugin revokes it ([TurnInitiator.revoke]).
+     */
+    public suspend fun mandate(): Mandate? = null
 }
 
 /** A tool call that runs as a background job from its start, whose results come in later turns. */

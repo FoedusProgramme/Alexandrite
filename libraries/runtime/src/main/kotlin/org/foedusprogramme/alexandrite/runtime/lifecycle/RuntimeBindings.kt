@@ -164,6 +164,8 @@ internal fun runtimeBindings(
 
 private class ResolvedOrigins(private val resolver: Resolver, private val builtIns: Set<String>) : PluginOrigins {
     override fun isBuiltIn(instance: Any): Boolean = resolver.pluginOf(instance) in builtIns
+
+    override fun pluginOf(instance: Any): String? = resolver.pluginOf(instance)
 }
 
 private class PluginDirectories(private val data: Path, private val cache: Path) : PluginFiles {

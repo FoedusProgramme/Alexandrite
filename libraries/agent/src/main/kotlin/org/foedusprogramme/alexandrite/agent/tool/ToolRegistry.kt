@@ -42,7 +42,7 @@ internal class InTurnResult(val content: List<ToolOutputPart>, val outcome: Tool
 
 /** The contributed tools by name, and the ones each agent selects. */
 @Singleton
-internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origins: PluginOrigins) {
+internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, private val origins: PluginOrigins) {
     private val tools: Map<String, Tool>
     private val selected: Map<AgentId, List<Tool>>
     private val builtIn: Set<String> = tools.filter(origins::isBuiltIn).mapTo(HashSet()) { it.definition.name }
@@ -85,6 +85,9 @@ internal class ToolRegistry(tools: List<Tool>, directory: AgentDirectory, origin
         val name = tool.definition.name
         return tools[name] === tool && name in builtIn
     }
+
+    /** The id of the plugin that contributed [tool], null when none did. */
+    fun pluginOf(tool: Tool): String? = origins.pluginOf(tool)
 
     /** The tools [agent] selects, sorted by name. */
     fun offered(agent: AgentId): List<Tool> = selected[agent].orEmpty()

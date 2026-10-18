@@ -31,9 +31,11 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
         "Each user message starts with a header that Alexandrite writes. A message from a chat has an " +
             "[alexandrite:message] header: who sent the message, whether the sender is an operator, when it arrived " +
             "and in which chat. A turn that a plugin started, such as a heartbeat or a reminder, has an " +
-            "[alexandrite:initiated] header: the plugin, the kind of turn, whether its text is trusted and when it " +
-            "started. When your tools changed since your last turn in a conversation, the turn starts with a " +
-            "separate user message with an [alexandrite:tools] header that says \"$TOOLS_HEADER since your last " +
+            "[alexandrite:initiated] header: the plugin, the kind of turn, whether its text is trusted, when it " +
+            "started and, for a task an operator set up, the operator it runs on behalf of. A heartbeat belongs to " +
+            "no chat and its reply reaches nobody: to tell someone something, send it with chat.send. When your " +
+            "tools changed since your last turn in a conversation, the turn starts with a separate user message " +
+            "with an [alexandrite:tools] header that says \"$TOOLS_HEADER since your last " +
             "turn in this conversation\" and names the tools added, removed and changed. When a command ran in " +
             "this chat since your last turn, the turn starts with another separate user message with an " +
             "[alexandrite:commands] header that says \"$COMMANDS_HEADER since your last turn\" and lists who ran " +

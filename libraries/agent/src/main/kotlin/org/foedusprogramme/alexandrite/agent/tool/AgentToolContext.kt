@@ -4,16 +4,19 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.foedusprogramme.alexandrite.agent.directory.ConversationDirectories
+import org.foedusprogramme.alexandrite.agent.permission.Principal
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
+import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.permission.Clearance
 import org.foedusprogramme.alexandrite.sdk.tool.BackgroundCall
 import org.foedusprogramme.alexandrite.sdk.tool.ToolContext
 import org.foedusprogramme.alexandrite.sdk.tool.ToolResult
 import org.foedusprogramme.alexandrite.sdk.transcript.ModelRef
 import org.foedusprogramme.alexandrite.sdk.transcript.UserEntry
+import org.foedusprogramme.alexandrite.sdk.turn.Mandate
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -29,6 +32,8 @@ internal class AgentToolContext(
     val delegating: DelegatingTurn? = null,
     /** Whether the call's review asked for it to run as a background job from its start. */
     val startsInBackground: Boolean = false,
+    /** Grants the call's plugin a mandate of the turn's operator, null when the call may get none. */
+    private val granting: (suspend () -> Mandate?)? = null,
 ) : ToolContext {
     @Volatile
     private var open = true
@@ -106,6 +111,14 @@ internal class AgentToolContext(
     override fun untrusted(reason: String) {
         checkOpen()
         taint.note("call $call reported untrusted content: $reason")
+    }
+
+    override suspend fun mandate(): Mandate? {
+        checkOpen()
+        val principal = Principal.of(turn)
+        if (principal != Principal.OPERATOR || turn.lineage != null || turn.kind != TurnKind.MESSAGE) return null
+        if (taint.tainted) return null
+        return granting?.invoke()
     }
 
     fun close() {

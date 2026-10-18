@@ -21,6 +21,7 @@ import org.foedusprogramme.alexandrite.agent.job.Detached
 import org.foedusprogramme.alexandrite.agent.job.Detaching
 import org.foedusprogramme.alexandrite.agent.job.Jobs
 import org.foedusprogramme.alexandrite.agent.job.backgroundResult
+import org.foedusprogramme.alexandrite.agent.permission.MandateGrants
 import org.foedusprogramme.alexandrite.agent.permission.TurnTaint
 import org.foedusprogramme.alexandrite.agent.prompt.Escaper
 import org.foedusprogramme.alexandrite.agent.workspace.Workspaces
@@ -69,6 +70,7 @@ internal class ToolExecutor(
     private val workspaces: Workspaces,
     private val directories: ConversationDirectories,
     private val jobs: Jobs,
+    private val grants: MandateGrants,
 ) {
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
@@ -120,6 +122,7 @@ internal class ToolExecutor(
                     taint,
                     delegating,
                     startsInBackground = admission.background && tool !is InTurnTool,
+                    granting = { grants.grant(turn, tool) },
                 )
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)

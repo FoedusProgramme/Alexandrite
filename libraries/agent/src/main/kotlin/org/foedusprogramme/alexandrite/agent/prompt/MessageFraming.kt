@@ -2,6 +2,7 @@ package org.foedusprogramme.alexandrite.agent.prompt
 
 import org.foedusprogramme.alexandrite.sdk.channel.IncomingMessage
 import org.foedusprogramme.alexandrite.sdk.channel.MediaAttachment
+import org.foedusprogramme.alexandrite.sdk.chat.ChatUser
 import org.foedusprogramme.alexandrite.sdk.chat.TurnKind
 import org.foedusprogramme.alexandrite.sdk.model.Trust
 import org.foedusprogramme.alexandrite.sdk.transcript.ContextPart
@@ -76,25 +77,36 @@ internal fun initiatedEntry(
     text: String,
     zone: ZoneId,
     carried: List<UserPart> = emptyList(),
+    operator: ChatUser? = null,
 ): UserEntry {
     val parts = buildList<UserPart> {
-        add(ContextPart(INITIATED_SOURCE, initiatedFraming(plugin, kind, trust, startedAt, zone)))
+        add(ContextPart(INITIATED_SOURCE, initiatedFraming(plugin, kind, trust, startedAt, zone, operator)))
         addAll(carried)
         if (text.isNotEmpty()) add(TextPart(Escaper.HEADERS.text(text)))
     }
     return UserEntry(null, parts, UserOrigin.Initiated(plugin, kind))
 }
 
-/** Initiated framing v1: which plugin started a turn, as what, whether its prompt is trusted, and when. */
-internal fun initiatedFraming(plugin: String, kind: TurnKind, trust: Trust, startedAt: Instant, zone: ZoneId): String =
-    buildString {
-        appendLine("[alexandrite:initiated]")
-        appendLine("Plugin: ${oneLine(plugin)}")
-        appendLine("Kind: ${oneLine(kind.id)}")
-        appendLine("Trust: ${if (trust == Trust.TRUSTED) "trusted" else "untrusted"}")
-        appendLine("Started: ${TIME.format(startedAt.atZone(zone))}")
-        append("[/alexandrite:initiated]")
-    }
+/**
+ * Initiated framing v1: which plugin started a turn, as what, whether its prompt is trusted, when, and the operator it
+ * runs on behalf of, a line only a mandated turn has.
+ */
+internal fun initiatedFraming(
+    plugin: String,
+    kind: TurnKind,
+    trust: Trust,
+    startedAt: Instant,
+    zone: ZoneId,
+    operator: ChatUser? = null,
+): String = buildString {
+    appendLine("[alexandrite:initiated]")
+    appendLine("Plugin: ${oneLine(plugin)}")
+    appendLine("Kind: ${oneLine(kind.id)}")
+    appendLine("Trust: ${if (trust == Trust.TRUSTED) "trusted" else "untrusted"}")
+    operator?.let { appendLine("On behalf of: ${oneLine(it.displayName)} (operator)") }
+    appendLine("Started: ${TIME.format(startedAt.atZone(zone))}")
+    append("[/alexandrite:initiated]")
+}
 
 /** One attachment of a message as the media note names it. */
 internal class NotedMedia(
