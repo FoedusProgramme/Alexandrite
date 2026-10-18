@@ -18,11 +18,13 @@ dependencies {
     implementation(project(":libraries:providers:lmstudio"))
     implementation(project(":libraries:providers:anthropic-compatible"))
     implementation(project(":libraries:stores:sqlite"))
+    implementation(project(":libraries:automations:heartbeat"))
     runtimeOnly(libs.logback.classic)
 
     testImplementation(project(":libraries:testkit"))
     testImplementation(project(":examples:notes"))
     testImplementation(testFixtures(project(":libraries:channels:telegram")))
+    testImplementation(project(":libraries:automation-common"))
     testImplementation(libs.logback.classic)
 }
 

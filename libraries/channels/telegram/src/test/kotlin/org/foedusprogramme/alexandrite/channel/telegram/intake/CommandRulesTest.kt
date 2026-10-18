@@ -17,7 +17,8 @@ import kotlin.test.assertEquals
 class CommandRulesTest {
     private val kinds = listOf(ChatKind.DIRECT, ChatKind.GROUP, ChatKind.BROADCAST, ChatKind.UNKNOWN)
     private val control = RecordingAgentControl()
-    private val rules = CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("purge")), control)
+    private val rules =
+        CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("purge", "heartbeat")), control)
 
     /** The refusal of `/[command] [arguments]` in [chat] of [kind] for a member and for an admin. */
     private fun refusals(
@@ -39,8 +40,10 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `anyone may read the settings, the jobs and the context anywhere`() {
+    fun `anyone may read the settings, the jobs, the context and the heartbeat anywhere`() {
         assertRow("settings", "", direct = null, others = null)
+        assertRow("heartbeat", "", direct = null, others = null)
+        assertRow("heartbeat", "now", direct = null, others = null)
         assertRow("context", "", direct = null, others = null)
         assertRow("profiles", "", direct = null, others = null)
         for (command in listOf("agent", "model", "mode", "reasoning", "language", "jobs")) {

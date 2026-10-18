@@ -115,6 +115,7 @@ internal class CommandRules(
             "untaint" to CommandRule(Who.ADMIN),
             "allow" to CommandRule(Who.ADMIN),
             "streaming" to CommandRule(Who.ANYONE, Who.DIRECT),
+            "heartbeat" to CommandRule(Who.ANYONE),
         )
 
         private val ADMIN_ONLY = CommandRule(Who.ADMIN)
