@@ -1,0 +1,461 @@
+package org.foedusprogramme.alexandrite.channel.qqbot
+
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import org.foedusprogramme.alexandrite.channel.qqbot.channel.QQ_BOT_MAX_FILE_BYTES
+import org.foedusprogramme.alexandrite.channel.qqbot.testing.FakeApiServer
+import org.foedusprogramme.alexandrite.channel.qqbot.testing.FakeGatewayServer
+import org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
+import org.foedusprogramme.alexandrite.sdk.channel.ApprovalRequest
+import org.foedusprogramme.alexandrite.sdk.channel.ChannelDirectory
+import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
+import org.foedusprogramme.alexandrite.sdk.channel.Delivery
+import org.foedusprogramme.alexandrite.sdk.channel.Markup
+import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
+import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
+import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
+import org.foedusprogramme.alexandrite.sdk.channel.TurnEvent
+import org.foedusprogramme.alexandrite.sdk.chat.AgentId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelMessageRef
+import org.foedusprogramme.alexandrite.sdk.chat.ChannelType
+import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
+import org.foedusprogramme.alexandrite.sdk.chat.RunId
+import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
+import org.foedusprogramme.alexandrite.sdk.di.key
+import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
+import org.foedusprogramme.alexandrite.sdk.tool.ToolRisk
+import org.foedusprogramme.alexandrite.sdk.turn.Submission
+import org.foedusprogramme.alexandrite.testkit.PluginHarness
+import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
+import org.foedusprogramme.alexandrite.testkit.testTurn
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+/**
+ * The QQ bot channel inside a real runtime.
+ *
+ * A harness builds the plugin set and the container, a fake platform serves the token and the gateway, and the test
+ * drives what the platform would do: it pushes a message of a single chat, the agent is asked for a turn, and the
+ * answer of that turn goes back to the fake platform as a reply to the message.
+ */
+class QqBotChannelIntegrationTest {
+    private val instance = ChannelInstanceId(ChannelType("qqbot"), "main")
+
+    private val directory = key<ChannelDirectory>()
+
+    @Test
+    fun `a message the platform pushes reaches the agent and its answer goes back as a reply`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(SEND_DIRECT, """{"id":"sent1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(EVENT)
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
+                        assertEquals("private:u1", message.chat.chat)
+                        assertEquals("hello", message.text)
+
+                        val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                        val sink = channel.openReply(ReplyRequest(testTurn(chat = message.chat), message.ref))
+                        val answer = OutboundMessage.builder("hello back", MessageKind.REPLY).build()
+                        assertIs<Delivery.Delivered>(sink.complete(answer))
+
+                        val sent = api.calls(SEND_DIRECT).first { "\"msg_type\":0" in it.body }
+                        assertTrue("\"content\":\"hello back\"" in sent.body, sent.body)
+                        assertTrue("\"msg_id\":\"msg1\"" in sent.body, sent.body)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `whoami tells the person the address the instance knows them by`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(SEND_DIRECT, """{"id":"who1"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(RecordingTurnSubmitter())
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(WHOAMI_EVENT)
+                        val answer = assertNotNull(api.awaitRequest(SEND_DIRECT))
+                        assertTrue("private:u1" in answer.body, answer.body)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `a full-mode group message that names the bot reaches the agent`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(ME_PATH, """{"id":"bot1","username":"YosBot"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(FULL_MODE_EVENT)
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
+
+                        assertEquals("group:g1", message.chat.chat)
+                        assertEquals("hello", message.text)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `a full-mode group message names the bot by its member openid when the mention list does not`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(ME_PATH, """{"id":"global-bot-id"}""")
+        api.on(BOT_STATE_PATH, """{"member_openid":"member-bot-id"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(FULL_MODE_MENTION_EVENT)
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
+
+                        assertEquals("group:g1", message.chat.chat)
+                        assertEquals("hello", message.text)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @OptIn(InternalAlexandriteApi::class)
+    @Test
+    fun `a reply in a single chat is streamed into one message and ended there`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(STREAM_DIRECT, """{"id":"stream1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(EVENT)
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
+
+                        val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                        assertTrue(channel.capabilities(message.chat).streaming, "a single chat streams")
+                        assertTrue(channel.capabilities(message.chat).files, "a message may carry files")
+                        assertEquals(QQ_BOT_MAX_FILE_BYTES, channel.capabilities(message.chat).maxFileBytes)
+                        val sink = channel.openReply(ReplyRequest(testTurn(chat = message.chat), message.ref))
+                        sink.event(
+                            TurnEvent.ToolCallStarted(
+                                ToolCallId("call1"),
+                                "web.search",
+                                ToolActivity.SEARCH,
+                                "搜索资料",
+                            ),
+                        )
+                        sink.preview(0, "hel")
+                        sink.preview(0, "hello")
+                        val answer = OutboundMessage.builder("hello there", MessageKind.REPLY)
+                            .markup(Markup.MARKDOWN)
+                            .build()
+                        assertIs<Delivery.Delivered>(sink.complete(answer))
+
+                        val pieces = api.calls(STREAM_DIRECT)
+                        assertEquals(5, pieces.size)
+                        assertTrue("\"content_raw\":\"⏳ web.search — 搜索资料\"" in pieces[0].body, pieces[0].body)
+                        assertTrue("\"input_state\":1" in pieces[0].body, pieces[0].body)
+                        assertTrue("hel" in pieces[1].body, pieces[1].body)
+                        assertTrue("\"stream_msg_id\":\"stream1\"" in pieces[2].body, pieces[2].body)
+                        assertTrue(" there" in pieces[3].body, pieces[3].body)
+                        assertTrue("\"input_state\":10" in pieces[4].body, pieces[4].body)
+                        assertTrue(
+                            api.calls(SEND_DIRECT).none { "\"msg_type\":6" !in it.body },
+                            "the answer was sent as an ordinary message too",
+                        )
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `a reply that starts a new segment keeps one streaming message`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(STREAM_DIRECT, """{"id":"stream1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(RecordingTurnSubmitter())
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(EVENT)
+                        val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                        val chat = ChatAddress(instance, "private:u1")
+                        val sink = channel.openReply(
+                            ReplyRequest(testTurn(chat = chat), ChannelMessageRef(chat, "msg1")),
+                        )
+                        sink.preview(0, "first")
+                        sink.startSegment(1)
+                        sink.preview(1, "second")
+                        val answer = OutboundMessage.builder("answer", MessageKind.REPLY).build()
+                        assertIs<Delivery.Delivered>(sink.complete(answer))
+
+                        val pieces = api.calls(STREAM_DIRECT)
+                        assertEquals(4, pieces.size)
+                        assertTrue("\"stream_msg_id\":\"stream1\"" in pieces[1].body, pieces[1].body)
+                        assertTrue("\"stream_msg_id\":\"stream1\"" in pieces[2].body, pieces[2].body)
+                        assertTrue("\"input_state\":10" in pieces[3].body, pieces[3].body)
+                        assertTrue(api.calls(SEND_DIRECT).none { "\"msg_type\":6" !in it.body })
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @OptIn(InternalAlexandriteApi::class)
+    @Test
+    fun `an approval is asked with buttons and answered by a press`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(SEND_DIRECT, """{"id":"sent1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url, admins = setOf("u1")))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                        val chat = ChatAddress(instance, "private:u1")
+                        val request = ApprovalRequest(
+                            "req1",
+                            testTurn(chat = chat),
+                            "command.exec",
+                            ToolRisk.EXEC,
+                            "{}",
+                            null,
+                            "it runs a command",
+                            null,
+                        )
+                        val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
+                        val shown = assertNotNull(api.awaitRequest(SEND_DIRECT))
+                        assertTrue("\"msg_type\":2" in shown.body, shown.body)
+                        assertTrue("\"markdown\"" in shown.body, shown.body)
+                        assertTrue("\"keyboard\"" in shown.body, shown.body)
+                        assertTrue("\"data\":\"/approve req1\"" in shown.body, shown.body)
+                        assertTrue("\"data\":\"/deny req1\"" in shown.body, shown.body)
+                        assertTrue("\"enter\":true" in shown.body, shown.body)
+
+                        platform.push(APPROVAL_PRESS)
+                        val answer = waiting.await()
+                        assertIs<ApprovalAnswer.Allowed>(answer)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `a command reaches the agent as a command rather than as a message`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(COMMAND_EVENT)
+                        val command = assertIs<Submission.Command>(awaitSubmission(submitter))
+                        assertEquals("model", command.invocation.name)
+                        assertEquals("deepseek/deepseek-flash", command.invocation.arguments)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    private suspend fun awaitSubmission(submitter: RecordingTurnSubmitter): Submission {
+        val deadline = System.nanoTime() + 10_000_000_000L
+        while (System.nanoTime() < deadline) {
+            submitter.submissions.firstOrNull()?.let { return it }
+            delay(20)
+        }
+        error("the agent was asked for no turn")
+    }
+
+    @Test
+    fun `a detached background run keeps writing to the reply's stream until it closes`() = runBlocking {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(STREAM_DIRECT, """{"id":"stream1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                .config(config(api.base, platform.url))
+                .turnSubmitter(submitter)
+                .build()
+                .run {
+                    assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                    platform.push(EVENT)
+                    val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
+                    val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                    val sink = channel.openReply(ReplyRequest(testTurn(chat = message.chat), message.ref))
+                    val call = ToolCallId("delegate1")
+                    sink.event(TurnEvent.ToolCallStarted(call, "agent.delegate", ToolActivity.DELEGATE, "general"))
+                    val activity = assertNotNull(
+                        sink.detachActivity(DelegatedRun(call, RunId("r1"), AgentId("general"))),
+                    )
+                    activity.event(
+                        TurnEvent.ToolCallStarted(
+                            ToolCallId("child1"),
+                            "fs.read",
+                            ToolActivity.READ,
+                            "a file",
+                            RunId("r1"),
+                            AgentId("general"),
+                        ),
+                    )
+                    assertIs<Delivery.Delivered>(
+                        sink.complete(OutboundMessage.builder("done", MessageKind.REPLY).build()),
+                    )
+                    assertTrue(
+                        api.calls(STREAM_DIRECT).none { "\"input_state\":10" in it.body },
+                        "the stream closed while a background run still wrote to it",
+                    )
+                    activity.close(ToolCallStatus.COMPLETED)
+                    val last = api.calls(STREAM_DIRECT).last()
+                    assertTrue("\"input_state\":10" in last.body, last.body)
+                }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    private fun config(apiBase: String, gatewayUrl: String, admins: Set<String> = emptySet()): String = """
+        {
+          "instances": {
+            "main": {
+              "appId": "10000",
+              "appSecret": "secret",
+              "apiBase": "$apiBase",
+              "gatewayUrl": "$gatewayUrl",
+              "admins": [${admins.joinToString(",") { "\"$it\"" }}],
+              "connectTimeoutMillis": 5000,
+              "firstByteTimeoutMillis": 5000,
+              "idleTimeoutMillis": 5000,
+              "reconnectIntervalMillis": 200
+            }
+          }
+        }
+    """.trimIndent()
+
+    private companion object {
+        const val TOKEN_PATH = "/app/getAppAccessToken"
+
+        const val ME_PATH = "/users/@me"
+
+        const val BOT_STATE_PATH = "/v2/groups/g1/bot_state"
+
+        const val SEND_DIRECT = "/v2/users/u1/messages"
+
+        const val STREAM_DIRECT = "/v2/users/u1/stream_messages"
+
+        const val APPROVAL_PRESS = """{"id":"event-approve","op":0,"s":2,"t":"C2C_MESSAGE_CREATE","d":""" +
+            """{"id":"msg-approve","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"/approve req1","message_type":0,"timestamp":"2026-07-21T10:00:00+08:00"}}"""
+
+        const val COMMAND_EVENT = """{"id":"event-command","op":0,"s":3,"t":"C2C_MESSAGE_CREATE","d":""" +
+            """{"id":"msg-command","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"/model deepseek/deepseek-flash","message_type":0,"timestamp":"2026-07-21T10:00:01+08:00"}}"""
+
+        const val EVENT = """{"id":"event1","op":0,"s":2,"t":"C2C_MESSAGE_CREATE","d":""" +
+            """{"id":"msg1","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"hello","message_type":0,"timestamp":"2026-07-21T10:00:00+08:00"}}"""
+
+        const val WHOAMI_EVENT = """{"id":"event-who","op":0,"s":2,"t":"C2C_MESSAGE_CREATE","d":""" +
+            """{"id":"msg-who","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"/whoami","message_type":0,"timestamp":"2026-07-21T10:00:02+08:00"}}"""
+
+        const val FULL_MODE_EVENT = """{"id":"event-full","op":0,"s":3,"t":"GROUP_MESSAGE_CREATE","d":""" +
+            """{"id":"msg-full","author":{"id":"u1","member_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"<@bot1> hello","group_openid":"g1","message_type":0,""" +
+            """"mentions":[{"id":"bot1","member_openid":"bot1","bot":true}],""" +
+            """"timestamp":"2026-07-21T10:00:02+08:00"}}"""
+
+        const val FULL_MODE_MENTION_EVENT = """{"id":"event-full-mention","op":0,"s":4,""" +
+            """"t":"GROUP_MESSAGE_CREATE","d":{"id":"msg-full-mention",""" +
+            """"author":{"id":"u1","member_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"<@member-bot-id> hello","group_openid":"g1","message_type":0,""" +
+            """"timestamp":"2026-07-21T10:00:03+08:00"}}"""
+    }
+}
