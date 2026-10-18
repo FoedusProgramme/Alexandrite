@@ -18,8 +18,10 @@ import org.foedusprogramme.alexandrite.sdk.runtime.HostPaths
 import org.foedusprogramme.alexandrite.sdk.tool.FloorCheck
 import org.foedusprogramme.alexandrite.sdk.tool.HardFloor
 import org.slf4j.LoggerFactory
+import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 
 /** The hard floor of every tool. */
 @Singleton
@@ -195,6 +197,18 @@ internal fun hostFloor(
 internal fun personaDirectory(paths: HostPaths, agent: AgentId): Path? =
     paths.configFile?.parent?.resolve(PERSONAS)?.resolve(agent.value)?.normalize()
 
+/** [agent]'s persona directory, created owner-only when it does not exist, null when the host read no config file. */
+internal fun openPersonaDirectory(paths: HostPaths, agent: AgentId): Path? {
+    val directory = personaDirectory(paths, agent) ?: return null
+    if (Files.isDirectory(directory)) return directory
+    if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
+        Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)))
+    } else {
+        Files.createDirectories(directory)
+    }
+    return directory
+}
+
 /** The places of `agent.protectedPaths`, each absolute or relative to the config file's directory. */
 internal fun operatorPlaces(paths: HostPaths, configured: List<String>): List<Path> = configured.map { entry ->
     val path = Path.of(entry)
@@ -238,6 +252,8 @@ private const val CONFIGURATION = "Alexandrite's configuration"
 
 /** Where the agents' persona directories lie in the config directory. */
 private const val PERSONAS = "agents"
+
+private const val OWNER = "rwx------"
 
 private const val UNKNOWN_HOME = "every path, as the home directory is unknown"
 

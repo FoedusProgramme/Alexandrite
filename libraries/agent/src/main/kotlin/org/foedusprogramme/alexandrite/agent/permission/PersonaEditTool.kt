@@ -77,8 +77,8 @@ internal class PersonaEditTool(
         titleArguments = listOf("file"),
     )
 
-    /** Whether [agent] has a persona directory. */
-    override fun usableBy(agent: AgentId): Boolean = directory(agent)?.let { Files.isDirectory(it) } == true
+    /** Whether [agent] has a persona directory, which is there once the host read a config file. */
+    override fun usableBy(agent: AgentId): Boolean = directory(agent) != null
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val edit = planned(arguments, context)
@@ -100,6 +100,7 @@ internal class PersonaEditTool(
         val bytes = edit.current?.encode(edit.text) ?: edit.text.toByteArray(Charsets.UTF_8)
         val loaded = runInterruptible(Dispatchers.IO) {
             try {
+                openPersonaDirectory(paths, agent)
                 writeAtomically(edit.file) { it.write(bytes) }
             } catch (e: IOException) {
                 throw Refused("${edit.shown} could not be written: ${e.message ?: e.javaClass.simpleName}")
@@ -194,9 +195,6 @@ private fun load(file: Path, shown: Path, directory: Path): Pair<Utf8Text?, Stri
     val attributes = try {
         Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
     } catch (e: NoSuchFileException) {
-        if (!Files.isDirectory(file.parent, LinkOption.NOFOLLOW_LINKS)) {
-            throw Refused("Your persona directory $directory does not exist: the operator creates it.")
-        }
         return null to ABSENT
     }
     when {

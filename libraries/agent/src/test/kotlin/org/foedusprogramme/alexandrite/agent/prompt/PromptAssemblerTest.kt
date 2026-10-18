@@ -35,7 +35,11 @@ class PromptAssemblerTest {
               "instructions": ["Be brief."],
               "tools": {"deny": ["persona.edit"]}
             },
-            "helper": {"description": "Helps.", "instructionFiles": [{"file": "private.md", "when": ["direct"]}]}
+            "helper": {
+              "description": "Helps.",
+              "instructionFiles": [{"file": "private.md", "when": ["direct"]}],
+              "tools": {"deny": ["persona.edit"]}
+            }
           }
         }
     """.trimIndent()

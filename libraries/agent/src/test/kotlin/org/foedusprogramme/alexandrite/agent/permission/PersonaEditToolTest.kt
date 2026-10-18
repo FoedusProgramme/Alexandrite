@@ -25,6 +25,7 @@ import org.foedusprogramme.alexandrite.testkit.testUser
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.security.MessageDigest
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -193,17 +194,23 @@ class PersonaEditToolTest {
     }
 
     @Test
-    fun `without a config file or a persona directory nothing is edited`() {
+    fun `without a config file nothing is edited, and a persona directory still missing is created`() {
+        val file = personas.resolve("coder/PERSONA.md")
+
         assertEquals(
             listOf(
                 "problem: You have no persona directory, as the host read no config file.",
-                "problem: Your persona directory ${personas.resolve("coder")} does not exist: the operator creates it.",
+                "Created $file: +1 -0 lines. Your next turn reads it.",
             ),
             listOf(
                 tool(configFile = null).run(arguments("PERSONA.md", "append", "More.\n")),
                 tool().run(arguments("PERSONA.md", "append", "More.\n")),
             ),
         )
+        assertEquals("More.\n", file.readText())
+        if ("posix" in file.fileSystem.supportedFileAttributeViews()) {
+            assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(file.parent)))
+        }
     }
 
     @Test
