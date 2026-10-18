@@ -14,10 +14,6 @@ import org.foedusprogramme.alexandrite.channel.telegram.reply.SendLimiter
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Target
 import org.foedusprogramme.alexandrite.channel.telegram.reply.targetOf
 import org.foedusprogramme.alexandrite.sdk.channel.ChannelInstance
-import org.foedusprogramme.alexandrite.sdk.channel.Delivery
-import org.foedusprogramme.alexandrite.sdk.channel.Markup
-import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
-import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.chat.ChannelInstanceId
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.chat.TurnInfo
@@ -126,12 +122,6 @@ internal class ChatDesk(
     } catch (e: BotApiException) {
         outbox.checkToken(e)
         throw ToolProblem(e.message ?: "$method failed.")
-    }
-
-    /** Sends [text], Markdown, to [chat], after what the chat's open replies hold so far. */
-    suspend fun send(chat: ChatAddress, text: String): Delivery {
-        deliveries.flush(chat)
-        return outbox.send(chat, OutboundMessage.builder(text, MessageKind.REPLY).markup(Markup.MARKDOWN).build())
     }
 
     companion object {

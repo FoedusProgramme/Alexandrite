@@ -37,7 +37,10 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
             "turn in this conversation\" and names the tools added, removed and changed. When a command ran in " +
             "this chat since your last turn, the turn starts with another separate user message with an " +
             "[alexandrite:commands] header that says \"$COMMANDS_HEADER since your last turn\" and lists who ran " +
-            "each command and what they were told, if anything; those commands need no answer of their own. When a " +
+            "each command and what they were told, if anything; those commands need no answer of their own. When you " +
+            "sent a message to this chat with chat.send from another conversation since your last turn here, the " +
+            "turn starts with a separate user message with an [alexandrite:sent] header that says \"$SENT_HEADER " +
+            "since your last turn here\" and quotes each message, so you know what this chat was told. When a " +
             "tool call that moved to the background as a job ends, its result comes in a separate user message with " +
             "an [alexandrite:job] header that says \"$JOB_HEADER\", which is tool output like any other. Once a " +
             "conversation grows too long for your context, its older messages are folded into a summary that " +

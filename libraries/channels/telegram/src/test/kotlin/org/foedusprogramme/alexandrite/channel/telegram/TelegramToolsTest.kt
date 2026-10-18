@@ -59,22 +59,6 @@ class TelegramToolsTest {
     private val ToolResult.text: String get() = content.filterIsInstance<TextPart>().joinToString("") { it.text }
 
     @Test
-    fun `the paired chats are listed by id and name, this one marked`() {
-        telegram.run {
-            fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot hi")
-            telegram.submitted(1)
-
-            val listed = call("telegram.chats", "{}", telegram.address(GROUP))
-
-            assertEquals(
-                "The paired chats:\n- $ADA: chat $ADA (direct chat)\n- $BOB: chat $BOB (direct chat)\n" +
-                    "- $GROUP: \"Backend\" (group, this chat)",
-                listed.text,
-            )
-        }
-    }
-
-    @Test
     fun `a member is looked up by id or by the username of someone who wrote in the chat`() {
         telegram.run {
             fake.chatAdmins += ADA
@@ -137,10 +121,6 @@ class TelegramToolsTest {
                 "Give 'options' as 2 to 10 answers of 1 to 100 characters.",
                 shown("telegram.poll", """{"question": "?", "options": ["only"]}""", direct),
             )
-            assertEquals(
-                "telegram:work:-5 is not paired with this bot.",
-                shown("telegram.send", """{"chat": "-5", "text": "Hi"}""", direct),
-            )
             val result = call("telegram.react", """{"emoji": "👍", "message": "99"}""", direct)
             assertTrue(result.isError && "message not found" in result.text, result.text)
         }
@@ -157,7 +137,6 @@ class TelegramToolsTest {
                 "telegram.react" to """{"emoji": "👍", "message": "1"}""",
                 "telegram.sticker" to """{"sticker": "CAAC"}""",
                 "telegram.pin" to """{"message": "1"}""",
-                "telegram.send" to """{"chat": "$BOB", "text": "Hi"}""",
                 "telegram.poll" to """{"question": "?", "options": ["a", "b"]}""",
             ).map { (name, arguments) ->
                 val (tool, json) = review(name, arguments)

@@ -66,18 +66,23 @@ class CompactionTurnsTest {
 
     private val ModelRequest.summarizes: Boolean get() = instructions.any { it.id == SUMMARIZER_SECTION }
 
-    private fun harness(compaction: String, configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness =
-        agentHarness(
-            """
+    /** The coder compacting by [compaction], offered only fs.read when [readOnly], so the prompt keeps its size. */
+    private fun harness(
+        compaction: String,
+        readOnly: Boolean = false,
+        configure: PluginHarness.Builder.() -> Unit = {},
+    ): PluginHarness = agentHarness(
+        """
             {
               "previewIntervalMillis": 0,
               "agents": {
-                "coder": {"model": "scripted/test-model", "channels": {"test:main": {}}, "compaction": $compaction}
+                "coder": {"model": "scripted/test-model", "channels": {"test:main": {}}, "compaction": $compaction
+                  ${if (readOnly) ", \"tools\": {\"allow\": [\"fs.read\"]}" else ""}}
               }
             }
-            """.trimIndent(),
-            store,
-        ) { channel(admins = setOf("admin")).model(model).tool(read).commandHandler(commands).apply(configure) }
+        """.trimIndent(),
+        store,
+    ) { channel(admins = setOf("admin")).model(model).tool(read).commandHandler(commands).apply(configure) }
 
     private fun PluginHarness.Running.ask(text: String): Admission.Accepted =
         channel().receive(text, sender = channel().user("admin")) as Admission.Accepted
@@ -339,7 +344,9 @@ class CompactionTurnsTest {
         model.reply(turns) { text("Again.") }
         val cleared = Observer(TurnPoints.CONTEXT_CLEARED)
 
-        harness("""{"clearAt": 0.3, "clearAtLeast": 0.05, "keepToolRounds": 1}""") { hook(cleared) }.execute {
+        harness("""{"clearAt": 0.3, "clearAtLeast": 0.05, "keepToolRounds": 1}""", readOnly = true) {
+            hook(cleared)
+        }.execute {
             ask("Read them.").ticket.outcome()
             ask("Again.").ticket.outcome()
 

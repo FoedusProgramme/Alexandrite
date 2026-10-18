@@ -90,6 +90,9 @@ internal class Output(
             vouched,
         )
 
+    /** The titles of the groups the bot heard from. */
+    val titles = ChatTitles()
+
     /** The desk where the Telegram tools act on this output. */
     val desk = ChatDesk(
         instance,
@@ -99,12 +102,20 @@ internal class Output(
         limiter,
         gate,
         pairings,
-        ChatTitles(),
+        titles,
         TurnMessages(),
         KnownUsers(),
         TelegramDesks(),
     )
-    val channel = TelegramChannel(instance, config, gate, deliveries, approvals, CommandRules(emptyList(), null))
+    val channel = TelegramChannel(
+        instance,
+        config,
+        gate,
+        deliveries,
+        approvals,
+        CommandRules(emptyList(), null),
+        titles,
+    )
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */
     suspend fun open(chat: Long = DIRECT, trigger: String? = "41", thread: Long? = null): ReplySink {

@@ -12,6 +12,7 @@ import org.foedusprogramme.alexandrite.agent.context.ContextRecords
 import org.foedusprogramme.alexandrite.agent.delegation.DelegatedRuns
 import org.foedusprogramme.alexandrite.agent.delegation.RunRecords
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
+import org.foedusprogramme.alexandrite.agent.delivery.SentMessages
 import org.foedusprogramme.alexandrite.agent.hook.TurnHooks
 import org.foedusprogramme.alexandrite.agent.i18n.Refused
 import org.foedusprogramme.alexandrite.agent.i18n.TextKeys
@@ -99,6 +100,7 @@ internal class AgentControlImpl(
     private val offeredTools: OfferedTools,
     private val pendingCommands: PendingCommands,
     private val interruptedJobs: InterruptedJobs,
+    private val sentMessages: SentMessages,
     private val runRecords: RunRecords,
     private val contexts: ContextControl,
     private val contextRecords: ContextRecords,
@@ -433,6 +435,7 @@ internal class AgentControlImpl(
         offeredTools.sealed(sealed)
         pendingCommands.sealed(sealed)
         interruptedJobs.sealed(sealed)
+        sentMessages.sealed(sealed)
         runRecords.sealed(sealed)
         contextRecords.sealed(sealed)
         val turn = command?.takeIf { it.key == key }

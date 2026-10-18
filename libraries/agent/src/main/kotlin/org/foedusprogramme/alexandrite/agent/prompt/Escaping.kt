@@ -30,6 +30,7 @@ internal class Escaper(reserved: List<String>) {
                     PROJECT_HEADER,
                     TOOLS_HEADER,
                     COMMANDS_HEADER,
+                    SENT_HEADER,
                     JOB_HEADER,
                     SUMMARY_HEADER,
                 ),
@@ -45,6 +46,9 @@ internal const val TOOLS_HEADER: String = "Your tools changed"
 
 /** How the line that tells the model which commands ran starts. */
 internal const val COMMANDS_HEADER: String = "Commands run in this chat"
+
+/** How the line that tells the model what it sent to a chat from elsewhere starts. */
+internal const val SENT_HEADER: String = "Messages you sent to this chat from elsewhere"
 
 /** How the line that tells the model that a background job ended starts. */
 internal const val JOB_HEADER: String = "A background job ended"

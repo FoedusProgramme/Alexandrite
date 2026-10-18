@@ -96,6 +96,8 @@ class RepositoryQuestionTest {
                 "agent.jobs",
                 "agent.send",
                 "agent.stop",
+                "chat.list",
+                "chat.send",
                 "chat.send_file",
                 "command.exec",
                 "fs.edit",

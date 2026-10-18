@@ -4,6 +4,7 @@ import org.foedusprogramme.alexandrite.channel.telegram.approval.ApprovalDesk
 import org.foedusprogramme.alexandrite.channel.telegram.format.formatted
 import org.foedusprogramme.alexandrite.channel.telegram.format.parts
 import org.foedusprogramme.alexandrite.channel.telegram.intake.AccessGate
+import org.foedusprogramme.alexandrite.channel.telegram.intake.ChatTitles
 import org.foedusprogramme.alexandrite.channel.telegram.intake.CommandRules
 import org.foedusprogramme.alexandrite.channel.telegram.reply.Deliveries
 import org.foedusprogramme.alexandrite.channel.telegram.reply.MAX_PARTS_PER_REPLY
@@ -35,6 +36,7 @@ internal class TelegramChannel(
     private val deliveries: Deliveries,
     private val approvals: ApprovalDesk,
     private val rules: CommandRules,
+    private val titles: ChatTitles,
 ) : Channel,
     Lifecycle {
     override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities = ChannelCapabilities.builder()
@@ -54,6 +56,8 @@ internal class TelegramChannel(
     override suspend fun openReply(request: ReplyRequest): ReplySink = deliveries.openReply(request)
 
     override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = deliveries.send(chat, message)
+
+    override suspend fun title(chat: ChatAddress): String? = titles.title(chat)
 
     override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer = when {
         deliveries.stopped -> ApprovalAnswer.Unavailable("the bot is stopping")

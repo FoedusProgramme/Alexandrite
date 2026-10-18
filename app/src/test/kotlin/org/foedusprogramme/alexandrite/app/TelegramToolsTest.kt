@@ -34,9 +34,6 @@ class TelegramToolsTest {
 
     /** The visible actions, each asked for in the group by a message whose id their approval names. */
     private val cases = listOf(
-        Case("telegram.send", """{"chat": "${TelegramApp.BOB}", "text": "Hi Bob"}""", {
-            "Send to chat 1002:\n\nHi Bob"
-        }, "sendMessage"),
         Case("telegram.react", """{"emoji": "👍"}""", {
             "React with 👍 to message $it in \"Backend\""
         }, "setMessageReaction"),
@@ -101,7 +98,6 @@ class TelegramToolsTest {
         }
 
         for (case in cases) assertTrue(calls(case.method) >= 1, case.method)
-        assertEquals(listOf("Hi Bob"), app.fake.botMessages(TelegramApp.BOB).map { it.text })
         assertEquals(cases.size, shown.size)
     }
 
@@ -119,8 +115,7 @@ class TelegramToolsTest {
 
         val outcomes = app.model.requests.mapNotNull { it.history.lastOrNull() as? ToolResultEntry }.map { it.outcome }
         assertEquals(List(cases.size) { ToolOutcome.NotRun(NotRunReason.PLAN_MODE) }, outcomes)
-        for (case in cases.drop(1)) assertEquals(0, calls(case.method), case.method)
-        assertEquals(emptyList(), app.fake.botMessages(TelegramApp.BOB))
+        for (case in cases) assertEquals(0, calls(case.method), case.method)
         assertTrue(app.fake.botMessages().none { it.buttons.isNotEmpty() })
     }
 

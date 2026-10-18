@@ -34,6 +34,8 @@ import org.foedusprogramme.alexandrite.agent.delegation.delegator
 import org.foedusprogramme.alexandrite.agent.delivery.Notices
 import org.foedusprogramme.alexandrite.agent.delivery.ReplyStream
 import org.foedusprogramme.alexandrite.agent.delivery.Routes
+import org.foedusprogramme.alexandrite.agent.delivery.SentComparison
+import org.foedusprogramme.alexandrite.agent.delivery.SentMessages
 import org.foedusprogramme.alexandrite.agent.delivery.delivered
 import org.foedusprogramme.alexandrite.agent.delivery.notice
 import org.foedusprogramme.alexandrite.agent.delivery.replyMessage
@@ -189,6 +191,7 @@ internal class AgentTurnRunner(
     private val executor: ToolExecutor,
     private val jobs: Jobs,
     private val interruptedJobs: InterruptedJobs,
+    private val sentMessages: SentMessages,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
     private val reads: ReadTaint,
@@ -299,6 +302,7 @@ internal class AgentTurnRunner(
             val comparison = if (shared) offeredTools.compare(turn.conversation, definitions) else null
             val commands = if (shared) pendingCommands.pending(turn.conversation) else null
             val interrupted = if (shared) interruptedJobs.pending(turn.conversation) else null
+            val sent = if (shared) sentMessages.pending(turn.conversation, turn.zone ?: clock.zone) else null
             val view = contextView(inherited + history.entries(turn.conversation))
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
@@ -306,13 +310,14 @@ internal class AgentTurnRunner(
             val window = compactor.open(turn, agent.config.compaction, selected.info.contextWindow, summaryModel, view)
             val parts = RequestParts(selected, options, window, sections, definitions, context)
             val turnTools = TurnTools((offered + toolset.unoffered).associateBy { it.definition.name }, callable)
-            val unstored = listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, opening)
+            val unstored =
+                listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, sent?.notice, opening)
             if (input !is TurnSource.FromJob) {
-                return rounds(parts, unstored, turnTools, comparison, commands, interrupted)
+                return rounds(parts, unstored, turnTools, comparison, commands, interrupted, sent)
             }
-            store(unstored, comparison, commands, interrupted)
+            store(unstored, comparison, commands, interrupted, sent)
             if (input.job.final) jobs.delivered(input.job.job)
-            return rounds(parts, emptyList(), turnTools, null, null, null)
+            return rounds(parts, emptyList(), turnTools, null, null, null, null)
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -571,6 +576,7 @@ internal class AgentTurnRunner(
             comparison: ToolComparison?,
             commands: PendingComparison?,
             interrupted: InterruptedComparison?,
+            sent: SentComparison?,
         ) {
             withContext(NonCancellable) {
                 val turn = checkNotNull(turn)
@@ -578,6 +584,7 @@ internal class AgentTurnRunner(
                 comparison?.let { offeredTools.record(turn.conversation, it) }
                 commands?.let { pendingCommands.clear(turn.conversation, it) }
                 interrupted?.let { interruptedJobs.clear(turn.conversation, it) }
+                sent?.let { sentMessages.clear(turn.conversation, it) }
             }
         }
 
@@ -614,6 +621,7 @@ internal class AgentTurnRunner(
             comparison: ToolComparison?,
             commands: PendingComparison?,
             interrupted: InterruptedComparison?,
+            sent: SentComparison?,
         ): TurnOutcome {
             val turn = checkNotNull(turn)
             var pending = opening
@@ -664,6 +672,7 @@ internal class AgentTurnRunner(
                     if (first && comparison != null) offeredTools.record(turn.conversation, comparison)
                     if (first && commands != null) pendingCommands.clear(turn.conversation, commands)
                     if (first && interrupted != null) interruptedJobs.clear(turn.conversation, interrupted)
+                    if (first && sent != null) sentMessages.clear(turn.conversation, sent)
                     entries.last() as AssistantEntry
                 }
                 pending = emptyList()

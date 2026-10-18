@@ -179,6 +179,8 @@ class InitiatedTurnsTest {
                     "agent.jobs",
                     "agent.send",
                     "agent.stop",
+                    "chat.list",
+                    "chat.send",
                     "chat.send_file",
                     "fs.read",
                     "permission.status",

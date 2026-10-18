@@ -53,6 +53,8 @@ class ToolRegistryTest {
                     "agent.jobs",
                     "agent.send",
                     "agent.stop",
+                    "chat.list",
+                    "chat.send",
                     "chat.send_file",
                     "exec.run",
                     "fs.glob",

@@ -63,63 +63,6 @@ internal class Planned(val shown: String, val rule: RuleSubject? = null, val run
 
 @Singleton
 @Contribute(Tool::class)
-internal class ChatsTool(desks: TelegramDesks) : TelegramTool(desks) {
-    override val definition = ToolDefinition(
-        name = "telegram.chats",
-        description = "Lists the chats paired with the Telegram bot of this chat, the ids that telegram.send takes.",
-        parameters = schema(),
-        risk = ToolRisk.READ_ONLY,
-    )
-
-    override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned = Planned(
-        "List the paired chats",
-    ) {
-        val lines = desk.paired().map { paired ->
-            val chat = paired.chat
-            val kind = if (chat.chat.startsWith("-")) "group" else "direct chat"
-            val here = if (chat.chat == turn.chat.chat) ", this chat" else ""
-            "- ${chat.chat}: ${desk.name(chat)} ($kind$here)"
-        }
-        if (lines.isEmpty()) "No chat is paired with this bot." else "The paired chats:\n" + lines.joinToString("\n")
-    }
-}
-
-@Singleton
-@Contribute(Tool::class)
-internal class SendTool(desks: TelegramDesks) : TelegramTool(desks) {
-    override val definition = ToolDefinition(
-        name = "telegram.send",
-        description = "Sends a Markdown message from the bot to another chat paired with it, by the chat's id " +
-            "(see telegram.chats). Your reply already reaches this chat: use it only to reach another one.",
-        parameters = schema(
-            listOf("chat", "text"),
-            "chat" to property("string", "The id of the chat, such as -1001234567890."),
-            "text" to property("string", "The message, in Markdown."),
-        ),
-        risk = ToolRisk.EXTERNAL_ACTION,
-        titleArguments = listOf("chat"),
-    )
-
-    override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
-        val chat = ChatAddress(desk.instance, arguments.required("chat"))
-        val text = arguments.required("text")
-        desk.target(chat)
-        val name = desk.name(chat)
-        return Planned("Send to $name:\n\n$text") {
-            when (val delivery = desk.send(chat, text)) {
-                is Delivery.Delivered -> "Sent to $name as message ${delivery.messages.first().id}."
-
-                is Delivery.NotDelivered -> {
-                    val why = listOfNotNull("${delivery.kind}", delivery.detail).joinToString(": ")
-                    throw ToolProblem("The message did not reach $name: $why.")
-                }
-            }
-        }
-    }
-}
-
-@Singleton
-@Contribute(Tool::class)
 internal class ReactTool(desks: TelegramDesks) : TelegramTool(desks) {
     override val definition = ToolDefinition(
         name = "telegram.react",

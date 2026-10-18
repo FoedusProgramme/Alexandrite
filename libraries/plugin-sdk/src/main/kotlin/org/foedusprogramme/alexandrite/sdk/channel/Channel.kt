@@ -26,6 +26,9 @@ public interface Channel {
     /** Sends [message] to [chat] outside any turn's reply. */
     public suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery
 
+    /** How people know [chat], such as a group's title, null where the channel knows no name for it. */
+    public suspend fun title(chat: ChatAddress): String? = null
+
     /**
      * Asks an approver about [request] and waits for the answer, within the channel's own limit.
      *

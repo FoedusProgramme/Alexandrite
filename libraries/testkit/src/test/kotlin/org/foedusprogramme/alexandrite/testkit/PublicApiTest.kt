@@ -134,7 +134,8 @@ class PublicApiTest {
                 recorded.ended, recorded.activity,
                 channel.instance, channel.events, channel.replies, channel.reply(TurnId("test-turn")), channel.sent,
                 channel.violations, channel.capabilities(channel.chat()),
-                channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), RecordingChannel.STOPPED,
+                channel.partsNeeded(channel.chat(), "x", Markup.PLAIN), channel.title(channel.chat()),
+                RecordingChannel.STOPPED,
             )
         }
 
