@@ -38,11 +38,13 @@ internal class ReadTaint(
         val conversation = turn.rootConversation
         return try {
             withContext(Dispatchers.IO) {
-                val own = listOfNotNull(
-                    workspaces.paths[agent],
-                    places.personaDirectory(agent),
-                    directories.path(agent, conversation),
-                ).mapNotNull { (floor.checkRead(it, agent, conversation) as? FloorCheck.Allowed)?.canonical }
+                val own = (
+                    listOfNotNull(
+                        workspaces.paths[agent],
+                        places.personaDirectory(agent),
+                        directories.path(agent, conversation),
+                    ) + places.skillDirectories(agent)
+                    ).mapNotNull { (floor.checkRead(it, agent, conversation) as? FloorCheck.Allowed)?.canonical }
                 touched.firstNotNullOfOrNull { place(it, agent, conversation, own) }?.let { "$tool reached $it" }
             }
         } catch (e: CancellationException) {

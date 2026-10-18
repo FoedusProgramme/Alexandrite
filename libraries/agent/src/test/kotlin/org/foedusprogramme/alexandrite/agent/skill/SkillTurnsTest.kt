@@ -198,6 +198,25 @@ class SkillTurnsTest {
     }
 
     @Test
+    fun `reading a host skill's files leaves the conversation clean, reading an untrusted folder taints it`() {
+        skill(config.resolve("skills"), "deploy", "Deploys the service.", "Read notes.md first.")
+        val notes = config.resolve("skills/deploy/notes.md")
+        notes.writeText("Deploy on weekdays.\n")
+        repository()
+        model.reply { toolCall("fs.read", """{"path": "$notes"}""") }.reply { text("Done.") }
+            .reply { toolCall("fs.read", """{"path": "$main"}""") }.reply { text("Done.") }
+
+        harness().execute {
+            assertIs<TurnOutcome.Completed>(ask())
+            val conversation = store.conversations.current(key).id
+            assertNull(store.conversations.taint(conversation))
+
+            assertIs<TurnOutcome.Completed>(ask())
+            assertContains(assertNotNull(store.conversations.taint(conversation)).reason, "not trusted")
+        }
+    }
+
+    @Test
     fun `a skill no one has is a problem that names the skills there are`() {
         skill(config.resolve("skills"), "deploy", "Deploys the service.", "Run the deploy script.")
         model.reply { toolCall("skill.load", """{"name": "release"}""") }.reply { text("Done.") }
