@@ -10,6 +10,12 @@ private const val NAME = "alexandrite"
 private const val TITLE = "Alexandrite"
 private const val CACHE = "cache"
 
+/** The data directory beside the config file in Application Support on macOS. */
+private const val DATA = "data"
+
+/** The data directory in `%LOCALAPPDATA%\Alexandrite` on Windows, kept out of the roaming profile. */
+private const val WINDOWS_DATA = "Data"
+
 private enum class Platform { MAC, WINDOWS, UNIX }
 
 /** Throws [IllegalArgumentException] for a variable that names no valid path. */
@@ -41,8 +47,8 @@ internal fun locations(options: Options, environment: Map<String, String>, osNam
                 Platform.UNIX -> home.resolve(".config").resolve(NAME).resolve(CONFIG_FILE)
             },
         dataDir = givenData ?: xdg("XDG_DATA_HOME") ?: when (platform) {
-            Platform.MAC -> support
-            Platform.WINDOWS -> roaming.resolve(TITLE)
+            Platform.MAC -> support.resolve(DATA)
+            Platform.WINDOWS -> local.resolve(TITLE).resolve(WINDOWS_DATA)
             Platform.UNIX -> home.resolve(".local").resolve("share").resolve(NAME)
         },
         cacheDir = options.cacheDir ?: own("ALEXANDRITE_CACHE_DIR") ?: givenData?.resolve(CACHE)

@@ -30,11 +30,15 @@ class LocationsTest {
     // Platform defaults.
 
     @Test
-    fun `macOS keeps config and data in Application Support and the cache in Caches`() {
+    fun `macOS keeps config and data in Application Support, the data in its own directory, and the cache in Caches`() {
         val support = home.resolve("Library").resolve("Application Support").resolve("Alexandrite")
 
         assertEquals(
-            listOf(support.resolve("alexandrite.json"), support, home.resolve("Library/Caches/Alexandrite")),
+            listOf(
+                support.resolve("alexandrite.json"),
+                support.resolve("data"),
+                home.resolve("Library/Caches/Alexandrite"),
+            ),
             at("Mac OS X"),
         )
     }
@@ -55,12 +59,16 @@ class LocationsTest {
     }
 
     @Test
-    fun `Windows uses APPDATA and LOCALAPPDATA`() {
+    fun `Windows keeps the config in APPDATA and the data and cache in LOCALAPPDATA`() {
         val environment = mapOf("APPDATA" to "C:\\Users\\me\\AppData\\Roaming", "LOCALAPPDATA" to "D:\\Local")
         val roaming = path("C:\\Users\\me\\AppData\\Roaming", "Alexandrite")
 
         assertEquals(
-            listOf(roaming.resolve("alexandrite.json"), roaming, path("D:\\Local", "Alexandrite", "Cache")),
+            listOf(
+                roaming.resolve("alexandrite.json"),
+                path("D:\\Local", "Alexandrite", "Data"),
+                path("D:\\Local", "Alexandrite", "Cache"),
+            ),
             at("Windows 11", environment),
         )
     }
@@ -72,7 +80,7 @@ class LocationsTest {
         assertEquals(
             listOf(
                 roaming.resolve("alexandrite.json"),
-                roaming,
+                home.resolve("AppData").resolve("Local").resolve("Alexandrite").resolve("Data"),
                 home.resolve("AppData").resolve("Local").resolve("Alexandrite").resolve("Cache"),
             ),
             at("Windows Server 2022", mapOf("APPDATA" to "")),
