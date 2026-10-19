@@ -95,6 +95,22 @@ class DoctorTest {
     }
 
     @Test
+    fun `an OpenRouter key is checked by the request only a valid key gets an answer to`() {
+        cli.config(
+            """{"providers": {"openrouter": {"endpoints": {"openrouter": {"apiKey": "sk-or-made-up"}}}}}""",
+        )
+        cli.machine.web["https://openrouter.ai/api/v1/models"] = Fetched(200, "{}")
+        cli.machine.web["https://openrouter.ai/api/v1/key"] = Fetched(401, "{}")
+
+        val printed = cli("doctor")
+
+        assertEquals(
+            "FAIL  endpoint openrouter: https://openrouter.ai/api/v1 refuses the key (HTTP 401).",
+            line(printed, "endpoint openrouter"),
+        )
+    }
+
+    @Test
     fun `variables that nothing sets are named, and the config's problems listed`() {
         cli.environment = mapOf("DEEPSEEK_KEY" to "sk-deepseek")
         val unset = cli("doctor")

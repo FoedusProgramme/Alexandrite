@@ -215,7 +215,7 @@ class InitTest {
         assertEquals(0, printed.code, printed.out + printed.err)
         assertContains(printed.out, "No ALEXANDRITE_TELEGRAM_TOKEN is set, so Telegram is left out.")
         assertContains(printed.out, "No Telegram bot is set up, so there is no admin to claim.")
-        assertContains(printed.out, "Skipped telegram: set it up later with alexandrite init --only telegram")
+        assertContains(printed.out, "Skipped Telegram: set it up later with alexandrite init --only telegram")
         assertEquals("\"deepseek/deepseek-chat\"", "${file().at("agent.agents.main.model")}")
         assertEquals("""{"language":"de-DE","zone":"Europe/Berlin"}""", "${file().at("app")}")
         assertEquals("DEEPSEEK_API_KEY=sk-env\n", Files.readString(cli.secrets))
@@ -239,6 +239,43 @@ class InitTest {
         assertContains(refused.err, "refuses the key (HTTP 401).")
         assertFalse(Files.exists(cli.configFile))
         assertFalse(Files.exists(cli.secrets))
+    }
+
+    @Test
+    fun `an OpenRouter key is checked by a request only a valid key gets an answer to`() {
+        models.enqueue(FakeResponse.builder(401).body("{}").build(), "/key")
+        models.enqueue(FakeResponse.builder().body("""{"data": {"label": "test"}}""").build(), "/key")
+        cli.environment = mapOf(API_KEY_VARIABLE to "sk-made-up")
+        val scripted = cli("init", "--non-interactive", "--provider", "openrouter", "--base-url", models.baseUrl)
+        cli.environment = emptyMap()
+        cli.machine.answers += listOf("", "sk-or-real", "1")
+
+        val asked = cli("init", "--only", "model", "--provider", "openrouter", "--base-url", models.baseUrl)
+
+        assertEquals(1, scripted.code)
+        assertContains(scripted.err, "${models.baseUrl} refuses the key (HTTP 401).")
+        assertEquals(0, asked.code, asked.out + asked.err)
+        assertContains(asked.out, "${models.baseUrl} takes the key and lists 2 models.")
+        assertEquals(
+            listOf("/key" to "Bearer sk-made-up", "/key" to "Bearer sk-or-real", "/models" to "Bearer sk-or-real"),
+            models.requests.map { it.path to it.header("authorization") },
+        )
+        assertEquals("OPENROUTER_API_KEY=sk-or-real\n", Files.readString(cli.secrets))
+    }
+
+    @Test
+    fun `a key that cannot be checked is kept when the person says so, and the model is typed`() {
+        models.enqueue(FakeResponse.builder(503).body("{}").build(), "/key")
+        cli.machine.answers += listOf("", "sk-or-unchecked", "y", "vendor/model-a")
+
+        val printed = cli("init", "--only", "model", "--provider", "openrouter", "--base-url", models.baseUrl)
+
+        assertEquals(0, printed.code, printed.out + printed.err)
+        assertContains(printed.err, "${models.baseUrl} answers the key check with HTTP 503.")
+        assertContains(cli.machine.prompts, "The key could not be checked. Keep it anyway? [Y/n] ")
+        assertContains(cli.machine.prompts, "Model name (the endpoint gave no list): ")
+        assertEquals("\"openrouter/vendor/model-a\"", "${file().at("agent.agents.main.model")}")
+        assertEquals("OPENROUTER_API_KEY=sk-or-unchecked\n", Files.readString(cli.secrets))
     }
 
     @Test
@@ -311,12 +348,15 @@ class InitTest {
         cli.environment = mapOf("LANG" to "zh_CN.UTF-8")
 
         val printed = cli("init", "--non-interactive", "--only", "language", "--zone", "Asia/Shanghai")
+        val skipped = cli("init", "--non-interactive", "--force", "--only", "admin", "--only", "telegram")
         val status = cli("status")
         val usage = cli("init", "--only", "nothing")
 
         assertEquals(0, printed.code, printed.err)
         assertContains(printed.out, "正在设置 Alexandrite")
         assertContains(printed.out, "智能体用 zh-CN 回答，并按 Asia/Shanghai 报时。")
+        assertContains(skipped.out, "已跳过 Telegram：之后可以用 alexandrite init --only telegram 设置")
+        assertContains(skipped.out, "已跳过管理员：之后可以用 alexandrite init --only admin 认领机器人的管理员。")
         assertContains(status.out, "Alexandrite 没有在运行。")
         assertContains(usage.err, "'nothing' 不是 init 的步骤")
         assertContains(usage.err, "用法：alexandrite init")

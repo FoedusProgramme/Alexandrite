@@ -254,7 +254,7 @@ private fun disk(cli: Cli): Finding {
     }
 }
 
-/** One models request to each configured endpoint, which checks that it answers and takes its key. */
+/** One request to each configured endpoint that checks that it answers and takes its key. */
 private fun endpoints(cli: Cli, raw: JsonObject, environment: Map<String, String>): List<Finding> =
     raw.objectAt("providers").flatMap { (name, value) ->
         val provider = providerKind(name) ?: return@flatMap emptyList()
@@ -271,7 +271,8 @@ private fun endpoints(cli: Cli, raw: JsonObject, environment: Map<String, String
                 putAll(keyHeaders(provider, key))
             }
             val secrets = listOfNotNull(key) + headers.values
-            reached(cli, check, "${base.trimEnd('/')}${provider.modelsPath}", headers, secrets, base)
+            val path = provider.keyPath?.takeIf { key != null } ?: provider.modelsPath
+            reached(cli, check, "${base.trimEnd('/')}$path", headers, secrets, base)
         }
     }
 

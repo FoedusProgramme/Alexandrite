@@ -48,7 +48,6 @@ When no config file exists yet, it then runs 'alexandrite init' in this console.
 ALEXANDRITE_INSTALL_DIR changes the directory.
 ALEXANDRITE_INSTALL_BASE and ALEXANDRITE_ADOPTIUM_BASE replace the download sites (file:// URLs are for testing).
 '@
-    tagline = 'Distributed Model Harness.'
     stage_environment = 'Environment'
     stage_java = 'Java'
     stage_download = 'Download and verify'
@@ -71,6 +70,8 @@ ALEXANDRITE_INSTALL_BASE and ALEXANDRITE_ADOPTIUM_BASE replace the download site
     refused_url = 'Refusing to download {0}: only https:// and file:// URLs are used.'
     checksum_mismatch = 'The checksum of {0} does not match ({1}, expected {2}); nothing was changed.'
     checksum_ok = 'The checksum of {0} matches.'
+    jre_checksum_mismatch = 'The checksum of the Java runtime does not match ({0}, expected {1}); nothing was changed.'
+    jre_checksum_ok = 'The checksum of the Java runtime matches.'
     java_found = 'Java {0}: {1}'
     no_jre = 'Adoptium names no Java {0} runtime for Windows x64.'
     jre_needed = 'No Java {0}+ found; downloading a Java runtime from Adoptium into {1}.'
@@ -144,7 +145,6 @@ $TextsZh = @{
 ALEXANDRITE_INSTALL_DIR 可改变安装目录。
 ALEXANDRITE_INSTALL_BASE 和 ALEXANDRITE_ADOPTIUM_BASE 可替换下载地址（file:// 地址用于测试）。
 '@
-    tagline = '分布式模型运行框架。'
     stage_environment = '环境'
     stage_download = '下载并校验'
     stage_install = '安装'
@@ -166,6 +166,8 @@ ALEXANDRITE_INSTALL_BASE 和 ALEXANDRITE_ADOPTIUM_BASE 可替换下载地址（f
     refused_url = '拒绝下载 {0}：只使用 https:// 和 file:// 地址。'
     checksum_mismatch = '{0} 的校验和不符（{1}，应为 {2}）；未做任何更改。'
     checksum_ok = '{0} 的校验和相符。'
+    jre_checksum_mismatch = 'Java 运行时的校验和不符（{0}，应为 {1}）；未做任何更改。'
+    jre_checksum_ok = 'Java 运行时的校验和相符。'
     java_found = 'Java {0}：{1}'
     no_jre = 'Adoptium 没有提供适用于 Windows x64 的 Java {0} 运行时。'
     jre_needed = '未找到 Java {0}+；从 Adoptium 下载 Java 运行时到 {1}。'
@@ -228,7 +230,7 @@ function Msg([string]$Key) {
     if ($args.Count -gt 0) { $format -f $args } else { $format }
 }
 
-# Banner, stages, glyphs and the status line only on a console; colours also need NO_COLOR unset.
+# Stages, glyphs and the status line only on a console; colours also need NO_COLOR unset.
 $Fancy = -not [Console]::IsOutputRedirected -and $env:TERM -ne 'dumb'
 $FancyErr = -not [Console]::IsErrorRedirected -and $env:TERM -ne 'dumb'
 $Colors = -not $env:NO_COLOR
@@ -299,23 +301,6 @@ function Get-Columns([string]$Text) {
 
 function Get-Padded([string]$Text, [int]$Width) {
     $Text + (' ' * [Math]::Max(1, $Width - (Get-Columns $Text)))
-}
-
-function Show-Banner {
-    if (-not $Fancy) { return }
-    $rule = [string][char]0x2500 * 30
-    $bar = [string][char]0x2502
-    Write-Painted "$([char]0x250C)$rule$([char]0x2510)" 'DarkGray'
-    Write-Painted $bar 'DarkGray' -NoNewline
-    Write-Host '  ' -NoNewline
-    Write-Painted ([string][char]0x25C6) 'Cyan' -NoNewline
-    Write-Host ' Alexandrite               ' -NoNewline
-    Write-Painted $bar 'DarkGray'
-    Write-Painted "$([char]0x251C)$rule$([char]0x2524)" 'DarkGray'
-    Write-Painted $bar 'DarkGray' -NoNewline
-    Write-Host ('  ' + (Get-Padded (Msg 'tagline') 28)) -NoNewline
-    Write-Painted $bar 'DarkGray'
-    Write-Painted "$([char]0x2514)$rule$([char]0x2518)" 'DarkGray'
 }
 
 function Show-Stage([int]$Number, [string]$Key) {
@@ -392,13 +377,15 @@ function Get-RedirectTarget([string]$Url) {
     try { $response.Headers['Location'] } finally { $response.Close() }
 }
 
+# Checks $File against $Expected, naming it $Label, or the Java runtime when $Label is empty.
 function Assert-Checksum([string]$File, [string]$Expected, [string]$Label) {
     $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLowerInvariant()
     $expected = $Expected.Trim().ToLowerInvariant()
     if (-not $expected -or $actual -ne $expected) {
-        Fail 'checksum_mismatch' $Label $actual $expected
+        if ($Label) { Fail 'checksum_mismatch' $Label $actual $expected }
+        Fail 'jre_checksum_mismatch' $actual $expected
     }
-    Tick 'checksum_ok' $Label
+    if ($Label) { Tick 'checksum_ok' $Label } else { Tick 'jre_checksum_ok' }
 }
 
 # Whether version $A sorts before $B, a pre-release (`1.0.0-rc1`) before its release.
@@ -490,7 +477,7 @@ function Initialize-Java {
     } catch {
         Fail 'cannot_download' $package
     }
-    Assert-Checksum $zip ((Get-Content -LiteralPath (Join-Path $Tmp 'jre.sha256') -Raw).Trim().Split(' ')[0]) (Msg 'the_jre')
+    Assert-Checksum $zip ((Get-Content -LiteralPath (Join-Path $Tmp 'jre.sha256') -Raw).Trim().Split(' ')[0]) ''
     $unpacked = Join-Path $Tmp 'jre'
     try {
         Invoke-Step (Msg 'jre_unpacking') (Msg 'jre_unpacked') { Expand-Archive -LiteralPath $zip -DestinationPath $unpacked }
@@ -825,7 +812,6 @@ function Invoke-Install {
     $script:Pinned = [bool]$script:Version
     $script:OnPath = $true
     $script:JavaUsed = ''
-    Show-Banner
     Show-Stage 1 'stage_environment'
     New-Item -ItemType Directory -Force -Path (Join-Path $Root 'versions') | Out-Null
     $lock = Join-Path $Root '.lock'

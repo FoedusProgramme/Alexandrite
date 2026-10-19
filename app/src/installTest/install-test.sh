@@ -270,6 +270,13 @@ case_refuses_a_runtime_with_a_wrong_checksum() {
     expect_contains "$(cat "$LOG")" "checksum of the Java runtime does not match" "the refusal"
     [ ! -e "$ROOT/jre" ] || fail "the runtime was installed"
     expect_eq "$(current)" "" "current"
+
+    fresh jre-checksum-chinese
+    LANG=zh_CN.UTF-8
+    serve_jre 0000000000000000000000000000000000000000000000000000000000000000
+    publish 1.0.0 ok
+    refuses --no-init --download-jre
+    expect_contains "$(cat "$LOG")" "Java 运行时的校验和不符" "the Chinese refusal"
 }
 
 case_upgrades_keeps_two_and_rolls_back() {
@@ -385,11 +392,11 @@ case_draws_on_a_terminal() {
     fresh terminal
     publish 1.0.0 ok
     installs_on_terminal --no-init
-    for drawn in "┌──" "◆ Alexandrite" "Distributed Model Harness." "[1/4] Environment" "[3/4] Download and verify" \
-        "[4/4] Install" "✓ Detected:" "Install directory:" "✓ Downloaded alexandrite-1.0.0.tar.gz" \
-        "✓ Alexandrite 1.0.0 is installed." "Then run: alexandrite"; do
+    for drawn in "[1/4] Environment" "[3/4] Download and verify" "[4/4] Install" "✓ Detected:" "Install directory:" \
+        "✓ Downloaded alexandrite-1.0.0.tar.gz" "✓ Alexandrite 1.0.0 is installed." "Then run: alexandrite"; do
         expect_contains "$(drawn)" "$drawn" "the terminal output"
     done
+    for banner in "┌" "◆" "Distributed Model Harness."; do expect_lacks "$(drawn)" "$banner" "the terminal output"; done
     expect_contains "$(cat "$LOG")" "$(printf '\033[32m')" "the colours"
 
     fresh terminal-no-color
@@ -406,10 +413,11 @@ case_speaks_chinese_on_a_terminal() {
     LANG=zh_CN.UTF-8
     publish 1.0.0 ok
     installs_on_terminal --no-init
-    for drawn in "分布式模型运行框架。" "[1/4] 环境" "[3/4] 下载并校验" "[4/4] 安装" "已检测：" "安装目录：" "然后运行：alexandrite"; do
+    for drawn in "[1/4] 环境" "[3/4] 下载并校验" "[4/4] 安装" "已检测：" "安装目录：" "alexandrite-1.0.0.tar.gz 的校验和相符" \
+        "然后运行：alexandrite"; do
         expect_contains "$(drawn)" "$drawn" "the Chinese terminal output"
     done
-    for english in Environment Download Detected Install Version Command Location Run Added Harness; do
+    for english in Environment Download Detected Install Version Command Location Run Added checksum; do
         expect_lacks "$(cat "$LOG")" "$english" "the Chinese terminal output"
     done
 }

@@ -40,7 +40,6 @@ When no config file exists yet, it then runs 'alexandrite init' on the terminal.
 ALEXANDRITE_INSTALL_DIR and ALEXANDRITE_BIN_DIR change the two directories.
 ALEXANDRITE_INSTALL_BASE and ALEXANDRITE_ADOPTIUM_BASE replace the download sites (file:// URLs are for testing).
 ALEXANDRITE_INSTALL_TTY replaces the terminal device init reads from (for testing)." ;;
-        tagline) T="Distributed Model Harness." ;;
         stage_environment) T="Environment" ;;
         stage_java) T="Java" ;;
         stage_download) T="Download and verify" ;;
@@ -67,13 +66,14 @@ ALEXANDRITE_INSTALL_TTY replaces the terminal device init reads from (for testin
         no_sha_tool) T="No SHA-256 tool (sha256sum, shasum or openssl) is installed." ;;
         checksum_mismatch) T="The checksum of %s does not match (%s, expected %s); nothing was changed." ;;
         checksum_ok) T="The checksum of %s matches." ;;
+        jre_checksum_mismatch) T="The checksum of the Java runtime does not match (%s, expected %s); nothing was changed." ;;
+        jre_checksum_ok) T="The checksum of the Java runtime matches." ;;
         on_windows) T="On Windows, run install.ps1 in PowerShell." ;;
         unsupported_os) T="Alexandrite installs on Linux and macOS only, not on %s." ;;
         unsupported_arch) T="Alexandrite installs on x64 and arm64 only, not on %s." ;;
         java_found) T="Java %s: %s" ;;
         no_jre) T="Adoptium names no Java %s runtime for %s %s." ;;
         jre_needed) T="No Java %s+ found; downloading a Java runtime from Adoptium into %s." ;;
-        the_jre) T="the Java runtime" ;;
         jre_downloading) T="Downloading the Java runtime" ;;
         jre_downloaded) T="Downloaded the Java runtime" ;;
         jre_unpacking) T="Unpacking the Java runtime" ;;
@@ -154,7 +154,6 @@ texts_zh() {
 ALEXANDRITE_INSTALL_DIR 和 ALEXANDRITE_BIN_DIR 可改变这两个目录。
 ALEXANDRITE_INSTALL_BASE 和 ALEXANDRITE_ADOPTIUM_BASE 可替换下载地址（file:// 地址用于测试）。
 ALEXANDRITE_INSTALL_TTY 可替换 init 读取的终端设备（用于测试）。" ;;
-        tagline) T="分布式模型运行框架。" ;;
         stage_environment) T="环境" ;;
         stage_download) T="下载并校验" ;;
         stage_install) T="安装" ;;
@@ -180,13 +179,14 @@ ALEXANDRITE_INSTALL_TTY 可替换 init 读取的终端设备（用于测试）�
         no_sha_tool) T="没有安装 SHA-256 工具（sha256sum、shasum 或 openssl）。" ;;
         checksum_mismatch) T="%s 的校验和不符（%s，应为 %s）；未做任何更改。" ;;
         checksum_ok) T="%s 的校验和相符。" ;;
+        jre_checksum_mismatch) T="Java 运行时的校验和不符（%s，应为 %s）；未做任何更改。" ;;
+        jre_checksum_ok) T="Java 运行时的校验和相符。" ;;
         on_windows) T="在 Windows 上请在 PowerShell 中运行 install.ps1。" ;;
         unsupported_os) T="Alexandrite 只能安装在 Linux 和 macOS 上，不支持 %s。" ;;
         unsupported_arch) T="Alexandrite 只能安装在 x64 和 arm64 上，不支持 %s。" ;;
         java_found) T="Java %s：%s" ;;
         no_jre) T="Adoptium 没有提供 Java %s 运行时（%s %s）。" ;;
         jre_needed) T="未找到 Java %s+；从 Adoptium 下载 Java 运行时到 %s。" ;;
-        the_jre) T="Java 运行时" ;;
         jre_downloading) T="正在下载 Java 运行时" ;;
         jre_downloaded) T="已下载 Java 运行时" ;;
         jre_unpacking) T="正在解压 Java 运行时" ;;
@@ -263,7 +263,7 @@ text() {
     printf "$T" "$@"
 }
 
-# Banner, stages, glyphs and the status line only on a terminal; colours also need NO_COLOR unset.
+# Stages, glyphs and the status line only on a terminal; colours also need NO_COLOR unset.
 FANCY=0
 FANCY_ERR=0
 if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then FANCY=1; fi
@@ -335,18 +335,6 @@ padded() {
     pad=$(($2 - $(columns "$1")))
     if [ "$pad" -lt 1 ]; then pad=1; fi
     printf "%s%-${pad}s" "$1" ''
-}
-
-banner() {
-    [ "$FANCY" = 1 ] || return 0
-    rule='──────────────────────────────'
-    tagline=$(text tagline)
-    printf '%s┌%s┐%s\n' "$DIM" "$rule" "$RESET"
-    printf '%s│%s  %s◆%s %sAlexandrite%s               %s│%s\n' "$DIM" "$RESET" "$CYAN" "$RESET" "$BOLD" "$RESET" \
-        "$DIM" "$RESET"
-    printf '%s├%s┤%s\n' "$DIM" "$rule" "$RESET"
-    printf '%s│%s  %s%s│%s\n' "$DIM" "$RESET" "$(padded "$tagline" 28)" "$DIM" "$RESET"
-    printf '%s└%s┘%s\n' "$DIM" "$rule" "$RESET"
 }
 
 stage() {
@@ -459,14 +447,15 @@ sha256() {
     fi
 }
 
-# Checks the file $1 against the hash $2, naming it $3.
+# Checks the file $1 against the hash $2, naming it $3, or the Java runtime when $3 is empty.
 verify() {
     actual=$(sha256 "$1") || die no_sha_tool
     expected=$(printf '%s' "$2" | tr 'A-F' 'a-f')
     if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
-        die checksum_mismatch "$3" "$actual" "$expected"
+        if [ -n "$3" ]; then die checksum_mismatch "$3" "$actual" "$expected"; fi
+        die jre_checksum_mismatch "$actual" "$expected"
     fi
-    tick checksum_ok "$3"
+    if [ -n "$3" ]; then tick checksum_ok "$3"; else tick jre_checksum_ok; fi
 }
 
 # Whether version $1 sorts before $2, a pre-release (`1.0.0-rc1`) before its release.
@@ -577,7 +566,7 @@ download_jre() {
     [ -n "$package" ] || die no_jre "$JAVA_MAJOR" "$OS" "$ARCH"
     info jre_needed "$JAVA_MAJOR" "$ROOT/jre"
     step "$(text jre_downloading)" "$(text jre_downloaded)" fetch_jre "$package" || die cannot_download "$package"
-    verify "$TMP/jre.tar.gz" "$(cut -d ' ' -f 1 <"$TMP/jre.sha256")" "$(text the_jre)"
+    verify "$TMP/jre.tar.gz" "$(cut -d ' ' -f 1 <"$TMP/jre.sha256")" ""
     mkdir "$TMP/jre"
     step "$(text jre_unpacking)" "$(text jre_unpacked)" tar -xzf "$TMP/jre.tar.gz" -C "$TMP/jre" ||
         die cannot_unpack_jre
@@ -945,7 +934,6 @@ main() {
         /*) ;;
         *) die relative_root ;;
     esac
-    banner
     stage 1 stage_environment
     detect_platform
     mkdir -p "$ROOT/versions"

@@ -63,7 +63,7 @@ internal fun wrap(text: String, width: Int): List<String> {
     return text.split('\n').flatMap { paragraph ->
         val lines = mutableListOf<String>()
         var line = StringBuilder()
-        for (word in words(paragraph)) {
+        for (word in joined(words(paragraph))) {
             val joined = if (line.isEmpty()) word.text else (if (word.spaced) " " else "") + word.text
             if (columns("$line$joined") <= limit) {
                 line.append(joined)
@@ -115,6 +115,24 @@ private fun words(paragraph: String): List<Word> {
     }
     flush()
     return words
+}
+
+/** Punctuation that a line neither starts with nor ends with. */
+private const val CLOSING = "。，、；：！？）」』】》〉”’…"
+private const val OPENING = "（「『【《〈“‘"
+
+/** [words] with closing punctuation joined to the word before it, and opening punctuation to the word after it. */
+private fun joined(words: List<Word>): List<Word> {
+    val kept = mutableListOf<Word>()
+    for (word in words) {
+        val last = kept.lastOrNull()
+        if (last != null && !word.spaced && (word.text.first() in CLOSING || last.text.last() in OPENING)) {
+            kept[kept.size - 1] = Word(last.text + word.text, last.spaced)
+        } else {
+            kept += word
+        }
+    }
+    return kept
 }
 
 /** [word] cut into pieces of at most [width] columns. */

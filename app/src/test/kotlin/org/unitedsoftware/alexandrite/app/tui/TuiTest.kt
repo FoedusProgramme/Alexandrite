@@ -105,6 +105,82 @@ class TuiTest {
         )
     }
 
+    @Test
+    fun `prompts after a long pick redraw only their own lines once the output scrolls`() {
+        val models = (1..300).map { "vendor-$it/model-$it" }
+        val keys = typed("model-1") + Key.Down + Key.Space + Key.Down + Key.Space + Key.Enter +
+            listOf(Key.Right, Key.Enter, Key.Enter) + Key.Enter
+        val console = ScriptedConsole(keys, width = 96, height = 44)
+        val tui = tui(console)
+        tui.intro("Alexandrite setup")
+        repeat(14) { tui.message("Line $it of what came before.") }
+
+        val picked = tui.pick("Models", models)
+        tui.message("The agent uses ${picked.orEmpty().joinToString()}.", Mark.OK)
+        val telegram = tui.confirm("Connect a Telegram bot now?", default = true)
+        val language = tui.confirm("Set the language and time zone now?", default = true)
+        val zone = tui.text("Time zone", "Europe/Berlin")
+
+        assertEquals(listOf("vendor-10/model-10", "vendor-11/model-11"), picked)
+        assertEquals(false, telegram)
+        assertEquals(true, language)
+        assertEquals("Europe/Berlin", zone)
+        assertEquals(
+            listOf(
+                "◇  Models",
+                "│  vendor-10/model-10, vendor-11/model-11",
+                "│",
+                "✓  The agent uses vendor-10/model-10, vendor-11/model-11.",
+                "│",
+                "◇  Connect a Telegram bot now?",
+                "│  No",
+                "│",
+                "◇  Set the language and time zone now?",
+                "│  Yes",
+                "│",
+                "◇  Time zone",
+                "│  Europe/Berlin",
+            ),
+            console.screen.lines().drop(17),
+        )
+    }
+
+    @Test
+    fun `a prompt taller than the screen is cut to fit it and leaves no copies behind`() {
+        val keys = List(5) { Key.Down } + Key.Space + Key.Down + Key.Space + Key.Enter
+        val console = ScriptedConsole(keys, height = 6)
+        val tui = tui(console)
+        tui.intro("Alexandrite setup")
+        tui.message("The endpoint lists 40 models.", Mark.OK)
+
+        val picked = tui.pick("Models", (1..40).map { "model-$it" })
+
+        assertEquals(listOf("model-6", "model-7"), picked)
+        assertTrue(console.frames.all { it.size <= 4 + 6 }, "${console.frames.last()}")
+        assertEquals(
+            listOf(
+                "◆  Models",
+                "│  › ◼ model-7 2",
+                "│    ◻ model-8",
+                "│    ↑ 5  ↓ 32",
+                "│  Picked: model-6, model-7",
+                "└  ↑/↓ to move, Space to pick, type to filter, Enter to confirm",
+            ),
+            console.frames.last().takeLast(6),
+        )
+        assertEquals(
+            listOf(
+                "┌  Alexandrite setup",
+                "│",
+                "✓  The endpoint lists 40 models.",
+                "│",
+                "◇  Models",
+                "│  model-6, model-7",
+            ),
+            console.screen.lines(),
+        )
+    }
+
     // Text.
 
     @Test
@@ -256,6 +332,8 @@ class TuiTest {
         assertEquals("abc", fit("abc", 3))
         assertEquals(listOf("一二", "三四", "五六"), wrap("一二三四五六", 4))
         assertEquals(listOf("a long", "word", "abcdefgh", "ij"), wrap("a long word abcdefghij", 8))
+        assertEquals(listOf("一", "二。", "三"), wrap("一二。三", 4))
+        assertEquals(listOf("ab", "（一）"), wrap("ab（一）", 6))
     }
 
     // Keys.

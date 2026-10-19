@@ -47,10 +47,46 @@ class CliTextsTest {
         for (command in COMMANDS) assertTrue(command.textKey in english, command.textKey)
         for (area in COMMANDS.map { it.area }) assertTrue(area in english, area)
         for (step in InitStep.entries) {
-            for (prefix in listOf("init.step.", "init.ask.", "init.redo.")) {
+            for (prefix in listOf("init.step.", "init.ask.", "init.redo.", "init.name.")) {
                 assertTrue("$prefix${step.id}" in english, prefix + step.id)
             }
         }
+        for (kind in PROVIDER_KINDS) assertTrue("provider.${kind.id}" in english, kind.id)
+    }
+
+    @Test
+    fun `Chinese joins a Chinese value to the Chinese beside it without a space, and keeps it before other text`() {
+        val chinese = CliTexts.CHINESE
+        val how = Text("init.redo.model")
+
+        assertEquals(
+            "已跳过模型：之后可以用 alexandrite init --only model 设置。",
+            chinese("init.redo", "step" to Text("init.name.model"), "how" to how),
+        )
+        assertEquals(
+            "已跳过 Telegram：之后可以用 alexandrite init --only model 设置。",
+            chinese(
+                "init.redo",
+                "step" to Text("init.name.telegram"),
+                "how" to how,
+            ),
+        )
+        assertEquals(
+            "OpenAI 兼容接口的 API 密钥",
+            chinese(
+                "init.model.key_title",
+                "provider" to Text("provider.openai-compatible"),
+            ),
+        )
+        assertEquals("DeepSeek 的 API 密钥", chinese("init.model.key_title", "provider" to "DeepSeek"))
+        assertEquals(
+            "Skipped the model: set it up later with alexandrite init --only model.",
+            CliTexts.ENGLISH(
+                "init.redo",
+                "step" to Text("init.name.model"),
+                "how" to how,
+            ),
+        )
     }
 
     @Test

@@ -34,6 +34,8 @@ internal interface Words {
     val confirmHint: String
     val inputHint: String
     val pickHint: String
+
+    /** The label before the filter, with its colon. */
     val filter: String
     val filterPlaceholder: String
     val noMatch: String
@@ -218,7 +220,8 @@ internal class Tui(private val console: Console, private val style: Style, priva
         gap(Last.BLOCK)
         console.write(HIDE_CURSOR)
         var height = 0
-        fun draw(lines: List<String>) {
+        fun draw(frame: List<String>, cut: Boolean = true) {
+            val lines = if (cut) onScreen(frame) else frame
             val out = StringBuilder()
             if (height > 0) {
                 out.append('\r')
@@ -258,11 +261,13 @@ internal class Tui(private val console: Console, private val style: Style, priva
                     draw(
                         railed(style.red(Glyph.CANCELLED), prompt.title) +
                             "$bar  ${style.struck(style.dim(words.cancelled))}",
+                        cut = false,
                     )
                 } else {
                     draw(
                         railed(style.green(Glyph.ANSWERED), prompt.title) +
                             wrap(prompt.answer(result), width - INDENT).map { "$bar  ${style.dim(it)}" },
+                        cut = false,
                     )
                 }
                 console.write(NEWLINE)
@@ -358,9 +363,9 @@ internal class Tui(private val console: Console, private val style: Style, priva
         override fun body(): List<String> {
             val shown = shown
             val filterLine = if (filter.isEmpty()) {
-                "${style.dim("${words.filter}:")} ${style.cursor}${style.dim(words.filterPlaceholder)}"
+                "${style.dim(words.filter)}${style.cursor}${style.dim(words.filterPlaceholder)}"
             } else {
-                "${style.dim("${words.filter}:")} $filter${style.cursor}"
+                "${style.dim(words.filter)}$filter${style.cursor}"
             }
             val rows = if (shown.isEmpty()) {
                 listOf(style.yellow(words.noMatch))
@@ -464,6 +469,16 @@ internal class Tui(private val console: Console, private val style: Style, priva
         }
 
         override fun answer(value: String): String = if (secret) Glyph.MASK.repeat(minOf(value.length, 24)) else value
+    }
+
+    /**
+     * [frame] cut to the rows of the screen, its title and its end kept, so that redrawing it never moves the cursor
+     * above the top of the screen.
+     */
+    private fun onScreen(frame: List<String>): List<String> {
+        val rows = console.height.coerceAtLeast(2)
+        if (frame.size <= rows) return frame
+        return listOf(frame.first()) + frame.takeLast(rows - 1)
     }
 
     /** The rows of a list of [size] that show, so that [cursor] is among them. */

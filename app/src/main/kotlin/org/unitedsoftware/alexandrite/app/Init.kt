@@ -111,7 +111,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             if (code != ExitCode.OK) return code
         }
         for (step in skipped) {
-            ui.warn(cli.t("init.redo", "step" to step.id, "how" to Text("init.redo.${step.id}")))
+            ui.warn(cli.t("init.redo", "step" to Text("init.name.${step.id}"), "how" to Text("init.redo.${step.id}")))
         }
         summary["init.summary.next"] = if ("init.summary.service" in summary) {
             "alexandrite status · alexandrite logs -f · alexandrite doctor"
@@ -165,17 +165,26 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         val base = baseUrl(kind) ?: return ExitCode.FAILURE
         val variable = if (endpoint == kind.endpoint) kind.keyVariable else keyVariable(endpoint)
         var key: String? = null
-        var listing: Listing? = null
+        var listed: List<String>? = null
         for (attempt in 1..ATTEMPTS) {
             key = key(kind, variable) ?: return ExitCode.FAILURE
             val given = key.ifEmpty { null }
-            listing = ui.busy({ cli.t("init.model.checking", "base" to base) }) { listModels(cli, kind, base, given) }
-            if (listing is Listing.Models) break
-            cli.fail(cli.texts((listing as Listing.Refused).reason))
+            val listing =
+                ui.busy({ cli.t("init.model.checking", "base" to base) }) { listModels(cli, kind, base, given) }
+            if (listing is Listing.Models) {
+                listed = listing.ids
+                val text = if (given == null) "init.model.listed_keyless" else "init.model.listed"
+                ui.good(cli.t(text, "base" to base, "count" to listing.ids.size))
+                break
+            }
+            if (listing is Listing.Unchecked) {
+                cli.fail(cli.texts(listing.reason))
+                if (interactive && cli.confirm(cli.t("init.model.keep_key"), default = true)) break
+            } else {
+                cli.fail(cli.texts((listing as Listing.Refused).reason))
+            }
             if (!interactive || attempt == ATTEMPTS) return ExitCode.FAILURE
         }
-        val listed = (listing as Listing.Models).ids
-        ui.good(cli.t("init.model.listed", "base" to base, "count" to listed.size))
         val models = chooseModels(listed) ?: return ExitCode.FAILURE
         val root = "providers.${kind.id}.endpoints.$endpoint"
         if (key.isNullOrEmpty()) {
@@ -195,7 +204,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         val named = models.map { "$endpoint/$it" }
         changes += defaultModels(agent, agentConfig, named)
         ui.good(cli.t("init.model.chosen", "agent" to agent, "models" to named.joinToString()))
-        summary["init.summary.provider"] = "${kind.title} · $base"
+        summary["init.summary.provider"] = "${title(kind)} · $base"
         summary["init.summary.models"] = cli.t("init.summary.models_value", "models" to named.joinToString())
         val instance = config.at("$TELEGRAM_INSTANCES.$INSTANCE") as? JsonObject
         val served = agents(config).any { it.channels["telegram:$INSTANCE"] != null }
@@ -214,9 +223,11 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         get() = agentConfig?.let { AgentEntry(agent, it).models }.orEmpty().isNotEmpty() ||
             changes.any { it.path == "$AGENTS.$agent.model" || it.path == "$AGENTS.$agent.models" }
 
+    private fun title(kind: ProviderKind): String = cli.t("provider.${kind.id}")
+
     private fun chooseProvider(): ProviderKind? = ui.choose(
         prompt("init.model.provider", "init.model.provider_title"),
-        PROVIDER_KINDS.map { Choice(it.title, it, key = it.id) },
+        PROVIDER_KINDS.map { Choice(title(it), it, key = it.id) },
     ) { cli.t("init.model.no_such_provider", "answer" to it) }
 
     /** The endpoint's address, asked for when the provider has none or lets it be moved; null after printing why. */
@@ -252,9 +263,9 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             return environment.orEmpty()
         }
         val prompt = if (kind.keyRequired) {
-            prompt("init.model.key", "init.model.key_title", "provider" to kind.title)
+            prompt("init.model.key", "init.model.key_title", "provider" to title(kind))
         } else {
-            prompt("init.model.key_optional", "init.model.key_optional_title", "provider" to kind.title)
+            prompt("init.model.key_optional", "init.model.key_optional_title", "provider" to title(kind))
         }
         repeat(ATTEMPTS) {
             val typed = ui.secret(prompt)?.trim() ?: return null.also { cli.fail(cli.t("init.no_answer")) }
@@ -266,22 +277,32 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         return null
     }
 
-    /** The models the person picks from [listed], or that the options name; null after printing why there are none. */
-    private fun chooseModels(listed: List<String>): List<String>? {
+    /**
+     * The models the person picks from [listed] (null when the endpoint gave none), or that the options name; null
+     * after printing why there are none.
+     */
+    private fun chooseModels(listed: List<String>?): List<String>? {
         if (options.models.isNotEmpty()) {
-            val unknown = options.models.filter { listed.isNotEmpty() && it !in listed }
+            val unknown = options.models.filter { !listed.isNullOrEmpty() && it !in listed }
             if (unknown.isEmpty()) return options.models.distinct()
-            cli.fail(cli.t("init.model.not_listed", "models" to unknown.joinToString(), "listed" to sample(listed)))
+            cli.fail(
+                cli.t(
+                    "init.model.not_listed",
+                    "models" to unknown.joinToString(),
+                    "listed" to sample(listed.orEmpty()),
+                ),
+            )
             return null
         }
         if (!interactive) {
-            cli.fail(cli.t("init.model.name_model", "listed" to sample(listed)))
+            cli.fail(cli.t("init.model.name_model", "listed" to sample(listed.orEmpty())))
             return null
         }
         val own = agentConfig?.let { AgentEntry(agent, it).models }.orEmpty()
         if (own.isNotEmpty()) ui.say(cli.t("init.model.own", "agent" to agent, "models" to own.joinToString()))
-        val picked = if (listed.isEmpty()) {
-            ui.ask(cli.t("init.model.type")) { if (it.isBlank()) cli.t("init.no_answer") else null }
+        val picked = if (listed.isNullOrEmpty()) {
+            val prompt = if (listed == null) "init.model.type_unlisted" else "init.model.type"
+            ui.ask(cli.t(prompt)) { if (it.isBlank()) cli.t("init.no_answer") else null }
                 ?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)?.distinct()
         } else {
             ui.pick(prompt("init.model.pick", "init.model.pick_title"), listed, cli.t("init.model.pick_hint"))

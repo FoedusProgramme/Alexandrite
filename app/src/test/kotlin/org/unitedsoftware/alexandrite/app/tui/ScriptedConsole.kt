@@ -10,7 +10,7 @@ internal class ScriptedConsole(
     override val height: Int = 24,
 ) : Console {
     val keys = ArrayDeque(keys)
-    val screen = VirtualScreen()
+    val screen = VirtualScreen(height)
     val frames = mutableListOf<List<String>>()
     val written = StringBuilder()
     var closed = false
@@ -37,11 +37,17 @@ internal class ScriptedConsole(
 /** Keys that type [text]. */
 internal fun typed(text: String): List<Key> = text.map { if (it == ' ') Key.Space else Key.Typed("$it") }
 
-/** The lines a terminal shows after the output given to [write], for the cursor moves and erasures prompts use. */
-internal class VirtualScreen {
+/**
+ * The lines a terminal of [height] rows shows after the output given to [write], for the cursor moves and erasures
+ * prompts use; the rows that scroll off the top stay above the screen, out of the cursor's reach.
+ */
+internal class VirtualScreen(private val height: Int) {
     private val rows = mutableListOf(StringBuilder())
     private var row = 0
     private var column = 0
+
+    /** The first row on the screen. */
+    private var top = 0
 
     fun write(text: String) {
         var index = 0
@@ -57,6 +63,7 @@ internal class VirtualScreen {
 
                 char == '\n' -> {
                     row++
+                    if (row - top == height) top++
                     column = 0
                     while (rows.size <= row) rows += StringBuilder()
                     index++
@@ -79,7 +86,7 @@ internal class VirtualScreen {
         while (end < text.length && !text[end].isLetter()) end++
         val parameters = text.substring(start + 2, end)
         when (text.getOrNull(end)) {
-            'A' -> row = (row - (parameters.toIntOrNull() ?: 1)).coerceAtLeast(0)
+            'A' -> row = (row - (parameters.toIntOrNull() ?: 1)).coerceAtLeast(top)
 
             'J' -> {
                 rows[row].setLength(minOf(column, rows[row].length))
@@ -91,6 +98,6 @@ internal class VirtualScreen {
         return end + 1
     }
 
-    /** The lines shown, without the empty one the cursor waits on at the end. */
+    /** The lines shown and scrolled off, without the empty one the cursor waits on at the end. */
     fun lines(): List<String> = rows.map { "$it".trimEnd() }.dropLastWhile { it.isEmpty() }
 }
