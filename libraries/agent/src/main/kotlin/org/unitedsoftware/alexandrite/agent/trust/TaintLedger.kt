@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.permission
+package org.unitedsoftware.alexandrite.agent.trust
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext

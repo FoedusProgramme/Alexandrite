@@ -111,9 +111,28 @@ internal object TextKeys {
     const val APPROVAL_ALWAYS_RULES: String = "approval.always_rules"
 
     const val APPROVAL_TRUST_OPAQUE: String = "approval.trust_opaque"
+    const val APPROVAL_UNTRUSTED: String = "approval.untrusted"
+    const val APPROVAL_TRUSTS_FOLDER: String = "approval.trusts.folder"
+    const val APPROVAL_TRUSTS_DOMAIN: String = "approval.trusts.domain"
+    const val APPROVAL_TRUSTS_PROGRAM: String = "approval.trusts.program"
+    const val APPROVAL_TRUSTS_SERVER: String = "approval.trusts.server"
+    const val APPROVAL_TRUSTS_PERSON: String = "approval.trusts.person"
+    const val APPROVAL_TRUST_FOLDER_WARNING: String = "approval.trust_folder_warning"
+    const val APPROVAL_TRUST_PERSON_WARNING: String = "approval.trust_person_warning"
+    const val TRUST_KIND_FOLDER: String = "trust.kind.folder"
+    const val TRUST_KIND_DOMAIN: String = "trust.kind.domain"
+    const val TRUST_KIND_PROGRAM: String = "trust.kind.program"
+    const val TRUST_KIND_SERVER: String = "trust.kind.server"
+    const val TRUST_KIND_PERSON: String = "trust.kind.person"
     const val APPROVAL_ARGUMENTS: String = "approval.arguments"
     const val APPROVAL_ALLOW: String = "approval.allow"
-    const val APPROVAL_ALLOW_TRUST: String = "approval.allow_trust"
+    const val APPROVAL_ALLOW_MARK: String = "approval.allow_mark"
+
+    /** Takes `{root}`. */
+    const val APPROVAL_ALLOW_TRUST_ROOT: String = "approval.allow_trust_root"
+
+    /** Takes `{count}`. */
+    const val APPROVAL_ALLOW_TRUST_ALL: String = "approval.allow_trust_all"
 
     /** Takes `{rule}`. */
     const val APPROVAL_ALWAYS: String = "approval.always"
@@ -126,8 +145,11 @@ internal object TextKeys {
     /** Takes `{name}` and `{rule}`. */
     const val APPROVAL_ALLOWED_ALWAYS: String = "approval.allowed_always"
 
-    /** Takes `{name}`. */
+    /** Takes `{name}` and `{roots}`. */
     const val APPROVAL_ALLOWED_TRUSTED: String = "approval.allowed_trusted"
+
+    /** Takes `{name}`. */
+    const val APPROVAL_ALLOWED_MARKED: String = "approval.allowed_marked"
 
     /** Takes `{name}`. */
     const val APPROVAL_DENIED: String = "approval.denied"
@@ -136,6 +158,47 @@ internal object TextKeys {
     const val APPROVAL_WITHDRAWN: String = "approval.withdrawn"
     const val APPROVAL_ADMINS_ONLY: String = "approval.admins_only"
     const val APPROVAL_NOT_PENDING: String = "approval.not_pending"
+
+    /** Takes `{id}`. */
+    const val OFFER_TITLE_MARKED: String = "offer.title_marked"
+
+    /** Takes `{id}`. */
+    const val OFFER_TITLE_WAITING: String = "offer.title_waiting"
+
+    /** Takes `{chat}`. */
+    const val OFFER_MARKED: String = "offer.marked"
+
+    /** Takes `{person}` and `{chat}`. */
+    const val OFFER_WAITING: String = "offer.waiting"
+
+    const val OFFER_SOURCE: String = "offer.source"
+    const val OFFER_KEEP: String = "offer.keep"
+    const val OFFER_MARK: String = "offer.mark"
+
+    /** Takes `{root}`. */
+    const val OFFER_TRUST: String = "offer.trust"
+
+    /** Takes `{root}`. */
+    const val OFFER_TRUST_CLEAR: String = "offer.trust_clear"
+
+    /** Takes `{count}`. */
+    const val OFFER_TRUST_ALL: String = "offer.trust_all"
+
+    /** Takes `{count}`. */
+    const val OFFER_TRUST_CLEAR_ALL: String = "offer.trust_clear_all"
+
+    /** Takes `{name}` and `{roots}`. */
+    const val OFFER_TRUSTED: String = "offer.trusted"
+
+    /** Takes `{name}`. */
+    const val OFFER_KEPT: String = "offer.kept"
+
+    /** Takes `{name}`. */
+    const val OFFER_MARKED_BY: String = "offer.marked_by"
+
+    const val OFFER_EXPIRED: String = "offer.expired"
+    const val OFFER_EXPIRED_MARKED: String = "offer.expired_marked"
+    const val OFFER_WITHDRAWN: String = "offer.withdrawn"
 
     const val ACTIVITY_VERB_READ_PRESENT: String = "activity.verb.read.present"
     const val ACTIVITY_VERB_READ_PAST: String = "activity.verb.read.past"

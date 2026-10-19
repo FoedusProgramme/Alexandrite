@@ -19,6 +19,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -107,6 +108,8 @@ class PermissionGateTest {
             clock,
             NotContained,
             NoInstructionPlaces,
+            NoForesight,
+            NoMarkOffers,
         )
     }
 
@@ -733,6 +736,8 @@ class PermissionGateTest {
             clock,
             NotContained,
             NoInstructionPlaces,
+            NoForesight,
+            NoMarkOffers,
         )
         lateinit var result: GateResult
 
@@ -869,7 +874,7 @@ private class RecordingJudge : Judge {
 private class RecordingApprovals : Approvals {
     val reasons = CopyOnWriteArrayList<String>()
 
-    override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
+    override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
         reasons += reason
         return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
     }

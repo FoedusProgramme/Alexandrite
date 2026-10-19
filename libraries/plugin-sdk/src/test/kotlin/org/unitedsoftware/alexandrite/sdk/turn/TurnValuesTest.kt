@@ -91,6 +91,20 @@ class TurnValuesTest {
     }
 
     @Test
+    fun `a command invocation names the users it replies to and mentions, of its own channel instance only`() {
+        val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isOperator = false)
+        val named = mutableListOf(bob)
+        val invocation = invocation("trust").replyTo(bob).mentions(named).build()
+        named.clear()
+
+        assertEquals(bob to listOf(bob), invocation.replyTo to invocation.mentions)
+        assertEquals(invocation, invocation.toBuilder().build())
+        assertEquals(null to emptyList(), invocation("trust").build().let { it.replyTo to it.mentions })
+        assertFailsWith<IllegalArgumentException> { invocation("trust").replyTo(stranger).build() }
+        assertFailsWith<IllegalArgumentException> { invocation("trust").mentions(listOf(stranger)).build() }
+    }
+
+    @Test
     fun `a command spec has a name of at most 32 lowercase letters, digits and underscores and a description`() {
         for (name in listOf("new", "set_model", "_x", "2fa", "a".repeat(32))) {
             assertEquals(name, CommandSpec.builder(name, "Does it.").build().name)

@@ -35,6 +35,7 @@ class FloorAskTest {
         val review = runBlocking { read.review(arguments("path" to notes), fs.context()) }
 
         assertEquals(person(notes), review.person)
+        assertEquals(listOf(notes), review.reads)
         assertRefused(
             "${person(notes)}, and no person allowed this call.",
             read.call(fs.context(clearance = Clearance(ClearanceKind.MODE)), "path" to notes),

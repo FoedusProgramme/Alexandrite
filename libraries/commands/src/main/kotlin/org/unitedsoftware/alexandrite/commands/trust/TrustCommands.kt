@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.commands.support.description
 import org.unitedsoftware.alexandrite.commands.support.refusing
 import org.unitedsoftware.alexandrite.commands.support.replies
 import org.unitedsoftware.alexandrite.commands.support.spec
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -16,11 +17,12 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
-import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedPerson
 import org.unitedsoftware.alexandrite.sdk.turn.rebuild
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -28,13 +30,12 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 
-/** `/trust`, `/untrust` and `/untaint`: of folders, and of the calls that trust rules cover. */
+/** `/trust`, `/untrust` and `/untaint`: of folders, of the calls that trust rules cover, and of people. */
 @Singleton
 @Contribute(CommandHandler::class)
 internal class TrustCommands(
     private val conversations: ConversationControl,
-    private val trustedFolders: TrustedFolders,
-    private val permissionRules: PermissionRules,
+    private val trust: TrustControl,
     private val texts: Texts,
     private val clock: Clock,
 ) : CommandHandler {
@@ -51,14 +52,28 @@ internal class TrustCommands(
         val argument = unquoted(invocation.arguments.trim())
         when (val name = commandWord(invocation.name)) {
             TRUST -> when {
+                invocation.mentions.isNotEmpty() -> trustPeople(invocation.mentions, invocation, context, replies)
+
+                argument.isEmpty() && invocation.replyTo != null ->
+                    trustPeople(listOfNotNull(invocation.replyTo), invocation, context, replies)
+
                 argument.isEmpty() -> trusted(invocation, context, replies)
+
                 isRule(argument) -> trustRule(argument, invocation, context, replies)
+
                 else -> trust(argument, invocation, context, replies)
             }
 
             UNTRUST -> when {
+                invocation.mentions.isNotEmpty() -> untrustPeople(invocation.mentions, invocation, context, replies)
+
+                argument.isEmpty() && invocation.replyTo != null ->
+                    untrustPeople(listOfNotNull(invocation.replyTo), invocation, context, replies)
+
                 argument.isEmpty() -> context.reply(replies.usage(name))
+
                 isRule(argument) -> untrustRule(argument, invocation, context, replies)
+
                 else -> untrust(argument, invocation, context, replies)
             }
 
@@ -99,7 +114,7 @@ internal class TrustCommands(
 
     private suspend fun trust(text: String, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val folder = folder(TRUST, text, context, replies) ?: return
-        val trusted = context.refusing { trustedFolders.trust(folder, invocation.issuer) } ?: return
+        val trusted = context.refusing { trust.trustFolder(folder, invocation.issuer) } ?: return
         context.reply(replies.text(TextKeys.TRUST_DONE, "folder" to trusted))
     }
 
@@ -109,7 +124,7 @@ internal class TrustCommands(
         context: CommandContext,
         replies: Replies,
     ) {
-        val trusted = context.refusing { permissionRules.trust(invocation.chat, rule, invocation.issuer) } ?: return
+        val trusted = context.refusing { trust.trustRule(invocation.chat, rule, invocation.issuer) } ?: return
         val done = replies.text(TextKeys.TRUST_RULE_DONE, "rule" to trusted.rule)
         context.reply(if (trusted.anyCode) "$done ${replies.text(TextKeys.TRUST_RULE_ANY_CODE)}" else done)
     }
@@ -121,7 +136,7 @@ internal class TrustCommands(
         replies: Replies,
     ) {
         val revocation =
-            context.refusing { permissionRules.untrust(invocation.chat, rule, invocation.issuer) } ?: return
+            context.refusing { trust.untrustRule(invocation.chat, rule, invocation.issuer) } ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.UNTRUST_RULE_DECLARED_REMOVED
             revocation.declared -> TextKeys.UNTRUST_RULE_DECLARED
@@ -138,7 +153,7 @@ internal class TrustCommands(
         replies: Replies,
     ) {
         val folder = folder(UNTRUST, text, context, replies) ?: return
-        val revocation = context.refusing { trustedFolders.untrust(folder, invocation.issuer) } ?: return
+        val revocation = context.refusing { trust.untrustFolder(folder, invocation.issuer) } ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.UNTRUST_DECLARED_REMOVED
             revocation.declared -> TextKeys.UNTRUST_DECLARED
@@ -148,20 +163,80 @@ internal class TrustCommands(
         context.reply(replies.text(key, "folder" to folder))
     }
 
+    private suspend fun trustPeople(
+        people: List<ChatUser>,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val lines = people.map { person ->
+            answered {
+                trust.trustPerson(invocation.chat, person, invocation.issuer)
+                replies.text(TextKeys.TRUST_PERSON_DONE, "person" to named(person))
+            }
+        }
+        context.reply(lines.joinToString("\n"))
+    }
+
+    private suspend fun untrustPeople(
+        people: List<ChatUser>,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        val lines = people.map { person ->
+            answered {
+                val revocation = trust.untrustPerson(invocation.chat, person, invocation.issuer)
+                val key = when {
+                    revocation.declared && revocation.removed -> TextKeys.UNTRUST_PERSON_DECLARED_REMOVED
+                    revocation.declared -> TextKeys.UNTRUST_PERSON_DECLARED
+                    revocation.removed -> TextKeys.UNTRUST_PERSON_DONE
+                    else -> TextKeys.UNTRUST_PERSON_NOT_TRUSTED
+                }
+                replies.text(key, "person" to named(person))
+            }
+        }
+        context.reply(lines.joinToString("\n"))
+    }
+
     private suspend fun trusted(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val folders = trustedFolders.list()
-        val rules = context.refusing { permissionRules.trustRules(invocation.chat) } ?: return
-        val text = if (folders.isEmpty()) {
-            replies.text(TextKeys.TRUST_NONE)
+        val folders = trust.folders()
+        val rules = context.refusing { trust.rules(invocation.chat) } ?: return
+        val people = context.refusing { trust.people(invocation.chat) } ?: return
+        val sections = mutableListOf(
+            if (folders.isEmpty()) {
+                replies.text(TextKeys.TRUST_NONE)
+            } else {
+                replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders.map { described(it, replies) }))
+            },
+        )
+        if (rules.isNotEmpty()) {
+            sections +=
+                replies.text(TextKeys.TRUST_RULES, "rules" to replies.list(rules.map { described(it, replies) }))
+        }
+        sections += if (people.isEmpty()) {
+            replies.text(TextKeys.TRUST_PEOPLE_NONE)
         } else {
-            replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders.map { described(it, replies) }))
+            replies.text(TextKeys.TRUST_PEOPLE, "people" to replies.list(people.map { described(it, replies) }))
         }
-        if (rules.isEmpty()) {
-            context.reply(text)
-            return
+        sections += replies.text(TextKeys.TRUST_PEOPLE_NOTE)
+        context.reply(sections.joinToString("\n\n"))
+    }
+
+    /** [person] with who trusted them and when. */
+    private fun described(person: TrustedPerson, replies: Replies): String {
+        val by = person.trustedBy
+        val date = dateOf(person.trustedAt, replies)
+        return if (by == null) {
+            replies.text(TextKeys.TRUST_PERSON_GRANTED_BY_HOST, "person" to named(person.person), "date" to date)
+        } else {
+            replies.text(
+                TextKeys.TRUST_PERSON_GRANTED,
+                "person" to named(person.person),
+                "user" to by.displayName,
+                "date" to date,
+            )
         }
-        val listed = replies.text(TextKeys.TRUST_RULES, "rules" to replies.list(rules.map { described(it, replies) }))
-        context.reply("$text\n\n$listed")
     }
 
     /** [rule] with where it comes from. */
@@ -234,6 +309,16 @@ internal class TrustCommands(
         const val HEARTBEAT = "heartbeat"
     }
 }
+
+/** What [block] answers, or the message of the change it refused. */
+private inline fun answered(block: () -> String): String = try {
+    block()
+} catch (e: ControlRefusedException) {
+    e.message ?: throw e
+}
+
+/** [user]'s name, with their handle when the channel knows one. */
+private fun named(user: ChatUser): String = user.displayName + user.username?.let { " (@$it)" }.orEmpty()
 
 /** Whether [text] is written as a rule, `tool` or `tool(pattern)`, rather than as a folder. */
 private fun isRule(text: String): Boolean = text.first() !in PATH_STARTS && RULE.matches(text)

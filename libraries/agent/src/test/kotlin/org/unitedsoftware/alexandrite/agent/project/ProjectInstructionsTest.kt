@@ -26,8 +26,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -253,16 +253,16 @@ class ProjectInstructionsTest {
 
         harness { keptConfigFile(file) }.execute {
             config = Files.readString(file)
-            val control = get<TrustedFolders>()
+            val control = get<TrustControl>()
             val by = channel().user("operator")
             ask()
 
-            val trusted = control.trust(repository, by)
-            val covered = control.trust(repository.resolve("src"), null)
+            val trusted = control.trustFolder(repository, by)
+            val covered = control.trustFolder(repository.resolve("src"), null)
             ask()
 
             assertEquals(listOf(repository, repository), listOf(trusted, covered))
-            val grant = control.list().single()
+            val grant = control.folders().single()
             assertEquals(TrustedFolder(repository, false, grant.trustedAt, by), grant)
             assertEquals(listOf("$repository by ${by.address}"), grants())
             val loaded = projects(stored())
@@ -278,7 +278,7 @@ class ProjectInstructionsTest {
 
             assertEquals(
                 listOf(repository to "Operator"),
-                get<TrustedFolders>().list().map {
+                get<TrustControl>().folders().map {
                     it.path to
                         it.trustedBy?.displayName
                 },
@@ -298,14 +298,14 @@ class ProjectInstructionsTest {
         reads(main)
 
         harness().execute {
-            val control = get<TrustedFolders>()
-            control.trust(repository, null)
+            val control = get<TrustControl>()
+            control.trustFolder(repository, null)
 
-            val untrusted = listOf(control.untrust(repository, null), control.untrust(repository, null))
+            val untrusted = listOf(control.untrustFolder(repository, null), control.untrustFolder(repository, null))
             ask()
 
             assertEquals(listOf(Revocation(true, false), Revocation(false, false)), untrusted)
-            assertEquals(emptyList(), control.list())
+            assertEquals(emptyList(), control.folders())
             assertEquals(emptyList(), grants())
             assertEquals(emptyList(), projects(stored()))
             assertEquals(listOf(NoticeKind.UNTRUSTED_FOLDER), stored().filterIsInstance<NoticeEntry>().map { it.kind })
@@ -323,26 +323,26 @@ class ProjectInstructionsTest {
 
         harness(trusted = declared) { keptConfigFile(file) }.execute {
             config = Files.readString(file)
-            val control = get<TrustedFolders>()
-            val absent = control.list().last().path
+            val control = get<TrustControl>()
+            val absent = control.folders().last().path
 
-            val trusted = listOf(control.trust(repository.resolve("src"), null), control.trust(other, null))
-            val kept = listOf(repository, absent).map { control.untrust(it, null) }
+            val trusted = listOf(control.trustFolder(repository.resolve("src"), null), control.trustFolder(other, null))
+            val kept = listOf(repository, absent).map { control.untrustFolder(it, null) }
 
             assertEquals(listOf(repository, other), trusted)
             assertEquals(
                 listOf(true, true, true, false),
-                control.list().map { it.declared },
+                control.folders().map { it.declared },
             )
-            assertEquals(listOf(repository, shared, absent, other), control.list().map { it.path })
+            assertEquals(listOf(repository, shared, absent, other), control.folders().map { it.path })
             assertEquals(List(2) { Revocation(false, true) }, kept)
             assertEquals(listOf("$other by null"), grants())
         }
         harness(trusted = declared) { keptConfigFile(file) }.execute {
-            val control = get<TrustedFolders>()
+            val control = get<TrustControl>()
 
-            assertEquals(listOf(true, true, true, false), control.list().map { it.declared })
-            assertEquals(Revocation(true, false), control.untrust(other, null))
+            assertEquals(listOf(true, true, true, false), control.folders().map { it.declared })
+            assertEquals(Revocation(true, false), control.untrustFolder(other, null))
         }
 
         assertEquals(config, Files.readString(file))
@@ -354,16 +354,16 @@ class ProjectInstructionsTest {
         val malformed = root.resolve("tpl-\${x}").createDirectories()
 
         harness().execute {
-            val control = get<TrustedFolders>()
-            val trusted = listOf(control.trust(odd, null), control.trust(malformed, null))
+            val control = get<TrustControl>()
+            val trusted = listOf(control.trustFolder(odd, null), control.trustFolder(malformed, null))
 
             assertEquals(listOf(odd, malformed), trusted)
         }
         harness().execute {
-            val control = get<TrustedFolders>()
-            val trusted = control.list().map { it.path }
+            val control = get<TrustControl>()
+            val trusted = control.folders().map { it.path }
 
-            val untrusted = control.untrust(odd, null)
+            val untrusted = control.untrustFolder(odd, null)
 
             assertEquals(listOf(odd, malformed), trusted)
             assertEquals(Revocation(true, false), untrusted)
@@ -377,22 +377,22 @@ class ProjectInstructionsTest {
         val secret = root.resolve("secret").createDirectories()
 
         harness { keptConfigFile(file).protect(secret) }.execute {
-            val control = get<TrustedFolders>()
+            val control = get<TrustControl>()
             suspend fun refused(block: suspend () -> Any) =
                 assertFailsWith<IllegalArgumentException> { block() }.message
 
             val messages = listOf(
-                refused { control.trust(Path.of("repo"), null) },
-                refused { control.untrust(Path.of("repo"), null) },
-                refused { control.trust(root.resolve("none"), null) },
-                refused { control.trust(main, null) },
-                refused { control.trust(secret.resolve("keys"), null) },
+                refused { control.trustFolder(Path.of("repo"), null) },
+                refused { control.untrustFolder(Path.of("repo"), null) },
+                refused { control.trustFolder(root.resolve("none"), null) },
+                refused { control.trustFolder(main, null) },
+                refused { control.trustFolder(secret.resolve("keys"), null) },
             )
-            val untouched = control.list()
+            val untouched = control.folders()
             val permissions = Files.getPosixFilePermissions(file)
             Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("r--r--r--"))
             val trusted = try {
-                control.trust(repository, null)
+                control.trustFolder(repository, null)
             } finally {
                 Files.setPosixFilePermissions(file, permissions)
             }
@@ -410,22 +410,22 @@ class ProjectInstructionsTest {
             )
             assertEquals(emptyList(), untouched)
             assertEquals(repository, trusted)
-            assertEquals(listOf(repository), control.list().map { it.path })
+            assertEquals(listOf(repository), control.folders().map { it.path })
         }
     }
 
     @Test
     fun `a grant of a folder that the floor protects since is ignored at the start, and untrust removes it`() {
         repository()
-        harness().execute { get<TrustedFolders>().trust(repository, null) }
+        harness().execute { get<TrustControl>().trustFolder(repository, null) }
 
         harness { protect(repository) }.execute {
-            assertEquals(emptyList(), get<TrustedFolders>().list())
+            assertEquals(emptyList(), get<TrustControl>().folders())
             assertEquals(listOf("$repository by null"), grants())
-            assertEquals(Revocation(true, false), get<TrustedFolders>().untrust(repository, null))
+            assertEquals(Revocation(true, false), get<TrustControl>().untrustFolder(repository, null))
         }
         harness().execute {
-            assertEquals(emptyList(), get<TrustedFolders>().list())
+            assertEquals(emptyList(), get<TrustControl>().folders())
             assertEquals(emptyList(), grants())
         }
     }
@@ -433,18 +433,18 @@ class ProjectInstructionsTest {
     @Test
     fun `untrusting a folder that the config declares since drops its grant, which no later start brings back`() {
         repository()
-        harness().execute { get<TrustedFolders>().trust(repository, null) }
+        harness().execute { get<TrustControl>().trustFolder(repository, null) }
 
         harness(trusted = listOf(repository)).execute {
-            val control = get<TrustedFolders>()
-            val both = control.list().single()
+            val control = get<TrustControl>()
+            val both = control.folders().single()
 
             assertEquals(listOf(repository, true, true), listOf(both.path, both.declared, both.trustedAt != null))
-            assertEquals(Revocation(true, true), control.untrust(repository, null))
-            assertEquals(listOf(TrustedFolder(repository, true, null, null)), control.list())
+            assertEquals(Revocation(true, true), control.untrustFolder(repository, null))
+            assertEquals(listOf(TrustedFolder(repository, true, null, null)), control.folders())
         }
         harness().execute {
-            assertEquals(emptyList(), get<TrustedFolders>().list())
+            assertEquals(emptyList(), get<TrustControl>().folders())
             assertEquals(emptyList(), grants())
         }
     }
@@ -453,19 +453,19 @@ class ProjectInstructionsTest {
     fun `untrusting a folder that moved behind a link removes the grant made under its old path`() {
         val old = root.resolve("old").createDirectories()
         old.resolve("repo").createDirectories()
-        harness().execute { get<TrustedFolders>().trust(old.resolve("repo"), null) }
+        harness().execute { get<TrustControl>().trustFolder(old.resolve("repo"), null) }
         val moved = Files.move(old, root.resolve("moved"))
         Files.createSymbolicLink(old, moved)
         val folder = moved.resolve("repo")
 
         harness().execute {
-            val control = get<TrustedFolders>()
+            val control = get<TrustControl>()
 
-            assertEquals(listOf(folder), control.list().map { it.path })
-            assertEquals(Revocation(true, false), control.untrust(folder, null))
+            assertEquals(listOf(folder), control.folders().map { it.path })
+            assertEquals(Revocation(true, false), control.untrustFolder(folder, null))
         }
         harness().execute {
-            assertEquals(emptyList(), get<TrustedFolders>().list())
+            assertEquals(emptyList(), get<TrustControl>().folders())
             assertEquals(emptyList(), grants())
         }
     }
@@ -602,16 +602,16 @@ class ProjectInstructionsTest {
         reads(main)
 
         harness(trusted = listOf(root)) { keptConfigFile(file) }.execute {
-            val control = get<TrustedFolders>()
+            val control = get<TrustControl>()
             ask()
             val before = projects(stored())
 
-            val trusted = control.trust(repository, null)
+            val trusted = control.trustFolder(repository, null)
             ask()
 
             assertEquals(emptyList(), before)
             assertEquals(repository, trusted)
-            assertEquals(listOf(root, repository), control.list().map { it.path })
+            assertEquals(listOf(root, repository), control.folders().map { it.path })
             assertEquals(
                 listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
                 projects(stored()).map { it.texts().first() },

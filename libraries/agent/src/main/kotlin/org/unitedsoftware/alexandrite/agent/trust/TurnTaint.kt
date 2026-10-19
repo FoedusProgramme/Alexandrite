@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.permission
+package org.unitedsoftware.alexandrite.agent.trust
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.internal.text.cut
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
@@ -33,6 +34,7 @@ internal class TurnTaint(
     private val unstored: UnstoredTaints? = null,
     /** A mark an earlier turn could not store, which this turn stores. */
     carried: ConversationTaint? = null,
+    private val notes: TaintNotes? = null,
 ) {
     @Volatile
     var tainted: Boolean = recorded != null || carried != null || unread
@@ -49,22 +51,25 @@ internal class TurnTaint(
 
     private val writing = Mutex()
 
+    /** The conversation whose mark the turn writes, null when it keeps it in memory only. */
+    val conversationId: ConversationId? get() = conversation
+
     /** The conversation's first mark as the turn knows it, null while it knows none. */
     val known: ConversationTaint? get() = first.get()
 
     /** The first untrusted content the turn took in itself, null when it only read or took over a mark. */
     val noted: ConversationTaint? get() = own.get()
 
-    /** Counts the turn as tainted for [reason], content it took in itself, for [record] to store. */
-    fun note(reason: String) {
-        val taint = taint(reason)
+    /** Counts the turn as tainted for [reason], content it took in itself through [call], for [record] to store. */
+    fun note(reason: String, call: ToolCallId? = null) {
+        val taint = taint(reason, call)
         own.compareAndSet(null, taint)
         listeners.forEach { it(taint.reason) }
     }
 
     /** Counts the turn as tainted for [reason], a mark it takes over from the turn above it, for [record] to store. */
     fun carry(reason: String) {
-        taint(reason)
+        taint(reason, null)
     }
 
     /** Has [listener] told the reason of each untrusted content the turn takes in itself, the first one at once. */
@@ -73,9 +78,9 @@ internal class TurnTaint(
         own.get()?.let { listener(it.reason) }
     }
 
-    /** Counts the turn as tainted for [reason] and writes the mark to the store. */
-    suspend fun mark(reason: String) {
-        note(reason)
+    /** Counts the turn as tainted for [reason], taken in through [call], and writes the mark to the store. */
+    suspend fun mark(reason: String, call: ToolCallId? = null) {
+        note(reason, call)
         record()
     }
 
@@ -95,11 +100,13 @@ internal class TurnTaint(
      * background job of the turn took in after the turn ended.
      */
     suspend fun recordLate(reason: String) {
+        conversation?.let { notes?.noted(it, null) }
         write(ConversationTaint(clock.instant(), cut(oneLine(reason), MAX_REASON_CHARS)))
     }
 
-    private fun taint(reason: String): ConversationTaint {
+    private fun taint(reason: String, call: ToolCallId?): ConversationTaint {
         val taint = ConversationTaint(clock.instant(), cut(oneLine(reason), MAX_REASON_CHARS))
+        conversation?.let { notes?.noted(it, call) }
         first.compareAndSet(null, taint)
         tainted = true
         logger.debug("Turn {} of {} is tainted: {}", turn, key, taint.reason)
@@ -130,6 +137,49 @@ internal class TurnTaint(
     }
 }
 
+/** Which call each untrusted content that a conversation took in came through, as far as this run of the agent saw. */
+@Singleton
+internal class TaintNotes {
+    private val notes = ConcurrentHashMap<ConversationId, Notes>()
+
+    /** Notes that [conversation] took in untrusted content through [call], null for none. */
+    fun noted(conversation: ConversationId, call: ToolCallId?) {
+        val kept = notes.computeIfAbsent(conversation) { Notes() }
+        synchronized(kept) {
+            kept.count++
+            kept.calls.addLast(call)
+            if (kept.calls.size > MAX_NOTES) kept.calls.removeFirst()
+        }
+    }
+
+    /** How much untrusted content [conversation] took in so far. */
+    fun count(conversation: ConversationId): Long = notes[conversation]?.let { synchronized(it) { it.count } } ?: 0
+
+    /**
+     * Whether everything that [conversation] took in after the first [count] came through [call], or was the one mark
+     * after them when [call] is null.
+     */
+    fun onlyThrough(conversation: ConversationId, count: Long, call: ToolCallId?): Boolean {
+        val kept = notes[conversation] ?: return true
+        return synchronized(kept) {
+            val after = kept.count - count
+            when {
+                call == null -> after <= 1
+                else -> after <= kept.calls.size && kept.calls.toList().takeLast(after.toInt()).all { it == call }
+            }
+        }
+    }
+
+    private class Notes {
+        var count: Long = 0
+        val calls = ArrayDeque<ToolCallId?>()
+    }
+
+    private companion object {
+        const val MAX_NOTES = 256
+    }
+}
+
 /** The marks of conversations that could not be stored, kept until a later write stores them or the agent stops. */
 @Singleton
 internal class UnstoredTaints {
@@ -155,6 +205,7 @@ internal class ConversationTaints(
     private val store: ConversationStore,
     private val clock: Clock,
     private val unstored: UnstoredTaints,
+    private val notes: TaintNotes,
 ) {
     /** The taint of the turn [turn] of [key] in [conversation], set when its mark cannot be read. */
     suspend fun open(turn: TurnId, key: AgentChatKey, conversation: ConversationId): TurnTaint {
@@ -170,10 +221,20 @@ internal class ConversationTaints(
                 turn,
                 e.toString(),
             )
-            return TurnTaint(turn, key, clock, conversation, store, unread = true, unstored = unstored)
+            return TurnTaint(turn, key, clock, conversation, store, unread = true, unstored = unstored, notes = notes)
         }
         val carried = if (recorded == null) unstored[conversation] else null
-        return TurnTaint(turn, key, clock, conversation, store, recorded, unstored = unstored, carried = carried)
+        return TurnTaint(
+            turn,
+            key,
+            clock,
+            conversation,
+            store,
+            recorded,
+            unstored = unstored,
+            carried = carried,
+            notes = notes,
+        )
     }
 
     /** The mark of [conversation], one that could not be stored included; throws when it cannot be read. */

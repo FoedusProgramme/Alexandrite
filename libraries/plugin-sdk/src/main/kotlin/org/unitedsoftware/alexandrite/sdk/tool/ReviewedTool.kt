@@ -38,6 +38,13 @@ public class CallReview private constructor(
     public val person: String?,
     /** The sandbox the call runs in, null when it runs on the host. */
     public val contained: Contained?,
+    /**
+     * The absolute paths that the call reads or works in, as far as the review can tell, which the permission layer
+     * checks against the trusted places before the call runs.
+     */
+    public val reads: List<Path>,
+    /** The host whose content the call brings in, such as a page's, null when it brings in none from the network. */
+    public val host: String?,
 ) {
     public fun toBuilder(): Builder = Builder()
         .risk(risk)
@@ -51,6 +58,8 @@ public class CallReview private constructor(
         .untrusted(untrusted)
         .person(person)
         .contained(contained)
+        .reads(reads)
+        .host(host)
 
     public class Builder internal constructor() {
         private var risk: ToolRisk? = null
@@ -64,6 +73,8 @@ public class CallReview private constructor(
         private var untrusted: Boolean = false
         private var person: String? = null
         private var contained: Contained? = null
+        private var reads: List<Path> = emptyList()
+        private var host: String? = null
 
         public fun risk(risk: ToolRisk?): Builder = apply { this.risk = risk }
 
@@ -87,6 +98,10 @@ public class CallReview private constructor(
 
         public fun contained(contained: Contained?): Builder = apply { this.contained = contained }
 
+        public fun reads(reads: List<Path>): Builder = apply { this.reads = reads.toList() }
+
+        public fun host(host: String?): Builder = apply { this.host = host }
+
         public fun build(): CallReview = CallReview(
             risk,
             refusal,
@@ -99,6 +114,8 @@ public class CallReview private constructor(
             untrusted,
             person,
             contained,
+            reads,
+            host,
         )
     }
 

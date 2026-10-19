@@ -120,6 +120,7 @@ class TelegramChatTest {
             Language: default (the host's language)
             Time zone: UTC (the host's time zone)
             Permission mode: ask (the default)
+            Conversation: not tainted.
             Home: coder has no home chat on telegram:work
             Linked: no other chat shares the conversation of coder
             You are an operator here.
@@ -182,7 +183,10 @@ class TelegramChatTest {
         )
         assertEquals(
             listOf("Noted: the release is on Friday.", "Still on Friday."),
-            listOf(app.fake.botMessages(ADA).last().text, app.fake.botMessages(GROUP).last().text),
+            listOf(
+                app.fake.botMessages(ADA).last { !it.text.startsWith(TelegramApp.OFFERED) }.text,
+                app.fake.botMessages(GROUP).last().text,
+            ),
         )
         assertEquals(config, Files.readString(configFile))
     }

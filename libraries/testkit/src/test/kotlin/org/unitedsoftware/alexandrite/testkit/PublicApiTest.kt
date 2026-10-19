@@ -116,6 +116,16 @@ class PublicApiTest {
             val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test")
             val answer: ApprovalAnswer = channel.askApproval(request)
             val approvals: List<ApprovalRequest> = channel.awaitApprovals(1) + channel.approvals
+            channel.defaultOffer = RecordingChannel.NO_APPROVER
+            channel.scriptOffers(ApprovalAnswer.Expired)
+            val offer = org.unitedsoftware.alexandrite.sdk.channel.TrustOffer(
+                "o1",
+                testTurn(),
+                "a test",
+                listOf(org.unitedsoftware.alexandrite.sdk.channel.TrustRoot.person(channel.user())),
+                marked = false,
+            )
+            val offered: List<Any?> = listOf(channel.offerTrust(offer), channel.awaitOffers(1), channel.offers)
             channel.guestsMayRun = false
             val mayRun: Boolean = channel.mayRun(channel.chat(), channel.user(), "new", withArguments = false)
             val isOperator: Boolean = channel.isOperator(channel.chat(), channel.user().address)
@@ -131,11 +141,14 @@ class PublicApiTest {
                 is RecordingChannel.Event.ApprovalAsked -> event.request
                 is RecordingChannel.Event.ApprovalAnswered -> listOf(event.id, event.answer)
                 is RecordingChannel.Event.ApprovalWithdrawn -> event.id
+                is RecordingChannel.Event.TrustOffered -> event.offer
+                is RecordingChannel.Event.OfferAnswered -> listOf(event.id, event.answer)
                 is RecordingChannel.Event.Activity -> listOf(event.turn, event.event)
                 else -> null
             }
             return listOf(
-                command, admissions, described, answer, approvals, mayRun, isOperator, preview.segment, preview.text,
+                command, admissions, described, answer, approvals, offered, mayRun, isOperator, preview.segment,
+                preview.text,
                 recorded.request,
                 recorded.turn,
                 recorded.segments, recorded.startedSegments, recorded.completed, recorded.delivery, recorded.abandoned,
@@ -189,14 +202,16 @@ class PublicApiTest {
             control.settings.update(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.links.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.links.unlink(AgentId.MAIN, testChat("other"), null)
-            control.folders.trust(Path.of("/srv/repo"), null)
-            control.folders.untrust(Path.of("/srv/repo"), null)
+            control.trust.trustFolder(Path.of("/srv/repo"), null)
+            control.trust.untrustFolder(Path.of("/srv/repo"), null)
+            control.trust.trustPerson(testChat(), testUser("bob"), null)
+            control.trust.untrustPerson(testChat(), testUser("bob"), null)
             control.declareAllowRule(RuleSubject("notes.add", emptyList(), "notes.add"))
             control.grantAllowRule(testChat(), RuleSubject("command.exec", listOf("make"), "make"), null)
             control.rules.revokeAllowRule(testChat(), 2, null)
             control.declareTrust("web.fetch")
-            control.rules.trust(testChat(), "command.exec(git)", null)
-            control.rules.untrust(testChat(), "command.exec(git)", null)
+            control.trust.trustRule(testChat(), "command.exec(git)", null)
+            control.trust.untrustRule(testChat(), "command.exec(git)", null)
             val call = when (val recorded = control.calls.first()) {
                 is RecordingAgent.Call.Cancel -> listOf(recorded.chat, recorded.by)
                 is RecordingAgent.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
@@ -215,6 +230,8 @@ class PublicApiTest {
                 is RecordingAgent.Call.RevokeAllowRule -> listOf(recorded.chat, recorded.number, recorded.by)
                 is RecordingAgent.Call.Trust -> listOf(recorded.chat, recorded.rule, recorded.by)
                 is RecordingAgent.Call.Untrust -> listOf(recorded.chat, recorded.rule, recorded.by)
+                is RecordingAgent.Call.TrustPerson -> listOf(recorded.chat, recorded.person, recorded.by)
+                is RecordingAgent.Call.UntrustPerson -> listOf(recorded.chat, recorded.person, recorded.by)
                 else -> emptyList()
             }
             val states = TestChatStates()
@@ -226,9 +243,11 @@ class PublicApiTest {
                 control.turns.turns(null), control.turns.jobs(testChat()), control.settings.snapshot(testChat()),
                 control.links.groups(), control.usage.report(testChat()),
                 control.conversations.context(testChat()), control.compaction,
-                control.folders.list(),
+                control.trust.folders(),
                 control.rules.allowRules(testChat()),
-                control.rules.trustRules(testChat()),
+                control.trust.rules(testChat()),
+                control.trust.people(testChat()),
+                control.trust.taint(testChat()),
                 control.catalog.agents(TEST_INSTANCE), control.catalog.profiles(),
                 control.catalog.endpoints(),
                 control.catalog.models(EndpointId("scripted")),
@@ -238,7 +257,7 @@ class PublicApiTest {
                 TestRecords(MemoryStore()).store,
                 TestChatStates(MemoryStore().chatStates).store,
                 testRecords("probe").collection<String>("notes").list(),
-                control.folders.list().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
+                control.trust.folders().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
                 control.declareFolder(Path.of("/srv/config")),
                 control.declareHome(AgentId.MAIN, testChat("home")),
                 control.declareLink(AgentId.MAIN, testChat("anchor"), listOf(testChat("member"))),

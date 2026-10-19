@@ -62,11 +62,17 @@ class TelegramInstanceConfigTest {
         val admin = refusal(withToken(""""adminUserIds": [7, -987654]"""), "987654")
         assertTrue("adminUserIds[1] must be a Telegram user id" in admin, admin)
         assertTrue("adminUserIds[0]" in refusal(withToken(""""adminUserIds": [0]""")))
+        val trusted = refusal(withToken(""""trustedUserIds": [7, -123456]"""), "123456")
+        assertTrue("trustedUserIds[1] must be a Telegram user id" in trusted, trusted)
         val chat = refusal(withToken(""""allowedChats": [5, -1001234567890, 0]"""), "1001234567890")
         assertTrue("allowedChats[2] must be a Telegram chat id" in chat, chat)
 
-        val config = decode(withToken(""""adminUserIds": [7], "allowedChats": [7, -1001234567890]"""))
+        val config = decode(
+            withToken(""""adminUserIds": [7], "trustedUserIds": [8], "allowedChats": [7, -1001234567890]"""),
+        )
         assertEquals(listOf(7L), config.adminUserIds)
+        assertEquals(listOf(8L), config.trustedUserIds)
+        assertEquals(emptyList(), decode(withToken()).trustedUserIds)
         assertEquals(listOf(7L, -1001234567890L), config.allowedChats)
     }
 

@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.permission
+package org.unitedsoftware.alexandrite.agent.trust
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -11,6 +11,9 @@ import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
+import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
+import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
+import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
@@ -46,6 +49,9 @@ internal enum class CallTrust {
 internal interface TrustRules {
     /** How far the output of [call] is trusted, a command's never past its programs, so its paths still taint. */
     fun trust(call: CheckedCall): CallTrust
+
+    /** The command lines of the programs of [call] whose output taints, none for a call that runs no program. */
+    fun untrustedPrograms(call: CheckedCall): List<List<String>>
 
     /** The trust rules in force for [agent] in [conversation], the declared ones first. */
     fun inForce(agent: AgentId, conversation: ConversationId): List<TrustRule>
@@ -97,20 +103,36 @@ internal class AgentTrustRules(
     }
 
     override fun trust(call: CheckedCall): CallTrust {
-        val gate = call.call
-        val rules = declared[gate.turn.agent].orEmpty() +
-            granted.filter { it.conversation == session(gate.turn) }.map { it.entry }
+        val rules = rules(call)
         if (rules.isEmpty()) return CallTrust.NONE
-        val name = gate.tool.definition.name
-        val command = call.review.preview as? ReviewPreview.Command
-            ?: return if (rules.any { it.trusts(name, null) }) CallTrust.WHOLE else CallTrust.NONE
+        val name = call.call.tool.definition.name
+        if (call.review.preview !is ReviewPreview.Command) {
+            val whole = rules.any { it.trusts(name, null) || it.trustsHost(name, call.review.host) }
+            return if (whole) CallTrust.WHOLE else CallTrust.NONE
+        }
+        return if (untrusted(call, rules).isEmpty()) CallTrust.PROGRAMS else CallTrust.NONE
+    }
+
+    override fun untrustedPrograms(call: CheckedCall): List<List<String>> = untrusted(call, rules(call))
+
+    /** The trust rules that apply to [call]: its agent's declared ones and those granted in its session. */
+    private fun rules(call: CheckedCall): List<RuleEntry> {
+        val turn = call.call.turn
+        return declared[turn.agent].orEmpty() + granted.filter { it.conversation == session(turn) }.map { it.entry }
+    }
+
+    /** The programs of the command of [call] that report untrusted content and that no rule of [rules] trusts. */
+    private fun untrusted(call: CheckedCall, rules: List<RuleEntry>): List<List<String>> {
+        val command = call.review.preview as? ReviewPreview.Command ?: return emptyList()
+        val name = call.call.tool.definition.name
         val programs = if (command.segments.isEmpty()) {
             listOf(command.argv to call.review.untrusted)
         } else {
             command.segments.filterNot { it.changesDirectory }.map { it.argv to it.untrusted }
         }
-        val trusted = programs.map { (argv, _) -> rules.any { it.trusts(name, argv) } }
-        return if (programs.indices.all { trusted[it] || !programs[it].second }) CallTrust.PROGRAMS else CallTrust.NONE
+        return programs.filter { (argv, untrusted) ->
+            untrusted && rules.none { it.trusts(name, argv) }
+        }.map { it.first }
     }
 
     override fun inForce(agent: AgentId, conversation: ConversationId): List<TrustRule> =

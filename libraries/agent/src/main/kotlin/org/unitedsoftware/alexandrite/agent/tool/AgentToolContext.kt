@@ -4,10 +4,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
-import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.Principal
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.sandbox.CallSandboxes
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -70,6 +70,7 @@ internal class AgentToolContext(
     }
 
     private val reported = CopyOnWriteArrayList<Path>()
+    private val callId = call
 
     override val turn: TurnInfo = turn
         get() = field.also { checkOpen() }
@@ -144,7 +145,7 @@ internal class AgentToolContext(
 
     /** Counts [reason] as untrusted content that the call took in, whatever its trust. */
     fun report(reason: String) {
-        taint.note(reason)
+        taint.note(reason, callId)
         if (own.compareAndSet(null, reason)) detached?.invoke(reason)
     }
 

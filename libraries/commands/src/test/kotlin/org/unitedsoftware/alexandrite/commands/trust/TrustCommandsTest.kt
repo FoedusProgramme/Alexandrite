@@ -10,12 +10,14 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedPerson
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.testCommand
+import org.unitedsoftware.alexandrite.testkit.testUser
 import java.nio.file.Path
 import java.time.Instant
 import kotlin.test.Test
@@ -23,12 +25,11 @@ import kotlin.test.assertEquals
 
 class TrustCommandsTest {
     private val control = RecordingAgent()
-    private val commands =
-        TrustCommands(control.conversations, control.folders, control.rules, commandTexts(), TestClock())
+    private val commands = TrustCommands(control.conversations, control.trust, commandTexts(), TestClock())
 
     @Test
     fun `trust lists the trusted folders and trusts the folder it is given`() = runTest {
-        assertEquals("No folder is trusted.", commands.answer(trust()))
+        assertEquals("No folder is trusted.$PEOPLE", commands.answer(trust()))
         assertEquals("/srv/repo is trusted, and so are the folders below it.", commands.answer(trust("/srv/repo")))
         assertEquals(
             "/srv/repo is trusted, and so are the folders below it.",
@@ -40,7 +41,7 @@ class TrustCommandsTest {
         )
         assertEquals(
             "Trusted folders, each with the folders below it:\n- /srv/repo (trusted by Operator on 2026-01-01)\n" +
-                "- /srv/my repo (trusted by Operator on 2026-01-01)",
+                "- /srv/my repo (trusted by Operator on 2026-01-01)$PEOPLE",
             commands.answer(trust()),
         )
         assertEquals(
@@ -52,11 +53,11 @@ class TrustCommandsTest {
     @Test
     fun `the list tells the folders the config file declares from those trusted by the host`() = runTest {
         control.declareFolder(Path.of("/srv/config"))
-        control.folders.trust(Path.of("/srv/host"), null)
+        control.trust.trustFolder(Path.of("/srv/host"), null)
 
         assertEquals(
             "Trusted folders, each with the folders below it:\n- /srv/config (declared in the config file)\n" +
-                "- /srv/host (trusted by the host on 2026-01-01)",
+                "- /srv/host (trusted by the host on 2026-01-01)$PEOPLE",
             commands.answer(trust()),
         )
         assertEquals(
@@ -72,15 +73,14 @@ class TrustCommandsTest {
             val commands =
                 TrustCommands(
                     control.conversations,
-                    DeclaredAndGranted(control.folders, both),
-                    control.rules,
+                    DeclaredAndGranted(control.trust, both),
                     commandTexts(),
                     TestClock(),
                 )
 
             assertEquals(
                 "Trusted folders, each with the folders below it:\n- /srv/both (declared in the config file, and " +
-                    "trusted by Operator on 2026-01-01)",
+                    "trusted by Operator on 2026-01-01)$PEOPLE",
                 commands.answer(trust()),
             )
             assertEquals(
@@ -92,7 +92,7 @@ class TrustCommandsTest {
 
     @Test
     fun `untrust stops trusting a trusted folder`() = runTest {
-        control.folders.trust(Path.of("/srv/repo"), OPERATOR)
+        control.trust.trustFolder(Path.of("/srv/repo"), OPERATOR)
 
         assertEquals("/srv/repo is no longer trusted.", commands.answer(untrust("\"/srv/repo\"")))
         assertEquals("/srv/repo is not a trusted folder.", commands.answer(untrust("/srv/repo")))
@@ -104,14 +104,15 @@ class TrustCommandsTest {
         assertEquals("Give the folder as an absolute path, not ./repo.", commands.answer(trust("./repo")))
         assertEquals("Give the folder as an absolute path, not ~/repo.", commands.answer(untrust("~/repo")))
         assertEquals(
-            "Send /trust to see what is trusted, /trust <folder> with the folder's absolute path to trust it, or " +
+            "Send /trust to see what is trusted, /trust <folder> with the folder's absolute path to trust it, " +
                 "/trust <rule>, such as /trust command.exec(git), so that the output of the calls it covers no " +
-                "longer taints this conversation.",
+                "longer taints this conversation, or /trust in reply to someone's message, or naming them with @, " +
+                "so that their own messages no longer taint.",
             commands.answer(trust("/srv/\u0000")),
         )
         assertEquals(
             "Send /untrust <folder> with the folder's absolute path, or /untrust <rule> as /trust wrote it, to stop " +
-                "trusting it.",
+                "trusting it, or /untrust in reply to someone's message, or naming them with @, to stop trusting them.",
             commands.answer(untrust()),
         )
         assertEquals(emptyList(), control.calls)
@@ -177,7 +178,7 @@ class TrustCommandsTest {
         assertEquals(
             "No folder is trusted.\n\nCalls whose output does not taint this conversation:\n" +
                 "- web.fetch (declared in the config file)\n- command.exec(git) (trusted by Operator on 2026-01-01)\n" +
-                "- mcp.files.* (trusted by Operator on 2026-01-01)",
+                "- mcp.files.* (trusted by Operator on 2026-01-01)$PEOPLE",
             commands.answer(trust()),
         )
         assertEquals(
@@ -230,17 +231,90 @@ class TrustCommandsTest {
         assertEquals(CommandForms.ALL to CommandForms.ALL, forms["trust"] to forms["untrust"])
     }
 
+    // People.
+
+    @Test
+    fun `trust in reply to a message trusts its sender, and untrust in reply stops it`() = runTest {
+        val bob = testUser("bob")
+
+        assertEquals(
+            "Bob is trusted: their own messages and files no longer taint this agent's conversations, while what " +
+                "they forward or quote still does. Trust gives them no authority.",
+            commands.answer(testCommand("trust", issuer = OPERATOR, replyTo = bob)),
+        )
+        assertEquals(
+            "Bob is no longer trusted: their messages taint this agent's conversations again.",
+            commands.answer(testCommand("untrust", issuer = OPERATOR, replyTo = bob)),
+        )
+        assertEquals(
+            "Bob is not a trusted person.",
+            commands.answer(testCommand("untrust", issuer = OPERATOR, replyTo = bob)),
+        )
+        val chat = trust().chat
+        assertEquals(
+            listOf(Call.TrustPerson(chat, bob, OPERATOR)) + List(2) { Call.UntrustPerson(chat, bob, OPERATOR) },
+            control.calls,
+        )
+    }
+
+    @Test
+    fun `trust naming people trusts each of them, and the list shows them`() = runTest {
+        val bob = ChatUser(testUser("bob").address, "Bob", "bob_b", isBot = false, isOperator = false)
+        val cy = testUser("cy")
+
+        commands.answer(testCommand("trust", "@bob_b @cy", issuer = OPERATOR, mentions = listOf(bob, cy)))
+
+        assertEquals(
+            "No folder is trusted.\n\nPeople whose own messages and files do not taint, trusted here:\n" +
+                "- Bob (@bob_b) (trusted by Operator on 2026-01-01)\n- Cy (trusted by Operator on 2026-01-01)\n\n" +
+                "People whom their channel's config trusts are marked by the channel and not listed here. Trust " +
+                "gives no authority: a trusted person approves nothing and runs no operator commands.",
+            commands.answer(trust()),
+        )
+        assertEquals(listOf(bob, cy), control.calls.map { (it as Call.TrustPerson).person })
+    }
+
+    @Test
+    fun `untrust of a person whom the channel's config trusts says so, and a refused person replies the refusal`() =
+        runTest {
+            val configured = testUser("cy", isTrusted = true)
+
+            assertEquals(
+                "Their channel's config trusts Cy: edit that config to stop trusting them.",
+                commands.answer(testCommand("untrust", "@cy", issuer = OPERATOR, mentions = listOf(configured))),
+            )
+            assertEquals(
+                "Operator is an operator, whom the agent trusts already.",
+                commands.answer(testCommand("trust", issuer = OPERATOR, replyTo = OPERATOR)),
+            )
+            assertEquals(emptyList(), control.trust.people(trust().chat))
+        }
+
+    @Test
+    fun `a person trusted by the host is listed so`() = runTest {
+        control.trust.trustPerson(trust().chat, testUser("bob"), null)
+
+        val listed = commands.answer(trust())
+
+        assertEquals("- Bob (trusted by the host on 2026-01-01)", listed.lines()[3])
+        assertEquals(TrustedPerson(testUser("bob"), TEST_TIME, null), control.trust.people(trust().chat).single())
+    }
+
     private fun trust(folder: String = "") = testCommand("trust", folder, issuer = OPERATOR)
 
     private fun untrust(folder: String = "") = testCommand("untrust", folder, issuer = OPERATOR)
 
-    /** [folders] where [folder] is declared and granted, and an untrust drops a grant of a declared folder. */
+    /** [trust] where [folder] is declared and granted, and an untrust drops a grant of a declared folder. */
     @OptIn(InternalAlexandriteApi::class)
-    private class DeclaredAndGranted(folders: TrustedFolders, private val folder: TrustedFolder) :
-        TrustedFolders by folders {
-        override fun list(): List<TrustedFolder> = listOf(folder)
+    private class DeclaredAndGranted(trust: TrustControl, private val folder: TrustedFolder) : TrustControl by trust {
+        override fun folders(): List<TrustedFolder> = listOf(folder)
 
-        override suspend fun untrust(folder: Path, by: ChatUser?): Revocation =
+        override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation =
             Revocation(removed = true, declared = true)
     }
 }
+
+private const val PEOPLE =
+    "\n\nNo person is trusted here.\n\nPeople whom their channel's config trusts are marked by the channel and " +
+        "not listed here. Trust gives no authority: a trusted person approves nothing and runs no operator " +
+        "commands."

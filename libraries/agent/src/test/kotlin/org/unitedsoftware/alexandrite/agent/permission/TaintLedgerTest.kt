@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.agent.trust.RecordTaintLedger
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview

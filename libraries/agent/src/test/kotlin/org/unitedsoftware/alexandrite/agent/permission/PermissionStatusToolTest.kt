@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -193,12 +194,12 @@ class PermissionStatusToolTest {
         )
 
         val holds = "Until /new starts a new conversation, calls that change your lasting state, such as " +
-            "persona.edit, need an approval."
+            "persona.edit, need an approval. $CLEARING"
         assertEquals(
             listOf(
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). $holds",
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). Heartbeat turns share this " +
-                    "conversation, which /new does not replace.",
+                    "conversation, which /new does not replace. $CLEARING",
                 "Conversation: tainted since 2026-01-01 00:00 Z (a web page). The mark could not be stored yet. $holds",
                 "Conversation: counted as tainted, as its mark could not be read.",
             ),
@@ -216,12 +217,15 @@ class PermissionStatusToolTest {
 
         assertEquals(
             "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). Until /new starts a new " +
-                "conversation, calls that change your lasting state, such as persona.edit, need an approval.",
+                "conversation, calls that change your lasting state, such as persona.edit, need an approval. $CLEARING",
             line,
         )
     }
 
     private companion object {
+        const val CLEARING = "An operator clears the mark with /untaint once sure of what came in, or trusts its " +
+            "source with /trust so that it no longer taints."
+
         val NO_BUILT_INS = object : PluginOrigins {
             override fun isBuiltIn(instance: Any): Boolean = false
         }

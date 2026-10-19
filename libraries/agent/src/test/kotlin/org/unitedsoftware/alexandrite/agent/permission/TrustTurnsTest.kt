@@ -10,6 +10,8 @@ import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -23,7 +25,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
-import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -166,18 +168,18 @@ class TrustTurnsTest {
         harness().execute {
             val operator = channel().user("operator")
             val chat = channel().chat()
-            val trusted = get<PermissionRules>().trust(chat, "command.exec(git)", operator)
-            assertEquals(listOf("command.exec(git)"), get<PermissionRules>().trustRules(chat).map { it.rule })
+            val trusted = get<TrustControl>().trustRule(chat, "command.exec(git)", operator)
+            assertEquals(listOf("command.exec(git)"), get<TrustControl>().rules(chat).map { it.rule })
             assertEquals(false to operator, trusted.declared to trusted.grantedBy)
-            assertFailsWith<ControlRefusedException> { get<PermissionRules>().trust(chat, "git", operator) }
+            assertFailsWith<ControlRefusedException> { get<TrustControl>().trustRule(chat, "git", operator) }
             assertFailsWith<ControlRefusedException> {
-                get<PermissionRules>().trust(chat, "command.exec(a && b)", operator)
+                get<TrustControl>().trustRule(chat, "command.exec(a && b)", operator)
             }
             channel().scriptApprovals(ApprovalAnswer.Allowed(operator), ApprovalAnswer.Allowed(operator))
             ask()
             assertNull(mark())
             get<ConversationControl>().newConversation(chat, operator)
-            assertEquals(emptyList(), get<PermissionRules>().trustRules(chat))
+            assertEquals(emptyList(), get<TrustControl>().rules(chat))
             ask()
             assertEquals("command.exec ran git", reported())
         }
@@ -200,27 +202,32 @@ class TrustTurnsTest {
     // Allow and trust.
 
     @Test
-    fun `an approval answered allow and trust runs the call and leaves the conversation untainted`() {
+    fun `allow and trust trusts the program for the session, and allow alone marks the conversation`() {
         model.reply { toolCall("command.exec", running("make")) }.reply { text("Made.") }
         model.reply { toolCall("command.exec", running("make")) }.reply { text("Made again.") }
-        model.reply { toolCall("command.exec", running("make")) }.reply { text("Made a third time.") }
+        model.reply { toolCall("command.exec", running("cargo")) }.reply { text("Built.") }
 
         harness().execute {
             val operator = channel().user("operator")
             channel().scriptApprovals(
                 ApprovalAnswer.Allowed(operator, trust = true),
                 ApprovalAnswer.Allowed(operator),
-                ApprovalAnswer.Allowed(operator, trust = true),
+                ApprovalAnswer.Allowed(operator),
             )
             ask()
             val trusted = mark()
             ask()
-            val allowed = reported()
+            val still = mark()
+            val rules = get<TrustControl>().rules(channel().chat()).map { it.rule }
+            ask()
 
             assertNull(trusted)
-            assertEquals("command.exec ran make", allowed)
-            ask()
-            assertEquals(listOf(true, true, false), channel().approvals.map { it.taints })
+            assertNull(still)
+            assertEquals(listOf("command.exec(make)"), rules)
+            assertEquals(listOf(true, false, true), channel().approvals.map { it.taints })
+            assertEquals(listOf(TrustRoot(TrustRootKind.PROGRAM, "make")), channel().approvals.first().roots)
+            assertEquals("command.exec runs make, which no safeguard vets", channel().approvals.first().untrusted)
+            assertEquals("command.exec ran cargo", reported())
         }
     }
 }

@@ -323,7 +323,8 @@ private val AGENTS_GUARDS = setOf("permission", "sandbox", "tools", "instruction
 
 private val TOOLS_GUARDS = setOf("exec" to "environment", "web" to "allowedPrivateHosts")
 
-private val CHANNEL_GUARDS = setOf("adminUserIds", "allowedChats", "commands", "apiBaseUrl", "botToken")
+private val CHANNEL_GUARDS =
+    setOf("adminUserIds", "trustedUserIds", "allowedChats", "commands", "apiBaseUrl", "botToken")
 
 private val PRETTY = Json { prettyPrint = true }
 

@@ -23,10 +23,10 @@ import org.unitedsoftware.alexandrite.agent.job.Detaching
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.backgroundResult
 import org.unitedsoftware.alexandrite.agent.permission.MandateGrants
-import org.unitedsoftware.alexandrite.agent.permission.TaintLedger
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.sandbox.CallSandboxes
+import org.unitedsoftware.alexandrite.agent.trust.TaintLedger
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus

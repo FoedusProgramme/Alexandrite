@@ -17,6 +17,7 @@ import org.unitedsoftware.alexandrite.agent.delivery.notice
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.routing.ChatRouter
 import org.unitedsoftware.alexandrite.agent.routing.Resolution
+import org.unitedsoftware.alexandrite.agent.trust.TrustedPeople
 import org.unitedsoftware.alexandrite.agent.worker.AgentTicket
 import org.unitedsoftware.alexandrite.agent.worker.ChatIntakes
 import org.unitedsoftware.alexandrite.agent.worker.SubmitLock
@@ -64,6 +65,7 @@ internal class CommandLanes(
     private val notices: Notices,
     private val channels: ChannelDirectory,
     private val pendingCommands: PendingCommands,
+    private val people: TrustedPeople,
     /** Lazy, as the command handlers it holds reach back to the agent's control, which reaches these lanes. */
     private val registry: Lazy<CommandRegistry>,
     private val scope: PluginScope,
@@ -263,6 +265,7 @@ internal class CommandLanes(
                 invocation.command.issuer,
                 commandLine(invocation.command, secret),
                 context.replies,
+                people.isTrusted(turn.agent, invocation.command.issuer),
             )
             TurnOutcome.Completed(null, context.deliveries)
         } catch (e: CancellationException) {

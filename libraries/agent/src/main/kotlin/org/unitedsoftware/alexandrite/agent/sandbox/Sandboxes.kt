@@ -15,7 +15,7 @@ import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_NAMES
 import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.alexandritePlaces
 import org.unitedsoftware.alexandrite.agent.permission.session
-import org.unitedsoftware.alexandrite.agent.project.FolderTrust
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.expandHome

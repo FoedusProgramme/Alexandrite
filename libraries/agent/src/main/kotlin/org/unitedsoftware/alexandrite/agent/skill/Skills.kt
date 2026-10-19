@@ -1,7 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.skill
 
 import org.slf4j.LoggerFactory
-import org.unitedsoftware.alexandrite.agent.project.FolderTrust
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo

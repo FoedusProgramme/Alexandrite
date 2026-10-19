@@ -70,7 +70,7 @@ class TelegramCodingTest {
             unchanged = greeter.readText() == GREETER
             answer(edit, "Allow")
             exec = request()
-            answer(exec, "Allow")
+            answer(exec, "Allow, mark tainted")
             app.message(app.adaChat, DONE)
             idle()
         }
@@ -84,9 +84,12 @@ class TelegramCodingTest {
         val command = "Tool: command.exec (exec)\nDirectory: $repository\nProgram: $check\n" +
             "Sandbox: none, the program runs on the host with your full rights\n\n./check.sh"
         assertTrue(exec.text.endsWith(command), exec.text)
-        assertEquals(listOf("Allow", "Deny"), exec.buttons.first().map { it.text })
+        assertEquals(listOf("Allow, mark tainted", "Deny"), exec.buttons.first().map { it.text })
         assertEquals(
-            List(2) { "Allowed by Ada Lovelace (@ada_test)." },
+            listOf(
+                "Allowed by Ada Lovelace (@ada_test).",
+                "Allowed by Ada Lovelace (@ada_test); the conversation is marked tainted.",
+            ),
             listOf(edit, exec).map { app.fake.botMessage(ADA, it.id)!!.text.substringAfterLast("\n") },
         )
         assertEquals(listOf(edit.id, exec.id), app.fake.botMessages(ADA).body().dropLast(1).map { it.id })
@@ -122,13 +125,14 @@ class TelegramCodingTest {
             app.send(app.ada, app.adaChat, ASK)
             exec = request()
             edited = greeter.readText() == EDITED
-            answer(exec, "Allow")
+            answer(exec, "Allow, mark tainted")
             app.message(app.adaChat, DONE)
             idle()
         }
 
         assertTrue(edited, "The edit had not run when the check was asked about.")
-        assertTrue("\nWhy: the chat is in allowedit mode\nTool: command.exec (exec)\n" in exec.text, exec.text)
+        assertTrue("\nWhy: the chat is in allowedit mode\n" in exec.text, exec.text)
+        assertTrue("\nTrusting covers what the program prints: ./check.sh\nTool: command.exec (exec)\n" in exec.text)
         assertEquals(1, app.fake.botMessages(ADA).count { it.text.startsWith("Approval needed") })
         assertEquals(List(3) { ToolOutcome.Succeeded }, results().map { it.outcome })
         assertEquals(EDITED, greeter.readText())
@@ -183,8 +187,13 @@ class TelegramCodingTest {
             ),
             results().map { it.outcome to it.text },
         )
-        assertEquals(listOf(REFUSED), app.fake.botMessages().body().map { it.text })
-        assertEquals(listOf(BOB), app.fake.botMessages().body().map { it.chat })
+        assertEquals(listOf(REFUSED), app.fake.botMessages(BOB).body().map { it.text })
+        assertEquals(
+            listOf(TelegramApp.OFFERED),
+            app.fake.botMessages(ADA).map {
+                it.text.substringBefore(" (#")
+            },
+        )
         assertEquals(GREETER, greeter.readText())
     }
 

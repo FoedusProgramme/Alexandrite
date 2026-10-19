@@ -248,6 +248,40 @@ class ChannelValuesTest {
         assertNull(ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x").always)
     }
 
+    @Test
+    fun `a trust root names what it trusts, and only a person's root a person`() {
+        val roots = mutableListOf(TrustRoot(TrustRootKind.FOLDER, "/srv/clone"), TrustRoot.person(sender))
+        val request = ApprovalRequest(
+            "k3x9",
+            testTurn,
+            "fs.read",
+            ToolRisk.READ_ONLY,
+            "{}",
+            null,
+            "x",
+            taints = true,
+            untrusted = "fs.read would reach /srv/clone",
+            roots = roots,
+        )
+        roots.clear()
+
+        assertEquals(listOf(TrustRootKind.FOLDER, TrustRootKind.PERSON), request.roots.map { it.kind })
+        assertEquals(sender to "Ada", request.roots.last().let { it.person to it.name })
+        assertFailsWith<IllegalArgumentException> { TrustRoot(TrustRootKind.PERSON, "Ada") }
+        assertFailsWith<IllegalArgumentException> { TrustRoot(TrustRootKind.DOMAIN, " ") }
+    }
+
+    @Test
+    fun `a trust offer has a short id and offers at least one root, and a bare channel cannot make one`() {
+        val root = TrustRoot(TrustRootKind.SERVER, "files")
+
+        assertEquals("o-1", TrustOffer("o-1", testTurn, "x", listOf(root), marked = true).id)
+        assertFailsWith<IllegalArgumentException> { TrustOffer("o 1", testTurn, "x", listOf(root), marked = true) }
+        assertFailsWith<IllegalArgumentException> { TrustOffer("o-1", testTurn, "x", emptyList(), marked = false) }
+        val answer = runBlocking { bare.offerTrust(TrustOffer("o-1", testTurn, "x", listOf(root), marked = true)) }
+        assertEquals(ApprovalAnswer.Unavailable("this channel cannot offer trust"), answer)
+    }
+
     private val bare = object : Channel {
         override suspend fun capabilities(chat: ChatAddress) = ChannelCapabilities.builder().build()
 

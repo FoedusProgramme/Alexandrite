@@ -29,7 +29,7 @@ public class ApprovalRequest private constructor(
     public val chain: List<AgentId>,
     /** Every rule that allowing such calls for good grants, empty when it may not be offered. */
     public val alwaysRules: List<RuleSubject>,
-    /** Whether the call's output would taint the conversation, so that an approver may trust it. */
+    /** Whether the call would bring the first untrusted content into the conversation. */
     public val taints: Boolean,
     /** When and why the call's conversation first took in untrusted content, null while it took in none. */
     public val taint: ConversationTaint?,
@@ -39,6 +39,13 @@ public class ApprovalRequest private constructor(
     public val contained: Contained?,
     /** Whether the call starts as a background job. */
     public val background: Boolean,
+    /** What of the call would bring the first untrusted content into the conversation, null when nothing would. */
+    public val untrusted: String?,
+    /**
+     * What allowing the call and trusting its source trusts for good, so that the conversation stays clean, empty when
+     * it may not be offered.
+     */
+    public val roots: List<TrustRoot>,
 ) {
     init {
         require(ID.matches(id)) { "Malformed approval request id '$id'." }
@@ -66,6 +73,8 @@ public class ApprovalRequest private constructor(
             note: String? = null,
             contained: Contained? = null,
             background: Boolean = false,
+            untrusted: String? = null,
+            roots: List<TrustRoot> = emptyList(),
         ): ApprovalRequest = ApprovalRequest(
             id,
             turn,
@@ -81,7 +90,86 @@ public class ApprovalRequest private constructor(
             note,
             contained,
             background,
+            untrusted,
+            roots.toList(),
         )
+    }
+}
+
+/** What a person may trust for good so that content from it no longer taints a conversation. */
+@Poko
+public class TrustRoot private constructor(
+    public val kind: TrustRootKind,
+    /**
+     * As people are shown it, escaped for review: the full path of a folder, a domain, a program as a command names
+     * it, an MCP server's name or a person's name.
+     */
+    public val name: String,
+    /** The person, of a [TrustRootKind.PERSON] root, else null. */
+    public val person: ChatUser?,
+) {
+    init {
+        require(name.isNotBlank()) { "A trust root shows a name." }
+        require((kind == TrustRootKind.PERSON) == (person != null)) { "Only a person's trust root names a person." }
+    }
+
+    public companion object {
+        public operator fun invoke(kind: TrustRootKind, name: String): TrustRoot = TrustRoot(kind, name, null)
+
+        public fun person(person: ChatUser, name: String = person.displayName): TrustRoot =
+            TrustRoot(TrustRootKind.PERSON, name, person)
+    }
+}
+
+/** What a [TrustRoot] trusts. */
+public enum class TrustRootKind {
+    /** A folder and everything later written in it, outside the repositories nested in it. */
+    FOLDER,
+
+    /** The pages of a domain and its subdomains. */
+    DOMAIN,
+
+    /** The output of a program. */
+    PROGRAM,
+
+    /** The output of an MCP server's tools. */
+    SERVER,
+
+    /** What a person writes. */
+    PERSON,
+}
+
+/**
+ * The first untrusted content of a conversation of [turn] that nobody was asked about before it came in, offered to an
+ * operator to trust, where every text is escaped for review.
+ */
+@Poko
+public class TrustOffer private constructor(
+    /** Up to 32 letters, digits, `-` and `_`. */
+    public val id: String,
+    public val turn: TurnInfo,
+    /** Where the content came from, in lower case without a closing full stop, in Alexandrite's own words. */
+    public val untrusted: String,
+    /** What trusting the content trusts for good, never empty. */
+    public val roots: List<TrustRoot>,
+    /** Whether the conversation is marked tainted already, so that trusting clears the mark, else the content waits. */
+    public val marked: Boolean,
+) {
+    init {
+        require(ID.matches(id)) { "Malformed trust offer id '$id'." }
+        require(roots.isNotEmpty()) { "A trust offer offers something to trust." }
+    }
+
+    public companion object {
+        private val ID = Regex("[A-Za-z0-9_-]{1,32}")
+
+        public operator fun invoke(
+            id: String,
+            turn: TurnInfo,
+            untrusted: String,
+            roots: List<TrustRoot>,
+            marked: Boolean,
+        ): TrustOffer = TrustOffer(id, turn, untrusted, roots.toList(), marked)
     }
 }
 
@@ -89,8 +177,8 @@ public class ApprovalRequest private constructor(
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ApprovalAnswer {
     /**
-     * [by] allowed the call, and the calls that the request's rules cover too when [always], trusting its output when
-     * [trust].
+     * [by] allowed the call, and the calls that the request's rules cover too when [always], trusting the roots of the
+     * request or the [TrustOffer] when [trust].
      */
     @OptIn(InternalAlexandriteApi::class)
     @Poko

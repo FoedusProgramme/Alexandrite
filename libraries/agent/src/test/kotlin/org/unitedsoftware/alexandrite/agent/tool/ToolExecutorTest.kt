@@ -29,9 +29,9 @@ import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.agent.permission.NoTaintLedger
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.pluginScope
 import org.unitedsoftware.alexandrite.agent.settings
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus

@@ -142,6 +142,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                     .rule(rule)
                     .background(inspection.background)
                     .untrusted(!vetted)
+                    .reads((listOf(cwd) + steps.map { it.cwd } + reached).distinct())
                     .person(asks.takeIf { it.isNotEmpty() }?.joinToString("; "))
                     .contained(
                         inspection.sandbox?.let { sandbox ->

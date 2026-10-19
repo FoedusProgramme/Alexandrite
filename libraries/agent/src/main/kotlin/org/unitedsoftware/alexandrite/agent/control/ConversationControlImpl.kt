@@ -3,7 +3,7 @@ package org.unitedsoftware.alexandrite.agent.control
 import kotlinx.coroutines.currentCoroutineContext
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.context.ContextControl
-import org.unitedsoftware.alexandrite.agent.permission.UnstoredTaints
+import org.unitedsoftware.alexandrite.agent.trust.UnstoredTaints
 import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress

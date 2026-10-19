@@ -19,6 +19,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.Markup
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ReplySink
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEventKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -67,6 +68,15 @@ internal class TelegramChannel(
             ApprovalAnswer.Unavailable("the chat ${request.turn.chat} belongs to another channel instance")
 
         else -> approvals.ask(request)
+    }
+
+    override suspend fun offerTrust(offer: TrustOffer): ApprovalAnswer = when {
+        deliveries.stopped -> ApprovalAnswer.Unavailable("the bot is stopping")
+
+        offer.turn.chat.instance != instance.id && offer.turn.chat.instance != ChatAddress.AGENTS ->
+            ApprovalAnswer.Unavailable("the chat ${offer.turn.chat} belongs to another channel instance")
+
+        else -> approvals.offer(offer)
     }
 
     override fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =

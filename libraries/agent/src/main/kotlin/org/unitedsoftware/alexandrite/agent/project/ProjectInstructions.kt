@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.skill.ProjectSkills
 import org.unitedsoftware.alexandrite.agent.skill.Skill
 import org.unitedsoftware.alexandrite.agent.skill.SkillScope
 import org.unitedsoftware.alexandrite.agent.skill.Skills
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId

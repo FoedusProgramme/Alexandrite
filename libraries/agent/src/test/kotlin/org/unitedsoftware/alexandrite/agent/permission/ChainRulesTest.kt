@@ -13,6 +13,9 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.AgentTrustRules
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
@@ -83,6 +86,8 @@ class ChainRulesTest {
             clock,
             NotContained,
             NoInstructionPlaces,
+            NoForesight,
+            NoMarkOffers,
         )
 
         /** How the gate decided [review] on an operator's turn, tainted when [tainted]: run, rule, judge, ask or refused. */
@@ -279,7 +284,7 @@ class ChainRulesTest {
     private class Offering(private val rules: CallRules) : Approvals {
         val offered = CopyOnWriteArrayList<List<String>>()
 
-        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
             rules.grantable(call).takeIf { it.isNotEmpty() }?.let { subjects -> offered += subjects.map { it.display } }
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

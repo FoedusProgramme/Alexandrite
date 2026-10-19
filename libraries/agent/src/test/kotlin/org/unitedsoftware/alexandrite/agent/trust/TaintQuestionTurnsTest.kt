@@ -1,0 +1,406 @@
+package org.unitedsoftware.alexandrite.agent.trust
+
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.agent.agentHarness
+import org.unitedsoftware.alexandrite.agent.blocking
+import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
+import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
+import org.unitedsoftware.alexandrite.sdk.chat.ForwardKind
+import org.unitedsoftware.alexandrite.sdk.chat.ForwardOrigin
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
+import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
+import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
+import org.unitedsoftware.alexandrite.sdk.turn.Admission
+import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
+import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
+import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
+import org.unitedsoftware.alexandrite.testkit.MemoryStore
+import org.unitedsoftware.alexandrite.testkit.PluginHarness
+import org.unitedsoftware.alexandrite.testkit.ScriptedModel
+import org.unitedsoftware.alexandrite.testkit.testToolDefinition
+import java.nio.file.Path
+import kotlin.io.path.createDirectories
+import kotlin.io.path.writeText
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+
+class TaintQuestionTurnsTest {
+    @TempDir
+    lateinit var directory: Path
+
+    private val store = MemoryStore()
+    private val model = ScriptedModel()
+    private val key = AgentChatKey.parse("coder@test:main:chat")
+    private val root: Path get() = directory.toRealPath()
+    private val trusted: Path get() = root.resolve("trusted").createDirectories()
+
+    /** A repository outside the trusted places. */
+    private val project: Path by lazy {
+        root.resolve("outside/project").also { it.resolve(".git").createDirectories() }
+    }
+
+    /** fs.read as its review shows it: it reads its `path`, which it reports touched when it runs. */
+    private val read = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition("fs.read", ToolRisk.READ_ONLY)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().reads(listOf(path(arguments))).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+            context.touched(path(arguments))
+            return ToolResult("Read.")
+        }
+    }
+
+    /** A tool whose output is untrusted, from the host its `url` names when it has one. */
+    private fun untrusted(name: String, risk: ToolRisk = ToolRisk.READ_ONLY) = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition(name, risk)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().untrusted(true).host(arguments["url"]?.jsonPrimitive?.content).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+            context.untrusted("$name brought in a page")
+            return ToolResult("Done.")
+        }
+    }
+
+    private fun path(arguments: JsonObject): Path = Path.of(arguments.getValue("path").jsonPrimitive.content)
+
+    private fun harness(trustedUsers: Set<String> = emptySet()): PluginHarness {
+        val config = """
+            {
+              "previewIntervalMillis": 0,
+              "trustedFolders": ["$trusted"],
+              "agents": {
+                "coder": {
+                  "model": "scripted/test-model",
+                  "channels": {"test:main": {}},
+                  "tools": {"forGuests": ["fs.read"]}
+                }
+              }
+            }
+        """.trimIndent()
+        return agentHarness(config, store) {
+            channel(operators = setOf("operator"), trusted = trustedUsers).model(model).tool(read)
+                .tool(untrusted("mcp.files.read")).tool(untrusted("web.fetch", ToolRisk.NETWORK_READ))
+                .tool(untrusted("notes.paste"))
+        }
+    }
+
+    private fun file(path: Path): Path = path.also {
+        it.parent.createDirectories()
+        it.writeText("text\n")
+    }
+
+    private fun reading(path: Path): String = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
+
+    private suspend fun PluginHarness.Running.ask(
+        user: String = "operator",
+        text: String = "Read it.",
+        block: IncomingMessage.Builder.() -> Unit = {},
+    ): TurnOutcome = (channel().receive(text, sender = channel().user(user), block = block) as Admission.Accepted)
+        .ticket.outcome()
+
+    private suspend fun mark(): ConversationTaint? = store.conversations.taint(store.conversations.current(key).id)
+
+    private suspend fun results(): List<ToolResultEntry> =
+        store.transcripts.entries(store.conversations.current(key).id).filterIsInstance<ToolResultEntry>()
+
+    // Asking before taint.
+
+    @Test
+    fun `a read outside the trusted places asks once, and trusting its project keeps the conversation clean`() {
+        val first = file(project.resolve("a.kt"))
+        val second = file(project.resolve("b.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+            .reply { toolCall("fs.read", reading(second)) }.reply { text("Read again.") }
+
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, trust = true))
+            ask()
+            val clean = mark()
+            ask()
+
+            val request = channel().approvals.single()
+            assertNull(clean)
+            assertNull(mark())
+            assertTrue(request.taints)
+            assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$project")), request.roots)
+            assertEquals("fs.read would reach $project, a folder that is not trusted", request.untrusted)
+            assertEquals(emptyList(), request.alwaysRules)
+            assertTrue(get<TrustControl>().folders().any { it.path == project && it.trustedBy == operator })
+        }
+    }
+
+    @Test
+    fun `allowing without trust marks the conversation, which then asks nothing more`() {
+        val first = file(project.resolve("a.kt"))
+        val other = file(root.resolve("elsewhere/b.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+            .reply { toolCall("fs.read", reading(other)) }.reply { text("Read again.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            ask()
+            ask()
+
+            assertEquals(1, channel().approvals.size)
+            assertEquals("fs.read reached $project, a folder that is not trusted", mark()?.reason)
+            assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+        }
+    }
+
+    @Test
+    fun `a denied read does not run and leaves the conversation clean`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Not read.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
+            ask()
+
+            val denied = ToolOutcome.NotRun(NotRunReason.DENIED, channel().approvals.single().id)
+            assertEquals(denied, results().single().outcome)
+            assertNull(mark())
+        }
+    }
+
+    @Test
+    fun `in bypass mode a read runs unasked and marks the conversation`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+
+        harness().execute {
+            get<ChatSettings>().update(
+                channel().chat(),
+                ChatSettingsUpdate.builder().mode(PermissionMode.BYPASS, null).build(),
+                channel().user("operator"),
+            )
+            ask()
+
+            assertEquals(emptyList(), channel().approvals)
+            assertEquals(emptyList(), channel().offers)
+            assertEquals("fs.read reached $project, a folder that is not trusted", mark()?.reason)
+        }
+    }
+
+    @Test
+    fun `nobody answering a question about the read alone runs it and marks the conversation`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+
+        harness().execute { ask() }
+
+        assertEquals(ToolOutcome.Succeeded, blocking { results() }.single().outcome)
+        assertEquals("fs.read reached $project, a folder that is not trusted", blocking { mark() }?.reason)
+    }
+
+    @Test
+    fun `the side model picks the folder among several candidates by the operator's words`() {
+        val nested = file(project.resolve("lib/src/a.kt"))
+        project.resolve("lib/build.gradle.kts").writeText("")
+        model.reply { toolCall("fs.read", reading(nested)) }.reply { text("1") }.reply { text("Read.") }
+
+        harness().execute {
+            ask(text = "Look at the sources of the lib module.")
+
+            val roots = channel().approvals.single().roots
+            assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "${project.resolve("lib/src")}")), roots)
+        }
+    }
+
+    @Test
+    fun `an MCP server and a domain are offered as trust rules, and trusting them keeps later calls clean`() {
+        val docs = JsonObject(mapOf("url" to JsonPrimitive("docs.example.org"))).toString()
+        val api = JsonObject(mapOf("url" to JsonPrimitive("api.docs.example.org"))).toString()
+        model.reply { toolCall("mcp.files.read") }.reply { text("Read.") }
+            .reply { toolCall("web.fetch", docs) }.reply { text("Fetched.") }
+            .reply { toolCall("web.fetch", api) }.reply { text("Fetched again.") }
+            .reply { toolCall("mcp.files.read") }.reply { text("Read again.") }
+
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptApprovals(
+                ApprovalAnswer.Allowed(operator, trust = true),
+                ApprovalAnswer.Allowed(operator, trust = true),
+            )
+            repeat(4) { ask() }
+
+            assertEquals(
+                listOf(
+                    listOf(TrustRoot(TrustRootKind.SERVER, "files")),
+                    listOf(TrustRoot(TrustRootKind.DOMAIN, "docs.example.org")),
+                ),
+                channel().approvals.map { it.roots },
+            )
+            val rules = get<TrustControl>().rules(channel().chat()).map { it.rule }
+            assertEquals(listOf("mcp.files.*", "web.fetch(docs.example.org)"), rules)
+            assertNull(mark())
+        }
+    }
+
+    @Test
+    fun `untrusted output with no root to trust is asked about without a trust choice`() {
+        model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            ask()
+
+            val request = channel().approvals.single()
+            assertEquals(true to emptyList(), request.taints to request.roots)
+            assertEquals("the output of notes.paste is untrusted", request.untrusted)
+            assertEquals(
+                "notes.paste brought in a page",
+                mark()?.reason?.substringAfter("reported untrusted content: "),
+            )
+        }
+    }
+
+    // Automated turns.
+
+    @Test
+    fun `an automated turn reads unasked, marks the conversation and offers to trust and clear it`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = true))
+            val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Read the notes.").trust(Trust.TRUSTED).build()
+            val outcome = (get<TurnInitiation>().initiate("beat", turn) as Admission.Accepted).ticket.outcome()
+            val offer = channel().awaitOffers(1).single()
+            withTimeout(5.seconds) { while (mark() != null) delay(10) }
+
+            assertTrue(outcome is TurnOutcome.Completed)
+            assertEquals(emptyList(), channel().approvals)
+            assertTrue(offer.marked)
+            assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$project")), offer.roots)
+            assertTrue(get<TrustControl>().folders().any { it.path == project })
+        }
+    }
+
+    @Test
+    fun `an automated turn's conversation stays marked when the operator keeps the mark`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+
+        harness().execute {
+            channel().scriptOffers(ApprovalAnswer.Denied(channel().user("operator")))
+            val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Read the notes.").trust(Trust.TRUSTED).build()
+            (get<TurnInitiation>().initiate("beat", turn) as Admission.Accepted).ticket.outcome()
+            channel().awaitOffers(1)
+
+            assertEquals("fs.read would reach $project, a folder that is not trusted", mark()?.reason)
+            assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+        }
+    }
+
+    // People.
+
+    @Test
+    fun `a guest's message marks the conversation at once, and trusting them from the offer clears it`() {
+        model.reply { text("Hello.") }.reply { text("Hello again.") }
+
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = true))
+            val outcome = ask(user = "guest", text = "Hi.")
+            val offer = channel().awaitOffers(1).single()
+            withTimeout(5.seconds) { while (mark() != null) delay(10) }
+            ask(user = "guest", text = "Hi again.")
+
+            assertTrue(outcome is TurnOutcome.Completed)
+            assertTrue(offer.marked)
+            assertEquals(listOf(TrustRoot.person(channel().user("guest"), "Guest")), offer.roots)
+            assertEquals("a message from Guest, whom the agent does not trust", offer.untrusted)
+            assertNull(mark())
+            assertEquals(1, channel().offers.size)
+            val people = get<TrustControl>().people(channel().chat()).map { it.person.address }
+            assertEquals(listOf(channel().user("guest").address), people)
+        }
+    }
+
+    @Test
+    fun `a guest's mark stays when more untrusted content came in before the operator trusted them`() {
+        model.reply { text("Hello.") }.reply { text("Seen.") }
+
+        harness().execute {
+            channel().holdApprovals()
+            channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            ask(user = "guest", text = "Hi.")
+            ask(user = "operator", text = "Look.") { forwarded(ForwardOrigin(ForwardKind.USER, "Someone", null, null)) }
+            channel().releaseApprovals()
+            withTimeout(5.seconds) { while (get<TrustControl>().people(channel().chat()).isEmpty()) delay(10) }
+            delay(300)
+
+            assertEquals("a message from someone whom the agent does not trust", mark()?.reason)
+        }
+    }
+
+    @Test
+    fun `a guest's message marks the conversation when no operator answers`() {
+        model.reply { text("Hello.") }
+
+        harness().execute { ask(user = "guest", text = "Hi.") }
+
+        assertEquals("a message from someone whom the agent does not trust", blocking { mark() }?.reason)
+    }
+
+    @Test
+    fun `a person whom the channel trusts does not taint, while what they forward does`() {
+        model.reply { text("Hello.") }.reply { text("Seen.") }
+
+        harness(trustedUsers = setOf("friend")).execute {
+            ask(user = "friend", text = "Hi.")
+            val clean = mark()
+            ask(user = "friend", text = "Look.") { forwarded(ForwardOrigin(ForwardKind.USER, "Someone", null, null)) }
+
+            assertNull(clean)
+            assertEquals(emptyList(), channel().offers)
+            assertEquals("a forwarded message", mark()?.reason)
+        }
+    }
+
+    @Test
+    fun `a trusted guest's read asks an operator, and with nobody answering it runs and marks`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.read", reading(first)) }.reply { text("Read.") }
+
+        harness(trustedUsers = setOf("friend")).execute {
+            ask(user = "friend")
+
+            val request = channel().approvals.single()
+            assertTrue(request.taints)
+            assertEquals("fs.read reached $project, a folder that is not trusted", mark()?.reason)
+        }
+    }
+}

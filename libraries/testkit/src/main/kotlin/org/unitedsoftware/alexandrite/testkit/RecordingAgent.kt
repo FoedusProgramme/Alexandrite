@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
+import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -41,9 +42,10 @@ import org.unitedsoftware.alexandrite.sdk.turn.PeriodUsage
 import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedPerson
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
@@ -58,11 +60,11 @@ import java.time.ZoneOffset
 
 /**
  * The agent's host APIs as recording doubles that share one state: [turns], [conversations], [settings], [links],
- * [folders], [rules], [catalog] and [usage], each to inject where a plugin takes that API.
+ * [trust], [rules], [catalog] and [usage], each to inject where a plugin takes that API.
  *
  * It records the calls that change something in [calls], lists the [statuses] and [jobStatuses] the test sets, reports
  * the [compaction] and contexts it is scripted with, mints conversations `conversation-<n>` and keeps chat settings per
- * agent and chat, home chats per agent and instance, linked groups, trusted folders and allow rules, where
+ * agent and chat, home chats per agent and instance, linked groups, trusted folders, people and rules, and allow rules, where
  * [defaultAgent] serves every chat that is no other agent's home until an update switches it. A bypass ends as the
  * agent's does: an hour after [clock]'s time by default, a day after it at most.
  *
@@ -88,6 +90,7 @@ public class RecordingAgent(
     private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
     private val declaredTrust = mutableListOf<String>()
     private val grantedTrust = HashMap<ChatAddress, List<TrustRule>>()
+    private val trustedPeople = LinkedHashMap<UserAddress, TrustedPerson>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
     private val agentProfiles = mutableListOf<ProfileSummary>()
     private val refusals = ArrayDeque<String>()
@@ -126,7 +129,7 @@ public class RecordingAgent(
 
     public val links: ChatLinks = Links()
 
-    public val folders: TrustedFolders = Folders()
+    public val trust: TrustControl = Trust()
 
     public val rules: PermissionRules = Rules()
 
@@ -166,9 +169,8 @@ public class RecordingAgent(
     /**
      * Makes the next call that changes something, of [ConversationControl.newConversation], [ConversationControl.compact],
      * [ConversationControl.untaint], [ConversationControl.untaintHeartbeat], [ChatSettings.update], [ChatLinks.link],
-     * [ChatLinks.unlink], [TrustedFolders.trust], [TrustedFolders.untrust], [PermissionRules.revokeAllowRule],
-     * [PermissionRules.trust] or [PermissionRules.untrust], record itself and throw [ControlRefusedException] with
-     * [message].
+     * [ChatLinks.unlink], [PermissionRules.revokeAllowRule], or a change of [TrustControl], record itself and throw
+     * [ControlRefusedException] with [message].
      */
     public fun refuseNext(message: String) {
         synchronized(lock) { refusals.addLast(message) }
@@ -415,13 +417,13 @@ public class RecordingAgent(
         }
     }
 
-    private inner class Folders : TrustedFolders {
-        override fun list(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
+    private inner class Trust : TrustControl {
+        override fun folders(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
 
         /**
          * Trusts [folder], normalized, at [TEST_TIME] unless a trusted folder covers it, and refuses a relative path.
          */
-        override suspend fun trust(folder: Path, by: ChatUser?): Path = synchronized(lock) {
+        override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = synchronized(lock) {
             recorded += Call.TrustFolder(folder, by)
             refuseQueued()
             refuseIf(!folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
@@ -431,7 +433,7 @@ public class RecordingAgent(
         }
 
         /** Stops trusting [folder] unless the config file declares it, and refuses a relative path. */
-        override suspend fun untrust(folder: Path, by: ChatUser?): Revocation = synchronized(lock) {
+        override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation = synchronized(lock) {
             recorded += Call.UntrustFolder(folder, by)
             refuseQueued()
             refuseIf(!folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
@@ -439,6 +441,58 @@ public class RecordingAgent(
             if (found != null && !found.declared) trusted.remove(found)
             Revocation(removed = found?.declared == false, declared = found?.declared == true)
         }
+
+        /** The declared trust rules, then those granted at [chat]. */
+        override suspend fun rules(chat: ChatAddress): List<TrustRule> = synchronized(lock) {
+            declaredTrust.map { TrustRule(it, true, null, null, anyCode(it)) } + grantedTrust[chat].orEmpty()
+        }
+
+        /** Trusts [rule] at [chat] at [TEST_TIME], refusing one without a tool name. */
+        override suspend fun trustRule(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule = synchronized(lock) {
+            recorded += Call.Trust(chat, rule, by)
+            refuseQueued()
+            val written = rule.trim()
+            refuseIf(!TRUST_RULE.matches(written)) { "'$written' is no rule." }
+            TrustRule(written, false, TEST_TIME, by, anyCode(written)).also { trusted ->
+                grantedTrust[chat] = grantedTrust[chat].orEmpty().filterNot { it.rule == written } + trusted
+            }
+        }
+
+        /** Stops trusting [rule] at [chat], reporting it declared when the config file declares it too. */
+        override suspend fun untrustRule(chat: ChatAddress, rule: String, by: ChatUser?): Revocation =
+            synchronized(lock) {
+                recorded += Call.Untrust(chat, rule, by)
+                refuseQueued()
+                val written = rule.trim()
+                val before = grantedTrust[chat].orEmpty()
+                grantedTrust[chat] = before.filterNot { it.rule == written }
+                Revocation(removed = before.any { it.rule == written }, declared = written in declaredTrust)
+            }
+
+        /** The people trusted at runtime, at every chat, in the order they were trusted. */
+        override suspend fun people(chat: ChatAddress): List<TrustedPerson> =
+            synchronized(lock) { trustedPeople.values.toList() }
+
+        /** Trusts [person] at [TEST_TIME], refusing an operator, whom the agent trusts already. */
+        override suspend fun trustPerson(chat: ChatAddress, person: ChatUser, by: ChatUser?): TrustedPerson =
+            synchronized(lock) {
+                recorded += Call.TrustPerson(chat, person, by)
+                refuseQueued()
+                refuseIf(person.isOperator) { "${person.displayName} is an operator, whom the agent trusts already." }
+                TrustedPerson(person, TEST_TIME, by).also { trustedPeople[person.address] = it }
+            }
+
+        /** Stops trusting [person], reporting them trusted still when their channel trusts them. */
+        override suspend fun untrustPerson(chat: ChatAddress, person: ChatUser, by: ChatUser?): Revocation =
+            synchronized(lock) {
+                recorded += Call.UntrustPerson(chat, person, by)
+                refuseQueued()
+                val removed = trustedPeople.remove(person.address) != null
+                Revocation(removed = removed, declared = person.isTrusted || person.isOperator)
+            }
+
+        /** The taint that [taints] holds at [chat]. */
+        override suspend fun taint(chat: ChatAddress): ConversationTaint? = synchronized(lock) { taints[chat] }
     }
 
     private inner class Rules : PermissionRules {
@@ -462,32 +516,6 @@ public class RecordingAgent(
                 }
                 Revocation(removed = true, declared = still)
             }
-
-        /** The declared trust rules, then those granted at [chat]. */
-        override suspend fun trustRules(chat: ChatAddress): List<TrustRule> = synchronized(lock) {
-            declaredTrust.map { TrustRule(it, true, null, null, anyCode(it)) } + grantedTrust[chat].orEmpty()
-        }
-
-        /** Trusts [rule] at [chat] at [TEST_TIME], refusing one without a tool name. */
-        override suspend fun trust(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule = synchronized(lock) {
-            recorded += Call.Trust(chat, rule, by)
-            refuseQueued()
-            val written = rule.trim()
-            refuseIf(!TRUST_RULE.matches(written)) { "'$written' is no rule." }
-            TrustRule(written, false, TEST_TIME, by, anyCode(written)).also { trusted ->
-                grantedTrust[chat] = grantedTrust[chat].orEmpty().filterNot { it.rule == written } + trusted
-            }
-        }
-
-        /** Stops trusting [rule] at [chat], reporting it declared when the config file declares it too. */
-        override suspend fun untrust(chat: ChatAddress, rule: String, by: ChatUser?): Revocation = synchronized(lock) {
-            recorded += Call.Untrust(chat, rule, by)
-            refuseQueued()
-            val written = rule.trim()
-            val before = grantedTrust[chat].orEmpty()
-            grantedTrust[chat] = before.filterNot { it.rule == written }
-            Revocation(removed = before.any { it.rule == written }, declared = written in declaredTrust)
-        }
     }
 
     private inner class Catalog : AgentCatalog {
@@ -670,6 +698,17 @@ public class RecordingAgent(
 
         @Poko
         public class Untrust(public val chat: ChatAddress, public val rule: String, public val by: ChatUser?) : Call
+
+        @Poko
+        public class TrustPerson(public val chat: ChatAddress, public val person: ChatUser, public val by: ChatUser?) :
+            Call
+
+        @Poko
+        public class UntrustPerson(
+            public val chat: ChatAddress,
+            public val person: ChatUser,
+            public val by: ChatUser?,
+        ) : Call
 
         @Poko
         public class RevokeAllowRule(public val chat: ChatAddress, public val number: Int, public val by: ChatUser?) :

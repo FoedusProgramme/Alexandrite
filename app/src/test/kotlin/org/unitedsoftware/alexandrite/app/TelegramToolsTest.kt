@@ -146,7 +146,9 @@ class TelegramToolsTest {
 
         app.run(builder("auto")) {
             val asking = app.send(app.bob, app.group, "$BOT_MENTION react")
-            val asked = app.fake.await(WAIT) { botMessages(ADA).lastOrNull { it.buttons.isNotEmpty() } }
+            val asked = app.fake.await(WAIT) {
+                botMessages(ADA).lastOrNull { it.buttons.isNotEmpty() && it.text.startsWith("Approval needed") }
+            }
             assertTrue("React with 👍 to message $asking in \"Backend\"" in asked.text, asked.text)
             assertTrue("Requested by: Bob" in asked.text, asked.text)
             app.fake.press(app.ada, asked, "Allow")

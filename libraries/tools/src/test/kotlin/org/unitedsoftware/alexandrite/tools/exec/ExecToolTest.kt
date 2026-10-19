@@ -181,8 +181,9 @@ class ExecToolTest {
         val sub = fs.workspace.resolve("sub").createDirectories()
         val pwd = resolveProgram("pwd", sub, searchPath(System.getenv()))!!.toRealPath()
 
-        val preview = tool.check(fs.context(), "command" to "pwd", "cwd" to "sub").preview
-        assertEquals(ReviewPreview.Command(listOf("pwd"), sub, pwd, opaque = false), preview)
+        val review = tool.check(fs.context(), "command" to "pwd", "cwd" to "sub")
+        assertEquals(ReviewPreview.Command(listOf("pwd"), sub, pwd, opaque = false), review.preview)
+        assertEquals(listOf(sub), review.reads)
         assertEquals("Exit code: 0\n$sub", tool.run(fs.context(), "command" to "pwd", "cwd" to "sub").text)
     }
 

@@ -62,6 +62,7 @@ class WriteToolTest {
             CallReview.builder()
                 .preview(ReviewPreview.Diff(file, "--- /dev/null\n+++ $file\n@@ -0,0 +1,2 @@\n+a\n+b\n"))
                 .snapshot("absent")
+                .reads(listOf(file))
                 .build(),
             review,
         )

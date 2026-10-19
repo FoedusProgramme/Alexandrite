@@ -56,6 +56,10 @@ internal class UpdateReader(
     private val answeredAdmin: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
     /** Whether every message of a group is meant for the bot, not only those that name it. */
     private val everyGroupMessage: Boolean = false,
+    /** The users whose own messages the bot's agents trust. */
+    private val trusted: Set<Long> = emptySet(),
+    /** The user named by a username without its `@`, who wrote lately in a chat. */
+    private val known: (chat: Long, username: String) -> User? = { _, _ -> null },
     private val files: (fileId: String) -> MediaContent,
 ) {
     /** The chat of [message], its forum topic as the thread. */
@@ -78,6 +82,7 @@ internal class UpdateReader(
         user.username,
         user.isBot,
         isOperator = user.id in admins && senderChat == null,
+        isTrusted = user.id in trusted && senderChat == null,
     )
 
     /**
@@ -131,6 +136,8 @@ internal class UpdateReader(
                 .arguments(command.arguments)
                 .trigger(ref)
                 .chatKind(incoming.chatInfo.kind)
+                .replyTo(replyTo(message))
+                .mentions(mentions(message))
                 .build()
             return Inbound.Command(invocation, incoming)
         }
@@ -195,6 +202,31 @@ internal class UpdateReader(
         if (name.isEmpty() || name.startsWith('/') || name.any(Char::isISOControl)) return null
         val forBot = target == null || target.equals(bot.username, ignoreCase = true)
         return CommandToken(name, target, text.substring(token.length).trimStart(), forBot)
+    }
+
+    /** The sender of the message that [message] replies to, null for none, a chat's, the bot's or a topic's root. */
+    private fun replyTo(message: Message): ChatUser? {
+        val replied = message.replyToMessage?.takeUnless { isTopicRoot(message) } ?: return null
+        if (replied.senderChat != null) return null
+        return replied.from?.takeIf { it.id != bot.id }?.let { user(it) }
+    }
+
+    /** The users that the text of [message] mentions, as far as the bot knows them, each once and the bot left out. */
+    private fun mentions(message: Message): List<ChatUser> {
+        val text = message.text ?: return emptyList()
+        return message.entities.orEmpty().mapNotNull { entity ->
+            if (entity.offset < 0 || entity.length <= 0 || entity.offset + entity.length > text.length) {
+                return@mapNotNull null
+            }
+            when (entity.type) {
+                "text_mention" -> entity.user
+                "mention" -> known(message.chat.id, text.substring(entity.offset + 1, entity.offset + entity.length))
+                else -> null
+            }
+        }
+            .filter { it.id != bot.id }
+            .distinctBy { it.id }
+            .map { user(it) }
     }
 
     private fun mentionsBot(message: Message): Boolean {

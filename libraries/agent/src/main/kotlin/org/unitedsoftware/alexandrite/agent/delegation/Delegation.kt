@@ -7,9 +7,9 @@ import org.unitedsoftware.alexandrite.agent.job.EndedJob
 import org.unitedsoftware.alexandrite.agent.job.JobInbox
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.jobPlan
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.turn.FollowUp
 import org.unitedsoftware.alexandrite.agent.turn.FollowUps
 import org.unitedsoftware.alexandrite.agent.turn.TurnPermit

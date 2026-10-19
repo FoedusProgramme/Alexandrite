@@ -43,6 +43,8 @@ internal class Intake(
             approvalMessages,
             vouched::contains,
             config.groupMessages == GroupMessages.ALL,
+            config.trustedUserIds.toSet(),
+            users::user,
             files::content,
         )
     }
@@ -90,6 +92,7 @@ internal class Intake(
         }
         titles.note(chat, message.chat.title)
         message.from?.let { users.note(message.chat.id, it) }
+        message.replyToMessage?.from?.let { users.note(message.chat.id, it) }
         return when (val inbound = reader.read(parts)) {
             is Inbound.Ignored -> ignored(message.messageId, inbound.why)
 

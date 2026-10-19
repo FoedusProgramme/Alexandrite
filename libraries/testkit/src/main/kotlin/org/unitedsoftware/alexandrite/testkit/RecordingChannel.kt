@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ReplySink
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
@@ -51,8 +52,11 @@ public class RecordingChannel(
     /** How many characters one platform message holds. */
     private val partLength: Int = DEFAULT_PART_LENGTH,
     private val submitter: TurnSubmitter? = null,
+    /** The users whom the instance's config trusts. */
+    trusted: Set<String> = emptySet(),
 ) : Channel {
     private val operators = operators.toSet()
+    private val trusted = trusted.toSet()
     private val lock = Any()
     private val log = MutableStateFlow<List<Event>>(emptyList())
 
@@ -64,11 +68,16 @@ public class RecordingChannel(
     private var sentParts = 0
     private var inbound = 0
     private val approvalAnswers = ArrayDeque<ApprovalAnswer>()
+    private val offerAnswers = ArrayDeque<ApprovalAnswer>()
     private var approvalHold: CompletableDeferred<Unit>? = null
 
     /** The answer of each approval request that no scripted answer is left for. */
     @Volatile
     public var defaultApproval: ApprovalAnswer = NO_APPROVER
+
+    /** The answer of each trust offer that no scripted answer is left for. */
+    @Volatile
+    public var defaultOffer: ApprovalAnswer = NO_APPROVER
 
     /** Whether a user who is no operator may run every command, which operators alone may when false. */
     @Volatile
@@ -98,6 +107,10 @@ public class RecordingChannel(
     /** The approval requests the agent made, in order. */
     public val approvals: List<ApprovalRequest>
         get() = events.filterIsInstance<Event.ApprovalAsked>().map { it.request }
+
+    /** The trust offers the agent made, in order. */
+    public val offers: List<TrustOffer>
+        get() = events.filterIsInstance<Event.TrustOffered>().map { it.offer }
 
     /** The reply opened for [turn], or for the activity of its background [run]. */
     public fun reply(turn: TurnId, run: RunId? = null): RecordedReply = synchronized(lock) { opened[turn to run] }
@@ -131,7 +144,19 @@ public class RecordingChannel(
         synchronized(lock) { approvalAnswers.addAll(answers) }
     }
 
-    /** Makes the approval requests from now on wait for [releaseApprovals] before they take their answers. */
+    /** Answers the next trust offers with [answers], in order. */
+    public fun scriptOffers(vararg answers: ApprovalAnswer) {
+        synchronized(lock) { offerAnswers.addAll(answers) }
+    }
+
+    /** Suspends until the agent made [count] trust offers, and returns them. */
+    public suspend fun awaitOffers(count: Int): List<TrustOffer> =
+        log.mapNotNull { events -> events.filterIsInstance<Event.TrustOffered>().takeIf { it.size >= count } }
+            .first()
+            .take(count)
+            .map { it.offer }
+
+    /** Makes the approval requests and trust offers from now on wait for [releaseApprovals] before they take their answers. */
     public fun holdApprovals() {
         synchronized(lock) { if (approvalHold == null) approvalHold = CompletableDeferred() }
     }
@@ -153,8 +178,8 @@ public class RecordingChannel(
 
     public fun chat(chat: String = "chat", thread: String? = null): ChatAddress = ChatAddress(instance, chat, thread)
 
-    /** A human user, an operator when [user] is one of the instance's operators. */
-    public fun user(user: String = "guest"): ChatUser = testUser(user, user in operators, instance)
+    /** A human user, an operator when [user] is one of the instance's operators, trusted when the config trusts them. */
+    public fun user(user: String = "guest"): ChatUser = testUser(user, user in operators, instance, user in trusted)
 
     /** A message of [sender] in [chat], numbered `in-<n>`, changed by [block]. */
     public fun message(
@@ -251,6 +276,20 @@ public class RecordingChannel(
         return synchronized(lock) {
             val answer = approvalAnswers.removeFirstOrNull() ?: defaultApproval
             record(Event.ApprovalAnswered(request.id, answer))
+            answer
+        }
+    }
+
+    /** Records [offer] and answers it once approvals are not held, with the next scripted answer or the default. */
+    override suspend fun offerTrust(offer: TrustOffer): ApprovalAnswer {
+        val hold = synchronized(lock) {
+            record(Event.TrustOffered(offer))
+            approvalHold
+        }
+        hold?.await()
+        return synchronized(lock) {
+            val answer = offerAnswers.removeFirstOrNull() ?: defaultOffer
+            record(Event.OfferAnswered(offer.id, answer))
             answer
         }
     }
@@ -414,6 +453,13 @@ public class RecordingChannel(
         /** The agent withdrew the request [id] before it was answered. */
         @Poko
         public class ApprovalWithdrawn(public val id: String) : Event
+
+        @Poko
+        public class TrustOffered(public val offer: TrustOffer) : Event
+
+        /** The trust offer [id] got [answer]. */
+        @Poko
+        public class OfferAnswered(public val id: String, public val answer: ApprovalAnswer) : Event
     }
 
     public companion object {

@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -87,6 +88,8 @@ class CallRulesTest {
                 ),
                 registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock, NotContained,
                 NoInstructionPlaces,
+                NoForesight,
+                NoMarkOffers,
             )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */
@@ -513,7 +516,7 @@ class CallRulesTest {
     private class OfferingApprovals(private val rules: CallRules) : Approvals {
         val offered = mutableListOf<RuleSubject?>()
 
-        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
             offered += rules.grantable(call).firstOrNull()
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

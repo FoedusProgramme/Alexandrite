@@ -102,7 +102,7 @@ class TelegramMcpTest {
             val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             assertContains(asked.text, "mcp.files.echo")
             assertContains(asked.text, "MCP server files, tool echo")
-            app.fake.press(app.ada, asked, "Allow")
+            app.fake.press(app.ada, asked, "Allow, mark tainted")
             app.message(app.adaChat, "Files said it.")
             idle()
             taint = get<ConversationStore>().taint(get<ConversationStore>().current(app.key(app.adaChat)).id)
@@ -165,7 +165,7 @@ class TelegramMcpTest {
             app.send(app.ada, app.adaChat, "Fail.")
             app.message(app.adaChat, "Refused.")
             app.send(app.ada, app.adaChat, "Taint.")
-            press { it == "Allow" }
+            press { it == "Allow, mark tainted" }
             app.message(app.adaChat, "Tainted.")
             app.send(app.ada, app.adaChat, "Keep.")
             buttons = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
@@ -219,7 +219,7 @@ class TelegramMcpTest {
                 app.send(app.ada, app.adaChat, "Ask the web server.")
                 val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
                 assertContains(asked.text, "MCP server web, tool echo")
-                app.fake.press(app.ada, asked, "Allow")
+                app.fake.press(app.ada, asked, "Allow, mark tainted")
                 app.message(app.adaChat, "Web said it.")
                 idle()
             }

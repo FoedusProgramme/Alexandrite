@@ -343,14 +343,39 @@ class SubclassOptInTest {
             override fun groups(agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?) = TODO()
         }
 
-        class Folders : org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders {
-            override fun list() = TODO()
-            override suspend fun trust(folder: java.nio.file.Path, by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?) =
-                TODO()
-            override suspend fun untrust(
+        class Trust : org.unitedsoftware.alexandrite.sdk.turn.TrustControl {
+            override fun folders() = TODO()
+            override suspend fun trustFolder(
                 folder: java.nio.file.Path,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun untrustFolder(
+                folder: java.nio.file.Path,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun rules(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun trustRule(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                rule: String,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun untrustRule(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                rule: String,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun people(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun trustPerson(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                person: org.unitedsoftware.alexandrite.sdk.chat.ChatUser,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun untrustPerson(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                person: org.unitedsoftware.alexandrite.sdk.chat.ChatUser,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun taint(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
         }
 
         class Rules : org.unitedsoftware.alexandrite.sdk.turn.PermissionRules {
@@ -358,17 +383,6 @@ class SubclassOptInTest {
             override suspend fun revokeAllowRule(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 number: Int,
-                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
-            ) = TODO()
-            override suspend fun trustRules(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
-            override suspend fun trust(
-                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
-                rule: String,
-                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
-            ) = TODO()
-            override suspend fun untrust(
-                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
-                rule: String,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
         }

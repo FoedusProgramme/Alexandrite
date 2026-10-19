@@ -17,9 +17,7 @@ import org.unitedsoftware.alexandrite.agent.job.Detached
 import org.unitedsoftware.alexandrite.agent.job.JobInboxes
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.messaging.MessageBudget
-import org.unitedsoftware.alexandrite.agent.permission.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.permission.Principal
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.profile.Profiles
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
@@ -28,6 +26,8 @@ import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
 import org.unitedsoftware.alexandrite.agent.tool.shaped
+import org.unitedsoftware.alexandrite.agent.trust.ConversationTaints
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.turn.HistoryCache
 import org.unitedsoftware.alexandrite.agent.turn.TurnPermit
 import org.unitedsoftware.alexandrite.agent.turn.TurnPlan

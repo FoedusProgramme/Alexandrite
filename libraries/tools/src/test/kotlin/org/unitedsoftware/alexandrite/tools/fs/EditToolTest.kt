@@ -287,6 +287,7 @@ class EditToolTest {
             CallReview.builder()
                 .preview(ReviewPreview.Diff(file, "--- $file\n+++ $file\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"))
                 .snapshot(hashOf(file))
+                .reads(listOf(file))
                 .build(),
             review,
         )

@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -84,6 +85,8 @@ class TaintGateTest {
             clock,
             NotContained,
             places,
+            NoForesight,
+            NoMarkOffers,
         )
     }
 
@@ -209,7 +212,7 @@ class TaintGateTest {
     private class Asking : Approvals {
         val asked = CopyOnWriteArrayList<Pair<String, String?>>()
 
-        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
             asked += reason to note
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), "Asked.")
         }

@@ -16,7 +16,6 @@ import org.unitedsoftware.alexandrite.agent.TestClock
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.hostPaths
 import org.unitedsoftware.alexandrite.agent.permission.NoTaintLedger
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.pluginScope
 import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
@@ -24,6 +23,7 @@ import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolCallEnd
 import org.unitedsoftware.alexandrite.agent.tool.ToolExecutor
 import org.unitedsoftware.alexandrite.agent.tool.ToolGate
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId

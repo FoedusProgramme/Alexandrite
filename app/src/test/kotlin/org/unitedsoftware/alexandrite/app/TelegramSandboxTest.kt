@@ -50,7 +50,7 @@ class TelegramSandboxTest {
     }
 
     @Test
-    fun `a contained command runs unasked until its conversation is tainted, and reaches and writes only inside`() {
+    fun `a contained command asks before it taints, then under taint, and reaches and writes only inside`() {
         val port = server.address.port
         val outside = Path.of("build/sandbox-test").toAbsolutePath().createDirectories().toRealPath()
         Files.deleteIfExists(outside.resolve("escaped"))
@@ -66,12 +66,12 @@ class TelegramSandboxTest {
 
         app.run(builder(port)) {
             app.send(app.ada, app.adaChat, "Fetch it.")
-            repeat(2) {
+            repeat(3) { index ->
                 val request = app.fake.await(WAIT) {
                     botMessages(app.adaChat.id).firstOrNull { it.buttons.isNotEmpty() && it.text !in asked }
                 }
                 asked += request.text
-                app.fake.press(app.ada, request, "Allow")
+                app.fake.press(app.ada, request, if (index == 0) "Allow, mark tainted" else "Allow")
             }
             app.message(app.adaChat, "Done.")
             idle()
@@ -85,7 +85,9 @@ class TelegramSandboxTest {
         assertContains(results[1], "The sandbox's proxy refused example.org")
         assertContains(results[2], "Operation not permitted")
         assertFalse(Files.exists(outside.resolve("escaped")))
-        for (request in asked) {
+        assertContains(asked.first(), "Why: the call would bring the first untrusted content into the conversation")
+        assertContains(asked.first(), "Sandbox: runs in the seatbelt sandbox")
+        for (request in asked.drop(1)) {
             assertContains(request, "Why: the chat is in ask mode")
             assertContains(request, "Sandbox: runs in the seatbelt sandbox")
             assertContains(request, "this conversation holds untrusted content")

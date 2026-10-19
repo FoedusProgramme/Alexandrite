@@ -261,6 +261,39 @@ class WebTest {
     }
 
     @Test
+    fun `a fetch's review names its host as untrusted content, and a search's its output`() = runBlocking {
+        val context = testToolContext()
+        val fetch = FetchTool(WebConfig(), WebPages { WebPage(URI(it), "page") }, Answers())
+
+        val review = fetch.review(args("url" to "https://Docs.Example.org/a", "prompt" to "q"), context)
+        val malformed = fetch.review(args("url" to "nowhere", "prompt" to "q"), context)
+        val search = SearchTool(WebConfig(), Answers(), emptyList()).review(args("query" to "q"), context)
+
+        assertEquals(true to "docs.example.org", review.untrusted to review.host)
+        assertEquals(true to null, malformed.untrusted to malformed.host)
+        assertEquals(true to null, search.untrusted to search.host)
+    }
+
+    @Test
+    fun `a fetch that a redirect takes to another site returns nothing of it`() = runBlocking {
+        val context = testToolContext()
+        val answers = Answers()
+        fun tool(to: String) = FetchTool(WebConfig(), WebPages { WebPage(URI(to), "page") }, answers)
+        suspend fun FetchTool.result() = execute(args("url" to "https://example.com/a", "prompt" to "q"), context)
+
+        val elsewhere = tool("https://elsewhere.test/b").result()
+        val same = listOf("https://www.example.com/b", "https://docs.example.com/b").map { tool(it).result().isError }
+
+        assertTrue(elsewhere.isError)
+        assertEquals(
+            "https://example.com/a redirects to https://elsewhere.test/b, on another host: fetch that address itself " +
+                "to read it.",
+            elsewhere.content.filterIsInstance<TextPart>().single().text,
+        )
+        assertEquals(listOf(false, false), same)
+    }
+
+    @Test
     fun `a refused or failed fetch tells the model why, and a slow one that it timed out`() = runBlocking {
         val context = testToolContext()
         fun tool(pages: WebPages) = FetchTool(WebConfig(timeoutSeconds = 1), pages, Answers())

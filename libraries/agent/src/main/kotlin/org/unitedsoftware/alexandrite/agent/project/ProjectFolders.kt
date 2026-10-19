@@ -115,6 +115,18 @@ internal class ProjectFolders(
 /** Whether [directory] holds `.git`. */
 internal fun isRepository(directory: Path): Boolean = Files.exists(directory.resolve(GIT), LinkOption.NOFOLLOW_LINKS)
 
+/** Whether [directory] holds a file or directory that marks a project's root, such as `.git` or a build file. */
+internal fun hasProjectMarker(directory: Path): Boolean =
+    PROJECT_MARKERS.any { Files.exists(directory.resolve(it), LinkOption.NOFOLLOW_LINKS) }
+
+/** What a project's root holds. */
+private val PROJECT_MARKERS = listOf(
+    GIT, ".hg", ".svn", "AGENTS.md", "CLAUDE.md", "build.gradle", "build.gradle.kts", "settings.gradle",
+    "settings.gradle.kts", "pom.xml", "build.xml", "package.json", "deno.json", "pyproject.toml", "setup.py",
+    "requirements.txt", "Cargo.toml", "go.mod", "Gemfile", "composer.json", "mix.exs", "Package.swift",
+    "CMakeLists.txt", "Makefile", "meson.build", "flake.nix", "pubspec.yaml", "build.sbt", "project.clj",
+)
+
 /** Where a project keeps its skills, one directory per skill. */
 private val SKILL_DIRECTORIES = listOf(".agents/skills", ".claude/skills")
 

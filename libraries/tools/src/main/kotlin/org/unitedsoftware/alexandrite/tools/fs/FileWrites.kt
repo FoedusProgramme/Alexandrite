@@ -119,6 +119,7 @@ internal fun Target.review(text: String): CallReview = CallReview.builder()
     .snapshot(snapshot)
     .exempt(exempt)
     .person(person)
+    .reads(listOf(file))
     .build()
 
 /** The diff from the file's text to [text], ignoring carriage returns unless only they change. */

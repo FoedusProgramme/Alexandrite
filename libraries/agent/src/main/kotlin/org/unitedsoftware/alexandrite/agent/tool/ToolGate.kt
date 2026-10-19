@@ -1,8 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.tool
 
 import kotlinx.serialization.json.JsonObject
-import org.unitedsoftware.alexandrite.agent.permission.CallTrust
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview

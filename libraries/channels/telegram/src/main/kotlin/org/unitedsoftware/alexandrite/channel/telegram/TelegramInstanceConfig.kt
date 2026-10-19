@@ -33,6 +33,8 @@ internal class TelegramInstanceConfig(
     val commandMenu: Boolean = true,
     /** Who may run each named command of another plugin, which only admins may run otherwise. */
     val commands: Map<String, Who> = emptyMap(),
+    /** The Telegram user ids whose own messages this bot's agents trust. */
+    val trustedUserIds: List<Long> = emptyList(),
 ) {
     init {
         val token = botToken.reveal()
@@ -43,6 +45,9 @@ internal class TelegramInstanceConfig(
         }
         adminUserIds.forEachIndexed { index, id ->
             require(id > 0) { "adminUserIds[$index] must be a Telegram user id, which is positive" }
+        }
+        trustedUserIds.forEachIndexed { index, id ->
+            require(id > 0) { "trustedUserIds[$index] must be a Telegram user id, which is positive" }
         }
         allowedChats.forEachIndexed { index, id ->
             require(id != 0L) { "allowedChats[$index] must be a Telegram chat id, which is not 0" }

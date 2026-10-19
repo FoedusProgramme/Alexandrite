@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.permission
 
+import org.unitedsoftware.alexandrite.agent.trust.TaintLedger
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import java.nio.file.Path

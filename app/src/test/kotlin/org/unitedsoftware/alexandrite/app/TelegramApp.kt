@@ -51,13 +51,14 @@ class TelegramApp(
     fun dataDir(directory: Path): Path = directory.resolve("data")
 
     /**
-     * The app with its data and its config file in [directory], whose paired chats are [paired], on the SQLite
-     * store when [sqlite] and on [store] otherwise.
+     * The app with its data and its config file in [directory], whose paired chats are [paired] and trusted users
+     * [trusted], on the SQLite store when [sqlite] and on [store] otherwise.
      */
     fun builder(
         directory: Path,
         paired: List<Long> = listOf(ADA, BOB, GROUP),
         sqlite: Boolean = false,
+        trusted: List<Long> = emptyList(),
     ): PluginHarness.Builder {
         val telegram = AlexandriteChannelTelegramIndex()
         val builder = PluginHarness.builder(AlexandriteAgentIndex())
@@ -65,7 +66,7 @@ class TelegramApp(
             .plugin(AlexandriteCommandsIndex())
             .plugin(telegram)
             .config(AGENT_CONFIG)
-            .config(telegram, telegramConfig(paired))
+            .config(telegram, telegramConfig(paired, trusted))
             .model(model)
             .dataRoot(dataDir(directory))
             .keptConfigFile(directory.toRealPath().resolve("config/alexandrite.json"))
@@ -104,9 +105,10 @@ class TelegramApp(
         fake.close()
     }
 
-    private fun telegramConfig(paired: List<Long>): String =
+    private fun telegramConfig(paired: List<Long>, trusted: List<Long>): String =
         """{"instances": {"work": {"botToken": "${fake.token}", "apiBaseUrl": "${fake.baseUrl}", """ +
-            """"adminUserIds": [$ADA], "allowedChats": $paired, "polling": {"timeoutSeconds": 1}, """ +
+            """"adminUserIds": [$ADA], "trustedUserIds": $trusted, "allowedChats": $paired, """ +
+            """"polling": {"timeoutSeconds": 1}, """ +
             """"streaming": {"editIntervalMillis": 0, "groupEditIntervalMillis": 0}}}}"""
 
     companion object {
@@ -121,6 +123,9 @@ class TelegramApp(
         val WORK = ChannelInstanceId(ChannelType("telegram"), "work")
         val CODER = AgentId("coder")
         val WAIT = 10.seconds
+
+        /** How the offer to trust what tainted a conversation starts. */
+        const val OFFERED = "Untrusted content came in"
 
         private val AGENT_CONFIG = """
             {

@@ -9,6 +9,10 @@ import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.control.PendingCommands
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.startingInBackground
+import org.unitedsoftware.alexandrite.agent.trust.ConversationTaints
+import org.unitedsoftware.alexandrite.agent.trust.TaintNotes
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
+import org.unitedsoftware.alexandrite.agent.trust.UnstoredTaints
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
@@ -93,7 +97,7 @@ class TaintFlowTest {
             ask(user = "guest")
 
             assertEquals(null, operator)
-            assertEquals("a message from someone who is no operator", mark()?.reason)
+            assertEquals("a message from someone whom the agent does not trust", mark()?.reason)
         }
     }
 
@@ -105,7 +109,7 @@ class TaintFlowTest {
             get<PendingCommands>().record(conversation(), channel().user("guest"), "/context", emptyList())
             ask()
 
-            assertEquals("a command of someone who is no operator", mark()?.reason)
+            assertEquals("a command of someone whom the agent does not trust", mark()?.reason)
         }
     }
 
@@ -186,7 +190,7 @@ class TaintFlowTest {
     fun `a mark that cannot be stored is carried by the conversation's later turns until it is stored or cleared`() {
         val failing = Failing(store.conversations)
         val unstored = UnstoredTaints()
-        val taints = ConversationTaints(failing, Clock.systemUTC(), unstored)
+        val taints = ConversationTaints(failing, Clock.systemUTC(), unstored, TaintNotes())
         blocking {
             val conversation = conversation()
             val first = taints.open(TurnId("t-1"), key, conversation)

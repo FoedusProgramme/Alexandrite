@@ -7,6 +7,8 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -24,12 +26,13 @@ import org.unitedsoftware.alexandrite.tools.fs.property
 import org.unitedsoftware.alexandrite.tools.fs.requiredString
 import org.unitedsoftware.alexandrite.tools.fs.schema
 import java.net.URI
+import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
 @Singleton
 @Contribute(Tool::class)
 internal class FetchTool(private val config: WebConfig, private val fetch: WebPages, private val models: WebModels?) :
-    Tool {
+    ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.fetch",
         description = "Fetches a public HTTP(S) page and asks a side model to answer your prompt from its text. " +
@@ -45,15 +48,32 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
         titleArguments = listOf("url"),
     )
 
+    /** A call whose page is untrusted web content from its URL's host. */
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
+        val host = try {
+            checkedHost(URI(arguments.text("url", 8192)), config.normalizedPrivateHosts)
+        } catch (e: Exception) {
+            null
+        }
+        return CallReview.builder().untrusted(true).host(host).build()
+    }
+
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("url", "prompt") }) { "Unknown web.fetch argument." }
         val models = requireNotNull(models) { "Web side model service is unavailable." }
         val url = arguments.text("url", 8192)
         val prompt = arguments.text("prompt", 16_000)
-        checkedHost(URI(url), config.normalizedPrivateHosts)
+        val host = checkedHost(URI(url), config.normalizedPrivateHosts)
         context.untrusted("web.fetch reads untrusted web content")
         withTimeout(definition.timeout!!) {
             val page = fetch.fetch(url)
+            val reached = page.url.host?.lowercase(Locale.ROOT)?.removeSuffix(".")
+            if (reached != null && !sameSite(host, reached)) {
+                return@withTimeout ToolResult(
+                    "$url redirects to ${page.url}, on another host: fetch that address itself to read it.",
+                    isError = true,
+                )
+            }
             val question =
                 PageQuestion(context.turn, page.url.toString(), page.text, prompt, config.model?.let(ModelRef::parse))
             ToolResult(sideModel { models.answer(question) })
@@ -67,7 +87,7 @@ internal class SearchTool(
     private val config: WebConfig,
     private val models: WebModels?,
     backends: List<WebSearchBackend>,
-) : Tool {
+) : ReviewedTool {
     private val backends = backends.associateBy { it.id }
 
     init {
@@ -87,6 +107,9 @@ internal class SearchTool(
         activity = ToolActivity.SEARCH,
         titleArguments = listOf("query"),
     )
+
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+        CallReview.builder().untrusted(true).build()
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("query", "limit") }) { "Unknown web.search argument." }
@@ -114,6 +137,10 @@ internal class SearchTool(
         }
     }
 }
+
+/** Whether [reached] is [host], a host below it, or the same host with or without `www.`. */
+private fun sameSite(host: String, reached: String): Boolean =
+    reached == host || reached.endsWith(".$host") || reached.removePrefix("www.") == host.removePrefix("www.")
 
 private suspend fun webResult(block: suspend () -> ToolResult): ToolResult = try {
     block()

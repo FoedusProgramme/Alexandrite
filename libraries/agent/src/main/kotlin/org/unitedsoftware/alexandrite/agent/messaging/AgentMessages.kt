@@ -7,10 +7,10 @@ import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.delivery.visibleText
 import org.unitedsoftware.alexandrite.agent.job.JobCarried
-import org.unitedsoftware.alexandrite.agent.permission.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
+import org.unitedsoftware.alexandrite.agent.trust.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.turn.TurnPlan
 import org.unitedsoftware.alexandrite.agent.turn.TurnSource
 import org.unitedsoftware.alexandrite.agent.worker.AgentTicket

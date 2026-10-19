@@ -35,10 +35,14 @@ import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -54,8 +58,8 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.minutes
 
 /**
- * Shows approval requests as messages with buttons, in the chat of an admin's own turn and else in the admins' direct
- * chats, and takes the first answer an admin gives within the configured time.
+ * Shows approval requests and trust offers as messages with buttons, in the chat of an admin's own turn and else in the
+ * admins' direct chats, and takes the first answer an admin gives within the configured time.
  */
 @ChannelInstanceScoped
 internal class ApprovalDesk(
@@ -75,26 +79,31 @@ internal class ApprovalDesk(
     private val scope = CoroutineScope(instance.scope.coroutineContext + work)
 
     /** The answer of the first admin who answers [request], else how the request ended. */
-    suspend fun ask(request: ApprovalRequest): ApprovalAnswer {
-        val chats = recipients(request)
+    suspend fun ask(request: ApprovalRequest): ApprovalAnswer = await(Question.Approval(request))
+
+    /** The answer of the first admin who answers [offer], else how the offer ended. */
+    suspend fun offer(offer: TrustOffer): ApprovalAnswer = await(Question.Offer(offer))
+
+    private suspend fun await(question: Question): ApprovalAnswer {
+        val chats = recipients(question.turn)
         if (chats.isEmpty()) return UNREACHABLE
         val shown = chats.map { chat ->
-            val language = if (chat == request.turn.chat) request.turn.language else settings.languageOrNull(chat)
-            Shown(chat, language, render(request, language) ?: return TOO_LARGE)
+            val language = if (chat == question.turn.chat) question.turn.language else settings.languageOrNull(chat)
+            Shown(chat, language, render(question, language) ?: return TOO_LARGE)
         }
-        val waiting = Pending(request)
-        if (pending.putIfAbsent(request.id, waiting) != null) {
-            return ApprovalAnswer.Unavailable("another request has the id ${request.id}")
+        val waiting = Pending(question)
+        if (pending.putIfAbsent(question.key, waiting) != null) {
+            return ApprovalAnswer.Unavailable("another request has the id ${question.id}")
         }
         try {
             for (each in shown) post(waiting, each)
             if (waiting.posted.isEmpty()) return UNREACHABLE
             logger.info(
-                "{} asks for approval {} of {} in turn {} in {} chat(s)",
+                "{} asks for {} {} in turn {} in {} chat(s)",
                 instance.id,
-                request.id,
-                request.tool,
-                request.turn.id,
+                question.logged,
+                question.id,
+                question.turn.id,
                 waiting.posted.size,
             )
             withTimeoutOrNull(config.approvalMinutes.minutes) { waiting.ending.await() }
@@ -107,7 +116,7 @@ internal class ApprovalDesk(
             conclude(waiting, Ending.Withdrawn)
             throw e
         } finally {
-            pending.remove(request.id)
+            pending.remove(question.key)
         }
     }
 
@@ -124,15 +133,20 @@ internal class ApprovalDesk(
         pending.values.forEach { it.ending.complete(Ending.Answered(ApprovalAnswer.Unavailable("the bot stopped"))) }
     }
 
-    /** The chats [request] is shown in: the chat of an admin's own turn, else the admins' direct chats. */
-    private fun recipients(request: ApprovalRequest): List<ChatAddress> {
-        val turn = request.turn
+    /** The chats a question of [turn] is shown in: the chat of an admin's own turn, else the admins' direct chats. */
+    private fun recipients(turn: TurnInfo): List<ChatAddress> {
         val chats = if (turn.actorIsOperator) {
             listOf(turn.chat)
         } else {
             config.adminUserIds.distinct().map { ChatAddress(instance.id, "$it") }
         }
         return chats.filter(gate::isPaired)
+    }
+
+    /** [question] as the messages that show it in [language], null when it takes more than [MAX_PARTS]. */
+    private fun render(question: Question, language: LanguageTag?): List<FormattedText>? = when (question) {
+        is Question.Approval -> render(question.request, language)
+        is Question.Offer -> render(question.offer, language)
     }
 
     /** [request] as the messages that show it in [language], null when it takes more than [MAX_PARTS]. */
@@ -156,6 +170,10 @@ internal class ApprovalDesk(
         }
         lines += Line(text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason))
         request.note?.let { lines += Line(text(TextKeys.APPROVAL_NOTE, language), it) }
+        if (request.taints) {
+            request.untrusted?.let { lines += Line(text(TextKeys.APPROVAL_UNTRUSTED, language), it) }
+            lines += roots(request.roots, language)
+        }
         val risk = request.risk.name.lowercase()
         lines += Line(text(TextKeys.APPROVAL_TOOL, language, "tool" to request.tool, "risk" to risk))
         val (introduction, body) = preview(request, language)
@@ -165,6 +183,44 @@ internal class ApprovalDesk(
         }
         val count = body.trimEnd().lines().size
         if (count > MAX_CODE_LINES) lines += Line(text(TextKeys.APPROVAL_LINES, language, "count" to count))
+        return message(title, lines, body)
+    }
+
+    /** [offer] as the messages that show it in [language], null when it takes more than [MAX_PARTS]. */
+    private fun render(offer: TrustOffer, language: LanguageTag?): List<FormattedText>? {
+        val turn = offer.turn
+        val chat = named(turn.chat)
+        val lines = mutableListOf<Line>()
+        val title = if (offer.marked) {
+            lines += Line(text(TextKeys.OFFER_MARKED, language, "chat" to chat))
+            text(TextKeys.OFFER_TITLE_MARKED, language, "id" to offer.id)
+        } else {
+            val person = offer.roots.firstOrNull { it.kind == TrustRootKind.PERSON }?.name
+                ?: turn.actor?.let(::named)
+                ?: text(TextKeys.APPROVAL_NOBODY, language)
+            lines += Line(text(TextKeys.OFFER_WAITING, language, "person" to person, "chat" to chat))
+            text(TextKeys.OFFER_TITLE_WAITING, language, "id" to offer.id)
+        }
+        lines += Line(text(TextKeys.OFFER_SOURCE, language), offer.untrusted)
+        lines += Line(text(TextKeys.APPROVAL_AGENT, language, "agent" to turn.agent))
+        startedBy(turn.kind)?.let { kind ->
+            lines += Line(text(TextKeys.APPROVAL_STARTED_BY, language, "kind" to text(kind, language)))
+        }
+        lines += roots(offer.roots, language)
+        return message(title, lines, "")
+    }
+
+    /** What trusting [roots] covers, a line each, and the warnings that go with their kinds. */
+    private fun roots(roots: List<TrustRoot>, language: LanguageTag?): List<Line> {
+        val kinds = roots.map { it.kind }.toSet()
+        return roots.map { Line(text(covers(it.kind), language), it.name) } + listOfNotNull(
+            Line(text(TextKeys.APPROVAL_TRUST_FOLDER_WARNING, language)).takeIf { TrustRootKind.FOLDER in kinds },
+            Line(text(TextKeys.APPROVAL_TRUST_PERSON_WARNING, language)).takeIf { TrustRootKind.PERSON in kinds },
+        )
+    }
+
+    /** The messages of a question headed [title] in bold and [lines], with [body] as code below them. */
+    private fun message(title: String, lines: List<Line>, body: String): List<FormattedText>? {
         val head = StringBuilder(title)
         val spans = mutableListOf(Span("bold", 0, title.length))
         for (line in lines) {
@@ -203,7 +259,9 @@ internal class ApprovalDesk(
                     text(TextKeys.APPROVAL_BACKGROUND, language).takeIf { request.background },
                     text(TextKeys.APPROVAL_OPAQUE, language).takeIf { preview.opaque },
                     text(TextKeys.APPROVAL_STEPS, language, "count" to segments.size).takeIf { segments.isNotEmpty() },
-                    text(TextKeys.APPROVAL_TRUST_OPAQUE, language).takeIf { preview.opaque && request.taints },
+                    text(TextKeys.APPROVAL_TRUST_OPAQUE, language).takeIf {
+                        preview.opaque && request.taints && request.roots.any { it.kind == TrustRootKind.PROGRAM }
+                    },
                 ).map(::Line) + listOfNotNull(
                     preview.monitor?.let { Line(text(TextKeys.APPROVAL_MONITOR, language), it) },
                 ) to commandLine(preview.argv) + steps(segments)
@@ -232,9 +290,9 @@ internal class ApprovalDesk(
 
     /** Sends [shown] to its chat, recording and noting each part as it is sent, undone if a later part fails. */
     private suspend fun post(waiting: Pending, shown: Shown) {
-        val request = waiting.request
+        val question = waiting.question
         val target = targetOf(shown.chat) ?: return
-        val keyboard = keyboard(request, shown.language)
+        val keyboard = keyboard(question, shown.language)
         val sent = mutableListOf<Posted>()
         try {
             for ((index, part) in shown.parts.withIndex()) {
@@ -247,7 +305,14 @@ internal class ApprovalDesk(
             }
         } catch (e: BotApiException) {
             outbox.checkToken(e)
-            logger.warn("{} could not show approval {} in chat {}: {}", instance.id, request.id, shown.chat, e.message)
+            logger.warn(
+                "{} could not show {} {} in chat {}: {}",
+                instance.id,
+                question.logged,
+                question.id,
+                shown.chat,
+                e.message,
+            )
             sent.forEach {
                 waiting.posted.remove(it)
                 delete(it)
@@ -265,16 +330,62 @@ internal class ApprovalDesk(
         }
     }
 
+    private fun keyboard(question: Question, language: LanguageTag?): InlineKeyboardMarkup = when (question) {
+        is Question.Approval -> keyboard(question.request, language)
+        is Question.Offer -> keyboard(question.offer, language)
+    }
+
+    /** Allow and deny first, then allow and trust where the call would taint and roots are offered, then always. */
     private fun keyboard(request: ApprovalRequest, language: LanguageTag?): InlineKeyboardMarkup {
-        val allow = InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW, language), "$PREFIX${request.id}:$ALLOW")
+        val allowKey = if (request.taints) TextKeys.APPROVAL_ALLOW_MARK else TextKeys.APPROVAL_ALLOW
+        val allow = InlineKeyboardButton(text(allowKey, language), "$PREFIX${request.id}:$ALLOW")
         val deny = InlineKeyboardButton(text(TextKeys.APPROVAL_DENY, language), "$PREFIX${request.id}:$DENY")
-        val trust = InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW_TRUST, language), "$PREFIX${request.id}:$TRUST")
-            .takeIf { request.taints }
+        val trust = request.roots.takeIf { request.taints && it.isNotEmpty() }?.let { roots ->
+            val label = if (roots.size == 1) {
+                text(TextKeys.APPROVAL_ALLOW_TRUST_ROOT, language, "root" to label(roots.single(), language))
+            } else {
+                text(TextKeys.APPROVAL_ALLOW_TRUST_ALL, language, "count" to roots.size)
+            }
+            InlineKeyboardButton(label, "$PREFIX${request.id}:$TRUST")
+        }
         val always = request.always?.let {
             val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
             InlineKeyboardButton(label, "$PREFIX${request.id}:$ALWAYS")
         }
         return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), trust?.let(::listOf), always?.let(::listOf)))
+    }
+
+    /** Keeping or marking first, then trusting. */
+    private fun keyboard(offer: TrustOffer, language: LanguageTag?): InlineKeyboardMarkup {
+        val keep = text(if (offer.marked) TextKeys.OFFER_KEEP else TextKeys.OFFER_MARK, language)
+        val roots = offer.roots
+        val trust = when {
+            roots.size > 1 -> text(
+                if (offer.marked) TextKeys.OFFER_TRUST_CLEAR_ALL else TextKeys.OFFER_TRUST_ALL,
+                language,
+                "count" to roots.size,
+            )
+
+            else -> text(
+                if (offer.marked) TextKeys.OFFER_TRUST_CLEAR else TextKeys.OFFER_TRUST,
+                language,
+                "root" to label(roots.single(), language),
+            )
+        }
+        return InlineKeyboardMarkup(
+            listOf(
+                listOf(
+                    InlineKeyboardButton(keep, "$OFFER_PREFIX${offer.id}:$KEEP"),
+                    InlineKeyboardButton(trust, "$OFFER_PREFIX${offer.id}:$TRUST"),
+                ),
+            ),
+        )
+    }
+
+    /** [root] as a button names it: its kind and its name, cut at its start to fit. */
+    private fun label(root: TrustRoot, language: LanguageTag?): String {
+        val kind = text(kindWord(root.kind), language)
+        return "$kind ${cutStartWithEllipsis(root.name, (MAX_LABEL - kind.length - 1).coerceAtLeast(MIN_NAME))}"
     }
 
     private suspend fun answer(query: CallbackQuery, presser: ChatUser) {
@@ -290,16 +401,10 @@ internal class ApprovalDesk(
             }
 
             else -> {
-                val (id, action) = press
-                val waiting = pending[id]
-                val always = action == ALWAYS && waiting?.request?.always != null
-                val trust = action == TRUST && waiting?.request?.taints == true
-                val answer = if (action == DENY) {
-                    ApprovalAnswer.Denied(presser)
-                } else {
-                    ApprovalAnswer.Allowed(presser, always, trust)
-                }
-                if (waiting?.ending?.complete(Ending.Answered(answer)) == true) {
+                val (prefix, id, action) = press
+                val waiting = pending["$prefix$id"]
+                val answer = waiting?.question?.let { answerOf(it, action, presser) }
+                if (answer != null && waiting.ending.complete(Ending.Answered(answer))) {
                     null
                 } else {
                     text(TextKeys.APPROVAL_NOT_PENDING, language)
@@ -314,16 +419,50 @@ internal class ApprovalDesk(
         }
     }
 
+    /** What pressing [action] under [question] answers, null for a button that the question does not show. */
+    private fun answerOf(question: Question, action: String, presser: ChatUser): ApprovalAnswer? = when (question) {
+        is Question.Approval -> {
+            val request = question.request
+            when (action) {
+                DENY -> ApprovalAnswer.Denied(presser)
+
+                ALLOW -> ApprovalAnswer.Allowed(presser)
+
+                ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null)
+
+                TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf {
+                    request.taints &&
+                        request.roots.isNotEmpty()
+                }
+
+                else -> null
+            }
+        }
+
+        is Question.Offer -> when (action) {
+            KEEP -> ApprovalAnswer.Denied(presser)
+            TRUST -> ApprovalAnswer.Allowed(presser, trust = true)
+            else -> null
+        }
+    }
+
     /** Shows how [waiting] ended under each of its messages and takes their buttons away. */
     private fun conclude(waiting: Pending, ending: Ending) {
-        waiting.noted.state = ending.state
+        waiting.noted.state = ending.state(waiting.question)
         val posted = waiting.posted.toList()
         if (posted.isEmpty()) return
-        val request = waiting.request
-        logger.info("{}: approval {} of turn {} {}", instance.id, request.id, request.turn.id, ending.logged)
+        val question = waiting.question
+        logger.info(
+            "{}: {} {} of turn {} {}",
+            instance.id,
+            question.logged,
+            question.id,
+            question.turn.id,
+            ending.logged,
+        )
         scope.launch {
             for (message in posted) {
-                val line = outcome(request, ending, message.language) ?: continue
+                val line = outcome(question, ending, message.language) ?: continue
                 val shown = message.text
                 edit(message, FormattedText("${shown.text}\n\n$line", shown.entities))
             }
@@ -352,7 +491,12 @@ internal class ApprovalDesk(
         }
     }
 
-    /** The line that tells how [request] ended in [language], null for no line. */
+    /** The line that tells how [question] ended in [language], null for no line. */
+    private fun outcome(question: Question, ending: Ending, language: LanguageTag?): String? = when (question) {
+        is Question.Approval -> outcome(question.request, ending, language)
+        is Question.Offer -> outcome(question.offer, ending, language)
+    }
+
     private fun outcome(request: ApprovalRequest, ending: Ending, language: LanguageTag?): String? = when (ending) {
         Ending.Expired -> text(TextKeys.APPROVAL_EXPIRED, language)
 
@@ -361,17 +505,44 @@ internal class ApprovalDesk(
         is Ending.Answered -> when (val answer = ending.answer) {
             is ApprovalAnswer.Allowed -> {
                 val rule = request.always?.takeIf { answer.always }?.let { ending(rules(request)) }
+                val name = named(answer.by)
                 when {
-                    rule != null ->
-                        text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to named(answer.by), "rule" to rule)
+                    rule != null -> text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to name, "rule" to rule)
 
-                    answer.trust -> text(TextKeys.APPROVAL_ALLOWED_TRUSTED, language, "name" to named(answer.by))
+                    answer.trust && request.taints && request.roots.isNotEmpty() ->
+                        text(
+                            TextKeys.APPROVAL_ALLOWED_TRUSTED,
+                            language,
+                            "name" to name,
+                            "roots" to listed(request.roots),
+                        )
 
-                    else -> text(TextKeys.APPROVAL_ALLOWED, language, "name" to named(answer.by))
+                    request.taints -> text(TextKeys.APPROVAL_ALLOWED_MARKED, language, "name" to name)
+
+                    else -> text(TextKeys.APPROVAL_ALLOWED, language, "name" to name)
                 }
             }
 
             is ApprovalAnswer.Denied -> text(TextKeys.APPROVAL_DENIED, language, "name" to named(answer.by))
+
+            else -> null
+        }
+    }
+
+    private fun outcome(offer: TrustOffer, ending: Ending, language: LanguageTag?): String? = when (ending) {
+        Ending.Expired -> text(if (offer.marked) TextKeys.OFFER_EXPIRED_MARKED else TextKeys.OFFER_EXPIRED, language)
+
+        Ending.Withdrawn -> text(TextKeys.OFFER_WITHDRAWN, language)
+
+        is Ending.Answered -> when (val answer = ending.answer) {
+            is ApprovalAnswer.Allowed ->
+                text(TextKeys.OFFER_TRUSTED, language, "name" to named(answer.by), "roots" to listed(offer.roots))
+
+            is ApprovalAnswer.Denied -> text(
+                if (offer.marked) TextKeys.OFFER_KEPT else TextKeys.OFFER_MARKED_BY,
+                language,
+                "name" to named(answer.by),
+            )
 
             else -> null
         }
@@ -383,11 +554,40 @@ internal class ApprovalDesk(
     /** A line of a request's head, ending in [code] set apart as text that a model or untrusted content wrote. */
     private class Line(val text: String, val code: String? = null)
 
-    /** One request on its way, with the messages that carry its buttons. */
-    private class Pending(val request: ApprovalRequest) {
+    /** A question that the desk shows: an approval request or a trust offer. */
+    private sealed interface Question {
+        val id: String
+        val turn: TurnInfo
+
+        /** The key of the question among the pending ones, its callback prefix and its id. */
+        val key: String
+
+        /** What the log calls it. */
+        val logged: String
+
+        class Approval(val request: ApprovalRequest) : Question {
+            override val id: String get() = request.id
+            override val turn: TurnInfo get() = request.turn
+            override val key: String get() = "$PREFIX$id"
+            override val logged: String get() = "approval of ${request.tool}"
+        }
+
+        class Offer(val offer: TrustOffer) : Question {
+            override val id: String get() = offer.id
+            override val turn: TurnInfo get() = offer.turn
+            override val key: String get() = "$OFFER_PREFIX$id"
+            override val logged: String get() = "trust offer"
+        }
+    }
+
+    /** One question on its way, with the messages that carry its buttons. */
+    private class Pending(val question: Question) {
         val ending = CompletableDeferred<Ending>()
         val posted: MutableList<Posted> = CopyOnWriteArrayList()
-        val noted = ApprovalMessages.Request(request.id, request.tool)
+        val noted = when (question) {
+            is Question.Approval -> ApprovalMessages.Request(question.id, question.request.tool)
+            is Question.Offer -> ApprovalMessages.Request(question.id, null)
+        }
     }
 
     /** The messages of a request in [chat] in [language]. */
@@ -406,56 +606,86 @@ internal class ApprovalDesk(
         val answer: ApprovalAnswer
         val logged: String
 
-        /** How the request ended, as a quote of one of its messages tells. */
-        val state: String
+        /** How [question] ended, as a quote of one of its messages tells. */
+        fun state(question: Question): String
 
         class Answered(override val answer: ApprovalAnswer) : Ending {
             override val logged: String
                 get() = when (answer) {
-                    is ApprovalAnswer.Allowed -> "is allowed by ${answer.by.address}"
+                    is ApprovalAnswer.Allowed ->
+                        "is allowed by ${answer.by.address}" +
+                            if (answer.trust) ", trusted" else ""
+
                     is ApprovalAnswer.Denied -> "is denied by ${answer.by.address}"
+
                     else -> "ends: $answer"
                 }
 
-            override val state: String
-                get() = when (answer) {
-                    is ApprovalAnswer.Allowed -> when {
-                        answer.always -> "allowed for good by "
-                        answer.trust -> "allowed and trusted by "
-                        else -> "allowed by "
-                    } + named(answer.by)
+            override fun state(question: Question): String = when (answer) {
+                is ApprovalAnswer.Allowed -> when {
+                    question is Question.Offer -> "trusted by "
+                    answer.always -> "allowed for good by "
+                    answer.trust -> "allowed and trusted by "
+                    else -> "allowed by "
+                } + named(answer.by)
 
-                    is ApprovalAnswer.Denied -> "denied by ${named(answer.by)}"
+                is ApprovalAnswer.Denied ->
+                    (if (question is Question.Offer) "marked tainted by " else "denied by ") + named(answer.by)
 
-                    else -> "no longer waiting"
-                }
+                else -> "no longer waiting"
+            }
         }
 
         data object Expired : Ending {
             override val answer: ApprovalAnswer = ApprovalAnswer.Expired
             override val logged: String = "expired"
-            override val state: String = "expired"
+
+            override fun state(question: Question): String = "expired"
         }
 
         data object Withdrawn : Ending {
             override val answer: ApprovalAnswer = ApprovalAnswer.Unavailable("the request was withdrawn")
             override val logged: String = "is withdrawn"
-            override val state: String = "withdrawn"
+
+            override fun state(question: Question): String = "withdrawn"
         }
     }
 
     private companion object {
         const val PREFIX = "apv:"
+        const val OFFER_PREFIX = "tro:"
         const val ALLOW = "a"
         const val ALWAYS = "A"
         const val TRUST = "t"
         const val DENY = "d"
-        val PRESS = Regex("apv:([A-Za-z0-9_-]{1,32}):([aAtd])")
+        const val KEEP = "k"
+        val PRESS = Regex("(apv:|tro:)([A-Za-z0-9_-]{1,32}):([aAtdk])")
 
         val UNREACHABLE = ApprovalAnswer.Unavailable("no administrator can be reached")
         val TOO_LARGE = ApprovalAnswer.Unavailable("too large to review")
     }
 }
+
+/** The text key of the line that names what trusting a root of [kind] covers. */
+private fun covers(kind: TrustRootKind): String = when (kind) {
+    TrustRootKind.FOLDER -> TextKeys.APPROVAL_TRUSTS_FOLDER
+    TrustRootKind.DOMAIN -> TextKeys.APPROVAL_TRUSTS_DOMAIN
+    TrustRootKind.PROGRAM -> TextKeys.APPROVAL_TRUSTS_PROGRAM
+    TrustRootKind.SERVER -> TextKeys.APPROVAL_TRUSTS_SERVER
+    TrustRootKind.PERSON -> TextKeys.APPROVAL_TRUSTS_PERSON
+}
+
+/** The text key of the word for a root of [kind]. */
+private fun kindWord(kind: TrustRootKind): String = when (kind) {
+    TrustRootKind.FOLDER -> TextKeys.TRUST_KIND_FOLDER
+    TrustRootKind.DOMAIN -> TextKeys.TRUST_KIND_DOMAIN
+    TrustRootKind.PROGRAM -> TextKeys.TRUST_KIND_PROGRAM
+    TrustRootKind.SERVER -> TextKeys.TRUST_KIND_SERVER
+    TrustRootKind.PERSON -> TextKeys.TRUST_KIND_PERSON
+}
+
+/** The names of [roots], each cut at its start, as one text. */
+private fun listed(roots: List<TrustRoot>): String = roots.joinToString(", ") { ending(it.name) }
 
 /** The rules that allowing [request] for good grants, as one text. */
 private fun rules(request: ApprovalRequest): String = request.alwaysRules.joinToString(", ") { it.display }
@@ -559,6 +789,12 @@ private const val NUMBER_ROOM = 16
 
 /** The characters of a name or a rule that a request shows. */
 private const val MAX_SHOWN = 64
+
+/** The characters of a root that a button shows, its kind included. */
+private const val MAX_LABEL = 40
+
+/** The characters of a root's name that a button shows at least. */
+private const val MIN_NAME = 16
 
 /** The characters a shell takes as part of a word. */
 private const val PLAIN = "-_./=:,+@%"

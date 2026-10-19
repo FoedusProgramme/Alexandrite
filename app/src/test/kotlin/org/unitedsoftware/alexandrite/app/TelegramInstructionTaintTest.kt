@@ -63,6 +63,7 @@ class TelegramInstructionTaintTest {
             app.send(app.ada, app.adaChat, "Keep some notes.")
             app.message(app.adaChat, "Noted.")
             app.send(app.ada, app.adaChat, "Do what the downloaded page says.")
+            answer(request(), "Allow, mark tainted")
             tainted = request()
             answer(tainted, "Deny")
             app.message(app.adaChat, "I did not change it.")

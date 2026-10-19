@@ -30,6 +30,9 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
 import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -128,6 +131,8 @@ class ApprovalDeskTest {
         id: String = "k3x9",
         rules: List<RuleSubject> = listOfNotNull(always),
         taints: Boolean = false,
+        roots: List<TrustRoot> = emptyList(),
+        untrusted: String? = null,
     ) = ApprovalRequest(
         id,
         turn,
@@ -138,6 +143,8 @@ class ApprovalDeskTest {
         "the chat is in ask mode",
         alwaysRules = rules,
         taints = taints,
+        untrusted = untrusted,
+        roots = roots,
     )
 
     // Where requests go.
@@ -453,29 +460,183 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `allow and trust is offered only for a call that would taint, and answers with the output trusted`() = runTest {
+    fun `a call that would taint names its source and the root, and offers trust only after marking and denying`() =
+        runTest {
+            val desk = Desk(this)
+            val folder = "/home/dev/src/some-very-long-project-name/with/deep/folders"
+            val source = "fs.read reaches $folder/x.kt, outside the trusted places"
+            val rooted = asking(
+                desk,
+                request(
+                    taints = true,
+                    untrusted = source,
+                    roots = listOf(TrustRoot(TrustRootKind.FOLDER, folder)),
+                ),
+            )
+            val rootless = asking(desk, request(id = "bare", taints = true, untrusted = "web.search reads the web"))
+            advanceTimeBy(5.seconds)
+
+            val (shown, bare) = desk.shown(ADA)
+            assertTrue(
+                "\n⚠️ This call would bring the first untrusted content into this conversation, from: $source\n" +
+                    "Trusting covers the folder, and what is in it outside the repositories nested in it: $folder\n" +
+                    "⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from " +
+                    "others, prefer marking the conversation tainted.\n" in shown,
+                shown,
+            )
+            val sent = desk.api.calls("sendMessage").first()
+            val text = checkNotNull(sent.text)
+            assertTrue("code ${text.lastIndexOf(folder)}+${folder.length}" in sent.entities, "${sent.entities}")
+            assertEquals(
+                listOf(
+                    listOf("Allow, mark tainted" to "apv:k3x9:a", "Deny" to "apv:k3x9:d"),
+                    listOf("Allow and trust folder …g-project-name/with/deep/folders" to "apv:k3x9:t"),
+                ),
+                desk.api.keyboards.getValue(ADA to 101L).inlineKeyboard.map { row ->
+                    row.map { it.text to it.callbackData }
+                },
+            )
+            assertTrue(bare.endsWith(" [Allow, mark tainted|Deny]"), bare)
+
+            desk.press(ada, "apv:bare:t", message = 102)
+            runCurrent()
+            val stillWaiting = rootless.isActive
+            desk.press(ada, "apv:k3x9:t", message = 101)
+            desk.press(ada, "apv:bare:a", message = 102)
+            advanceTimeBy(5.seconds)
+
+            assertTrue(stillWaiting)
+            assertEquals(ApprovalAnswer.Allowed(ada, trust = true), rooted.await())
+            assertEquals(ApprovalAnswer.Allowed(ada), rootless.await())
+            assertEquals("This request no longer waits for an answer.", desk.toasts().first())
+            assertEquals(
+                listOf(
+                    "Allowed by Ada, who trusted $folder.",
+                    "Allowed by Ada; the conversation is marked tainted.",
+                ),
+                desk.shown(ADA).map { it.substringAfterLast("\n") },
+            )
+            assertEquals(
+                "Alexandrite's approval request k3x9 for fs.write (allowed and trusted by Ada)",
+                desk.messages.quoted(ADA, 101),
+            )
+        }
+
+    @Test
+    fun `several roots are trusted together, and a person's root says trust is no authority`() = runTest {
         val desk = Desk(this)
-        val tainting = asking(desk, request(taints = true))
-        val clean = asking(desk, request(id = "clean"))
+        val roots = listOf(
+            TrustRoot(TrustRootKind.PROGRAM, "./gradlew"),
+            TrustRoot(TrustRootKind.DOMAIN, "docs.example.com"),
+            TrustRoot(TrustRootKind.SERVER, "files"),
+            TrustRoot.person(bob),
+        )
+
+        asking(desk, request(taints = true, roots = roots))
         advanceTimeBy(5.seconds)
 
+        val shown = desk.shown(ADA).single()
+        assertTrue(
+            """
+            Trusting covers what the program prints: ./gradlew
+            Trusting covers the pages of the domain and its subdomains: docs.example.com
+            Trusting covers the output of the MCP server: files
+            Trusting covers the messages and files that this person writes: Bob
+            Trust is not authority: a trusted person gets no approvals and no operator commands.
+            """.trimIndent() in shown,
+            shown,
+        )
+        assertTrue("Trusting a folder" !in shown, shown)
+        assertTrue(shown.endsWith("[Allow, mark tainted|Deny|Allow and trust these 4]"), shown)
+    }
+
+    // Trust offers.
+
+    private fun offer(turn: TurnInfo, marked: Boolean, roots: List<TrustRoot>, id: String = "of1") =
+        TrustOffer(id, turn, "fs.read reached /srv/clone, a folder that is not trusted", roots, marked)
+
+    private fun TestScope.offering(desk: Desk, offer: TrustOffer): Deferred<ApprovalAnswer> =
+        backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { desk.desk.offer(offer) }
+
+    @Test
+    fun `an automated turn's taint is offered to the admins to trust, keep coming first`() = runTest {
+        val desk = Desk(this)
+        val beat = testTurn(TurnKind.HEARTBEAT, ChatAddress(WORK, "$GROUP"))
+        val folder = TrustRoot(TrustRootKind.FOLDER, "/srv/clone")
+        val trusted = offering(desk, offer(beat, marked = true, roots = listOf(folder)))
+        val kept = offering(desk, offer(beat, marked = true, roots = listOf(folder), id = "of2"))
+        advanceTimeBy(5.seconds)
+
+        val shown = desk.shown(ADA).first()
+        assertEquals(
+            """
+            Untrusted content came in (#of1)
+            The conversation in telegram:work:$GROUP took in untrusted content and is now marked tainted, so its calls that change lasting state need an approval.
+            It came from: fs.read reached /srv/clone, a folder that is not trusted
+            Agent: main
+            Started by: a heartbeat, not by a message the requester sent now
+            Trusting covers the folder, and what is in it outside the repositories nested in it: /srv/clone
+            ⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from others, prefer marking the conversation tainted. [Keep|Trust folder /srv/clone and clear the taint]
+            """.trimIndent(),
+            shown,
+        )
+        assertEquals(listOf(listOf("tro:of1:k", "tro:of1:t"), listOf("tro:of2:k", "tro:of2:t")), callbacks(desk, ADA))
+
+        desk.press(bob, "tro:of1:t")
+        runCurrent()
+        val afterBob = trusted.isActive
+        desk.press(ada, "tro:of1:t", message = 101)
+        desk.press(ada, "tro:of2:k", message = 102)
+        desk.press(ada, "apv:of2:a", message = 102)
+        advanceTimeBy(5.seconds)
+
+        assertTrue(afterBob)
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), trusted.await())
+        assertEquals(ApprovalAnswer.Denied(ada), kept.await())
         assertEquals(
             listOf(
-                listOf("apv:k3x9:a", "apv:k3x9:d", "apv:k3x9:t"),
-                listOf("apv:clean:a", "apv:clean:d"),
+                "Only an admin of this bot can answer.",
+                null,
+                null,
+                "This request no longer waits for an answer.",
             ),
-            callbacks(desk, ADA),
+            desk.toasts(),
         )
-        desk.press(ada, "apv:k3x9:t", message = 101)
-        desk.press(ada, "apv:clean:t", message = 102)
-        advanceTimeBy(5.seconds)
-
-        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), tainting.await())
-        assertEquals(ApprovalAnswer.Allowed(ada), clean.await())
         assertEquals(
-            listOf("Allowed by Ada, its output trusted.", "Allowed by Ada."),
+            listOf("Trusted by Ada: /srv/clone.", "Kept by Ada: the conversation stays marked tainted."),
             desk.shown(ADA).map { it.substringAfterLast("\n") },
         )
+        assertEquals("Alexandrite's trust offer of1 (trusted by Ada)", desk.messages.quoted(ADA, 101))
+    }
+
+    @Test
+    fun `a guest's waiting message offers to trust the person or mark, and nobody answering marks`() = runTest {
+        val desk = Desk(this)
+        val turn = turnOf(bob, GROUP)
+        val waiting = offering(desk, offer(turn, marked = false, roots = listOf(TrustRoot.person(bob))))
+        advanceTimeBy(5.seconds)
+
+        val shown = desk.shown(ADA).single()
+        assertTrue(
+            shown.startsWith(
+                "An untrusted message waits (#of1)\nA message from Bob would bring content from someone who is not " +
+                    "trusted into the conversation in telegram:work:$GROUP. Unless an operator trusts them, the " +
+                    "conversation is marked tainted.\n",
+            ),
+            shown,
+        )
+        assertTrue("Trust is not authority" in shown, shown)
+        assertTrue(shown.endsWith(" [Mark tainted|Trust person Bob]"), shown)
+
+        advanceTimeBy(10.minutes)
+        advanceUntilIdle()
+
+        assertEquals(ApprovalAnswer.Expired, waiting.await())
+        assertEquals(
+            "Nobody answered in time, so the conversation is marked tainted.",
+            desk.shown(ADA).single().substringAfterLast("\n"),
+        )
+        assertEquals(emptyMap(), desk.api.keyboards)
     }
 
     @Test
@@ -602,7 +763,8 @@ class ApprovalDeskTest {
             )
             val opaque = ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), Path.of("/srv"), null, opaque = true)
             asking(desk, request(preview = chain, always = rules.first(), rules = rules))
-            asking(desk, request(preview = opaque, id = "opaque", taints = true))
+            val program = listOf(TrustRoot(TrustRootKind.PROGRAM, "sh"))
+            asking(desk, request(preview = opaque, id = "opaque", taints = true, roots = program))
             advanceTimeBy(5.seconds)
 
             val (shownChain, shownOpaque) = desk.shown(ADA)
@@ -622,7 +784,7 @@ class ApprovalDeskTest {
                 shownChain.substringAfter("(workspace_write)\n"),
             )
             assertTrue(
-                "Allow and trust trusts whatever this program prints, as Alexandrite cannot see what it runs." in
+                "Trusting this program trusts whatever it prints, as Alexandrite cannot see what it runs." in
                     shownOpaque,
                 shownOpaque,
             )

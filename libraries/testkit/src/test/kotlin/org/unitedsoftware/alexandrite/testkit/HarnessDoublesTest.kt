@@ -39,7 +39,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
@@ -177,7 +177,7 @@ class HarnessDoublesTest {
                     agent.conversations,
                     agent.settings,
                     agent.links,
-                    agent.folders,
+                    agent.trust,
                     agent.rules,
                     agent.catalog,
                     agent.usage,
@@ -187,7 +187,7 @@ class HarnessDoublesTest {
                     get<ConversationControl>(),
                     get<ChatSettings>(),
                     get<ChatLinks>(),
-                    get<TrustedFolders>(),
+                    get<TrustControl>(),
                     get<PermissionRules>(),
                     get<AgentCatalog>(),
                     get<UsageReports>(),

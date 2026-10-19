@@ -11,18 +11,21 @@ import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
 import org.unitedsoftware.alexandrite.agent.permission.Approvals
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
-import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
 import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.Judge
+import org.unitedsoftware.alexandrite.agent.permission.NoForesight
+import org.unitedsoftware.alexandrite.agent.permission.NoMarkOffers
 import org.unitedsoftware.alexandrite.agent.permission.PermissionGate
-import org.unitedsoftware.alexandrite.agent.permission.TrustRules
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
+import org.unitedsoftware.alexandrite.agent.permission.Question
 import org.unitedsoftware.alexandrite.agent.permission.Verdict
 import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.TrustRules
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
@@ -106,6 +109,8 @@ class SandboxGateTest {
             clock,
             running.get<Sandboxes>(),
             running.get<InstructionPlaces>(),
+            NoForesight,
+            NoMarkOffers,
         )
 
         suspend fun mode(mode: PermissionMode, of: TurnInfo = turn) {
@@ -312,7 +317,7 @@ class SandboxGateTest {
     private class Offering(private val rules: CallRules) : Approvals {
         val offered = CopyOnWriteArrayList<List<String>>()
 
-        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
             rules.grantable(call).takeIf { it.isNotEmpty() }?.let { subjects -> offered += subjects.map { it.display } }
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

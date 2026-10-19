@@ -14,6 +14,12 @@ import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolGate
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.Foreseen
+import org.unitedsoftware.alexandrite.agent.trust.Foresight
+import org.unitedsoftware.alexandrite.agent.trust.MarkOffers
+import org.unitedsoftware.alexandrite.agent.trust.TrustRules
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -60,6 +66,8 @@ internal class PermissionGate(
     private val clock: Clock,
     private val containments: Containments,
     private val instructions: InstructionPlaces,
+    private val foresight: Foresight,
+    private val offers: MarkOffers,
 ) : ToolGate {
     override suspend fun admit(call: GateCall): GateResult {
         val review = when (val reviewed = review(call)) {
@@ -92,34 +100,55 @@ internal class PermissionGate(
         val tainted = call.taint.tainted
         val person =
             review.person ?: instruction?.takeIf { tainted }?.let { "the call writes $it, and ${tainted(call.taint)}" }
+        val foreseen = foresight.foresee(checked)
         if (required == null && person == null && !isGated(risk, principal, tainted, gatesNetwork(call))) {
-            val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
-            return running(checked, GateResult.Admitted(clearance, review.preview, review.exempt))
+            if (foreseen == null) {
+                val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
+                return running(checked, GateResult.Admitted(clearance, review.preview, review.exempt))
+            }
+            return untrusted(checked, foreseen, ClearanceKind.NONE, mode(call).first)
         }
         val (mode, tightened) = mode(call)
         if (mode == PermissionMode.PLAN) {
             return refused(call, NotRunReason.PLAN_MODE, Refusals.planMode(definition.name))
         }
-        if (person != null) return ask(checked, person)
-        if (required == null && review.exempt) return admitted(checked, ClearanceKind.SCRATCH)
+        val asked = foreseen.takeUnless { mode == PermissionMode.BYPASS }
+        if (person != null) return ask(checked, person, foreseen = asked)
+        if (required == null && review.exempt) return untrusted(checked, foreseen, ClearanceKind.SCRATCH, mode)
         if (principal == Principal.OPERATOR) {
             if (required == null) {
-                if (contained(checked, mode)) return admitted(checked, ClearanceKind.SANDBOX)
-                cleared(checked, mode)?.let { return admitted(checked, it) }
+                if (contained(checked, mode)) return untrusted(checked, foreseen, ClearanceKind.SANDBOX, mode)
+                cleared(checked, mode)?.let { return untrusted(checked, foreseen, it, mode) }
             }
             if (mode == PermissionMode.AUTO) {
                 if (tainted && checked.opaque) return ask(checked, "an opaque program, and ${tainted(call.taint)}")
                 when (val verdict = judge.judge(checked)) {
-                    Verdict.Allow -> return admitted(checked, ClearanceKind.JUDGE)
+                    Verdict.Allow -> return untrusted(checked, foreseen, ClearanceKind.JUDGE, mode)
 
                     is Verdict.Deny ->
                         return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(verdict.reason))
 
-                    is Verdict.Ask -> return ask(checked, verdict.reason, verdict.note)
+                    is Verdict.Ask -> return ask(checked, verdict.reason, verdict.note, asked)
                 }
             }
         }
-        return ask(checked, reason(checked, principal, mode, tightened))
+        return ask(checked, reason(checked, principal, mode, tightened), foreseen = asked)
+    }
+
+    /** What [kind] lets [call] do in [mode] once the question about its untrusted content [foreseen] is settled. */
+    private suspend fun untrusted(
+        call: CheckedCall,
+        foreseen: Foreseen?,
+        kind: ClearanceKind,
+        mode: PermissionMode,
+    ): GateResult {
+        if (foreseen == null || mode == PermissionMode.BYPASS) return admitted(call, kind)
+        val gate = call.call
+        if (Principal.of(gate.turn) == Principal.AUTOMATION) {
+            offers.marked(gate, foreseen.reason, foresight.roots(call, foreseen))
+            return admitted(call, kind)
+        }
+        return ask(call, UNTRUSTED_REASON, foreseen = foreseen, unasked = kind)
     }
 
     /** Whether the agent of [call] sends the network reads of a tainted conversation to the gate. */
@@ -171,8 +200,15 @@ internal class PermissionGate(
     private suspend fun mode(call: GateCall): Pair<PermissionMode, Boolean> =
         settings.callMode(call, directory, clock, unread = PermissionMode.ASK)
 
-    private suspend fun ask(call: CheckedCall, reason: String, note: String? = null): GateResult {
-        val result = running(call, approvals.ask(call, reason, note))
+    private suspend fun ask(
+        call: CheckedCall,
+        reason: String,
+        note: String? = null,
+        foreseen: Foreseen? = null,
+        unasked: ClearanceKind? = null,
+    ): GateResult {
+        val question = foreseen?.let { Question(it, foresight.roots(call, it), unasked) }
+        val result = running(call, approvals.ask(call, reason, note, question))
         val gate = call.call
         when (result) {
             is GateResult.Admitted -> logged(gate, "runs, cleared by ${result.clearance.kind}")
@@ -197,7 +233,7 @@ internal class PermissionGate(
         val trust = listOf(result.trust, trusts.trust(call), sandboxTrust(call)).maxBy { it.ordinal }
         val network = ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk)
         val untrusted = if (network && !tools.isBuiltIn(gate.tool) && trust != CallTrust.WHOLE) {
-            "a call of ${gate.tool.definition.name}, which reads the network".also { gate.taint.mark(it) }
+            "a call of ${gate.tool.definition.name}, which reads the network".also { gate.taint.mark(it, gate.call.id) }
         } else {
             null
         }
@@ -284,6 +320,8 @@ private fun tainted(taint: TurnTaint): String = if (taint.known != null) {
 } else {
     "the conversation counts as tainted, as its mark could not be read"
 }
+
+private const val UNTRUSTED_REASON = "the call would bring the first untrusted content into the conversation"
 
 private const val HOOK_DENIED_RESULT = "A hook denied the call."
 

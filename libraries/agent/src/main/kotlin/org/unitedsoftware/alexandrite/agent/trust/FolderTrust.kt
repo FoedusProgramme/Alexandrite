@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.project
+package org.unitedsoftware.alexandrite.agent.trust
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.permission.canonical
+import org.unitedsoftware.alexandrite.agent.project.isRepository
 import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException

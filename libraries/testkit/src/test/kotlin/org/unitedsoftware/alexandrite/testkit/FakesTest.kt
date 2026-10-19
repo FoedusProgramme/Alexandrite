@@ -45,6 +45,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedPerson
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
@@ -540,7 +541,7 @@ class FakesTest {
                 blocking { control.conversations.newConversation(chat, operator) }
             }
         val folder =
-            assertFailsWith<ControlRefusedException> { blocking { control.folders.trust(Path.of("/srv"), null) } }
+            assertFailsWith<ControlRefusedException> { blocking { control.trust.trustFolder(Path.of("/srv"), null) } }
         val conversation = blocking { control.conversations.newConversation(chat, operator) }
 
         assertEquals("Agent 'coder' does not serve test:main.", unlisted.message)
@@ -556,7 +557,7 @@ class FakesTest {
             ),
             control.calls.drop(1),
         )
-        assertEquals(emptyList(), control.folders.list())
+        assertEquals(emptyList(), control.trust.folders())
     }
 
     @Test
@@ -647,26 +648,43 @@ class FakesTest {
 
         val trusted = blocking {
             listOf(
-                control.folders.trust(repository, operator),
-                control.folders.trust(Path.of("/srv/repo/sub/../lib"), null),
+                control.trust.trustFolder(repository, operator),
+                control.trust.trustFolder(Path.of("/srv/repo/sub/../lib"), null),
             )
         }
 
         assertEquals(listOf(repository, repository), trusted)
         assertEquals(
             listOf(TrustedFolder(declared, true, null, null), TrustedFolder(repository, false, TEST_TIME, operator)),
-            control.folders.list(),
+            control.trust.folders(),
         )
-        assertFailsWith<IllegalArgumentException> { blocking { control.folders.trust(Path.of("repo"), null) } }
+        assertFailsWith<IllegalArgumentException> { blocking { control.trust.trustFolder(Path.of("repo"), null) } }
         val revoked = blocking {
-            listOf(declared, Path.of("/srv"), repository, repository).map { control.folders.untrust(it, null) }
+            listOf(declared, Path.of("/srv"), repository, repository).map { control.trust.untrustFolder(it, null) }
         }
         assertEquals(
             listOf(true to false, false to false, false to true, false to false),
             revoked.map { it.declared to it.removed },
         )
-        assertEquals(listOf(declared), control.folders.list().map { it.path })
+        assertEquals(listOf(declared), control.trust.folders().map { it.path })
         assertEquals(RecordingAgent.Call.TrustFolder(repository, operator), control.calls.first())
+    }
+
+    @Test
+    fun `a recording agent trusts people who are no operators and forgets them when untrusted`() {
+        val control = RecordingAgent()
+        val operator = testUser("ada", isOperator = true)
+        val guest = testUser("bob")
+        val configured = testUser("cy", isTrusted = true)
+
+        val trusted = blocking { control.trust.trustPerson(testChat(), guest, operator) }
+
+        assertEquals(TrustedPerson(guest, TEST_TIME, operator), trusted)
+        assertEquals(listOf(trusted), blocking { control.trust.people(testChat()) })
+        assertFailsWith<ControlRefusedException> { blocking { control.trust.trustPerson(testChat(), operator, null) } }
+        assertEquals(Revocation(true, false), blocking { control.trust.untrustPerson(testChat(), guest, operator) })
+        assertEquals(Revocation(false, true), blocking { control.trust.untrustPerson(testChat(), configured, null) })
+        assertEquals(emptyList(), blocking { control.trust.people(testChat()) })
     }
 
     // Chat states.

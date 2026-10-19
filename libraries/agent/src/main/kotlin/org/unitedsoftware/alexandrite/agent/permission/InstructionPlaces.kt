@@ -3,8 +3,8 @@ package org.unitedsoftware.alexandrite.agent.permission
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.SandboxConfig
 import org.unitedsoftware.alexandrite.agent.config.configuredPath
-import org.unitedsoftware.alexandrite.agent.project.FolderTrust
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.expandHome

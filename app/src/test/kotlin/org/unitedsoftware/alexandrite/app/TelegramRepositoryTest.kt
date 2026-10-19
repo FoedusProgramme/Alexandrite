@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
+import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.WAIT
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
@@ -48,6 +49,22 @@ class TelegramRepositoryTest {
     fun close() {
         app.close()
     }
+
+    /** The agent's config with [folder] trusted. */
+    private fun trusting(folder: Path): String = """
+        {
+          "previewIntervalMillis": 0,
+          "trustedFolders": [${JsonPrimitive("$folder")}],
+          "agents": {
+            "coder": {
+              "name": "Coder",
+              "model": "scripted/test-model",
+              "reasoning": "low",
+              "channels": {"telegram:work": {}}
+            }
+          }
+        }
+    """.trimIndent()
 
     private fun write(file: Path, text: String) {
         file.parent.createDirectories()
@@ -95,7 +112,7 @@ class TelegramRepositoryTest {
                 pause { previewed.await() }
                 text("It returns the greeting.")
             }
-        val builder = app.builder(directory, sqlite = true)
+        val builder = app.builder(directory, sqlite = true).config(trusting(repository))
 
         app.run(builder) {
             app.send(app.ada, app.adaChat, "What does greet do?")
@@ -230,6 +247,8 @@ class TelegramRepositoryTest {
         app.run(app.builder(directory, sqlite = true)) {
             config = Files.readString(configFile)
             app.send(app.ada, app.adaChat, "What is this project?")
+            val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            app.fake.press(app.ada, asked, "Allow, mark tainted")
             app.message(app.adaChat, "The project is called Greeter.")
             app.send(app.ada, app.adaChat, "/trust $repository")
             app.message(app.adaChat, "$repository is trusted, and so are the folders below it.")
@@ -239,7 +258,7 @@ class TelegramRepositoryTest {
         }
         app.run(app.builder(directory, sqlite = true)) {
             app.send(app.ada, app.adaChat, "/trust")
-            listed = app.bodyMessages(app.adaChat, 5).last().text
+            listed = app.bodyMessages(app.adaChat, 6).last().text
         }
 
         assertEquals(
@@ -251,14 +270,14 @@ class TelegramRepositoryTest {
                 "$repository is trusted, and so are the folders below it.",
                 "Greeter greets.",
             ),
-            app.fake.botMessages(ADA).body().map { it.text }.take(4),
+            app.fake.botMessages(ADA).body().map { it.text }.filterNot { it.startsWith("Approval needed") }.take(4),
         )
         val today = LocalDate.now(ZoneOffset.UTC)
         assertContains(
             setOf(today, today.minusDays(1)).map {
                 "Trusted folders, each with the folders below it:\n- $repository (trusted by Ada Lovelace on $it)"
             },
-            listed,
+            listed.substringBefore("\n\n"),
         )
         assertEquals(config, Files.readString(configFile))
         val requests = app.model.requests

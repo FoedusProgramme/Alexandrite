@@ -131,7 +131,7 @@ internal class PermissionStatusTool(
             "Until /new starts a new conversation, calls that change your lasting state, such as persona.edit, need " +
                 "an approval."
         }
-        return "Conversation: tainted since ${time(taint.at, turn)} (${taint.reason}).$unstored $effect"
+        return "Conversation: tainted since ${time(taint.at, turn)} (${taint.reason}).$unstored $effect $CLEARING"
     }
 
     private fun time(instant: Instant, turn: TurnInfo): String = TIME.format(instant.atZone(turn.zone ?: clock.zone))
@@ -142,6 +142,8 @@ internal class PermissionStatusTool(
             "cover run without asking; not in plan or manual mode, nor for an opaque program or a lasting-state " +
             "call):"
         const val UNREAD = "Conversation: counted as tainted, as its mark could not be read."
+        const val CLEARING = "An operator clears the mark with /untaint once sure of what came in, or trusts its " +
+            "source with /trust so that it no longer taints."
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)
     }
 }

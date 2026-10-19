@@ -39,6 +39,13 @@ public interface Channel {
         ApprovalAnswer.Unavailable("this channel cannot ask for approvals")
 
     /**
+     * Offers an operator to trust what [offer] names and waits for the answer, within the channel's own limit, as
+     * [askApproval] does.
+     */
+    public suspend fun offerTrust(offer: TrustOffer): ApprovalAnswer =
+        ApprovalAnswer.Unavailable("this channel cannot offer trust")
+
+    /**
      * Whether [issuer] may run [command] in [chat], bare or with arguments, which the agent checks before it runs a
      * command; an operator alone may where the channel sets no rules.
      */

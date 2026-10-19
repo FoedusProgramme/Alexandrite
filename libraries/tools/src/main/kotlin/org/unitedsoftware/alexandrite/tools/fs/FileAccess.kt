@@ -124,7 +124,10 @@ internal suspend fun HardFloor.readReview(argument: String?, context: ToolContex
         else -> pathOf(argument)?.let { path -> resolved(path) { context.workspace } }
     } ?: return CallReview.builder().build()
     val check = blocking { checkRead(path, context.turn.agent, context.turn.rootConversation) }
-    return CallReview.builder().person((check as? FloorCheck.Ask)?.let { askedPlace(path, it) }).build()
+    return CallReview.builder()
+        .person((check as? FloorCheck.Ask)?.let { askedPlace(path, it) })
+        .reads(listOfNotNull(path.takeIf { it.isAbsolute }))
+        .build()
 }
 
 /** The attributes of [path] itself, a link not followed. */

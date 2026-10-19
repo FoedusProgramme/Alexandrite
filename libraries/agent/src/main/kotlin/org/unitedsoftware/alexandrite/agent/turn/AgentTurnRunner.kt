@@ -65,11 +65,8 @@ import org.unitedsoftware.alexandrite.agent.model.plus
 import org.unitedsoftware.alexandrite.agent.model.requestOptions
 import org.unitedsoftware.alexandrite.agent.model.roomier
 import org.unitedsoftware.alexandrite.agent.model.select
-import org.unitedsoftware.alexandrite.agent.permission.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.permission.Mandates
-import org.unitedsoftware.alexandrite.agent.permission.ReadTaint
 import org.unitedsoftware.alexandrite.agent.permission.Refusals
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.project.InstructionBudget
 import org.unitedsoftware.alexandrite.agent.project.LoadedFile
 import org.unitedsoftware.alexandrite.agent.project.ProjectInstructions
@@ -94,6 +91,11 @@ import org.unitedsoftware.alexandrite.agent.tool.TurnCalls
 import org.unitedsoftware.alexandrite.agent.tool.relativized
 import org.unitedsoftware.alexandrite.agent.tool.textResult
 import org.unitedsoftware.alexandrite.agent.tool.toolTitle
+import org.unitedsoftware.alexandrite.agent.trust.ConversationTaints
+import org.unitedsoftware.alexandrite.agent.trust.ReadTaint
+import org.unitedsoftware.alexandrite.agent.trust.TaintOffers
+import org.unitedsoftware.alexandrite.agent.trust.TrustSources
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.usage.Budgets
 import org.unitedsoftware.alexandrite.agent.usage.HeldJobs
 import org.unitedsoftware.alexandrite.agent.usage.UsageMeter
@@ -209,6 +211,8 @@ internal class AgentTurnRunner(
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
     private val reads: ReadTaint,
+    private val trust: TrustSources,
+    private val offers: TaintOffers,
     private val hooks: TurnHooks,
     private val notices: Notices,
     private val routes: Routes,
@@ -355,7 +359,9 @@ internal class AgentTurnRunner(
             val interrupted = if (shared) interruptedJobs.pending(turn.conversation) else null
             val sent = if (shared) sentMessages.pending(turn.conversation, turn.zone ?: clock.zone) else null
             sent?.taint?.let { taint.mark(it) }
-            if (commands?.commands?.any { !it.operator } == true) taint.mark("a command of someone who is no operator")
+            if (commands?.commands?.any { !it.trusted } == true) {
+                taint.mark("a command of someone whom the agent does not trust")
+            }
             val view = contextView(inherited + history.entries(turn.conversation))
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
@@ -588,7 +594,7 @@ internal class AgentTurnRunner(
             baked: List<ContextPart>,
         ): UserEntry = when (input) {
             is TurnSource.FromMessage -> {
-                markUntrusted(input.message)
+                markUntrusted(turn, input.message)
                 entry(turn, input.message, text, baked)
             }
 
@@ -626,8 +632,8 @@ internal class AgentTurnRunner(
 
         /** The unstored entry of the result of [job], which reads [text], after the turn took in the job's taint. */
         private suspend fun jobOpening(turn: TurnInfo, job: EndedJob, text: String): UserEntry {
-            job.untrusted?.let { taint.mark(it) }
-            reads.reason(turn, job.job.call.name, job.touched)?.let { taint.mark(it) }
+            job.untrusted?.let { taint.mark(it, job.job.call.id) }
+            reads.reason(turn, job.job.call.name, job.touched)?.let { taint.mark(it, job.job.call.id) }
             val stored = media.stored(job.result)
             val carried = job.result.content.zip(stored.content).mapNotNull { (part, kept) ->
                 (kept as? UserPart)?.takeIf { part is MediaPart }
@@ -749,14 +755,17 @@ internal class AgentTurnRunner(
         }
 
         /**
-         * Marks the turn tainted where [message] was forwarded, quotes what its channel does not vouch for or comes
-         * from someone who is no operator, whose words, files and quotes the conversation then holds.
+         * Marks [turn] tainted where [message] was forwarded, quotes what its channel does not vouch for or comes from
+         * someone whom the agent does not trust, whom an operator is then offered to trust.
          */
-        private suspend fun markUntrusted(message: IncomingMessage) {
+        private suspend fun markUntrusted(turn: TurnInfo, message: IncomingMessage) {
+            val sender = message.sender
             when {
                 message.forwarded != null -> taint.mark("a forwarded message")
                 message.quote?.trust?.content == false -> taint.mark("a quote that its channel does not vouch for")
-                !message.sender.isOperator -> taint.mark("a message from someone who is no operator")
+                trust.isTrusted(turn.agent, sender) -> Unit
+                taint.tainted -> taint.mark("a message from someone whom the agent does not trust")
+                else -> offers.markedSender(turn, taint, sender)
             }
         }
 
@@ -1021,7 +1030,7 @@ internal class AgentTurnRunner(
                                 val acting = acting(turn)
                                 val (offered, callable) = tools.offered to tools.callable
                                 val end = executor.execute(acting, call, offered, timeout, callable, taint, tracked)
-                                reads.reason(turn, call.name, end.tainting)?.let { taint.mark(it) }
+                                reads.reason(turn, call.name, end.tainting)?.let { taint.mark(it, call.id) }
                                 taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)
                                 loading += found.loaded
@@ -1174,7 +1183,7 @@ internal class AgentTurnRunner(
                 taken.removeFirst()
                 try {
                     if (entry != null) {
-                        markUntrusted(message)
+                        markUntrusted(turn, message)
                         append(entry)
                         wordsOf(message)?.let(tracked.words::add)
                         followUp.complete(TurnOutcome.Absorbed(turn.id))

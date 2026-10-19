@@ -116,7 +116,11 @@ class PreviewsTest {
             assertEquals("Found.", reply.completed?.text)
             assertEquals(
                 listOf("Received", "Opened", "Previewed", "Completed"),
-                channel().events.map { it::class.simpleName },
+                channel().events.filterNot {
+                    it is RecordingChannel.Event.TrustOffered ||
+                        it is RecordingChannel.Event.OfferAnswered
+                }
+                    .map { it::class.simpleName },
             )
         }
     }

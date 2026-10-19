@@ -29,8 +29,15 @@ public fun testUser(
     user: String = "guest",
     isOperator: Boolean = false,
     instance: ChannelInstanceId = TEST_INSTANCE,
-): ChatUser =
-    ChatUser(UserAddress(instance, user), user.replaceFirstChar(Char::uppercaseChar), null, isBot = false, isOperator)
+    isTrusted: Boolean = false,
+): ChatUser = ChatUser(
+    UserAddress(instance, user),
+    user.replaceFirstChar(Char::uppercaseChar),
+    null,
+    isBot = false,
+    isOperator,
+    isTrusted,
+)
 
 /** A message of [sender] in the direct chat [chat], neither forwarded nor quoting, changed by [block]. */
 public fun testMessage(
@@ -53,5 +60,12 @@ public fun testCommand(
     issuer: ChatUser = testUser(instance = chat.instance),
     trigger: ChannelMessageRef? = ChannelMessageRef(chat, "test-command"),
     kind: ChatKind = ChatKind.DIRECT,
-): CommandInvocation =
-    CommandInvocation.builder(chat, name, issuer).arguments(arguments).trigger(trigger).chatKind(kind).build()
+    replyTo: ChatUser? = null,
+    mentions: List<ChatUser> = emptyList(),
+): CommandInvocation = CommandInvocation.builder(chat, name, issuer)
+    .arguments(arguments)
+    .trigger(trigger)
+    .chatKind(kind)
+    .replyTo(replyTo)
+    .mentions(mentions)
+    .build()
