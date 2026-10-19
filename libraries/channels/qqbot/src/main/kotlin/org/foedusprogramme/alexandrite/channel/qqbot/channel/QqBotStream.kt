@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.qqbot.channel
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.foedusprogramme.alexandrite.channel.qqbot.net.QqBotAnswer
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
@@ -17,10 +19,17 @@ internal class QqBotStream(
     private val msgId: String,
     private val msgSeq: Int,
 ) {
-    private var streamId: String? = null
-    private var index = 0
-    private var shown = ""
-    private var failed = false
+    private val lock = Mutex()
+
+    @Volatile private var streamId: String? = null
+
+    @Volatile private var index = 0
+
+    @Volatile private var shown = ""
+
+    @Volatile private var failed = false
+
+    @Volatile private var finished = false
 
     /** The id of the platform message this stream writes, null before the first piece was taken. */
     val messageId: String? get() = streamId
@@ -29,58 +38,75 @@ internal class QqBotStream(
     val shownText: String get() = shown
 
     /** Shows [text], the whole text of the streaming message so far; false once the platform refuses. */
-    suspend fun show(text: String): Boolean {
-        if (failed || text.isEmpty()) return false
+    suspend fun show(text: String): Boolean = lock.withLock {
+        if (failed || finished || text.isEmpty()) return@withLock false
         val delta = delta(text)
-        if (delta.isEmpty()) return true
+        if (delta.isEmpty()) return@withLock true
         val answer = sender.stream(chat, delta, msgId, msgSeq, streamId, index, last = false, append = true)
         if (answer !is QqBotAnswer.Ok) {
             failed = true
-            return false
+            return@withLock false
         }
         val id = sender.sentId(answer) ?: run {
             failed = true
-            return false
+            return@withLock false
         }
         streamId = id
         shown += delta
         index++
-        return true
+        true
     }
 
     /** Ends the streaming message with [text], the whole answer; null when it was never started or is refused. */
-    suspend fun finish(text: String): Delivery? {
-        if (failed) return null
+    suspend fun finish(text: String): Delivery? = lock.withLock { finishLocked(text) }
+
+    /** Ends the streaming message with what it already showed. */
+    suspend fun finish(): Delivery? = lock.withLock { finishLocked(shown) }
+
+    private suspend fun finishLocked(text: String): Delivery? {
+        if (failed || finished) return null
         val id = streamId ?: return null
         val delta = delta(text.ifBlank { shown })
         val answer = sender.stream(chat, delta, msgId, msgSeq, id, index, last = true, append = true)
-        return if (answer is QqBotAnswer.Ok) sender.delivery(chat, answer) else null
+        return if (answer is QqBotAnswer.Ok) {
+            finished = true
+            sender.delivery(chat, answer)
+        } else {
+            failed = true
+            null
+        }
     }
 
     /** Appends [text] as the next piece, without comparing it with what was shown. */
-    suspend fun append(text: String): Boolean {
-        if (failed || text.isEmpty()) return false
+    suspend fun append(text: String): Boolean = lock.withLock {
+        if (failed || finished || text.isEmpty()) return@withLock false
         val answer = sender.stream(chat, text, msgId, msgSeq, streamId, index, last = false, append = true)
         if (answer !is QqBotAnswer.Ok) {
             failed = true
-            return false
+            return@withLock false
         }
         val id = sender.sentId(answer) ?: run {
             failed = true
-            return false
+            return@withLock false
         }
         streamId = id
         shown += text
         index++
-        return true
+        true
     }
 
     /** Ends the streaming message after its pieces were appended. */
-    suspend fun finishAppended(): Delivery? {
-        if (failed) return null
-        val id = streamId ?: return null
+    suspend fun finishAppended(): Delivery? = lock.withLock {
+        if (failed || finished) return@withLock null
+        val id = streamId ?: return@withLock null
         val answer = sender.stream(chat, "", msgId, msgSeq, id, index, last = true, append = true)
-        return if (answer is QqBotAnswer.Ok) sender.delivery(chat, answer) else null
+        if (answer is QqBotAnswer.Ok) {
+            finished = true
+            sender.delivery(chat, answer)
+        } else {
+            failed = true
+            null
+        }
     }
 
     /**
@@ -97,9 +123,10 @@ internal class QqBotStream(
     }
 
     /** Ends a stream that is not carried on, so the chat does not show it as still being written. */
-    suspend fun abandon() {
-        val id = streamId ?: return
-        if (failed) return
+    suspend fun abandon() = lock.withLock {
+        val id = streamId ?: return@withLock
+        if (failed || finished) return@withLock
+        finished = true
         runCatching { sender.stream(chat, shown, msgId, msgSeq, id, index, last = true) }
     }
 }

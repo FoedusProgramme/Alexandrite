@@ -33,16 +33,22 @@ internal class QqBotProgress {
     }
 
     /**
-     * Closes the stream of [turn] before an approval message, whose answer then arrives as an ordinary message after it.
+     * Closes every open stream of [chat] before an approval message.
      *
-     * A streaming message cannot be moved below the approval request once more of it is written, so the turn's final
-     * answer is sent as a message of its own instead.
+     * An approval can be asked by a delegated run whose turn is not the turn that opened the stream. The chat is
+     * what the stream and the approval have in common, so an approval defers all replies open in it.
      */
-    suspend fun defer(turn: TurnId) {
-        gate(turn).withLock {
-            open.remove(turn)?.let { entry -> entry.stream.finish(entry.stream.shownText) }
-            deferred += turn
+    suspend fun deferChat(chat: ChatAddress): Int {
+        var closed = 0
+        for (turn in open.entries.filter { it.value.chat == chat }.map { it.key }) {
+            gate(turn).withLock {
+                val entry = open.remove(turn) ?: return@withLock
+                entry.stream.finish()
+                deferred += turn
+                closed++
+            }
         }
+        return closed
     }
 
     /** Whether the final answer of [turn] is to be sent outside its stream, after an approval request. */
@@ -52,11 +58,15 @@ internal class QqBotProgress {
     fun done(turn: TurnId) {
         deferred -= turn
         open.remove(turn)
+        gates.remove(turn)
     }
 
     /** Forgets [turn], which ended without a stream to close. */
     suspend fun abandon(turn: TurnId) {
         deferred -= turn
-        gate(turn).withLock { open.remove(turn) }
+        gate(turn).withLock {
+            open.remove(turn)
+            gates.remove(turn)
+        }
     }
 }

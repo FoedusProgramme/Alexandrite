@@ -17,6 +17,7 @@ import org.foedusprogramme.alexandrite.sdk.channel.DelegatedRun
 import org.foedusprogramme.alexandrite.sdk.channel.Delivery
 import org.foedusprogramme.alexandrite.sdk.channel.Markup
 import org.foedusprogramme.alexandrite.sdk.channel.MessageKind
+import org.foedusprogramme.alexandrite.sdk.channel.OutboundFile
 import org.foedusprogramme.alexandrite.sdk.channel.OutboundMessage
 import org.foedusprogramme.alexandrite.sdk.channel.ReplyRequest
 import org.foedusprogramme.alexandrite.sdk.channel.ToolCallStatus
@@ -267,6 +268,42 @@ class QqBotChannelIntegrationTest {
                         assertTrue(api.calls(SEND_DIRECT).none { "\"msg_type\":6" !in it.body })
                     }
             }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `a streamed answer with a file sends the file and closes the stream`() = runBlocking {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(STREAM_DIRECT, """{"id":"stream1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        api.on("/v2/users/u1/files", """{"file_info":"FI","ttl":300}""")
+        api.on(SEND_DIRECT, """{"id":"media1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                .config(config(api.base, platform.url))
+                .turnSubmitter(submitter)
+                .build()
+                .run {
+                    assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                    val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                    val chat = ChatAddress(instance, "private:u1")
+                    val sink = channel.openReply(ReplyRequest(testTurn(chat = chat), ChannelMessageRef(chat, "msg1")))
+                    sink.preview(0, "draft")
+                    val file = OutboundFile.builder("a.png", "image/png", "hello".toByteArray()).build()
+                    val delivery = sink.complete(
+                        OutboundMessage.builder("a caption", MessageKind.REPLY).files(listOf(file)).build(),
+                    )
+
+                    assertIs<Delivery.Delivered>(delivery)
+                    assertTrue(api.calls(STREAM_DIRECT).any { "\"input_state\":10" in it.body })
+                    assertEquals(1, api.calls("/v2/users/u1/files").size)
+                    assertTrue(api.calls(SEND_DIRECT).any { "\"msg_type\":7" in it.body })
+                }
         } finally {
             platform.stop()
             api.close()

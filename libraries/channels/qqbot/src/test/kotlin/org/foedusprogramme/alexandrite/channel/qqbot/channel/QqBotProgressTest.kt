@@ -31,7 +31,7 @@ class QqBotProgressTest {
             progress.attach(turn, direct, stream)
             stream.show("working")
 
-            progress.defer(turn)
+            assertEquals(1, progress.deferChat(direct))
 
             assertTrue(progress.isDeferred(turn))
             val pieces = platform.server.calls(STREAM_DIRECT)

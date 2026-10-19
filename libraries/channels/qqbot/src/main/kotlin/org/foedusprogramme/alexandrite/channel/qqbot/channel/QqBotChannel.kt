@@ -1,5 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.qqbot.channel
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.foedusprogramme.alexandrite.channel.qqbot.config.QqBotInstanceConfig
 import org.foedusprogramme.alexandrite.channel.qqbot.mapping.QqBotChats
 import org.foedusprogramme.alexandrite.sdk.channel.ApprovalAnswer
@@ -96,6 +98,9 @@ internal class QqBotChannel(
         private var noticedAt: Long = 0
         private var noticed: Boolean = false
 
+        /** Serializes this reply's stream, answer and detached-run state across its coroutines. */
+        private val lock = Mutex()
+
         /** The background runs whose activity this reply still shows after its own answer. */
         private val detached = LinkedHashMap<RunId, Detached>()
 
@@ -105,19 +110,19 @@ internal class QqBotChannel(
         private val streaming = config.streaming && QqBotChats.kind(request.turn.chat) == ChatKind.DIRECT &&
             request.trigger != null
 
-        override suspend fun detachActivity(run: DelegatedRun): ReplyActivity? {
-            if (progress.isDeferred(request.turn.id) || run.call.value !in activities) return null
-            return Detached(run.run).also { detached[run.run] = it }
+        override suspend fun detachActivity(run: DelegatedRun): ReplyActivity? = lock.withLock {
+            if (progress.isDeferred(request.turn.id) || run.call.value !in activities) return@withLock null
+            Detached(run.run).also { detached[run.run] = it }
         }
 
         /** The activity of a background run, shown after the reply that delegated it ended. */
         private inner class Detached(private val run: RunId) : ReplyActivity {
             private var closed = false
 
-            override suspend fun event(event: TurnEvent) {
-                if (closed) return
-                val started = event as? TurnEvent.ToolCallStarted ?: return
-                if (started.run != run) return
+            override suspend fun event(event: TurnEvent) = lock.withLock {
+                if (closed) return@withLock
+                val started = event as? TurnEvent.ToolCallStarted ?: return@withLock
+                if (started.run != run) return@withLock
                 val line = activityLine(started)
                 val current = stream
                 if (streaming && current != null && !progress.isDeferred(request.turn.id)) {
@@ -135,8 +140,8 @@ internal class QqBotChannel(
                 }
             }
 
-            override suspend fun close(status: ToolCallStatus) {
-                if (closed) return
+            override suspend fun close(status: ToolCallStatus) = lock.withLock {
+                if (closed) return@withLock
                 closed = true
                 detached.remove(run)
                 if (detached.isEmpty() && parentFinal != null) {
@@ -146,17 +151,17 @@ internal class QqBotChannel(
             }
         }
 
-        override suspend fun preview(segment: Int, text: String) {
+        override suspend fun preview(segment: Int, text: String) = lock.withLock {
             if (!streaming) {
                 logger.debug(
                     "The preview of segment {} of {} is not sent: a group message of this platform is not changed",
                     segment,
                     request.turn.id,
                 )
-                return
+                return@withLock
             }
-            if (text.isEmpty() || progress.isDeferred(request.turn.id)) return
-            val trigger = request.trigger ?: return
+            if (text.isEmpty() || progress.isDeferred(request.turn.id)) return@withLock
+            val trigger = request.trigger ?: return@withLock
             val current = streamOf(trigger)
             val chunk = next(answer, text)
             answer = text
@@ -178,12 +183,12 @@ internal class QqBotChannel(
             )
         }
 
-        override suspend fun event(event: TurnEvent) {
-            if (!config.progress || progress.isDeferred(request.turn.id)) return
-            val started = event as? TurnEvent.ToolCallStarted ?: return
+        override suspend fun event(event: TurnEvent) = lock.withLock {
+            if (!config.progress || progress.isDeferred(request.turn.id)) return@withLock
+            val started = event as? TurnEvent.ToolCallStarted ?: return@withLock
             activities[started.id.value] = activityLine(started)
             if (streaming) {
-                val trigger = request.trigger ?: return
+                val trigger = request.trigger ?: return@withLock
                 val current = streamOf(trigger)
                 val line = if (current.shownText.isEmpty()) activityLine(started) else "\n\n" + activityLine(started)
                 current.append(line)
@@ -194,32 +199,42 @@ internal class QqBotChannel(
             }
         }
 
-        override suspend fun complete(message: OutboundMessage): Delivery = try {
-            if (!streaming) tellWaiting()
-            if (streaming && !progress.isDeferred(request.turn.id)) {
-                val trigger = request.trigger
-                if (trigger != null) {
-                    val current = streamOf(trigger)
-                    val chunk = next(answer, message.text)
-                    if (chunk.isNotEmpty()) current.append(chunk)
-                    if (detached.isNotEmpty()) {
-                        parentFinal = message.text
-                        val id = current.messageId
-                        if (id != null) return Delivery.Delivered(listOf(ChannelMessageRef(request.turn.chat, id)))
-                    } else {
-                        val finished = current.finishAppended()
-                        if (finished != null) return finished
+        override suspend fun complete(message: OutboundMessage): Delivery = lock.withLock {
+            try {
+                if (message.files.isNotEmpty()) {
+                    // A file message of this platform has no caption, and the stream cannot carry the file. Close the
+                    // stream where it is and send the files as the message the platform takes.
+                    stream?.abandon()
+                    return@withLock sender.send(request.turn.chat, withTrigger(message))
+                }
+                if (!streaming) tellWaiting()
+                if (streaming && !progress.isDeferred(request.turn.id)) {
+                    val trigger = request.trigger
+                    if (trigger != null) {
+                        val current = streamOf(trigger)
+                        val chunk = next(answer, message.text)
+                        if (chunk.isNotEmpty()) current.append(chunk)
+                        if (detached.isNotEmpty()) {
+                            parentFinal = message.text
+                            val id = current.messageId
+                            if (id != null) {
+                                return@withLock Delivery.Delivered(listOf(ChannelMessageRef(request.turn.chat, id)))
+                            }
+                        } else {
+                            val finished = current.finishAppended()
+                            if (finished != null) return@withLock finished
+                        }
                     }
                 }
+                sender.send(request.turn.chat, withTrigger(message))
+            } finally {
+                replies.close(request.turn.id)
+                progress.done(request.turn.id)
+                typing.stop(request.turn.chat)
             }
-            sender.send(request.turn.chat, withTrigger(message))
-        } finally {
-            replies.close(request.turn.id)
-            progress.done(request.turn.id)
-            typing.stop(request.turn.chat)
         }
 
-        override suspend fun abandon(end: ReplyEnd) {
+        override suspend fun abandon(end: ReplyEnd) = lock.withLock {
             logger.info("The reply of {} was abandoned: {}", request.turn.id, end)
             replies.close(request.turn.id)
             progress.abandon(request.turn.id)

@@ -54,7 +54,7 @@ internal class QqBotApprovals(
             }
             // The answer comes after the approval message, so the turn's stream ends here rather than showing it above
             // the request.
-            progress.defer(request.turn.id)
+            progress.deferChat(request.turn.chat)
             logger.info(
                 "{} asks for approval {} of {} in turn {} in {} chat(s)",
                 instance.id,
