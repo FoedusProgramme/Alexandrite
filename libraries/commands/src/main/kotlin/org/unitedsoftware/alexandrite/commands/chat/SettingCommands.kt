@@ -389,15 +389,15 @@ internal class SettingCommands(
         context.reply(lines.filterNotNull().joinToString("\n"))
     }
 
-    /** The line that tells whether the conversation at [chat] is tainted, null when that cannot be read. */
-    private suspend fun taint(chat: ChatAddress, zone: ZoneId?, replies: Replies): String? {
+    /** The line that tells whether the conversation at [chat] is tainted. */
+    private suspend fun taint(chat: ChatAddress, zone: ZoneId?, replies: Replies): String {
         val taint = try {
             trust.taint(chat)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             logger.warn("The taint of {} could not be read for /settings: {}", chat, e.toString())
-            return null
+            return replies.text(TextKeys.SETTINGS_TAINT_UNREAD)
         } ?: return replies.text(TextKeys.SETTINGS_CLEAN)
         val date = LocalDate.ofInstant(taint.at, zone ?: clock.zone)
         return replies.text(TextKeys.SETTINGS_TAINTED, "date" to date, "reason" to taint.reason)

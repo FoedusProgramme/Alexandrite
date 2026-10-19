@@ -1028,8 +1028,22 @@ internal class AgentTurnRunner(
                         launch {
                             slots.withPermit {
                                 val acting = acting(turn)
-                                val (offered, callable) = tools.offered to tools.callable
-                                val end = executor.execute(acting, call, offered, timeout, callable, taint, tracked)
+                                val callable = if (acting === turn) {
+                                    tools.callable
+                                } else {
+                                    tools.callable.filterTo(mutableSetOf()) {
+                                        registry.permits(agent.id, acting.actorIsOperator || operatorSet(acting), it)
+                                    }
+                                }
+                                val end = executor.execute(
+                                    acting,
+                                    call,
+                                    tools.offered,
+                                    timeout,
+                                    callable,
+                                    taint,
+                                    tracked,
+                                )
                                 reads.reason(turn, call.name, end.tainting)?.let { taint.mark(it, call.id) }
                                 taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)

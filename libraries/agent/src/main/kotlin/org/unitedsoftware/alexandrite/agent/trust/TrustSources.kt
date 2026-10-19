@@ -27,8 +27,11 @@ internal interface Foresight {
     /** Why [call] would bring the first untrusted content into its clean conversation, null when it would bring none. */
     suspend fun foresee(call: CheckedCall): Foreseen?
 
-    /** The roots that [foreseen] offers for [call], each folder picked among its candidates. */
-    suspend fun roots(call: CheckedCall, foreseen: Foreseen): List<Root>
+    /**
+     * The roots that [foreseen] offers for [call], each folder picked among its candidates: the first three of more, or
+     * none of more when trusting them must keep the conversation clean, as [whole] asks.
+     */
+    suspend fun roots(call: CheckedCall, foreseen: Foreseen, whole: Boolean = false): List<Root>
 
     /** Trusts each of [roots] for [turn] as [by] answered, and returns those it trusts now. */
     suspend fun grant(roots: List<Root>, turn: TurnInfo, by: ChatUser): List<Root>
@@ -92,11 +95,14 @@ internal class TrustSources(
         return Foreseen(found.map { it.first }.distinct().joinToString("; "), sources)
     }
 
-    override suspend fun roots(call: CheckedCall, foreseen: Foreseen): List<Root> =
-        roots(call.call.turn, foreseen, words(call))
+    override suspend fun roots(call: CheckedCall, foreseen: Foreseen, whole: Boolean): List<Root> =
+        roots(call.call.turn, foreseen, words(call), whole)
 
-    /** The roots that [foreseen] offers in [turn], whose operator wrote [words], each folder picked among its candidates. */
-    suspend fun roots(turn: TurnInfo, foreseen: Foreseen, words: List<String>): List<Root> {
+    /**
+     * The roots that [foreseen] offers in [turn], whose operator wrote [words], each folder picked among its
+     * candidates, as [Foresight.roots] tells them.
+     */
+    suspend fun roots(turn: TurnInfo, foreseen: Foreseen, words: List<String>, whole: Boolean = false): List<Root> {
         val picked = foreseen.sources.map { source ->
             when (source) {
                 is Source.Fixed -> source.root
@@ -107,7 +113,7 @@ internal class TrustSources(
         val kept = picked.filterNot { root ->
             root is Root.Folder && folders.any { it != root.path && root.path.startsWith(it) }
         }.distinctBy { key(it) }
-        return kept.takeIf { it.size <= MAX_ROOTS }.orEmpty()
+        return if (whole && kept.size > MAX_ROOTS) emptyList() else kept.take(MAX_ROOTS)
     }
 
     /** The words of [call]'s operator that a side model may go by, none for a turn of anyone else. */

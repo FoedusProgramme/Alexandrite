@@ -183,9 +183,23 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `always allow lets the same command run unasked in the conversation, but not another one or another repo's`() {
+    fun `always allow lets the same trusted command run unasked in the conversation, not another or elsewhere`() {
         val first = script("first")
         val second = script("second")
+        val trusting = """
+            {
+              "previewIntervalMillis": 0,
+              "trustedFolders": ["$first"],
+              "agents": {
+                "coder": {
+                  "name": "Coder",
+                  "model": "scripted/test-model",
+                  "channels": {"telegram:work": {}},
+                  "permission": {"trust": ["command.exec(./gradlew)"]}
+                }
+              }
+            }
+        """.trimIndent()
         app.model
             .reply { toolCall("command.exec", gradle("test", first)) }.reply { text("Tested.") }
             .reply { toolCall("command.exec", gradle("test", first)) }.reply { text("Tested again.") }
@@ -194,7 +208,7 @@ class TelegramPermissionTest {
         lateinit var always: String
         lateinit var rules: String
 
-        app.run(app.builder(directory)) {
+        app.run(app.builder(directory).config(trusting)) {
             app.send(app.ada, app.adaChat, "Run the tests.")
             always = press { it.startsWith("Always allow") }
             app.message(app.adaChat, "Tested.")

@@ -27,7 +27,7 @@ import java.time.Instant
 internal interface TaintLedger {
     /**
      * Records that a call of a tainted conversation, tainted for [reason], changed the file of its [preview] or ran
-     * the command of its [preview] from [from] to [to].
+     * the command of its [preview] from [from] to [to], which covers the command's working directories alone.
      */
     suspend fun wrote(preview: ReviewPreview, from: Instant, to: Instant, reason: String)
 

@@ -66,13 +66,14 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
         val host = checkedHost(URI(url), config.normalizedPrivateHosts)
         context.untrusted("web.fetch reads untrusted web content")
         withTimeout(definition.timeout!!) {
-            val page = fetch.fetch(url)
+            val page = try {
+                fetch.fetch(url)
+            } catch (e: RedirectedAway) {
+                return@withTimeout redirected(url, e.to)
+            }
             val reached = page.url.host?.lowercase(Locale.ROOT)?.removeSuffix(".")
-            if (reached != null && !sameSite(host, reached)) {
-                return@withTimeout ToolResult(
-                    "$url redirects to ${page.url}, on another host: fetch that address itself to read it.",
-                    isError = true,
-                )
+            if (reached != null && !sameSite(host, reached, config.normalizedPrivateHosts)) {
+                return@withTimeout redirected(url, page.url)
             }
             val question =
                 PageQuestion(context.turn, page.url.toString(), page.text, prompt, config.model?.let(ModelRef::parse))
@@ -138,9 +139,9 @@ internal class SearchTool(
     }
 }
 
-/** Whether [reached] is [host], a host below it, or the same host with or without `www.`. */
-private fun sameSite(host: String, reached: String): Boolean =
-    reached == host || reached.endsWith(".$host") || reached.removePrefix("www.") == host.removePrefix("www.")
+/** What the model reads of a fetch of [url] that a redirect would take to [to], on another site. */
+private fun redirected(url: String, to: URI): ToolResult =
+    ToolResult("$url redirects to $to, on another host: fetch that address itself to read it.", isError = true)
 
 private suspend fun webResult(block: suspend () -> ToolResult): ToolResult = try {
     block()

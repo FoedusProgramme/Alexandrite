@@ -27,6 +27,9 @@ import kotlin.time.Duration.Companion.seconds
 
 internal class WebPage(val url: URI, val text: String)
 
+/** A redirect from [from] to [to], on another site, which a fetch does not follow. */
+internal class RedirectedAway(val from: URI, val to: URI) : Exception("$from redirects to $to, on another host")
+
 internal fun interface WebPages {
     suspend fun fetch(url: String): WebPage
 }
@@ -56,6 +59,7 @@ internal fun fetchPage(
     exchange: (URI, InetAddress, Int, Int) -> WebResponse = ::exchange,
 ): Pair<URI, String> {
     val allowed = allowedPrivateHosts.map(::normalizeAllowedHost).toSet()
+    val site = checkedHost(start, allowed)
     var uri = start
     val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
     repeat(6) {
@@ -64,6 +68,7 @@ internal fun fetchPage(
         require(addresses.isNotEmpty() && (host in allowed || addresses.none(::privateAddress))) {
             "Web URL resolves to a non-public network."
         }
+        if (!sameSite(site, host, allowed)) throw RedirectedAway(start, uri)
         val remaining = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtMost(timeoutMillis.toLong()).toInt()
         require(remaining > 0) { "Web fetch timed out." }
         val response = exchange(uri, addresses.first(), maxBytes, remaining)
@@ -86,6 +91,16 @@ internal fun fetchPage(
         }
     }
     error("Too many web redirects.")
+}
+
+/**
+ * Whether [reached] is [host], a host below it, or the same host with or without `www.`, where a host of
+ * [allowedPrivateHosts] on either side must be the other exactly.
+ */
+internal fun sameSite(host: String, reached: String, allowedPrivateHosts: Set<String> = emptySet()): Boolean {
+    if (reached == host) return true
+    if (host in allowedPrivateHosts || reached in allowedPrivateHosts) return false
+    return reached.endsWith(".$host") || reached.removePrefix("www.") == host.removePrefix("www.")
 }
 
 /** The charset that [contentType] names, else UTF-8. */

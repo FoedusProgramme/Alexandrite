@@ -224,6 +224,48 @@ class UpdateReaderTest {
     }
 
     @Test
+    fun `a quote of a trusted user's own message is vouched for, a forward they brought is not`() {
+        val trusting = UpdateReader(
+            work,
+            setOf(1001L),
+            BotIdentity(1234567890, "alexandrite_test_bot"),
+            approvals,
+            trusted = setOf(1002L),
+        ) { MediaContent { _ -> ByteArray(0) } }
+        val bobUser = buildJsonObject {
+            put("id", 1002)
+            put("is_bot", false)
+            put("first_name", "Bob")
+        }
+        val forward = buildJsonObject {
+            put("type", "hidden_user")
+            put("date", 1760169000)
+            put("sender_user_name", "Someone")
+        }
+        fun trustOf(vararg fields: Pair<String, JsonElement>): QuoteTrust? {
+            val replied = buildJsonObject {
+                put("message_id", 9)
+                put("from", bobUser)
+                put(
+                    "chat",
+                    buildJsonObject {
+                        put("id", -1001234500000)
+                        put("type", "supergroup")
+                    },
+                )
+                put("date", 1760169480)
+                put("text", "Deploy at five.")
+                fields.forEach { (name, value) -> put(name, value) }
+            }
+            val reply = with("group_mention", "reply_to_message" to replied)
+            return assertIs<Inbound.Message>(trusting.read(reply)).message.quote?.trust
+        }
+
+        assertEquals(VOUCHED, trustOf())
+        assertEquals(AUTHOR_KNOWN, trustOf("forward_origin" to forward))
+    }
+
+    @Test
     fun `a reply to the bot's approval message quotes the line that stands for it, vouched for`() {
         val request = ApprovalMessages.Request("7atcb7ea", "fs.write").apply { state = "allowed by Ada Lovelace" }
         approvals.note(1001, 9, request)

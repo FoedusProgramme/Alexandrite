@@ -29,6 +29,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.store.collection
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -685,6 +686,55 @@ class FakesTest {
         assertEquals(Revocation(true, false), blocking { control.trust.untrustPerson(testChat(), guest, operator) })
         assertEquals(Revocation(false, true), blocking { control.trust.untrustPerson(testChat(), configured, null) })
         assertEquals(emptyList(), blocking { control.trust.people(testChat()) })
+    }
+
+    @Test
+    fun `a recording agent keeps the people each agent trusts apart`() {
+        val control = RecordingAgent()
+        val coder = AgentId("coder")
+        val (main, coding) = listOf("a", "b").map { testChat(it) }
+        control.declareHome(coder, coding)
+        val guest = testUser("bob")
+
+        blocking { control.trust.trustPerson(main, guest, null) }
+
+        assertEquals(listOf(guest), blocking { control.trust.people(main) }.map { it.person })
+        assertEquals(emptyList(), blocking { control.trust.people(coding) })
+        assertEquals(Revocation(false, false), blocking { control.trust.untrustPerson(coding, guest, null) })
+        assertEquals(Revocation(true, false), blocking { control.trust.untrustPerson(main, guest, null) })
+    }
+
+    @Test
+    fun `a new conversation of a recording agent drops its granted trust rules and its taint`() {
+        val control = RecordingAgent()
+        val chat = testChat()
+        control.declareTrust("web.fetch(docs.example.org)")
+        blocking { control.trust.trustRule(chat, "web.fetch(example.com)", null) }
+        control.taints[chat] = ConversationTaint(TEST_TIME, "a web page")
+
+        blocking { control.conversations.newConversation(chat, null) }
+
+        assertEquals(listOf("web.fetch(docs.example.org)"), blocking { control.trust.rules(chat) }.map { it.rule })
+        assertNull(blocking { control.trust.taint(chat) })
+    }
+
+    @Test
+    fun `a recording agent tells the trust rules of programs that run any code given as the agent does`() {
+        val control = RecordingAgent()
+        val rules = listOf(
+            "command.exec",
+            "command.exec(bash -c)",
+            "command.exec(/usr/bin/python3)",
+            "command.exec(env)",
+            "command.*",
+            "command.exec(git status)",
+            "web.fetch(example.com)",
+        )
+        rules.forEach(control::declareTrust)
+
+        val anyCode = blocking { control.trust.rules(testChat()) }.associate { it.rule to it.anyCode }
+
+        assertEquals(rules.zip(listOf(true, true, true, true, true, false, false)).toMap(), anyCode)
     }
 
     // Chat states.

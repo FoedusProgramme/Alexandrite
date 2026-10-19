@@ -64,14 +64,14 @@ import java.time.ZoneOffset
  *
  * It records the calls that change something in [calls], lists the [statuses] and [jobStatuses] the test sets, reports
  * the [compaction] and contexts it is scripted with, mints conversations `conversation-<n>` and keeps chat settings per
- * agent and chat, home chats per agent and instance, linked groups, trusted folders, people and rules, and allow rules, where
- * [defaultAgent] serves every chat that is no other agent's home until an update switches it. A bypass ends as the
- * agent's does: an hour after [clock]'s time by default, a day after it at most.
+ * agent and chat, home chats per agent and instance, linked groups, trusted folders, people per agent, trust rules
+ * and allow rules, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
+ * A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after it at most.
  *
  * Homes, groups, folders and allow rules that the test declares stand for the config file's, and those changed at
- * runtime over them are set at [TEST_TIME]. A chat's granted allow rules end with its conversation. It refuses with a
- * [ControlRefusedException] what the agent refuses for the reasons it knows, and the calls that [refuseNext] queues
- * refusals for.
+ * runtime over them are set at [TEST_TIME]. A chat's granted allow and trust rules and its taint end with its
+ * conversation. It refuses with a [ControlRefusedException] what the agent refuses for the reasons it knows, and the
+ * calls that [refuseNext] queues refusals for.
  */
 public class RecordingAgent(
     private val defaultAgent: AgentId = AgentId.MAIN,
@@ -90,7 +90,7 @@ public class RecordingAgent(
     private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
     private val declaredTrust = mutableListOf<String>()
     private val grantedTrust = HashMap<ChatAddress, List<TrustRule>>()
-    private val trustedPeople = LinkedHashMap<UserAddress, TrustedPerson>()
+    private val trustedPeople = LinkedHashMap<Pair<AgentId, UserAddress>, TrustedPerson>()
     private val endpointModels = LinkedHashMap<EndpointId, List<ModelInfo>>()
     private val agentProfiles = mutableListOf<ProfileSummary>()
     private val refusals = ArrayDeque<String>()
@@ -259,6 +259,8 @@ public class RecordingAgent(
                 throw ControlRefusedException(message)
             }
             grantedRules.remove(chat)
+            grantedTrust.remove(chat)
+            taints.remove(chat)
             ConversationId("conversation-${++minted}").also { recorded += Call.NewConversation(chat, by, it) }
         }
 
@@ -469,9 +471,11 @@ public class RecordingAgent(
                 Revocation(removed = before.any { it.rule == written }, declared = written in declaredTrust)
             }
 
-        /** The people trusted at runtime, at every chat, in the order they were trusted. */
-        override suspend fun people(chat: ChatAddress): List<TrustedPerson> =
-            synchronized(lock) { trustedPeople.values.toList() }
+        /** The people trusted at runtime by the agent of [chat], in the order they were trusted. */
+        override suspend fun people(chat: ChatAddress): List<TrustedPerson> = synchronized(lock) {
+            val agent = settingsAt(chat).agent
+            trustedPeople.filterKeys { it.first == agent }.values.toList()
+        }
 
         /** Trusts [person] at [TEST_TIME], refusing an operator, whom the agent trusts already. */
         override suspend fun trustPerson(chat: ChatAddress, person: ChatUser, by: ChatUser?): TrustedPerson =
@@ -479,7 +483,9 @@ public class RecordingAgent(
                 recorded += Call.TrustPerson(chat, person, by)
                 refuseQueued()
                 refuseIf(person.isOperator) { "${person.displayName} is an operator, whom the agent trusts already." }
-                TrustedPerson(person, TEST_TIME, by).also { trustedPeople[person.address] = it }
+                TrustedPerson(person, TEST_TIME, by).also {
+                    trustedPeople[settingsAt(chat).agent to person.address] = it
+                }
             }
 
         /** Stops trusting [person], reporting them trusted still when their channel trusts them. */
@@ -487,7 +493,7 @@ public class RecordingAgent(
             synchronized(lock) {
                 recorded += Call.UntrustPerson(chat, person, by)
                 refuseQueued()
-                val removed = trustedPeople.remove(person.address) != null
+                val removed = trustedPeople.remove(settingsAt(chat).agent to person.address) != null
                 Revocation(removed = removed, declared = person.isTrusted || person.isOperator)
             }
 
@@ -720,8 +726,23 @@ private val BYPASS: Duration = Duration.ofHours(1)
 
 private val TRUST_RULE = Regex("[a-z*][a-z0-9_.*]*(\\(.+\\))?")
 
-/** Whether [rule] trusts a shell, as the agent tells it. */
-private fun anyCode(rule: String): Boolean = rule == "command.exec" || rule.startsWith("command.exec(sh")
+/** Whether [rule] trusts a program that runs any code it is given, or every program, as the agent tells it. */
+private fun anyCode(rule: String): Boolean {
+    val tool = rule.substringBefore('(')
+    val glob = Regex(tool.split('*').joinToString(".*") { Regex.escape(it) })
+    if (!glob.matches(EXEC)) return false
+    val prefix = rule.substringAfter('(', "").removeSuffix(")").trim()
+    if (prefix.isEmpty()) return true
+    val program = prefix.split(' ').first().removeSurrounding("'")
+    return program.substringAfterLast('/') in RUNS_ANY_CODE
+}
+
+private const val EXEC = "command.exec"
+
+private val RUNS_ANY_CODE = setOf(
+    "sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox", "env", "xargs", "sudo", "doas",
+    "su", "eval", "exec", "python", "python3", "node", "ruby", "perl", "php", "lua", "osascript", "ssh",
+)
 
 private val MAX_BYPASS: Duration = Duration.ofHours(24)
 

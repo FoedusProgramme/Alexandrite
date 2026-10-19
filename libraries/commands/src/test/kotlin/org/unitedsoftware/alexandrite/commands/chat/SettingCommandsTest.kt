@@ -441,7 +441,7 @@ class SettingCommandsTest {
     }
 
     @Test
-    fun `settings leaves out the taint when it cannot be read`() = runTest {
+    fun `settings says that a taint it cannot read counts as tainted`() = runTest {
         val failing = object : TrustControl by control.trust {
             override suspend fun taint(chat: ChatAddress): ConversationTaint? = throw IOException("store down")
         }
@@ -450,7 +450,7 @@ class SettingCommandsTest {
 
         val lines = commands.answer(testCommand("settings")).lines()
 
-        assertEquals("Home: main has no home chat on test:main", lines[7])
+        assertEquals("Conversation: its taint could not be read, so it counts as tainted.", lines[7])
     }
 
     @Test

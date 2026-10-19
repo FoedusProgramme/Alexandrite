@@ -136,6 +136,7 @@ internal object TextKeys {
     const val SETTINGS_OTHER: String = "settings.other"
     const val SETTINGS_TAINTED: String = "settings.tainted"
     const val SETTINGS_CLEAN: String = "settings.clean"
+    const val SETTINGS_TAINT_UNREAD: String = "settings.taint_unread"
 
     const val TRUST_LIST: String = "trust.list"
     const val TRUST_NONE: String = "trust.none"

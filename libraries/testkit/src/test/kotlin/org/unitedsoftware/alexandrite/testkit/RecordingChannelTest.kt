@@ -406,6 +406,18 @@ class RecordingChannelTest {
     }
 
     @Test
+    fun `a command the channel receives may reply to someone and name others`() {
+        val (cy, dan) = listOf("cy", "dan").map(channel::user)
+
+        val replying = channel.command("trust", issuer = channel.user("ada"), replyTo = cy)
+        channel.receiveCommand("trust", issuer = channel.user("ada"), mentions = listOf(cy, dan))
+
+        assertEquals(cy to emptyList(), replying.replyTo to replying.mentions)
+        val received = assertIs<Submission.Command>(submitter.submissions.single()).invocation
+        assertEquals(null to listOf(cy, dan), received.replyTo to received.mentions)
+    }
+
+    @Test
     fun `what the channel receives goes to its submitter`() {
         submitter.refuseNext(RefusalReason.QUEUE_FULL, 20)
 

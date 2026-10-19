@@ -24,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -38,6 +39,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
+import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import java.nio.file.Path
@@ -91,7 +93,56 @@ class TaintQuestionTurnsTest {
         }
     }
 
+    /** A search over the folders its `paths` name, each reported touched when it runs. */
+    private val search = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition("fs.grep", ToolRisk.READ_ONLY)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().reads(paths(arguments)).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+            paths(arguments).forEach(context::touched)
+            return ToolResult("Found.")
+        }
+    }
+
+    /** A read that removes the folder of its `path` as it runs, so that it can no longer be trusted. */
+    private val consume = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition("fs.consume", ToolRisk.READ_ONLY)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().reads(listOf(path(arguments))).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+            path(arguments).parent.toFile().deleteRecursively()
+            return ToolResult("Consumed.")
+        }
+    }
+
+    /** A write whose output is untrusted and whose review offers a rule for good. */
+    private val write = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition("notes.write", ToolRisk.WORKSPACE_WRITE)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().untrusted(true).rule(RuleSubject("notes.write", emptyList(), "notes.write")).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Written.")
+    }
+
+    /** A tool whose review says its output is untrusted, though it reports nothing as it runs. */
+    private val quiet = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition("notes.quiet", ToolRisk.READ_ONLY)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().untrusted(true).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Quiet.")
+    }
+
     private fun path(arguments: JsonObject): Path = Path.of(arguments.getValue("path").jsonPrimitive.content)
+
+    private fun paths(arguments: JsonObject): List<Path> =
+        arguments.getValue("paths").jsonPrimitive.content.split(',').map { Path.of(it) }
 
     private fun harness(trustedUsers: Set<String> = emptySet()): PluginHarness {
         val config = """
@@ -102,7 +153,7 @@ class TaintQuestionTurnsTest {
                 "coder": {
                   "model": "scripted/test-model",
                   "channels": {"test:main": {}},
-                  "tools": {"forGuests": ["fs.read"]}
+                  "tools": {"forGuests": ["fs.read", "fs.grep", "fs.consume"]}
                 }
               }
             }
@@ -110,7 +161,8 @@ class TaintQuestionTurnsTest {
         return agentHarness(config, store) {
             channel(operators = setOf("operator"), trusted = trustedUsers).model(model).tool(read)
                 .tool(untrusted("mcp.files.read")).tool(untrusted("web.fetch", ToolRisk.NETWORK_READ))
-                .tool(untrusted("notes.paste"))
+                .tool(untrusted("notes.paste")).tool(write).tool(search)
+                .tool(consume).tool(quiet)
         }
     }
 
@@ -120,6 +172,19 @@ class TaintQuestionTurnsTest {
     }
 
     private fun reading(path: Path): String = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
+
+    private fun searching(paths: List<Path>): String =
+        JsonObject(mapOf("paths" to JsonPrimitive(paths.joinToString(",")))).toString()
+
+    /** Files in [count] repositories outside the trusted places. */
+    private fun repositories(count: Int): List<Path> = (1..count).map { index ->
+        root.resolve("outside/repo$index").also { it.resolve(".git").createDirectories() }.resolve("a.kt").let(::file)
+    }
+
+    private suspend fun PluginHarness.Running.remind(): TurnOutcome {
+        val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Read the notes.").trust(Trust.TRUSTED).build()
+        return (get<TurnInitiation>().initiate("beat", turn) as Admission.Accepted).ticket.outcome()
+    }
 
     private suspend fun PluginHarness.Running.ask(
         user: String = "operator",
@@ -208,7 +273,55 @@ class TaintQuestionTurnsTest {
 
             assertEquals(emptyList(), channel().approvals)
             assertEquals(emptyList(), channel().offers)
-            assertEquals("fs.read reached $project, a folder that is not trusted", mark()?.reason)
+            assertEquals("fs.read would reach $project, a folder that is not trusted", mark()?.reason)
+        }
+    }
+
+    @Test
+    fun `in bypass mode a call that the review foresees as untrusted marks the conversation before it runs`() {
+        model.reply { toolCall("notes.quiet") }.reply { text("Done.") }
+
+        harness().execute {
+            get<ChatSettings>().update(
+                channel().chat(),
+                ChatSettingsUpdate.builder().mode(PermissionMode.BYPASS, null).build(),
+                channel().user("operator"),
+            )
+            ask()
+
+            assertEquals(emptyList(), channel().approvals)
+            assertEquals("the output of notes.quiet is untrusted", mark()?.reason)
+        }
+    }
+
+    @Test
+    fun `a call that would taint and needs an approval anyway offers no rule for good`() {
+        model.reply { toolCall("notes.write") }.reply { text("Written.") }
+
+        harness().execute {
+            ask()
+
+            val request = channel().approvals.single()
+            assertTrue(request.taints)
+            assertEquals(emptyList(), request.alwaysRules)
+        }
+    }
+
+    @Test
+    fun `a read of more than three untrusted folders offers the first three, and an automated one offers none`() {
+        val files = repositories(4)
+        model.reply { toolCall("fs.grep", searching(files)) }.reply { text("Found.") }
+            .reply { toolCall("fs.grep", searching(files)) }.reply { text("Found.") }
+
+        harness().execute {
+            ask()
+            store.conversations.clearTaint(store.conversations.current(key).id)
+            remind()
+
+            val roots = channel().approvals.single().roots
+            assertEquals(files.take(3).map { TrustRoot(TrustRootKind.FOLDER, "${it.parent}") }, roots)
+            assertEquals(emptyList(), channel().offers)
+            assertTrue(mark() != null)
         }
     }
 
@@ -321,6 +434,26 @@ class TaintQuestionTurnsTest {
 
             assertEquals("fs.read would reach $project, a folder that is not trusted", mark()?.reason)
             assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+        }
+    }
+
+    @Test
+    fun `an automated turn's mark stays when its source could not be trusted after all`() {
+        val first = file(project.resolve("a.kt"))
+        model.reply { toolCall("fs.consume", reading(first)) }.reply { text("Consumed.") }
+
+        harness().execute {
+            channel().holdApprovals()
+            channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            remind()
+            channel().releaseApprovals()
+            withTimeout(5.seconds) {
+                while (channel().events.none { it is RecordingChannel.Event.OfferAnswered }) delay(10)
+            }
+            delay(300)
+
+            assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+            assertEquals("fs.consume would reach $project, a folder that is not trusted", mark()?.reason)
         }
     }
 

@@ -27,7 +27,12 @@ internal val INSTRUCTION_NAMES: List<String> = listOf("AGENTS.md", "CLAUDE.md", 
  * the agents' instruction files, a trusted folder's instructions and skills, and what an agent's sandbox protects.
  */
 internal interface InstructionPlaces {
-    /** The kind of instruction-bearing place that the file [review] shows a change of is, null when it is none. */
+    /**
+     * The kind of instruction-bearing place that the file [review] shows a change of is, null when it is none.
+     *
+     * What a command writes cannot be foreseen: the sandbox's protect list and the judge's rule for tainted
+     * conversations cover it.
+     */
     fun written(agent: AgentId, review: CallReview): String? =
         (review.preview as? ReviewPreview.Diff)?.path?.takeIf { it.isAbsolute }?.let { kind(it, agent) }
 

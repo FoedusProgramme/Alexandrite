@@ -136,7 +136,7 @@ class TelegramTaintQuestionTest {
             marked = taint()
         }
 
-        assertEquals("fs.read reached $project, a folder that is not trusted", marked?.reason)
+        assertEquals("fs.read would reach $project, a folder that is not trusted", marked?.reason)
         assertEquals(emptyList(), app.fake.botMessages(ADA).filter { it.buttons.isNotEmpty() })
     }
 

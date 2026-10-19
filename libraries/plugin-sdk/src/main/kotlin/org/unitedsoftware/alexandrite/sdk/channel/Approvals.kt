@@ -110,16 +110,43 @@ public class TrustRoot private constructor(
 ) {
     init {
         require(name.isNotBlank()) { "A trust root shows a name." }
+        require(name.none(::breaks)) { "A trust root's name is escaped for review." }
         require((kind == TrustRootKind.PERSON) == (person != null)) { "Only a person's trust root names a person." }
     }
 
     public companion object {
+        /** The characters of a person's name that [person] keeps by default. */
+        private const val MAX_NAME = 64
+
         public operator fun invoke(kind: TrustRootKind, name: String): TrustRoot = TrustRoot(kind, name, null)
 
-        public fun person(person: ChatUser, name: String = person.displayName): TrustRoot =
-            TrustRoot(TrustRootKind.PERSON, name, person)
+        /** The root of [person], by default named by their display name with control characters escaped and cut. */
+        public fun person(
+            person: ChatUser,
+            name: String = escaped(person.displayName.ifBlank { "${person.address}" }),
+        ): TrustRoot = TrustRoot(TrustRootKind.PERSON, name, person)
+
+        private fun escaped(name: String): String {
+            val escaped = buildString {
+                for (char in name) {
+                    when {
+                        char == '\\' -> append("\\\\")
+                        breaks(char) -> append("\\u").append(char.code.toString(HEX).uppercase().padStart(4, '0'))
+                        else -> append(char)
+                    }
+                }
+            }
+            return if (escaped.length <= MAX_NAME) escaped else "${escaped.take(MAX_NAME - 1)}…"
+        }
+
+        private const val HEX = 16
     }
 }
+
+/** Whether [char] breaks or hides a line of text that it is shown in. */
+private fun breaks(char: Char): Boolean = char.isISOControl() || Character.getType(char).toByte() in BREAKING
+
+private val BREAKING = setOf(Character.FORMAT, Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR)
 
 /** What a [TrustRoot] trusts. */
 public enum class TrustRootKind {

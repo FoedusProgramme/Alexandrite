@@ -33,6 +33,21 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
+/** An agent that trusts the output of the MCP server `files`, so that its calls bring in nothing untrusted. */
+private val TRUSTING_AGENT = """
+    {
+      "previewIntervalMillis": 0,
+      "agents": {
+        "coder": {
+          "name": "Coder",
+          "model": "scripted/test-model",
+          "channels": {"telegram:work": {}},
+          "permission": {"trust": ["mcp.files.*"]}
+        }
+      }
+    }
+""".trimIndent()
+
 private val DENYING_AGENT = """
     {
       "previewIntervalMillis": 0,
@@ -119,7 +134,7 @@ class TelegramMcpTest {
     }
 
     @Test
-    fun `always allow grants a rule for that one MCP tool, whose later calls run unasked`() {
+    fun `always allow grants a rule for that one tool of a trusted MCP server, whose later calls run unasked`() {
         app.model.reply { toolCall("mcp.files.echo", """{"text": "one"}""") }
             .reply { text("One.") }
             .reply { toolCall("mcp.files.echo", """{"text": "two"}""") }
@@ -128,7 +143,7 @@ class TelegramMcpTest {
             .reply { text("Kinds.") }
         lateinit var always: String
 
-        app.run(builder()) {
+        app.run(builder().config(TRUSTING_AGENT)) {
             mcpTools()
             app.send(app.ada, app.adaChat, "Echo one.")
             always = press { it.startsWith("Always allow") }

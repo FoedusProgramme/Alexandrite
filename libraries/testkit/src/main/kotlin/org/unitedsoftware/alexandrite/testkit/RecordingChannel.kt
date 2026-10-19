@@ -189,13 +189,18 @@ public class RecordingChannel(
         block: IncomingMessage.Builder.() -> Unit = {},
     ): IncomingMessage = testMessage(text, chat, sender, "in-${synchronized(lock) { ++inbound }}", block)
 
-    /** An invocation of the command [name] in [chat], carried by a message numbered `in-<n>`. */
+    /**
+     * An invocation of the command [name] in [chat], carried by a message numbered `in-<n>`, that replies to a message
+     * of [replyTo] and names [mentions].
+     */
     public fun command(
         name: String,
         arguments: String = "",
         chat: ChatAddress = chat(),
         issuer: ChatUser = user(),
-    ): CommandInvocation = carried(name, arguments, chat, issuer).invocation
+        replyTo: ChatUser? = null,
+        mentions: List<ChatUser> = emptyList(),
+    ): CommandInvocation = carried(name, arguments, chat, issuer, replyTo, mentions).invocation
 
     /** Submits a message of [sender] in [chat], changed by [block]. */
     public fun receive(
@@ -205,13 +210,18 @@ public class RecordingChannel(
         block: IncomingMessage.Builder.() -> Unit = {},
     ): Admission = submit(Submission.Message(message(text, chat, sender, block)))
 
-    /** Submits an invocation of the command [name] with the message `/<name> <arguments>` that carried it. */
+    /**
+     * Submits an invocation of the command [name] with the message `/<name> <arguments>` that carried it, replying to a
+     * message of [replyTo] and naming [mentions].
+     */
     public fun receiveCommand(
         name: String,
         arguments: String = "",
         chat: ChatAddress = chat(),
         issuer: ChatUser = user(),
-    ): Admission = submit(carried(name, arguments, chat, issuer))
+        replyTo: ChatUser? = null,
+        mentions: List<ChatUser> = emptyList(),
+    ): Admission = submit(carried(name, arguments, chat, issuer, replyTo, mentions))
 
     /** Records [submission] as received and submits it. */
     public fun submit(submission: Submission): Admission {
@@ -303,9 +313,17 @@ public class RecordingChannel(
 
     internal fun <T> read(block: () -> T): T = synchronized(lock, block)
 
-    private fun carried(name: String, arguments: String, chat: ChatAddress, issuer: ChatUser): Submission.Command {
+    private fun carried(
+        name: String,
+        arguments: String,
+        chat: ChatAddress,
+        issuer: ChatUser,
+        replyTo: ChatUser?,
+        mentions: List<ChatUser>,
+    ): Submission.Command {
         val message = message("/$name $arguments".trimEnd(), chat, issuer)
-        val invocation = testCommand(name, arguments, chat, issuer, message.ref, message.chatInfo.kind)
+        val invocation =
+            testCommand(name, arguments, chat, issuer, message.ref, message.chatInfo.kind, replyTo, mentions)
         return Submission.Command(invocation, message)
     }
 

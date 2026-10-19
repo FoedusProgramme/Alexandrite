@@ -160,7 +160,7 @@ class TrustCommandsTest {
         assertEquals("The agent's heartbeat conversation is not tainted.", commands.answer(untaint))
         assertEquals(List(2) { Call.UntaintHeartbeat(untaint.chat, OPERATOR) }, control.calls)
         val spec = commands.commands.single { it.name == "untaint" }
-        assertEquals(CommandForms.WITH_ARGUMENTS, spec.operatorsOnly)
+        assertEquals(CommandForms.ALL, spec.operatorsOnly)
     }
 
     // Trust rules.
@@ -225,10 +225,10 @@ class TrustCommandsTest {
     }
 
     @Test
-    fun `only an operator may trust or untrust, in every form`() {
+    fun `only an operator may trust, untrust or untaint, in every form`() {
         val forms = commands.commands.associate { it.name to it.operatorsOnly }
 
-        assertEquals(CommandForms.ALL to CommandForms.ALL, forms["trust"] to forms["untrust"])
+        assertEquals(listOf("trust", "untrust", "untaint").associateWith { CommandForms.ALL }, forms)
     }
 
     // People.

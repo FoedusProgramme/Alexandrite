@@ -142,10 +142,14 @@ internal class PermissionGate(
         kind: ClearanceKind,
         mode: PermissionMode,
     ): GateResult {
-        if (foreseen == null || mode == PermissionMode.BYPASS) return admitted(call, kind)
+        if (foreseen == null) return admitted(call, kind)
         val gate = call.call
+        if (mode == PermissionMode.BYPASS) {
+            gate.taint.mark(foreseen.reason, gate.call.id)
+            return admitted(call, kind)
+        }
         if (Principal.of(gate.turn) == Principal.AUTOMATION) {
-            offers.marked(gate, foreseen.reason, foresight.roots(call, foreseen))
+            offers.marked(gate, foreseen.reason, foresight.roots(call, foreseen, whole = true))
             return admitted(call, kind)
         }
         return ask(call, UNTRUSTED_REASON, foreseen = foreseen, unasked = kind)

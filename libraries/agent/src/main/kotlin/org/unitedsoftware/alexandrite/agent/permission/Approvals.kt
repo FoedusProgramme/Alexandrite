@@ -76,9 +76,7 @@ internal class ChannelApprovals(
             )
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), Refusals.DENIED_IN_TREE)
         }
-        val grantable = if (call.review.person == null &&
-            question?.unasked == null
-        ) {
+        val grantable = if (call.review.person == null && question == null) {
             rules.grantable(call)
         } else {
             emptyList()

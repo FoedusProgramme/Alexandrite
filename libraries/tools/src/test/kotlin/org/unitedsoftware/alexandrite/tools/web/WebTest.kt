@@ -92,6 +92,43 @@ class WebTest {
     }
 
     @Test
+    fun `a redirect to another site, or between a private host and any other, is never requested`() {
+        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
+        val requested = mutableListOf<URI>()
+        fun fetch(start: String, location: String) = fetchPage(
+            URI(start),
+            100,
+            1000,
+            { if (it.startsWith("internal.")) listOf(InetAddress.getLoopbackAddress()) else listOf(public) },
+            setOf("internal.example", "internal.example.com"),
+        ) { uri, _, _, _ ->
+            requested += uri
+            if (requested.size == 1) {
+                WebResponse(302, mapOf("location" to location), byteArrayOf())
+            } else {
+                WebResponse(200, mapOf("content-type" to "text/plain"), "ok".toByteArray())
+            }
+        }
+        val refused = listOf(
+            "https://example.com/a" to "https://elsewhere.test/b",
+            "https://internal.example/a" to "https://evil.internal.example/b",
+            "https://example.com/a" to "https://internal.example.com/b",
+        )
+
+        for ((start, location) in refused) {
+            requested.clear()
+            val away = assertFailsWith<RedirectedAway> { fetch(start, location) }
+            assertEquals(listOf(URI(start)), requested)
+            assertEquals(URI(location), away.to)
+        }
+        requested.clear()
+        assertEquals(
+            "https://docs.example.com/b",
+            fetch("https://example.com/a", "https://docs.example.com/b").first.toString(),
+        )
+    }
+
+    @Test
     fun `only the special blocks of 192_0 are private, the rest of it is public`() {
         listOf("192.0.0.1", "192.0.2.1").forEach { assertTrue(privateAddress(InetAddress.getByName(it)), it) }
         listOf("192.0.32.10", "192.0.1.1").forEach { assertFalse(privateAddress(InetAddress.getByName(it)), it) }

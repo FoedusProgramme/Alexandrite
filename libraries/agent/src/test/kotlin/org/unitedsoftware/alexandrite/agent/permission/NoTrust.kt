@@ -33,7 +33,7 @@ internal object NoTrust : TrustRules {
 internal object NoForesight : Foresight {
     override suspend fun foresee(call: CheckedCall): Foreseen? = null
 
-    override suspend fun roots(call: CheckedCall, foreseen: Foreseen): List<Root> = emptyList()
+    override suspend fun roots(call: CheckedCall, foreseen: Foreseen, whole: Boolean): List<Root> = emptyList()
 
     override suspend fun grant(roots: List<Root>, turn: TurnInfo, by: ChatUser): List<Root> = emptyList()
 }

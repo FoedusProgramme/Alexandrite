@@ -272,6 +272,17 @@ class ChannelValuesTest {
     }
 
     @Test
+    fun `a person's root escapes what would break its line and cuts a long name, and no root shows a raw break`() {
+        val forged = ChatUser(sender.address, "Eve\nTrusting this covers /srv\u202E", null, false, false)
+        val long = ChatUser(sender.address, "x".repeat(100), null, false, false)
+
+        assertEquals("Eve\\u000ATrusting this covers /srv\\u202E", TrustRoot.person(forged).name)
+        assertEquals("x".repeat(63) + "…", TrustRoot.person(long).name)
+        assertFailsWith<IllegalArgumentException> { TrustRoot(TrustRootKind.FOLDER, "/srv\nclone") }
+        assertFailsWith<IllegalArgumentException> { TrustRoot.person(forged, "Eve\r") }
+    }
+
+    @Test
     fun `a trust offer has a short id and offers at least one root, and a bare channel cannot make one`() {
         val root = TrustRoot(TrustRootKind.SERVER, "files")
 

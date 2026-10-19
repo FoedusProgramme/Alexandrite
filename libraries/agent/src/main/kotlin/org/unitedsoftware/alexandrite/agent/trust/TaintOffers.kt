@@ -83,7 +83,14 @@ internal class TaintOffers(
         scope.launch {
             val answer = offer(turn, shown, roots) ?: return@launch
             val by = answer.trusted() ?: return@launch
-            trust.grant(roots, turn, by)
+            if (trust.grant(roots, turn, by).size < roots.size) {
+                logger.info(
+                    "Conversation {} stays tainted: not all that {} trusted could be trusted",
+                    conversation,
+                    by.address,
+                )
+                return@launch
+            }
             runner.value.onWorker(turn.key) {
                 if (notes.onlyThrough(conversation, count, call)) {
                     unstored.cleared(conversation)

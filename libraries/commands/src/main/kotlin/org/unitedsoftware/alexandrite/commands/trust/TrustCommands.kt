@@ -42,7 +42,7 @@ internal class TrustCommands(
     override val commands: List<CommandSpec> = listOf(
         texts.spec(TRUST).rebuild { operatorsOnly(CommandForms.ALL) },
         texts.spec(UNTRUST).rebuild { operatorsOnly(CommandForms.ALL) },
-        texts.spec(UNTAINT).rebuild { operatorsOnly(CommandForms.WITH_ARGUMENTS) },
+        texts.spec(UNTAINT).rebuild { operatorsOnly(CommandForms.ALL) },
     )
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)

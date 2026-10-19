@@ -295,13 +295,20 @@ internal class UpdateReader(
     }
 
     /**
-     * How far a quote of [replied], from this chat, is trusted: its content when an admin wrote it themselves or it is
-     * the bot's answer to an admin, which [byBot] sent; its author whenever Telegram names the user who sent it.
+     * How far a quote of [replied], from this chat, is trusted: its content when an admin or a trusted user wrote it
+     * themselves or it is the bot's clean answer to an admin, which [byBot] sent; its author whenever Telegram names the
+     * user who sent it.
      */
     private fun trustOf(replied: Message, byBot: Boolean): QuoteTrust {
         val author = replied.from?.takeIf { replied.senderChat == null } ?: return QuoteTrust.UNTRUSTED
         val own = replied.forwardOrigin == null && replied.viaBot == null
-        val vouched = own && if (byBot) answeredAdmin(replied.chat.id, replied.messageId) else author.id in admins
+        val vouched = own &&
+            if (byBot) {
+                answeredAdmin(replied.chat.id, replied.messageId)
+            } else {
+                author.id in admins ||
+                    author.id in trusted
+            }
         return if (vouched) VOUCHED else AUTHOR_KNOWN
     }
 
