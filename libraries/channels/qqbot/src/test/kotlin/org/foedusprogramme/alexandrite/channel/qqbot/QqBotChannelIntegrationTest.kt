@@ -38,6 +38,7 @@ import org.foedusprogramme.alexandrite.testkit.RecordingTurnSubmitter
 import org.foedusprogramme.alexandrite.testkit.testTurn
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -137,6 +138,47 @@ class QqBotChannelIntegrationTest {
                         val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
 
                         assertEquals("group:g1", message.chat.chat)
+                        assertEquals("hello", message.text)
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
+    fun `a failed bot-state lookup is tried again`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(ME_PATH, """{"id":"global-bot-id"}""")
+        val calls = AtomicInteger()
+        api.on(BOT_STATE_PATH) {
+            if (calls.incrementAndGet() == 1) {
+                PlatformAnswer(500, """{"err_code":500,"message":"temporary"}""")
+            } else {
+                PlatformAnswer(200, """{"member_openid":"member-bot-id"}""")
+            }
+        }
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        platform.push(FULL_MODE_MENTION_EVENT)
+                        delay(500)
+                        assertTrue(submitter.submissions.isEmpty(), "the first lookup should not reach the agent")
+                        platform.push(
+                            FULL_MODE_MENTION_EVENT
+                                .replace("msg-full-mention", "msg-full-mention-2")
+                                .replace("\"s\":4", "\"s\":5"),
+                        )
+                        val message = assertIs<Submission.Message>(awaitSubmission(submitter)).message
                         assertEquals("hello", message.text)
                     }
             }

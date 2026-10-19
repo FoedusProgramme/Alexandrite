@@ -195,14 +195,21 @@ internal class QqBotInbox(
         val token = LEADING_MENTION.find(event.content)?.groupValues?.get(1) ?: return false
         if (token == me || token == member) return true
         if (member == null && botStateAsked.add(group)) {
-            val answer = api.get("/v2/groups/$group/bot_state")
-            val body = (answer as? QqBotAnswer.Ok)?.body as? JsonObject
-            val openid = body?.get("member_openid")?.asTextOrNull()
-            if (openid != null) {
-                botMemberOpenids[group] = openid
-                return token == openid
+            var found = false
+            try {
+                val answer = api.get("/v2/groups/$group/bot_state")
+                val body = (answer as? QqBotAnswer.Ok)?.body as? JsonObject
+                val openid = body?.get("member_openid")?.asTextOrNull()
+                if (openid != null) {
+                    botMemberOpenids[group] = openid
+                    found = true
+                    return token == openid
+                }
+                logger.debug("{}: the platform did not name the bot's member openid of {}", PLUGIN, group)
+            } finally {
+                // A failed lookup must be tried again: the next message may be the one that makes this group work.
+                if (!found) botStateAsked.remove(group)
             }
-            logger.debug("{}: the platform did not name the bot's member openid of {}", PLUGIN, group)
         }
         return false
     }
