@@ -1,5 +1,10 @@
 package org.foedusprogramme.alexandrite.app
 
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.json.JsonObject
+import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotConfig
+import org.foedusprogramme.alexandrite.channel.onebot.config.OneBotInstanceConfig
+import org.foedusprogramme.alexandrite.channel.qqbot.config.QqBotInstanceConfig
 import org.foedusprogramme.alexandrite.runtime.AlexandriteRuntime
 import org.foedusprogramme.alexandrite.runtime.ConfigFile
 import org.foedusprogramme.alexandrite.sdk.chat.LanguageTag
@@ -27,6 +32,33 @@ class ExampleConfigTest {
         val settings = AppConfig.serializer().descriptor
 
         assertEquals(List(settings.elementsCount, settings::getElementName).toSet(), tree?.keys)
+    }
+
+    @Test
+    fun `the example config's channel sections name only their own settings`() {
+        val source = ConfigFile.read(example, emptyMap())
+
+        assertKnownFields(
+            checkNotNull(source.tree("channels.onebot.settings")),
+            OneBotConfig.serializer().descriptor,
+            "channels.onebot.settings",
+        )
+        assertKnownFields(
+            checkNotNull(source.tree("channels.onebot.instances.main")),
+            OneBotInstanceConfig.serializer().descriptor,
+            "channels.onebot.instances.main",
+        )
+        assertKnownFields(
+            checkNotNull(source.tree("channels.qqbot.instances.main")),
+            QqBotInstanceConfig.serializer().descriptor,
+            "channels.qqbot.instances.main",
+        )
+    }
+
+    /** Asserts that [tree] names no field [descriptor] does not know. */
+    private fun assertKnownFields(tree: JsonObject, descriptor: SerialDescriptor, path: String) {
+        val known = (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet()
+        assertEquals(emptySet(), tree.keys - known, "$path names a field its config does not have")
     }
 
     @Test
