@@ -458,4 +458,12 @@ class MainTest {
         assertContains(lines, "INFO Alexandrite $alexandriteVersion is ready")
         assertEquals("", stderr())
     }
+
+    @Test
+    fun `UTF-8 output is forced only when the locale variables ask for it`() {
+        assertTrue(utf8Wanted(mapOf("LANG" to "zh_CN.UTF-8")))
+        assertTrue(utf8Wanted(mapOf("LC_ALL" to "C.utf8", "LANG" to "C")))
+        assertFalse(utf8Wanted(mapOf("LC_ALL" to "C", "LANG" to "zh_CN.UTF-8")))
+        assertFalse(utf8Wanted(emptyMap()))
+    }
 }
