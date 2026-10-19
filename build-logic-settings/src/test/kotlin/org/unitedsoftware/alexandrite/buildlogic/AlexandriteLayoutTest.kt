@@ -32,6 +32,7 @@ class AlexandriteLayoutTest {
     private val automationCommon = ":libraries:automation-common"
     private val schedule = ":libraries:automations:schedule"
     private val seatbelt = ":libraries:sandboxes:seatbelt"
+    private val bubblewrap = ":libraries:sandboxes:bubblewrap"
     private val testkit = ":libraries:testkit"
     private val ksp = ":build-ksp-plugin"
     private val app = ":app"
@@ -762,17 +763,19 @@ class AlexandriteLayoutTest {
 
     @Test
     fun `sandboxes sit on the SDK and internal, below the app, and nothing else depends on them`() {
-        for (to in all - sdk - internals - testkit + ":libraries:sandboxes:bubblewrap") {
-            assertForbidden(seatbelt, to)
+        for ((sandbox, other) in listOf(seatbelt to bubblewrap, bubblewrap to seatbelt)) {
+            for (to in all - sdk - internals - testkit + other) {
+                assertForbidden(sandbox, to)
+            }
+            assertAllowed(sandbox, sdk)
+            assertAllowed(sandbox, internals)
+            assertAllowed(sandbox, testkit, "testImplementation")
+            for (from in all - app + schedule) {
+                assertForbidden(from, sandbox)
+                assertForbidden(from, sandbox, "testImplementation")
+            }
+            assertAllowed(app, sandbox)
         }
-        assertAllowed(seatbelt, sdk)
-        assertAllowed(seatbelt, internals)
-        assertAllowed(seatbelt, testkit, "testImplementation")
-        for (from in all - app + schedule) {
-            assertForbidden(from, seatbelt)
-            assertForbidden(from, seatbelt, "testImplementation")
-        }
-        assertAllowed(app, seatbelt)
     }
 
     @Test
@@ -784,6 +787,8 @@ class AlexandriteLayoutTest {
         assertEquals("org.unitedsoftware.alexandrite.sandbox.seatbelt", module.packageName)
         assertEquals("org.unitedsoftware.alexandrite.sandboxes", module.group)
         assertTrue(module.builtIn)
+        assertEquals("alexandrite-sandbox-bubblewrap", module(bubblewrap).jarName)
+        assertEquals("org.unitedsoftware.alexandrite.sandbox.bubblewrap", module(bubblewrap).packageName)
     }
 
     @Test

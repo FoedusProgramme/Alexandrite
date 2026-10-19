@@ -1,6 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.config
 
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.internal.sandbox.ALEXANDRITE_PLACES
+import org.unitedsoftware.alexandrite.internal.sandbox.DEFAULT_PROTECT as PROTECTED_BY_DEFAULT
 
 /** The sandbox that an agent's commands run in. */
 @Serializable
@@ -26,15 +28,8 @@ internal class SandboxConfig(
     companion object {
         const val HOST: String = "host"
         const val AUTO: String = "auto"
-        const val ALEXANDRITE: String = "alexandrite"
-
-        /** What runs code later outside the sandbox when written. */
-        val DEFAULT_PROTECT: List<String> = listOf(
-            ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile", ".zshrc", ".zshenv", ".zprofile",
-            ".zlogin", ".zlogout", ".cshrc", ".tcshrc", ".login", ".kshrc", ".config/fish", ".envrc", ".gitconfig",
-            ".gitmodules", ".git/hooks", ".git/config", ".ssh", ".vscode", ".idea", ".claude", ".agents", ".mcp.json",
-            ALEXANDRITE,
-        )
+        const val ALEXANDRITE: String = ALEXANDRITE_PLACES
+        val DEFAULT_PROTECT: List<String> = PROTECTED_BY_DEFAULT
     }
 }
 

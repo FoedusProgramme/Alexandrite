@@ -31,7 +31,7 @@ class McpDefinitionsTest {
     )
 
     private fun spec(server: ServerConfig, name: String = "srv"): ServerSpec =
-        McpSettings(McpConfig(mapOf(name to server))).servers.single()
+        settings(McpConfig(mapOf(name to server))).servers.single()
 
     private fun stdio(block: ServerConfigBuilder.() -> Unit = {}) =
         spec(ServerConfigBuilder(command = "/usr/bin/server").apply(block).build())

@@ -14,11 +14,14 @@ import org.unitedsoftware.alexandrite.mcp.client.McpClientOptions
 import org.unitedsoftware.alexandrite.mcp.client.McpImplementation
 import org.unitedsoftware.alexandrite.mcp.fake.FakeStdioServers
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.testkit.testRecords
+import java.nio.file.Path
 import java.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -35,6 +38,21 @@ internal val QUICK = McpTimings(
 )
 
 internal val QUICK_CLIENT = McpClientOptions(probeTimeout = 2.seconds, requestTimeout = 10.seconds)
+
+/** Host paths under `/nonexistent`, with no config file. */
+internal object TestPaths : HostPaths {
+    override val dataRoot: Path = Path.of("/nonexistent/data")
+    override val pluginDataRoot: Path = Path.of("/nonexistent/plugins")
+    override val cacheRoot: Path = Path.of("/nonexistent/cache")
+    override val configFile: Path? = null
+    override val configTarget: Path? = null
+    override val configBackup: Path? = null
+    override val protected: List<Path> = emptyList()
+}
+
+/** The settings of [config] on a host with [environments]. */
+internal fun settings(config: McpConfig, environments: List<ExecutionEnvironment> = emptyList()): McpSettings =
+    McpSettings(config, environments, TestPaths)
 
 /** A stdio server running the fake server in [mode]. */
 internal fun fake(mode: String = "modern", block: ServerConfigBuilder.() -> Unit = {}): ServerConfig =
@@ -84,7 +102,7 @@ internal fun withHub(
 ) = realTime {
     val scope = CoroutineScope(SupervisorJob())
     val hub = McpHub(
-        McpSettings(config),
+        settings(config),
         scope,
         McpImplementation("alexandrite-test", "0.0.1"),
         QUICK_CLIENT,

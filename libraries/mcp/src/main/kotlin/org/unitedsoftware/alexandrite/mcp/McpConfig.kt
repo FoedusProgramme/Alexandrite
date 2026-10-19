@@ -35,6 +35,35 @@ internal class ServerConfig(
     val trusted: Boolean = false,
     val timeoutSeconds: Int = 60,
     val enabled: Boolean = true,
+    val sandbox: ServerSandboxConfig = ServerSandboxConfig(),
+)
+
+/** The sandbox that a server with a command runs in. */
+@Serializable
+internal class ServerSandboxConfig(
+    /** `host` for none, `auto` for the platform's, or the name of an environment such as `bubblewrap`. */
+    val type: String = HOST,
+    /** Places the server may write beside its `cwd`: absolute, under `~/`, or relative to the config file. */
+    val allowWrite: List<String> = emptyList(),
+    /**
+     * What the server may not write inside writable places, replacing the defaults when given: a path, `alexandrite`
+     * for the host's config, data and install places, or a relative path such as `.git/hooks` at any depth.
+     */
+    val protect: List<String>? = null,
+    /** Places the server may not read beside Alexandrite's own, written like [allowWrite]. */
+    val denyRead: List<String> = emptyList(),
+    val network: ServerNetworkConfig = ServerNetworkConfig(),
+) {
+    companion object {
+        const val HOST: String = "host"
+        const val AUTO: String = "auto"
+    }
+}
+
+@Serializable
+internal class ServerNetworkConfig(
+    /** Hosts the server may reach through a proxy: `example.com`, `*.example.com`, addresses, optional ports. */
+    val allowedDomains: List<String> = emptyList(),
 )
 
 /** Which of a server's tools are offered, as globs over the server's own names. */

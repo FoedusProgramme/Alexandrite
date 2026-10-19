@@ -17,6 +17,12 @@ import org.unitedsoftware.alexandrite.agent.project.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.expandHome
+import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
+import org.unitedsoftware.alexandrite.internal.sandbox.NetworkProxy
+import org.unitedsoftware.alexandrite.internal.sandbox.ProxyLease
+import org.unitedsoftware.alexandrite.internal.sandbox.SYSTEM_RESOLVER
+import org.unitedsoftware.alexandrite.internal.sandbox.platformEnvironment
+import org.unitedsoftware.alexandrite.internal.sandbox.proxyVariables
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -152,9 +158,6 @@ internal class Sandboxes(
         override suspend fun open(boundary: Boundary, hosts: List<String>): NetworkLease {
             val allowed = (allowed(turn, configured) + hosts.mapNotNull(HostPattern::parse)).distinct()
             val lease = withContext(Dispatchers.IO) { proxy.open(allowed) }
-            val url = "http://127.0.0.1:${lease.port}"
-            val variables = PROXY_VARIABLES.flatMap { listOf(it to url, it.lowercase() to url) } +
-                listOf("NO_PROXY" to "", "no_proxy" to "")
             val opened = Boundary(
                 boundary.writable,
                 boundary.writeDenied,
@@ -162,7 +165,7 @@ internal class Sandboxes(
                 boundary.readDenied,
                 boundary.readable,
                 NetworkAccess.Proxy(lease.port),
-                boundary.environment + variables,
+                boundary.environment + proxyVariables(lease.port),
             )
             return Lease(opened, lease)
         }
@@ -221,20 +224,9 @@ private fun environment(agent: AgentId, type: String, environments: List<Executi
     }
 }
 
-private fun platformEnvironment(): String? {
-    val os = System.getProperty("os.name").orEmpty()
-    return when {
-        os.startsWith("Mac") -> "seatbelt"
-        os.startsWith("Linux") -> "bubblewrap"
-        else -> null
-    }
-}
-
 /** The per-user temp directory. */
 private fun temporary(): List<Path> =
     listOfNotNull(System.getProperty("java.io.tmpdir")?.takeIf { it.isNotBlank() }?.let { Path.of(it) })
-
-private val PROXY_VARIABLES = listOf("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 
 private const val MAX_HOSTS = 20
 

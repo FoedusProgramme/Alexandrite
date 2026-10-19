@@ -1,8 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.config
 
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
-import org.unitedsoftware.alexandrite.agent.sandbox.HostPattern
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
+import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress

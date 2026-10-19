@@ -4,6 +4,8 @@ import org.unitedsoftware.alexandrite.mcp.client.LaunchCheck
 import org.unitedsoftware.alexandrite.mcp.client.McpTool
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import java.net.URI
 import java.net.URISyntaxException
@@ -14,7 +16,14 @@ import kotlin.time.Duration.Companion.seconds
 
 /** How the plugin reaches a server. */
 internal sealed interface Transport {
-    class Stdio(val command: String, val args: List<String>, val env: Map<String, String>, val cwd: Path?) : Transport
+    class Stdio(
+        val command: String,
+        val args: List<String>,
+        val env: Map<String, String>,
+        val cwd: Path?,
+        /** Null for none. */
+        val sandbox: SandboxSpec? = null,
+    ) : Transport
 
     class Http(val url: URI, val headers: Map<String, String>, val oauth: OAuthSpec?) : Transport
 }
@@ -52,7 +61,11 @@ internal class CallbackSpec(val publicOrigin: URI?, val port: Int?)
 
 /** The servers of the config, checked at the start. */
 @Singleton
-internal class McpSettings(config: McpConfig) {
+internal class McpSettings(
+    config: McpConfig,
+    private val environments: List<ExecutionEnvironment>,
+    private val paths: HostPaths,
+) {
     val servers: List<ServerSpec> = config.servers.map { (name, server) -> spec(name, server) }
 
     val callback: CallbackSpec = callback(config)
@@ -142,7 +155,8 @@ internal class McpSettings(config: McpConfig) {
             }
             directory?.takeIf { it.isAbsolute } ?: throw ConfigException("$path.cwd", "must be an absolute path.")
         }
-        return Transport.Stdio(command, server.args, server.env.mapValues { it.value.reveal() }, cwd)
+        val sandbox = serverSandbox("$path.sandbox", server.sandbox, cwd, environments, paths)
+        return Transport.Stdio(command, server.args, server.env.mapValues { it.value.reveal() }, cwd, sandbox)
     }
 
     private fun http(path: String, server: ServerConfig, url: String): Transport.Http {
@@ -152,6 +166,9 @@ internal class McpSettings(config: McpConfig) {
             "cwd".takeIf { server.cwd != null },
         )
         misplaced.firstOrNull()?.let { throw ConfigException("$path.$it", "only a server with a command has $it.") }
+        if (server.sandbox.type != ServerSandboxConfig.HOST) {
+            throw ConfigException("$path.sandbox", "only a server with a command runs in a sandbox.")
+        }
         val uri = try {
             URI(url)
         } catch (e: URISyntaxException) {

@@ -37,6 +37,10 @@ internal class StdioLaunch(
     /** The whole environment of the process. */
     val environment: Map<String, String>,
     val cwd: Path? = null,
+    /** Starts the process that the builder describes. */
+    val start: (ProcessBuilder) -> Process = ProcessBuilder::start,
+    /** Closed when the connection ends. */
+    val held: AutoCloseable? = null,
 )
 
 /** A server run as a child process that speaks newline-delimited JSON-RPC on its standard streams. */
@@ -45,6 +49,7 @@ internal class McpStdioConnection private constructor(
     private val onStderr: (String) -> Unit,
     private val onInvalid: (String) -> Unit,
     private val stopGrace: Duration,
+    private val held: AutoCloseable?,
 ) : McpConnection {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val stdin: OutputStream = process.outputStream
@@ -202,6 +207,7 @@ internal class McpStdioConnection private constructor(
         }
         end.complete(reason)
         for (answer in pending.values) answer.completeExceptionally(reason)
+        held?.close()
     }
 
     companion object {
@@ -226,7 +232,10 @@ internal class McpStdioConnection private constructor(
             onInvalid: (String) -> Unit = {},
             stopGrace: Duration = DEFAULT_GRACE,
         ): McpStdioConnection {
-            LaunchCheck.problem(launch.command, launch.args)?.let { throw McpConnectionException(it) }
+            LaunchCheck.problem(launch.command, launch.args)?.let {
+                launch.held?.close()
+                throw McpConnectionException(it)
+            }
             val builder = ProcessBuilder(listOf(launch.command) + launch.args)
             builder.environment().apply {
                 clear()
@@ -234,11 +243,12 @@ internal class McpStdioConnection private constructor(
             }
             launch.cwd?.let { builder.directory(it.toFile()) }
             val process = try {
-                withContext(Dispatchers.IO + NonCancellable) { builder.start() }
+                withContext(Dispatchers.IO + NonCancellable) { launch.start(builder) }
             } catch (e: IOException) {
+                launch.held?.close()
                 throw McpConnectionException("Cannot start ${launch.command}: ${e.message}", e)
             }
-            return McpStdioConnection(process, onStderr, onInvalid, stopGrace).also { it.startReaders() }
+            return McpStdioConnection(process, onStderr, onInvalid, stopGrace, launch.held).also { it.startReaders() }
         }
     }
 }

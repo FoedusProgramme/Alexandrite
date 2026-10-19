@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.sandbox
+package org.unitedsoftware.alexandrite.internal.sandbox
 
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -9,7 +9,7 @@ import java.net.UnknownHostException
  * A host that the sandbox's proxy admits: a name, `*.` and a name for every name below it, or an address, each with an
  * optional port that is otherwise any.
  */
-internal class HostPattern private constructor(
+public class HostPattern private constructor(
     /** Lowercase, without `*.` or brackets. */
     private val name: String,
     private val wildcard: Boolean,
@@ -20,9 +20,9 @@ internal class HostPattern private constructor(
      * Whether the hosts it admits may reach local, private and link-local addresses: an address, `localhost`, or a
      * name that only a local network resolves.
      */
-    val local: Boolean = address != null || isLocalName(name, wildcard)
+    public val local: Boolean = address != null || isLocalName(name, wildcard)
 
-    fun matches(host: String, port: Int): Boolean {
+    public fun matches(host: String, port: Int): Boolean {
         if (this.port != null && this.port != port) return false
         val requested = normalized(host)
         if (address != null) return literal(requested) == address
@@ -30,7 +30,7 @@ internal class HostPattern private constructor(
     }
 
     /** Whether every host that [other] admits is one this admits. */
-    fun covers(other: HostPattern): Boolean {
+    public fun covers(other: HostPattern): Boolean {
         if (port != null && port != other.port) return false
         if (address != null) return other.address == address
         if (other.address != null) return false
@@ -56,9 +56,9 @@ internal class HostPattern private constructor(
 
     override fun hashCode(): Int = toString().hashCode()
 
-    companion object {
+    public companion object {
         /** [text] as a pattern, null when it is none. */
-        fun parse(text: String): HostPattern? {
+        public fun parse(text: String): HostPattern? {
             val trimmed = text.trim().lowercase()
             if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() || it == '/' || it == '@' }) return null
             val (host, port) = when {

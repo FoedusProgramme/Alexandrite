@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.sandbox
+package org.unitedsoftware.alexandrite.internal.sandbox
 
 import org.slf4j.LoggerFactory
 import java.io.BufferedInputStream
@@ -15,24 +15,27 @@ import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Resolves a host name to its addresses. */
-internal fun interface HostResolver {
+public fun interface HostResolver {
     /** Throws an [IOException] when it cannot. */
-    fun resolve(host: String): List<InetAddress>
+    public fun resolve(host: String): List<InetAddress>
 }
 
-internal val SYSTEM_RESOLVER = HostResolver { host -> InetAddress.getAllByName(host).toList() }
+public val SYSTEM_RESOLVER: HostResolver = HostResolver { host -> InetAddress.getAllByName(host).toList() }
 
 /**
  * An HTTP proxy outside every sandbox that serves `CONNECT` tunnels and plain HTTP requests: each call gets a listener
  * of its own on the loopback, which admits only its hosts.
  */
-internal class NetworkProxy(private val resolver: HostResolver) {
+public class NetworkProxy(private val resolver: HostResolver) {
     /** Listens for a call that may reach [allowed]. */
-    fun open(allowed: List<HostPattern>): ProxyLease = ProxyLease(allowed, resolver)
+    public fun open(allowed: List<HostPattern>): ProxyLease = ProxyLease(allowed, resolver)
 }
 
 /** The listener of one call, until [close]. */
-internal class ProxyLease(private val allowed: List<HostPattern>, private val resolver: HostResolver) : AutoCloseable {
+public class ProxyLease internal constructor(
+    private val allowed: List<HostPattern>,
+    private val resolver: HostResolver,
+) : AutoCloseable {
     private val server = ServerSocket(0, BACKLOG, InetAddress.getLoopbackAddress())
     private val sockets: MutableSet<Socket> = Collections.synchronizedSet(mutableSetOf())
     private val refusals = CopyOnWriteArrayList<String>()
@@ -40,10 +43,10 @@ internal class ProxyLease(private val allowed: List<HostPattern>, private val re
     @Volatile
     private var closed = false
 
-    val port: Int = server.localPort
+    public val port: Int = server.localPort
 
     /** The hosts it refused, each once, in order. */
-    val refused: List<String> get() = refusals.distinct()
+    public val refused: List<String> get() = refusals.distinct()
 
     init {
         Thread.ofVirtual().name("sandbox proxy $port").start {

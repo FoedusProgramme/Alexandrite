@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":libraries:automations:heartbeat"))
     implementation(project(":libraries:automations:schedule"))
     implementation(project(":libraries:sandboxes:seatbelt"))
+    implementation(project(":libraries:sandboxes:bubblewrap"))
     implementation(libs.jline.terminal)
     runtimeOnly(libs.jline.terminal.jni)
     runtimeOnly(libs.logback.classic)

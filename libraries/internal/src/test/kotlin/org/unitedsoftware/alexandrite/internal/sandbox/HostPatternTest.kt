@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.agent.sandbox
+package org.unitedsoftware.alexandrite.internal.sandbox
 
 import java.net.InetAddress
 import kotlin.test.Test

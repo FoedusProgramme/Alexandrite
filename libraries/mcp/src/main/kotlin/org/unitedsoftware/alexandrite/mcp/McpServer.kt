@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.mcp
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
@@ -17,6 +18,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
+import org.unitedsoftware.alexandrite.internal.sandbox.NetworkProxy
+import org.unitedsoftware.alexandrite.internal.sandbox.SYSTEM_RESOLVER
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.mcp.client.McpCallOutcome
 import org.unitedsoftware.alexandrite.mcp.client.McpClient
@@ -38,6 +41,7 @@ import org.unitedsoftware.alexandrite.mcp.oauth.McpOAuth
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -83,6 +87,8 @@ internal class McpShared(
     val host: Map<String, String>,
     val timings: McpTimings,
     val oauth: McpOAuth,
+    /** The proxy through which sandboxed servers reach their hosts. */
+    val proxy: NetworkProxy = NetworkProxy(SYSTEM_RESOLVER),
 )
 
 /**
@@ -289,12 +295,7 @@ internal class McpServer(
 
     private suspend fun open(): McpConnection = when (val transport = spec.transport) {
         is Transport.Stdio -> McpStdioConnection.start(
-            StdioLaunch(
-                transport.command,
-                transport.args,
-                McpEnvironment.minimal(shared.host, transport.env),
-                transport.cwd,
-            ),
+            launch(transport),
             onStderr = { logger.debug("MCP server {} says: {}", spec.name, cutWithEllipsis(it, MAX_STDERR)) },
             onInvalid = ::invalid,
             stopGrace = timings.stopGrace,
@@ -303,6 +304,31 @@ internal class McpServer(
         is Transport.Http -> McpHttpConnection(transport.url, transport.headers, shared.transport) {
             shared.oauth.bearer(spec.name)
         }
+    }
+
+    /** How to start [transport]'s server, in its sandbox with a proxy held for the connection's life when it has one. */
+    private suspend fun launch(transport: Transport.Stdio): StdioLaunch {
+        val environment = McpEnvironment.minimal(shared.host, transport.env)
+        val sandbox = transport.sandbox
+            ?: return StdioLaunch(transport.command, transport.args, environment, transport.cwd)
+        val lease = if (sandbox.allowed.isEmpty()) {
+            null
+        } else {
+            try {
+                withContext(Dispatchers.IO) { shared.proxy.open(sandbox.allowed) }
+            } catch (e: IOException) {
+                throw McpConnectionException("The sandbox's network proxy could not listen: ${e.message}", e)
+            }
+        }
+        val boundary = lease?.let { sandbox.through(it.port) } ?: sandbox.boundary
+        return StdioLaunch(
+            transport.command,
+            transport.args,
+            environment,
+            transport.cwd,
+            start = { builder -> sandbox.environment.launch(builder, boundary) },
+            held = lease,
+        )
     }
 
     private suspend fun list(client: McpClient): McpToolList {
