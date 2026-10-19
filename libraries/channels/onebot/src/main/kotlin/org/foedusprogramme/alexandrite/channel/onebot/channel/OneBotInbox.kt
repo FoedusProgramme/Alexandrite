@@ -82,6 +82,14 @@ internal class OneBotInbox(
 ) : Lifecycle {
     private var reading: Job? = null
 
+    /** The message ids this inbox already took, which an implementation may report again. */
+    private val seen = object : LinkedHashMap<String, Unit>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Unit>?): Boolean = size > KEPT
+    }
+
+    /** Whether this is the first report of the message [id]. */
+    private fun first(id: String): Boolean = seen.put(id, Unit) == null
+
     override suspend fun onStart() {
         // The instance is served from here on, whatever else it does: a tool that acts on a chat of it finds its API
         // whether or not the runtime has an agent to take its messages.
@@ -110,6 +118,10 @@ internal class OneBotInbox(
             // served yet is where somebody asks to join.
             if (event !is OneBotEvent.Message) {
                 OneBotNotices.of(instance.id, event, event.selfId.value)?.let { hooks.fire(ChannelPoints.NOTICE, it) }
+                return@collect
+            }
+            if (!first(event.messageId.value)) {
+                logger.debug("{}: the implementation reported message {} again", instance.id, event.messageId)
                 return@collect
             }
             val chat = OneBotChats.addressOf(instance.id, event)
@@ -257,6 +269,9 @@ internal class OneBotInbox(
 
     private companion object {
         const val PLUGIN = "alexandrite-channel-onebot"
+
+        /** How many message ids the inbox keeps to tell a repeated report from a new message. */
+        const val KEPT = 1024
 
         val logger: Logger = LoggerFactory.getLogger(OneBotInbox::class.java)
     }

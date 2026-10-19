@@ -81,6 +81,31 @@ class OneBotChannelIntegrationTest {
     }
 
     @Test
+    fun `a report the implementation sends twice asks for one turn`() {
+        val peer = ImplementationPeer()
+        val port = peer.startAndPort()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelOnebotIndex())
+                    .config(config(port))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
+                        peer.report(privateMessage())
+                        awaitSubmission(submitter)
+                        peer.report(privateMessage())
+                        Thread.sleep(300)
+                        assertEquals(1, submitter.submissions.size, "a repeated report became a second turn")
+                    }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
+    @Test
     fun `a group message that names nobody reaches no agent`() {
         val peer = ImplementationPeer()
         val port = peer.startAndPort()
@@ -221,12 +246,12 @@ class OneBotChannelIntegrationTest {
                         assertTrue(peer.awaitConnection(), "the channel did not connect to the implementation")
                         val group = ChatAddress(instance, "group:987654")
                         assertIs<Delivery.Delivered>(sendTo(group))
-                        peer.report(groupMessage(text = "hello there", reply = "8"))
+                        peer.report(groupMessage(text = "hello there", reply = "8", messageId = 12))
                         assertTrue(
                             awaitNoSubmission(submitter),
                             "the agent was asked for a turn of a message answering somebody else",
                         )
-                        peer.report(groupMessage(text = "hello there", reply = "7"))
+                        peer.report(groupMessage(text = "hello there", reply = "7", messageId = 13))
                         val message = assertIs<Submission.Message>(awaitSubmission(submitter))
                         assertEquals("hello there", message.message.text)
                     }
@@ -532,15 +557,16 @@ class OneBotChannelIntegrationTest {
     """.trimIndent()
 
     /** A group report of [text], whose message names [at] or answers [reply] when they are given. */
-    private fun groupMessage(text: String, at: String? = null, reply: String? = null): String = buildString {
-        append("""{"time":1515204254,"self_id":10001000,"post_type":"message","message_type":"group",""")
-        append(""""sub_type":"normal","message_id":12,"group_id":987654,"user_id":12345678,"message":[""")
-        at?.let { append("""{"type":"at","data":{"qq":$it}},""") }
-        reply?.let { append("""{"type":"reply","data":{"id":$it}},""") }
-        append("""{"type":"text","data":{"text":"$text"}}],""")
-        append(""""raw_message":"$text",""")
-        append(""""sender":{"user_id":12345678,"nickname":"someone","role":"member"}}""")
-    }
+    private fun groupMessage(text: String, at: String? = null, reply: String? = null, messageId: Int = 12): String =
+        buildString {
+            append("""{"time":1515204254,"self_id":10001000,"post_type":"message","message_type":"group",""")
+            append(""""sub_type":"normal","message_id":$messageId,"group_id":987654,"user_id":12345678,"message":[""")
+            at?.let { append("""{"type":"at","data":{"qq":$it}},""") }
+            reply?.let { append("""{"type":"reply","data":{"id":$it}},""") }
+            append("""{"type":"text","data":{"text":"$text"}}],""")
+            append(""""raw_message":"$text",""")
+            append(""""sender":{"user_id":12345678,"nickname":"someone","role":"member"}}""")
+        }
 
     /** Whether the agent was asked for no turn within the time one would arrive in. */
     private suspend fun awaitNoSubmission(submitter: RecordingTurnSubmitter): Boolean {

@@ -1,6 +1,7 @@
 package org.foedusprogramme.alexandrite.channel.onebot.transport
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -10,6 +11,7 @@ import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEvent
 import org.java_websocket.WebSocket
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.server.WebSocketServer
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -183,6 +185,9 @@ internal class OneBotReverseWebSocket(private val settings: OneBotSettings) :
         }
         return try {
             withTimeout(waitMillis ?: settings.firstByteTimeoutMillis) { waiting.await() }
+        } catch (e: TimeoutCancellationException) {
+            awaiting.remove(echo)
+            throw IOException("The implementation did not answer '$action' in time.", e)
         } catch (e: Exception) {
             awaiting.remove(echo)
             throw e

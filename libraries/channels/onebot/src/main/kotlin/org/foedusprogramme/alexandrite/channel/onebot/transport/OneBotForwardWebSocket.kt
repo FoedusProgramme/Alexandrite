@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -14,6 +15,7 @@ import org.foedusprogramme.alexandrite.channel.onebot.auth.OneBotAuth
 import org.foedusprogramme.alexandrite.channel.onebot.protocol.event.OneBotEventCodec
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
+import java.io.IOException
 import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -42,7 +44,15 @@ internal class OneBotForwardWebSocket(settings: OneBotSettings) : AbstractOneBot
         val run = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = run
         loop = run.launch { connectLoop(opened) }
-        val failure = withTimeout(settings.connectTimeoutMillis) { opened.await() }
+        val failure = try {
+            withTimeout(settings.connectTimeoutMillis) { opened.await() }
+        } catch (e: TimeoutCancellationException) {
+            stop()
+            throw IOException(
+                "The implementation at ${settings.endpoint} did not open within ${settings.connectTimeoutMillis} ms.",
+                e,
+            )
+        }
         if (failure != null) throw failure
     }
 
@@ -68,6 +78,9 @@ internal class OneBotForwardWebSocket(settings: OneBotSettings) : AbstractOneBot
         }
         return try {
             withTimeout(waitMillis ?: settings.firstByteTimeoutMillis) { waiting.await() }
+        } catch (e: TimeoutCancellationException) {
+            socket.awaiting.remove(echo)
+            throw IOException("The implementation did not answer '$action' in time.", e)
         } catch (e: Exception) {
             socket.awaiting.remove(echo)
             throw e

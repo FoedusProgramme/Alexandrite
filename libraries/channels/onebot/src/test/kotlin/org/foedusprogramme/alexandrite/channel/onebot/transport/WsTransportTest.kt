@@ -16,6 +16,7 @@ import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ClientHandshake
 import org.java_websocket.handshake.ServerHandshake
 import org.java_websocket.server.WebSocketServer
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.URI
 import java.util.concurrent.CopyOnWriteArrayList
@@ -23,6 +24,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -126,6 +128,26 @@ class WsTransportTest {
         assertNull(refusedClientRole("Service"), "service does too")
         assertNotNull(refusedClientRole("API"), "an API client sends no events this instance could take")
         assertNotNull(refusedClientRole("Event"), "an Event client answers no call this instance would make")
+    }
+
+    @Test
+    fun `a reverse call that times out is a failure rather than a cancellation`() {
+        val connection = OneBotReverseWebSocket(settings(null, port = 0))
+        try {
+            runBlocking {
+                connection.start()
+                val peer = SilentImplementation(URI("ws://127.0.0.1:" + connection.port))
+                assertTrue(peer.connectBlocking(5, TimeUnit.SECONDS), "the implementation did not connect")
+                assertTrue(connection.awaitPeer(), "not taken; state=" + connection.state.value)
+
+                val failure = assertFailsWith<IOException> {
+                    connection.send("get_version_info", JsonObject(emptyMap()), waitMillis = 50)
+                }
+                peer.close()
+            }
+        } finally {
+            connection.close()
+        }
     }
 
     private fun settings(endpoint: String?, port: Int = 0): OneBotSettings = OneBotSettings(
