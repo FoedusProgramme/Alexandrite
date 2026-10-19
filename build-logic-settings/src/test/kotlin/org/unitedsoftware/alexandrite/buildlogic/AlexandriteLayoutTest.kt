@@ -35,6 +35,7 @@ class AlexandriteLayoutTest {
     private val bubblewrap = ":libraries:sandboxes:bubblewrap"
     private val testkit = ":libraries:testkit"
     private val ksp = ":build-ksp-plugin"
+    private val bom = ":bom"
     private val app = ":app"
     private val notes = ":examples:notes"
     private val echo = ":examples:echo"
@@ -43,7 +44,7 @@ class AlexandriteLayoutTest {
         listOf(sdk, internals, runtime, agent, tools, mcp, commands, telegram, channelCommon, openAi, anthropic) +
             vendors +
             listOf(providerCommon, sqlite, automationCommon, testkit)
-    private val builtIn = libraries + ksp + app
+    private val builtIn = libraries + ksp + bom + app
     private val all = builtIn + notes
     private val indexed =
         listOf(agent, tools, mcp, commands, telegram, openAi, anthropic) + vendors + listOf(sqlite, app)
@@ -147,6 +148,7 @@ class AlexandriteLayoutTest {
             automationCommon to "alexandrite-automation-common",
             testkit to "alexandrite-testkit",
             ksp to "alexandrite-ksp",
+            bom to "alexandrite-bom",
             app to "alexandrite",
             notes to "example-notes",
         )
@@ -184,6 +186,7 @@ class AlexandriteLayoutTest {
             automationCommon to null,
             testkit to null,
             ksp to null,
+            bom to null,
             app to "app",
             notes to "plugins.notes",
         )
@@ -335,6 +338,20 @@ class AlexandriteLayoutTest {
     }
 
     @Test
+    fun `the published modules are the SDK, what the testkit needs, the common libraries, the processor and the BOM`() {
+        assertEquals(
+            listOf(sdk, internals, runtime, channelCommon, providerCommon, testkit, ksp, bom).sorted(),
+            AlexandriteLayout.publishedModules.map { it.path }.sorted(),
+        )
+        assertEquals(
+            setOf("org.unitedsoftware.alexandrite"),
+            AlexandriteLayout.publishedModules.map {
+                it.group
+            }.toSet(),
+        )
+    }
+
+    @Test
     fun `no two locations share a directory and every layer has one`() {
         val directories = AlexandriteLayout.LOCATIONS.map { it.directory }
         assertEquals(directories.distinct(), directories)
@@ -344,7 +361,7 @@ class AlexandriteLayoutTest {
     // Discovery.
 
     @Test
-    fun `today's tree yields today's twenty-one modules in path order`() {
+    fun `today's tree yields today's twenty-two modules in path order`() {
         val discovery = AlexandriteLayout.discover(today)
         assertNull(discovery.failure)
         assertEquals(all.sorted(), discovery.modules.map { it.path })
@@ -357,7 +374,7 @@ class AlexandriteLayoutTest {
         val shuffled = (today + added).shuffled(Random(7))
         val paths = AlexandriteLayout.discover(shuffled).modules.map { it.path }
         assertEquals(paths.sorted(), paths)
-        assertEquals(24, paths.size)
+        assertEquals(25, paths.size)
     }
 
     @Test

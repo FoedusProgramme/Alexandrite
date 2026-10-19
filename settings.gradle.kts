@@ -1,6 +1,7 @@
 pluginManagement {
     includeBuild("build-logic-settings")
     includeBuild("build-logic")
+    includeBuild("build-gradle-plugin")
 }
 
 plugins {
