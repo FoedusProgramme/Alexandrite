@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime.config
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.Logger
@@ -9,17 +10,27 @@ import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.runtime.plugin.pluginProblems
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEdit
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
+import org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
+import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
+import org.unitedsoftware.alexandrite.sdk.di.Key
+import org.unitedsoftware.alexandrite.sdk.di.container.Binding
+import org.unitedsoftware.alexandrite.sdk.di.container.Resolver
+import org.unitedsoftware.alexandrite.sdk.di.container.Scope
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 
-/** The host's config [file], whose changes must pass the stages PLUGINS and CONFIG of a runtime of [plugins]. */
+/**
+ * The host's config [file], whose changes must pass the stages PLUGINS and CONFIG of a runtime of [plugins], and take
+ * effect at once where a [LiveConfig] of the [live] ones takes them.
+ */
 public class HostConfigFile(
     private val file: Path?,
     private val plugins: PluginSet,
@@ -27,6 +38,8 @@ public class HostConfigFile(
     private val environment: () -> Map<String, String>,
     /** The runtime's name in log lines. */
     private val name: String = "alexandrite",
+    /** The running plugins' [LiveConfig] contributions, each with the id of its plugin. */
+    private val live: () -> List<Pair<String, LiveConfig>> = ::emptyList,
 ) : HostConfig {
     override suspend fun get(path: String): JsonElement? = lockedConfig {
         val configured = file ?: throw refused(ConfigEditRefusal.NO_FILE, "The host names no config file.")
@@ -37,13 +50,22 @@ public class HostConfigFile(
         } catch (e: IOException) {
             throw refused(ConfigEditRefusal.IO_ERROR, "Cannot read the config file $configured: $e", e)
         }
-        readable(ConfigEditRefusal.INVALID_FILE, "The config file does not read", configured) {
-            ConfigFile.parsed(configured, text)
+        val masked = readable(ConfigEditRefusal.INVALID_FILE, "The config file does not read", configured) {
+            maskedSecrets(plugins.members, ConfigFile.parsed(configured, text))
         }
-        PluginEdit("") { OpenFile(configured, ByteArray(0), text) }.get(path)
+        if (path.isEmpty()) return@lockedConfig masked
+        PluginEdit("") { OpenFile(configured, ByteArray(0), Json.encodeToString(JsonObject.serializer(), masked)) }
+            .get(path)
     }
 
-    override suspend fun edit(block: ConfigEdit.() -> Unit): ConfigChanges = lockedConfig {
+    override suspend fun edit(block: ConfigEdit.() -> Unit): ConfigChanges = edited(block, check = false)
+
+    override suspend fun check(block: ConfigEdit.() -> Unit): ConfigChanges = edited(block, check = true)
+
+    override suspend fun replace(text: String): ConfigChanges = lockedConfig { write(openConfig(file), text, null) }
+
+    /** What [block] changes, written unless it is only to [check]. */
+    private suspend fun edited(block: ConfigEdit.() -> Unit, check: Boolean): ConfigChanges = lockedConfig {
         val edit = PluginEdit("") {
             openConfig(file).also { opened ->
                 readable(ConfigEditRefusal.INVALID_FILE, "The config file does not read as it is", opened.target) {
@@ -52,13 +74,15 @@ public class HostConfigFile(
             }
         }
         edit.block()
-        edit.file?.let { opened -> write(opened, edit.text.text, edit.changes.map { it.path }.distinct()) } ?: NONE
+        edit.file?.let { opened -> write(opened, edit.text.text, edit.changes.map { it.path }.distinct(), check) }
+            ?: NONE
     }
 
-    override suspend fun replace(text: String): ConfigChanges = lockedConfig { write(openConfig(file), text, null) }
-
-    /** Writes [text] over [file], with the keys of each change as [paths], null for a change of the whole file. */
-    private fun write(file: OpenFile, text: String, paths: List<List<String>>?): ConfigChanges {
+    /**
+     * Writes [text] over [file], with the keys of each change as [paths], null for a change of the whole file, unless
+     * it is only to [check] what would change.
+     */
+    private fun write(file: OpenFile, text: String, paths: List<List<String>>?, check: Boolean = false): ConfigChanges {
         if (text == file.text) return NONE
         val target = file.target
         val what = "The change would break the config file"
@@ -66,9 +90,8 @@ public class HostConfigFile(
         val resolved = readable(ConfigEditRefusal.INVALID_RESULT, what, target) {
             ConfigFile.resolved(target, written, environment())
         }
-        val problems = pluginProblems(plugins).ifEmpty {
-            resolveConfig(plugins.members, JsonConfigSource(resolved), mutableListOf()).problems
-        }
+        val resolution = resolveConfig(plugins.members, JsonConfigSource(resolved), mutableListOf())
+        val problems = pluginProblems(plugins).ifEmpty { resolution.problems }
         if (problems.isNotEmpty()) {
             throw refused(
                 ConfigEditRefusal.INVALID_RESULT,
@@ -84,7 +107,7 @@ public class HostConfigFile(
             ?: mutableListOf<List<String>>().also { changedPaths(emptyList(), previous, written, it) }
         if (changed.isEmpty()) return NONE
         val set = changed.filter { written.at(it) != null }
-        for (plugin in resolveConfig(plugins.members, JsonConfigSource(resolved), mutableListOf()).enabled) {
+        for (plugin in resolution.enabled) {
             val root = plugin.member.index.configRoot.split('.')
             val below = set.mapNotNull { keys ->
                 when {
@@ -96,10 +119,26 @@ public class HostConfigFile(
             if (below.isEmpty()) continue
             checkSecrets(plugin.member.index, plugin.channelType, written, below.map { ConfigChange(it, written) })
         }
-        replaceConfig(file, text)
+        val taking = LiveChanges(resolution.enabled, live())
+        val restart = changed.filter { keys ->
+            val leaves = mutableListOf<List<String>>()
+            changedPaths(keys, previous.at(keys), written.at(keys), leaves)
+            leaves.map(taking::take).any { !it }
+        }
+        val commits = readable(ConfigEditRefusal.INVALID_RESULT, what, target) { taking.prepare() }
         val dotted = changed.map { it.joinToString(".") }
+        val changes = ConfigChanges(dotted, restart.map { it.joinToString(".") })
+        if (check) return changes
+        replaceConfig(file, text)
         logger.info("{}: changed {} in the config file {}", name, dotted.joinToString(), target)
-        return ConfigChanges(dotted, dotted)
+        for ((plugin, commit) in commits) {
+            try {
+                commit()
+            } catch (e: Exception) {
+                logger.error("{}: plugin {} could not take the change of its config", name, plugin, e)
+            }
+        }
+        return changes
     }
 
     private companion object {
@@ -107,6 +146,57 @@ public class HostConfigFile(
 
         val logger: Logger = LoggerFactory.getLogger(AlexandriteRuntime::class.java)
     }
+}
+
+/** The [LiveConfig]s of [live] that take the changes of their plugins among [enabled], once these are written. */
+private class LiveChanges(enabled: List<EnabledPlugin>, live: List<Pair<String, LiveConfig>>) {
+    private val plugins = enabled.associateBy { it.id }
+    private val places = live.flatMap { (plugin, config) ->
+        val root = plugins[plugin]?.member?.index?.configRoot?.split('.') ?: return@flatMap emptyList()
+        config.paths.map { path -> root + path.split('.').filter(String::isNotEmpty) to (plugin to config) }
+    }
+    private val taking = mutableListOf<Pair<String, LiveConfig>>()
+
+    /** Whether a change of [keys] is taken while the runtime runs. */
+    fun take(keys: List<String>): Boolean {
+        val place = places.firstOrNull { (prefix, _) -> keys.size >= prefix.size && keys.take(prefix.size) == prefix }
+            ?: return false
+        if (taking.none { it.second === place.second.second }) taking += place.second
+        return true
+    }
+
+    /** What each [LiveConfig] that takes a change does once the change is written, by plugin. */
+    fun prepare(): List<Pair<String, () -> Unit>> = taking.map { (plugin, config) ->
+        plugin to config.prepare(Snapshot(plugins.getValue(plugin).config.bindings))
+    }
+}
+
+/** The sections that [bindings] bind to their decoded values. */
+@OptIn(InternalAlexandriteApi::class)
+private class Snapshot(private val bindings: List<Binding<*>>) : ConfigSnapshot {
+    override fun <T : Any> section(key: Key<T>): T? {
+        val binding = bindings.firstOrNull { it.key == key && it.scope == Scope.SINGLETON } ?: return null
+        @Suppress("UNCHECKED_CAST")
+        return binding.create(NoResolver) as T
+    }
+}
+
+/** Resolves nothing, for bindings to values. */
+@OptIn(InternalAlexandriteApi::class)
+private object NoResolver : Resolver {
+    override fun <T : Any> get(key: Key<T>): T = unresolved(key)
+
+    override fun <T : Any> getOrNull(key: Key<T>): T? = unresolved(key)
+
+    override fun <T : Any> getAll(key: Key<T>): List<T> = unresolved(key)
+
+    override fun <T : Any> lazy(key: Key<T>): Lazy<T> = unresolved(key)
+
+    override fun <T : Any> provider(key: Key<T>): () -> T = unresolved(key)
+
+    override fun pluginOf(instance: Any): String? = null
+
+    private fun unresolved(key: Key<*>): Nothing = throw IllegalStateException("A config section resolves no $key.")
 }
 
 /** The value at [keys], null when there is none. */

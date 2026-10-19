@@ -4,6 +4,7 @@ import org.unitedsoftware.alexandrite.app.control.ControlRequest
 import java.io.IOException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
@@ -33,6 +34,21 @@ internal fun installRoot(cli: Cli): Path {
 
         else -> cli.home.resolve(".local").resolve("lib").resolve("alexandrite")
     }
+}
+
+/**
+ * The places of the installed program that the `alexandrite` group of the floor keeps: the install root that the
+ * launcher names in [environment] or that holds the running distribution [install], else [install] itself.
+ */
+internal fun installPlaces(environment: Map<String, String>, install: Path?): List<Path> {
+    val named = try {
+        environment[INSTALL_DIR]?.takeIf { it.isNotEmpty() }?.let { Path.of(it) }?.takeIf { it.isAbsolute }
+    } catch (e: InvalidPathException) {
+        null
+    }
+    val running = install?.toAbsolutePath()?.normalize()
+    val holding = running?.parent?.takeIf { it.fileName?.toString() == VERSIONS }?.parent
+    return listOfNotNull(named?.normalize(), holding ?: running).distinct()
 }
 
 /** Runs the installed install script in its update mode for this command's config file and data directory. */

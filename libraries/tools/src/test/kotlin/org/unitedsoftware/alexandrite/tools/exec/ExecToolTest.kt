@@ -672,6 +672,7 @@ private fun carvedFloor(home: Path, vararg places: DenyRoot): HardFloor {
     val floor = Floor(places.toList(), home)
     fun FloorDecision.toCheck(): FloorCheck = when (this) {
         is FloorDecision.Allowed -> FloorCheck.Allowed(canonical)
+        is FloorDecision.Ask -> FloorCheck.Ask(canonical, reason)
         is FloorDecision.Denied -> FloorCheck.Denied(reason)
     }
     return object : HardFloor {

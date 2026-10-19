@@ -9,7 +9,10 @@ import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotApi
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.getOrNull
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
+import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
+import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
+import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -109,6 +112,29 @@ class ConfigControlTest {
         assertContains(refused.err, "nope")
         assertFalse("nope" in cli.config())
         assertEquals(original.replace("\"zone\": \"UTC\"", "\"zone\": \"UTC\", \"language\": \"zh-CN\""), cli.config())
+    }
+
+    @Test
+    fun `a change of the floor takes effect in the running app at once, and needs no restart`() {
+        val printed = mutableListOf<Printed>()
+        val shared = directory.resolve("shared").toAbsolutePath()
+        var check: FloorCheck? = null
+
+        app {
+            printed += cli("config", "set", "agent.floor.deny", "[\"$shared\"]")
+            check = services.resolver().get(key<HardFloor>()).checkRead(shared.resolve("notes.txt"))
+        }
+
+        assertEquals(
+            Printed(
+                0,
+                "Changed agent.floor.deny in ${cli.configFile.toAbsolutePath()}.\n" +
+                    "agent.floor.deny took effect at once.\n",
+                "",
+            ),
+            printed.single(),
+        )
+        assertEquals(FloorCheck.Denied("a place the operator protects"), check)
     }
 
     @Test

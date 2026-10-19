@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
+import org.unitedsoftware.alexandrite.agent.permission.canonical
 import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -69,6 +70,8 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
         val canonical = when (val check = check(folder)) {
             is FloorCheck.Allowed -> check.canonical
 
+            is FloorCheck.Ask -> check.canonical
+
             is FloorCheck.Denied ->
                 throw Refused(TextKeys.FOLDER_PROTECTED, "folder" to folder, "reason" to check.reason)
         }
@@ -87,7 +90,7 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
      * tells whether the config still trusts it.
      */
     suspend fun untrust(folder: Path, by: ChatUser?): Revocation {
-        val canonical = (check(folder) as? FloorCheck.Allowed)?.canonical
+        val canonical = check(folder).canonical
         val revocation = writing.withLock {
             val removed = grants.list().filter { isGrantOf(it.key, folder, canonical) }.count { grants.remove(it.key) }
             val trusted = folders.firstOrNull { it.path == canonical }
@@ -116,19 +119,20 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
         val path = grantedPath(key) ?: return false
         if (path.normalize() == folder.normalize()) return true
         if (canonical == null) return false
-        return path == canonical || (floor.checkRead(path) as? FloorCheck.Allowed)?.canonical == canonical
+        return path == canonical || floor.checkRead(path).canonical == canonical
     }
 
     /** The folder that [grant] trusts, null when the floor now refuses it. */
     private fun granted(grant: StoredRecord<FolderGrant>): TrustedFolder? {
         val path = grantedPath(grant.key)
         val check = path?.let(floor::checkRead)
-        if (check !is FloorCheck.Allowed) {
+        val canonical = check?.canonical
+        if (canonical == null) {
             val reason = (check as? FloorCheck.Denied)?.reason ?: "no absolute path"
             logger.warn("The grant of folder {} is ignored: {}", grant.key, reason)
             return null
         }
-        return TrustedFolder(check.canonical, false, grant.createdAt, grant.value.by?.user())
+        return TrustedFolder(canonical, false, grant.createdAt, grant.value.by?.user())
     }
 }
 
@@ -152,6 +156,8 @@ private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor
     val path = configuredPath(paths, "agent.$KEY", "the trusted folder", entry)
     when (val check = floor.checkRead(path)) {
         is FloorCheck.Allowed -> check.canonical
+
+        is FloorCheck.Ask -> check.canonical
 
         is FloorCheck.Denied -> throw ConfigException(
             "agent.$KEY",

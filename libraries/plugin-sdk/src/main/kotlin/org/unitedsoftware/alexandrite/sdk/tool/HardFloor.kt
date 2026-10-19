@@ -6,7 +6,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import java.nio.file.Path
 
-/** Refuses the places that no tool may touch. */
+/** Refuses the places that no tool may touch, and names those that a person must allow each call into. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface HardFloor {
     /**
@@ -37,6 +37,10 @@ public interface HardFloor {
 public sealed interface FloorCheck {
     @Poko
     public class Allowed(public val canonical: Path) : FloorCheck
+
+    /** [canonical] is the path to use once a person allows the call; [reason] names the kind of place. */
+    @Poko
+    public class Ask(public val canonical: Path, public val reason: String) : FloorCheck
 
     /** [reason] names the kind of protected place, never anything inside it. */
     @Poko

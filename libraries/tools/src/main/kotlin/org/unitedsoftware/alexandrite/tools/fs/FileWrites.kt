@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.internal.path.writeAtomically
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
 import org.unitedsoftware.alexandrite.internal.text.Utf8Text
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
+import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
@@ -29,6 +30,8 @@ internal class Target(
     val snapshot: String,
     /** Whether [file] lies in the turn's own conversation directory, where a write is never gated outside `plan` mode. */
     val exempt: Boolean,
+    /** Why only a person may allow the write, null when anyone may. */
+    val person: String? = null,
 )
 
 /** The snapshot of a file that does not exist. */
@@ -55,17 +58,23 @@ internal suspend fun HardFloor.target(argument: String, context: ToolContext): T
     val agent = context.turn.agent
     val conversation = context.turn.rootConversation
     return blocking {
-        val file = when (val check = checkWrite(shown, agent, conversation)) {
+        val check = checkWrite(shown, agent, conversation)
+        val file = when (check) {
             is FloorCheck.Allowed -> check.canonical
+            is FloorCheck.Ask -> check.canonical
             is FloorCheck.Denied -> throw Blocked("$shown is protected (${check.reason}): no file tool may write it.")
         }
         val directory = context.conversationDirectory
-        load(file, shown, file == directory || file.startsWith(directory))
+        val person = (check as? FloorCheck.Ask)?.let { askedPlace(shown, it) }
+        load(file, shown, file == directory || file.startsWith(directory), person)
     }
 }
 
-/** [file] (canonical), shown as [shown], as it is now, [exempt] when it lies in the conversation directory. */
-private fun load(file: Path, shown: Path, exempt: Boolean): Target {
+/**
+ * [file] (canonical), shown as [shown], as it is now, [exempt] when it lies in the conversation directory, with why
+ * only a [person] may allow writing it.
+ */
+private fun load(file: Path, shown: Path, exempt: Boolean, person: String?): Target {
     val attributes = try {
         attributes(file)
     } catch (e: NoSuchFileException) {
@@ -77,7 +86,7 @@ private fun load(file: Path, shown: Path, exempt: Boolean): Target {
         if (!directory && !exempt) {
             throw Refusal("${shown.parent} is no existing directory: files are written only in existing directories.")
         }
-        return Target(file, shown, null, ABSENT, exempt)
+        return Target(file, shown, null, ABSENT, exempt, person)
     }
     if (attributes.isDirectory) throw Refusal("$shown is a directory.")
     checkRegular(file, shown, attributes, "written")
@@ -87,7 +96,7 @@ private fun load(file: Path, shown: Path, exempt: Boolean): Target {
     }
     val text = Utf8Text.decode(bytes)
         ?: throw Refusal("$shown is no UTF-8 text (it looks binary): the write tools change text files only.")
-    return Target(file, shown, text, HASH_PREFIX + sha256Hex(bytes), exempt)
+    return Target(file, shown, text, HASH_PREFIX + sha256Hex(bytes), exempt, person)
 }
 
 /** Refuses a write of the existing [target] unless [context]'s conversation read it as it is now. */
@@ -105,8 +114,12 @@ internal fun ReadLedger.checkRead(target: Target, context: ToolContext) {
 }
 
 /** What an approver sees of a call that makes [target] hold [text]. */
-internal fun Target.review(text: String): CallReview =
-    CallReview(preview = ReviewPreview.Diff(file, diff(text).text), snapshot = snapshot, exempt = exempt)
+internal fun Target.review(text: String): CallReview = CallReview(
+    preview = ReviewPreview.Diff(file, diff(text).text),
+    snapshot = snapshot,
+    exempt = exempt,
+    person = person,
+)
 
 /** The diff from the file's text to [text], ignoring carriage returns unless only they change. */
 internal fun Target.diff(text: String): UnifiedDiff {
@@ -116,8 +129,11 @@ internal fun Target.diff(text: String): UnifiedDiff {
     return if (plain.text.isEmpty()) UnifiedDiff.of(old, text, oldLabel, "$file") else plain
 }
 
-/** Refuses the call of [context] unless [target] is as the call's review found it. */
+/** Refuses the call of [context] unless [target] is as its review found it and a person allowed it where needed. */
 internal fun Target.checkReviewed(context: ToolContext) {
+    if (person != null && context.clearance?.kind != ClearanceKind.HUMAN) {
+        throw Blocked("$person, and no person allowed this call.")
+    }
     val reviewed = context.clearance?.snapshot ?: throw Refusal("This call was not reviewed, so it writes nothing.")
     if (reviewed != snapshot) {
         throw Refusal("$shown changed since this call was reviewed: read it again with fs.read, then repeat the call.")

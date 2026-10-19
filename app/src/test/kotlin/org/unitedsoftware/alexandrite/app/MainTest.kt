@@ -21,6 +21,8 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
+import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
+import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -218,6 +220,44 @@ class MainTest {
         assertEquals(file.toAbsolutePath(), paths?.configFile)
         assertEquals(listOf(dataDir, dataDir.resolve("cache")), listOf(paths?.dataRoot, paths?.cacheRoot))
         assertEquals(listOf(install), paths?.protected)
+    }
+
+    @Test
+    fun `the alexandrite group of the floor keeps the tools out of the whole install root`() {
+        val root = directory.resolve("lib/alexandrite").also { Files.createDirectories(it.resolve("jre/bin")) }
+        val version = Files.createDirectories(root.resolve("versions/1.2.3"))
+        val file = config("""{"agent": {"floor": {"deny": ["alexandrite"]}}}""")
+        val checks = mutableListOf<FloorCheck>()
+        val places = listOf("jre/bin/java", "versions/1.2.3/lib/alexandrite.jar", "versions/1.0.0", "install.sh")
+
+        val code = host(
+            "--config",
+            "$file",
+            "--data-dir",
+            "$dataDir",
+            environment = mapOf(INSTALL_DIR to "$root"),
+            install = version,
+            execute = stopping {
+                val floor = services.resolver().get(key<HardFloor>())
+                places.mapTo(checks) { floor.checkRead(root.resolve(it)) }
+            },
+        )
+
+        assertEquals(0, code, stderr())
+        assertEquals(List<FloorCheck>(places.size) { FloorCheck.Denied("a place the host protects") }, checks)
+    }
+
+    @Test
+    fun `the install root is the one the launcher names, else the one holding the running version`() {
+        val root = directory.resolve("lib/alexandrite")
+        val version = root.resolve("versions/1.2.3")
+        val elsewhere = directory.resolve("dist")
+
+        assertEquals(listOf(root), installPlaces(mapOf(INSTALL_DIR to "$root"), version))
+        assertEquals(listOf(root, elsewhere), installPlaces(mapOf(INSTALL_DIR to "$root"), elsewhere))
+        assertEquals(listOf(root), installPlaces(emptyMap(), version))
+        assertEquals(listOf(elsewhere), installPlaces(mapOf(INSTALL_DIR to "relative/path"), elsewhere))
+        assertEquals(emptyList<Path>(), installPlaces(emptyMap(), null))
     }
 
     @Test

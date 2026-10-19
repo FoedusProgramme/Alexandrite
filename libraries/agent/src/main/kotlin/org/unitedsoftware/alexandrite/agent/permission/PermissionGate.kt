@@ -36,7 +36,10 @@ internal class CheckedCall(
     val requiredApproval: String?,
 )
 
-/** Decides each tool call: the tool's review, the hooks, the rules, the risk, the mode, the judge, then a person. */
+/**
+ * Decides each tool call: the tool's review, the hooks, the rules, the risk, the mode, the judge, then a person; a call
+ * whose review names a reason for a person goes to one in every mode but `plan`.
+ */
 @Singleton
 @Binds(ToolGate::class)
 internal class PermissionGate(
@@ -76,7 +79,8 @@ internal class PermissionGate(
         val checked = CheckedCall(call, review, risk, required)
         rules.denied(checked)?.let { return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(it)) }
         val principal = Principal.of(call.turn)
-        if (required == null && !isGated(risk, principal, call.taint.tainted)) {
+        val person = review.person
+        if (required == null && person == null && !isGated(risk, principal, call.taint.tainted)) {
             val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
             return running(checked, GateResult.Admitted(clearance, review.preview, review.exempt))
         }
@@ -84,6 +88,7 @@ internal class PermissionGate(
         if (mode == PermissionMode.PLAN) {
             return refused(call, NotRunReason.PLAN_MODE, Refusals.planMode(definition.name))
         }
+        if (person != null) return ask(checked, person)
         if (required == null && review.exempt) return admitted(checked, ClearanceKind.SCRATCH)
         if (principal == Principal.OPERATOR) {
             if (required == null) cleared(checked, mode)?.let { return admitted(checked, it) }
@@ -106,7 +111,7 @@ internal class PermissionGate(
 
     /** [review] without its exemption, which only a built-in tool may claim. */
     private fun unexempted(review: CallReview): CallReview = with(review) {
-        CallReview(risk, refusal, preview, snapshot, rule, problem, false, background, untrusted)
+        CallReview(risk, refusal, preview, snapshot, rule, problem, false, background, untrusted, person)
     }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */

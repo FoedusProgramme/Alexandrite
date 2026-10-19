@@ -158,6 +158,10 @@ class SubclassOptInTest {
             override suspend fun edit(block: org.unitedsoftware.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
         }
 
+        class Snapshot : org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot {
+            override fun <T : Any> section(key: org.unitedsoftware.alexandrite.sdk.di.Key<T>): T? = TODO()
+        }
+
         class Host : org.unitedsoftware.alexandrite.sdk.config.HostConfig {
             override suspend fun get(path: String) = TODO()
             override suspend fun edit(block: org.unitedsoftware.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
@@ -841,6 +845,7 @@ class SubclassOptInTest {
                         context.touched(check.canonical)
                         ToolResult(Files.readString(check.canonical))
                     }
+                    is FloorCheck.Ask -> ToolResult("Ask a person: ${'$'}{check.reason}.", isError = true)
                     is FloorCheck.Denied -> ToolResult("Refused: ${'$'}{check.reason}.", isError = true)
                 }
             }
@@ -856,9 +861,16 @@ class SubclassOptInTest {
                 val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
                 val check = floor.checkWrite(path, context.turn.agent)
                 if (check is FloorCheck.Denied) return CallReview(refusal = "Refused: ${'$'}{check.reason}.")
+                val person = (check as? FloorCheck.Ask)?.let { "${'$'}path needs a person (${'$'}{it.reason})" }
                 val risk = if (Files.exists(path)) ToolRisk.WORKSPACE_WRITE else ToolRisk.EXEC
                 val rule = RuleSubject("files.write", listOf("${'$'}path"), "writes to ${'$'}path")
-                return CallReview(risk, preview = ReviewPreview.Diff(path, "+text"), snapshot = "absent", rule = rule)
+                return CallReview(
+                    risk,
+                    preview = ReviewPreview.Diff(path, "+text"),
+                    snapshot = "absent",
+                    rule = rule,
+                    person = person,
+                )
             }
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
@@ -907,9 +919,25 @@ class SubclassOptInTest {
             suspend fun model(agent: String, model: String): List<String>? = try {
                 val changes = config.edit { set("agent.agents.${'$'}agent.model", JsonPrimitive(model)) }
                 config.get("agent.agents.${'$'}agent")
+                config.check { remove("agent.floor") }?.restart
                 changes.changed + changes.restart
             } catch (e: ConfigEditException) {
                 listOfNotNull(e.message)
+            }
+        }
+
+        class Settings(val limit: Int)
+
+        class Limits : LiveConfig {
+            @Volatile
+            var limit = 0
+
+            override val paths = listOf("limit")
+
+            override fun prepare(config: ConfigSnapshot): () -> Unit {
+                val next = config.section(org.unitedsoftware.alexandrite.sdk.di.key<Settings>())?.limit ?: 0
+                if (next < 0) throw ConfigException("limit", "may not be negative")
+                return { limit = next }
             }
         }
     """.trimIndent()

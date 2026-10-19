@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.testkit
 import org.unitedsoftware.alexandrite.internal.floor.DenyRoot
 import org.unitedsoftware.alexandrite.internal.floor.Floor
 import org.unitedsoftware.alexandrite.internal.floor.FloorDecision
+import org.unitedsoftware.alexandrite.internal.floor.leveled
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
@@ -12,14 +13,18 @@ import java.nio.file.Path
 
 /**
  * A hard floor that refuses [protected] and the places that every floor refuses, with [home] as the home directory,
- * and leaves the host's own places open.
+ * asks a person about [asked], and leaves the host's own places open.
  *
  * It refuses every path when [home] is null.
  */
 public fun testHardFloor(
     protected: List<Path> = emptyList(),
     home: Path? = Path.of(System.getProperty("user.home")),
-): HardFloor = TestHardFloor(home?.let { Floor(protected.map { DenyRoot(it, "a place the test protects") }, it) })
+    asked: List<Path> = emptyList(),
+): HardFloor = TestHardFloor(
+    home?.let { Floor(protected.map { DenyRoot(it, "a place the test protects") }, it) },
+    askFloor(asked),
+)
 
 /**
  * A hard floor that refuses the host's places in [paths], [protected] and the places that every floor refuses, with
@@ -41,11 +46,14 @@ public fun testHardFloor(
         DenyRoot(paths.cacheRoot, "Alexandrite's cache") +
         paths.protected.map { DenyRoot(it, "a place the host protects") } +
         protected.map { DenyRoot(it, "a place the test protects") }
-    return TestHardFloor(home?.let { Floor(places, it) })
+    return TestHardFloor(home?.let { Floor(places, it) }, askFloor(emptyList()))
 }
 
+private fun askFloor(asked: List<Path>): Floor =
+    Floor(asked.map { DenyRoot(it, "a place the test asks about") }, null, standard = emptySet())
+
 /** Refuses every path when [floor] is null. */
-private class TestHardFloor(private val floor: Floor?) : HardFloor {
+private class TestHardFloor(private val floor: Floor?, private val ask: Floor) : HardFloor {
     override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         decide { it.check(path) }
 
@@ -57,8 +65,9 @@ private class TestHardFloor(private val floor: Floor?) : HardFloor {
 
     private fun decide(check: (Floor) -> FloorDecision): FloorCheck {
         val floor = floor ?: return FloorCheck.Denied(UNKNOWN_HOME)
-        return when (val decision = check(floor)) {
+        return when (val decision = leveled(check(floor)) { check(ask) }) {
             is FloorDecision.Allowed -> FloorCheck.Allowed(decision.canonical)
+            is FloorDecision.Ask -> FloorCheck.Ask(decision.canonical, decision.reason)
             is FloorDecision.Denied -> FloorCheck.Denied(decision.reason)
         }
     }

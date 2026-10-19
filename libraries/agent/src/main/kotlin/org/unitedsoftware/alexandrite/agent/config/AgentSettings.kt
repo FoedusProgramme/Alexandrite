@@ -45,24 +45,21 @@ internal class AgentSettings(
 /**
  * The places of the hard floor: each entry of [deny] a group — `credentials` (the credential stores of the home
  * directory and those the environment moves), `system` (`/dev`, sensitive `/proc` entries, macOS magic entries),
- * `alexandrite` (its config, data, plugin data and cache, and the agents' persona directories, each agent keeping its
- * own and its conversation's directory) — or a path, absolute, under `~/`, or relative to the config file's directory.
+ * `alexandrite` (its config, data, plugin data, cache and install root, and the agents' persona directories, each agent
+ * keeping its own and its conversation's directory) — or a path, absolute, under `~/`, or relative to the config file's
+ * directory. [ask] takes the same entries for the places that a person must allow each call into.
  */
 @Serializable
-internal class FloorConfig(val deny: List<String> = emptyList()) {
+internal class FloorConfig(val deny: List<String> = emptyList(), val ask: List<String> = emptyList()) {
     init {
-        for ((index, entry) in deny.withIndex()) {
-            require(entry in FLOOR_GROUPS || isPath(entry)) {
-                "floor.deny[$index] is neither a group (${FLOOR_GROUPS.joinToString()}) nor a path"
+        for ((name, entries) in listOf("deny" to deny, "ask" to ask)) {
+            for ((index, entry) in entries.withIndex()) {
+                require(entry in FLOOR_GROUPS || isPath(entry)) {
+                    "floor.$name[$index] is neither a group (${FLOOR_GROUPS.joinToString()}) nor a path"
+                }
             }
         }
     }
-
-    /** The groups [deny] names. */
-    val groups: Set<String> get() = deny.filter { it in FLOOR_GROUPS }.toSet()
-
-    /** The paths [deny] names. */
-    val paths: List<String> get() = deny.filterNot { it in FLOOR_GROUPS }
 
     companion object {
         const val CREDENTIALS: String = "credentials"

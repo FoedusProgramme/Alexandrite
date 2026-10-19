@@ -44,7 +44,7 @@ internal class ReadTaint(
                         places.personaDirectory(agent),
                         directories.path(agent, conversation),
                     ) + places.skillDirectories(agent)
-                    ).mapNotNull { (floor.checkRead(it, agent, conversation) as? FloorCheck.Allowed)?.canonical }
+                    ).mapNotNull { floor.checkRead(it, agent, conversation).canonical }
                 touched.firstNotNullOfOrNull { place(it, agent, conversation, own) }?.let { "$tool reached $it" }
             }
         } catch (e: CancellationException) {
@@ -60,6 +60,7 @@ internal class ReadTaint(
         if (!path.isAbsolute) return "a place it named by a relative path"
         val canonical = when (val check = floor.checkRead(path, agent, conversation)) {
             is FloorCheck.Allowed -> check.canonical
+            is FloorCheck.Ask -> check.canonical
             is FloorCheck.Denied -> return "a protected place (${check.reason})"
         }
         if (own.any(canonical::startsWith)) return null

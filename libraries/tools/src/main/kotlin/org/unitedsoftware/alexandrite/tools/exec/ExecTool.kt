@@ -114,6 +114,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                     rule = rule,
                     background = startsInBackground(arguments),
                     untrusted = !vetted,
+                    person = asks.takeIf { it.isNotEmpty() }?.joinToString("; "),
                 )
             }
         }
@@ -133,6 +134,13 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             return ToolResult(
                 "$named or a file it is given changed since the call was reviewed, so it is not run: call " +
                     "again to have it reviewed anew.",
+                isError = true,
+            )
+        }
+        if (call.asks.isNotEmpty() && clearance?.kind != ClearanceKind.HUMAN) {
+            return ToolResult(
+                "${call.asks.first().replaceFirstChar(Char::uppercaseChar)}, and no person allowed this call, so it " +
+                    "is not run.",
                 isError = true,
             )
         }

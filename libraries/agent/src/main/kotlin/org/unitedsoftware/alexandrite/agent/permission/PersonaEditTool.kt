@@ -84,7 +84,11 @@ internal class PersonaEditTool(
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val edit = planned(arguments, context)
-        CallReview(preview = ReviewPreview.Diff(edit.file, edit.diff().text), snapshot = edit.snapshot)
+        CallReview(
+            preview = ReviewPreview.Diff(edit.file, edit.diff().text),
+            snapshot = edit.snapshot,
+            person = edit.person,
+        )
     } catch (e: ToolRefusal) {
         if (e.blocked) CallReview(refusal = e.message) else CallReview(problem = e.message)
     } catch (e: IOException) {
@@ -94,6 +98,7 @@ internal class PersonaEditTool(
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
         val edit = planned(arguments, context)
+        checkPerson(edit.person, context)
         val reviewed =
             context.clearance?.snapshot ?: throw ToolRefusal("This call was not reviewed, so it writes nothing.")
         if (reviewed != edit.snapshot) {
@@ -146,8 +151,11 @@ internal class PersonaEditTool(
         val directory = directory(turn.agent)
             ?: throw ToolRefusal("You have no persona directory, as the host read no config file.")
         val shown = named(arguments.text("file"), directory)
+        var person: String? = null
         val file = when (val check = floor.checkPersonaWrite(shown, turn.agent)) {
             is FloorCheck.Allowed -> check.canonical
+
+            is FloorCheck.Ask -> check.canonical.also { person = askedPlace(shown, check) }
 
             is FloorCheck.Denied -> throw ToolRefusal(
                 "$shown is refused (${check.reason}): persona.edit edits only the Markdown files directly in your " +
@@ -162,7 +170,7 @@ internal class PersonaEditTool(
             else -> replaced(current, checkNotNull(old), new, shown)
         }
         if (text == (current?.text ?: "")) throw ToolRefusal("The edit changes nothing in $shown.")
-        return Edit(file, shown, current, snapshot, text)
+        return Edit(file, shown, current, snapshot, text, person)
     }
 
     private fun directory(agent: AgentId): Path? = places.personaDirectory(agent)
@@ -173,6 +181,8 @@ internal class PersonaEditTool(
         val current: Utf8Text?,
         val snapshot: String,
         val text: String,
+        /** Why only a person may allow the edit, null when anyone may. */
+        val person: String?,
     ) {
         fun diff(): UnifiedDiff {
             val old = current?.text.orEmpty()

@@ -195,7 +195,7 @@ internal suspend fun runSteps(
         val run = step.run
         if (run == null) {
             val target = step.words[1]
-            val checked = recheck(call, step) { planner.changed(target, cwd) }
+            val checked = recheck(call, step, planner) { planner.changed(target, cwd) }
             when {
                 checked is Checked.Stopped -> return stopped(shown, header, checked.why, single, maxChars)
 
@@ -211,7 +211,7 @@ internal suspend fun runSteps(
                 }
             }
         } else {
-            val checked = recheck(call, step) {
+            val checked = recheck(call, step, planner) {
                 planner.program(run.argv, cwd, run.timeout, run.environment, run.limit).executable
             }
             if (checked is Checked.Stopped) return stopped(shown, header, checked.why, single, maxChars)
@@ -253,7 +253,7 @@ internal suspend fun runSteps(
 }
 
 /** Whether [step] of [call] still plans as it did, where [planned] plans it again. */
-private fun recheck(call: PlannedCall, step: PlannedStep, planned: () -> Path): Checked {
+private fun recheck(call: PlannedCall, step: PlannedStep, planner: Planner, planned: () -> Path): Checked {
     val again = try {
         planned()
     } catch (e: CallProblem) {
@@ -264,6 +264,9 @@ private fun recheck(call: PlannedCall, step: PlannedStep, planned: () -> Path): 
     val expected = step.run?.executable ?: step.cwd
     if (again != expected) {
         return Checked.Stopped("${step.words.first()} changed since ${call.argv.first()} was reviewed.")
+    }
+    if (!call.asks.containsAll(planner.asks)) {
+        return Checked.Stopped("${step.words.first()} reaches a place the floor asks a person about since review.")
     }
     return Checked.Same
 }

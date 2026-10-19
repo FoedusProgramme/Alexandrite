@@ -272,9 +272,11 @@ class PublicApiTest {
             tool.hold().release()
             val result = tool.execute(JsonObject(emptyMap()), testToolContext())
             val call: RecordingTool.Call = tool.awaitCalls(1).first()
-            val floor: HardFloor = testHardFloor(listOf(Path.of("/srv/secret")), Path.of("/home/user"))
+            val floor: HardFloor =
+                testHardFloor(listOf(Path.of("/srv/secret")), Path.of("/home/user"), asked = listOf(Path.of("/srv/ask")))
             val checked = when (val check = floor.checkRead(Path.of("/srv/secret/key"))) {
                 is FloorCheck.Allowed -> check.canonical
+                is FloorCheck.Ask -> check.reason
                 is FloorCheck.Denied -> check.reason
             }
             val cleared = org.unitedsoftware.alexandrite.sdk.permission.Clearance(

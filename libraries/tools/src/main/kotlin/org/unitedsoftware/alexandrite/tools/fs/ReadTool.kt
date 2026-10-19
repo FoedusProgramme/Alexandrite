@@ -6,7 +6,9 @@ import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -19,7 +21,7 @@ import java.security.DigestInputStream
 
 @Singleton
 @Contribute(Tool::class)
-internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLedger) : Tool {
+internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLedger) : ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "fs.read",
         description = "Reads a UTF-8 text file and returns its lines, each after its line number and a tab. " +
@@ -35,6 +37,12 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
         activity = ToolActivity.READ,
         titleArguments = listOf("path"),
     )
+
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
+        floor.readReview(arguments.requiredString("path"), context)
+    } catch (e: Refusal) {
+        CallReview()
+    }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val path = context.absolute(arguments.requiredString("path"))

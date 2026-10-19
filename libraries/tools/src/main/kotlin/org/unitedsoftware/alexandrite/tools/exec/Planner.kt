@@ -74,6 +74,8 @@ internal class PlannedCall(
     /** The real path of the program that [argv] names, null when it cannot be resolved. */
     val executable: Path?,
     val timeout: Duration,
+    /** Why only a person may allow the call, one for each place it reaches that the floor asks a person about. */
+    val asks: List<String> = emptyList(),
 ) {
     val programs: List<PlannedRun> get() = steps.mapNotNull { it.run }
 
@@ -107,6 +109,12 @@ internal class Planner(
     private val conversation: ConversationId?,
     private val operator: Boolean,
 ) {
+    /** Why a person must allow the call, for each place the floor asks one about that the plan reached so far. */
+    private val asked = LinkedHashSet<String>()
+
+    /** Why a person must allow the call, for each place the floor asks one about that the plans reached so far. */
+    val asks: Set<String> get() = asked
+
     /**
      * What [request] runs in [cwd], which may not exist yet when [missingAllowed], where a leading `~` of a chain's
      * word is [home].
@@ -131,6 +139,7 @@ internal class Planner(
                 false,
                 run.executable,
                 request.timeout,
+                asked.toList(),
             )
         }
         val named = quietly(argv.first(), directory)
@@ -144,6 +153,7 @@ internal class Planner(
                 true,
                 named,
                 request.timeout,
+                asked.toList(),
             )
         }
         var current = directory
@@ -161,7 +171,7 @@ internal class Planner(
             }
             PlannedStep(step.joint, step.words, current, run)
         }
-        return PlannedCall(argv, directory, steps, chain.errexit, true, named, request.timeout)
+        return PlannedCall(argv, directory, steps, chain.errexit, true, named, request.timeout, asked.toList())
     }
 
     /**
@@ -257,7 +267,11 @@ internal class Planner(
     /** The real path of the program [name] in [directory], null when there is none or the floor refuses it. */
     private fun quietly(name: String, directory: Path): Path? {
         val resolved = resolveProgram(name, directory, searchPath(System.getenv())) ?: return null
-        return (floor.checkRead(resolved, agent, conversation) as? FloorCheck.Allowed)?.canonical
+        return when (val check = floor.checkRead(resolved, agent, conversation)) {
+            is FloorCheck.Allowed -> check.canonical
+            is FloorCheck.Ask -> check.canonical
+            else -> null
+        }
     }
 
     /** The canonical path of [candidate], which the floor allows. */
@@ -298,9 +312,18 @@ internal class Planner(
         allowed(check) { "'$candidate' reaches $it" }
     }
 
-    /** The canonical path of [check], else a [FloorRefusal] saying what [refused] says of its reason. */
+    /**
+     * The canonical path of [check], else a [FloorRefusal] saying what [refused] says of its reason; noted for a person
+     * where the floor asks one.
+     */
     private fun allowed(check: FloorCheck, refused: (String) -> String): Path = when (check) {
         is FloorCheck.Allowed -> check.canonical
+
+        is FloorCheck.Ask -> {
+            val reason = refused("a place the floor asks a person about (${check.reason})")
+            asked += reason.replaceFirstChar(Char::lowercaseChar)
+            check.canonical
+        }
 
         is FloorCheck.Denied ->
             throw FloorRefusal(

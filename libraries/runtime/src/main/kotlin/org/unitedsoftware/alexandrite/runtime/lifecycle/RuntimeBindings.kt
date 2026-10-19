@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
+import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
 import org.unitedsoftware.alexandrite.sdk.di.container.DependencyKind
 import org.unitedsoftware.alexandrite.sdk.di.container.PluginBindings
@@ -65,7 +66,8 @@ internal fun runtimeBindings(
     texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
     editors: (plugin: String) -> ConfigEditor,
-    hostConfig: HostConfig,
+    /** The host config that takes the changes of the [LiveConfig] contributions its argument lists, by plugin. */
+    hostConfig: (live: () -> List<Pair<String, LiveConfig>>) -> HostConfig,
     scopes: PluginScopes,
     directory: ChannelDirectory,
     channels: ChannelControl,
@@ -74,6 +76,7 @@ internal fun runtimeBindings(
     agentPlaces: (HostPaths) -> AgentPlaces,
 ): PluginBindings {
     val hooks = key<Hook>()
+    val live = key<LiveConfig>()
     val stateStore = key<ChatStateStore>()
     val recordStore = key<RecordStore>()
     val initiation = key<TurnInitiation>()
@@ -102,7 +105,13 @@ internal fun runtimeBindings(
         instanceBinding(key<AgentPlaces>(), agentPlaces(paths), RUNTIME_PLUGIN, "AgentPlaces"),
         instanceBinding(key<ChannelDirectory>(), directory, RUNTIME_PLUGIN, "ChannelDirectory"),
         instanceBinding(key<ChannelControl>(), channels, RUNTIME_PLUGIN, "ChannelControl"),
-        instanceBinding(key<HostConfig>(), hostConfig, RUNTIME_PLUGIN, "HostConfig"),
+        binding(
+            key<HostConfig>(),
+            RUNTIME_PLUGIN,
+            "HostConfig",
+            dependencies = listOf(Dependency(live, DependencyKind.ALL, "live")),
+            managed = false,
+        ) { r -> hostConfig { r.getAll(live).mapNotNull { config -> r.pluginOf(config)?.let { it to config } } } },
         binding(key<PluginOrigins>(), RUNTIME_PLUGIN, "PluginOrigins", managed = false) { r ->
             ResolvedOrigins(r, builtIns)
         },

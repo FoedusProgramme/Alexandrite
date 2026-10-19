@@ -26,9 +26,26 @@ public sealed interface FloorDecision {
     /** [held] when the path is refused only because it holds the place. */
     public data class Denied(val kind: String, val held: Boolean = false) : FloorDecision {
         /** The kind of place, or that a recursive operation would reach it when [held]. */
-        val reason: String get() = if (held) "a recursive operation would reach $kind" else kind
+        val reason: String get() = reason(kind, held)
+    }
+
+    /** [canonical] is the path to open once a person allows it, as it lies in or [held] a place of [kind]. */
+    public data class Ask(val canonical: Path, val kind: String, val held: Boolean = false) : FloorDecision {
+        /** The kind of place, or that a recursive operation would reach it when [held]. */
+        val reason: String get() = reason(kind, held)
     }
 }
+
+/** [deny]'s refusal, else [ask]'s refusal as an [FloorDecision.Ask] of the path that [deny] allows. */
+public fun leveled(deny: FloorDecision, ask: () -> FloorDecision): FloorDecision {
+    if (deny !is FloorDecision.Allowed) return deny
+    return when (val asked = ask()) {
+        is FloorDecision.Denied -> FloorDecision.Ask(deny.canonical, asked.kind, asked.held)
+        else -> deny
+    }
+}
+
+private fun reason(kind: String, held: Boolean): String = if (held) "a recursive operation would reach $kind" else kind
 
 /** How a path meets a protected place. */
 public enum class Placement {

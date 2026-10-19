@@ -108,6 +108,8 @@ private fun reported(cli: Cli, written: Written, restartAfter: Boolean): Int {
     val changes = written.changes
     if (changes.changed.isEmpty()) return cli.done(cli.t("change.none"))
     cli.out.println(cli.t("change.done", "keys" to changes.changed.joinToString(), "file" to written.file))
+    val live = changes.changed - changes.restart.toSet()
+    if (written.running && live.isNotEmpty()) cli.out.println(cli.t("change.live", "keys" to live.joinToString()))
     if (changes.restart.isEmpty()) return ExitCode.OK
     if (!written.running) return cli.done(cli.t("change.at_start"))
     if (restartAfter || (installedService(cli) != null && cli.confirm(cli.t("change.restart_now")))) {

@@ -14,7 +14,11 @@ import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEdit
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
+import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
+import org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
+import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.di.key
 import java.nio.file.Files
@@ -207,6 +211,94 @@ class HostConfigFileTest {
 
         assertEquals(JsonPrimitive("\${env:NOTES_TOKEN}"), runBlocking { config().get("plugins.notes.token") })
         assertNull(runBlocking { config().get("plugins.mail.folder") })
+    }
+
+    @Test
+    fun `get shows a secret that the file holds as a value as hidden, and a reference as it is`() {
+        write(original.replace("\"\${env:NOTES_TOKEN}\"", "\"s3cret-token\""))
+
+        assertEquals(JsonPrimitive(HostConfig.HIDDEN_SECRET), runBlocking { config().get("plugins.notes.token") })
+        assertEquals(
+            buildJsonObject {
+                put("home", "42")
+                put("token", HostConfig.HIDDEN_SECRET)
+            },
+            runBlocking { config().get("plugins.notes") },
+        )
+        assertTrue("s3cret" !in runBlocking { config().get("") }.toString())
+    }
+
+    // Changes taken while the runtime runs.
+
+    /** Takes `limits` of the notes plugin, refusing [refused] turns. */
+    private class LiveLimits(private val refused: Int? = null) : LiveConfig {
+        val prepared = mutableListOf<Int?>()
+        val taken = mutableListOf<Int?>()
+
+        override val paths = listOf("limits")
+
+        override fun prepare(config: ConfigSnapshot): () -> Unit {
+            val turns = config.section(key<Notes>())?.limits?.turns
+            if (turns == refused) throw ConfigException("plugins.notes.limits.turns", "cannot take $turns turns")
+            prepared += turns
+            return { taken += turns }
+        }
+    }
+
+    private fun live(part: LiveConfig) =
+        HostConfigFile(file, plugins, { environment.toMap() }, "test", live = { listOf("notes" to part) })
+
+    @Test
+    fun `a change that a live part takes needs no restart, and the part takes the file as the change leaves it`() {
+        write()
+        val part = LiveLimits()
+
+        val changes = runBlocking {
+            live(part).edit {
+                set("plugins.notes.limits.turns", JsonPrimitive(8))
+                set("plugins.notes.home", JsonPrimitive("43"))
+            }
+        }
+        val whole = runBlocking { live(part).edit { set("plugins.notes.limits", buildJsonObject { put("turns", 9) }) } }
+
+        assertEquals(
+            ConfigChanges(listOf("plugins.notes.limits.turns", "plugins.notes.home"), listOf("plugins.notes.home")),
+            changes,
+        )
+        assertEquals(ConfigChanges(listOf("plugins.notes.limits"), emptyList()), whole)
+        assertEquals(listOf<Int?>(8, 9), part.taken)
+    }
+
+    @Test
+    fun `a change that a live part cannot take is refused and writes nothing`() {
+        write()
+        val part = LiveLimits(refused = 7)
+
+        val refused = assertFailsWith<ConfigEditException> {
+            runBlocking { live(part).edit { set("plugins.notes.limits.turns", JsonPrimitive(7)) } }
+        }
+
+        assertEquals(ConfigEditRefusal.INVALID_RESULT, refused.refusal)
+        assertContains(refused.message.orEmpty(), "cannot take 7 turns")
+        assertEquals(original, read())
+        assertEquals(emptyList(), part.taken)
+    }
+
+    @Test
+    fun `a check tells what a change would write without writing it, and refuses what the change would`() {
+        write()
+        val part = LiveLimits()
+
+        val checked = runBlocking { live(part).check { set("plugins.notes.limits.turns", JsonPrimitive(8)) } }
+        val secret = assertFailsWith<ConfigEditException> {
+            runBlocking { live(part).check { set("plugins.notes.token", JsonPrimitive("s3cret-token")) } }
+        }
+
+        assertEquals(ConfigChanges(listOf("plugins.notes.limits.turns"), emptyList()), checked)
+        assertEquals(ConfigEditRefusal.SECRET, secret.refusal)
+        assertEquals(original, read())
+        assertEquals(listOf<Int?>(8), part.prepared)
+        assertEquals(emptyList(), part.taken)
     }
 
     @Test

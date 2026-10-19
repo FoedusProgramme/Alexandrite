@@ -37,7 +37,7 @@ internal class Inbox(private val directories: ConversationDirectories, private v
                         "the inbox is protected (${check.reason})",
                     )
 
-                    is FloorCheck.Allowed -> Unit
+                    is FloorCheck.Allowed, is FloorCheck.Ask -> Unit
                 }
                 if (write(target, bytes)) {
                     logger.info("Turn {} saved a received file of {} bytes as {}", turn.id, bytes.size, target)

@@ -4,7 +4,9 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -15,7 +17,7 @@ import java.nio.file.Path
 
 @Singleton
 @Contribute(Tool::class)
-internal class GlobTool(private val floor: HardFloor) : Tool {
+internal class GlobTool(private val floor: HardFloor) : ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "fs.glob",
         description = "Lists what lies under a directory and matches a glob pattern, as absolute paths in name " +
@@ -39,6 +41,12 @@ internal class GlobTool(private val floor: HardFloor) : Tool {
         titleArguments = listOf("path", "pattern"),
     )
 
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
+        floor.readReview(arguments.string("path"), context)
+    } catch (e: Refusal) {
+        CallReview()
+    }
+
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val pattern = arguments.requiredString("pattern")
         val glob = Glob.of(pattern, "pattern")
@@ -47,10 +55,11 @@ internal class GlobTool(private val floor: HardFloor) : Tool {
     }
 
     private fun glob(glob: Glob, pattern: String, path: Path, context: ToolContext): ToolResult {
-        val root = floor.allowed(path, context)
+        val start = floor.readRoot(path, context)
+        val root = start.canonical
         if (!attributes(root).isDirectory) throw Refusal("$path is no directory: give a directory as 'path'.")
         context.touched(root)
-        val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation)
+        val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation, asked = start.asked)
         val matches = mutableListOf<String>()
         var more = false
         walk.walk(root) { entry ->

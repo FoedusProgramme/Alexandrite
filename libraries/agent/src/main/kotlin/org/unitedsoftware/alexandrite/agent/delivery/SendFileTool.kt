@@ -14,6 +14,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.permission.askedPlace
+import org.unitedsoftware.alexandrite.agent.permission.checkPerson
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.agent.tool.text
@@ -86,6 +88,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
         CallReview(
             preview = ReviewPreview.OutgoingFile(file.path, file.size, sha256, context.turn.chat, request.caption),
             snapshot = "$SHA256$sha256",
+            person = file.person,
         )
     } catch (e: ToolRefusal) {
         if (e.blocked) CallReview(refusal = e.message) else CallReview(problem = e.message)
@@ -97,6 +100,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
         val request = requested(arguments, context)
         val file = checked(request.path, context)
+        checkPerson(file.person, context)
         val reviewed =
             context.clearance?.snapshot ?: throw ToolRefusal("This call was not reviewed, so it sends nothing.")
         val bytes = runInterruptible(Dispatchers.IO) { read(file) }
@@ -162,8 +166,11 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     /** [path] checked by the floor and against what the turn's chat takes. */
     private suspend fun checked(path: Path, context: ToolContext): CheckedFile {
         val turn = context.turn
+        var person: String? = null
         val file = when (val check = floor.checkRead(path, turn.agent, turn.rootConversation)) {
             is FloorCheck.Allowed -> check.canonical
+
+            is FloorCheck.Ask -> check.canonical.also { person = askedPlace(path, check) }
 
             is FloorCheck.Denied ->
                 throw ToolRefusal("$path is protected (${check.reason}): no file of it may be sent.", blocked = true)
@@ -190,7 +197,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
         if (size > limit) {
             throw ToolRefusal("$path holds $size bytes, more than the $limit bytes a file sent to this chat may hold.")
         }
-        return CheckedFile(file, size, limit, channel, capabilities)
+        return CheckedFile(file, size, limit, channel, capabilities, person)
     }
 
     /** The bytes of [file], read once. */
@@ -210,6 +217,8 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
         val limit: Long,
         val channel: Channel,
         val capabilities: ChannelCapabilities,
+        /** Why only a person may allow sending the file, null when anyone may. */
+        val person: String?,
     )
 }
 

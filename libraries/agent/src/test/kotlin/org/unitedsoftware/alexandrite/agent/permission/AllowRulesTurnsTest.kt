@@ -187,6 +187,25 @@ class AllowRulesTurnsTest {
         }
     }
 
+    @Test
+    fun `a call into a place the floor asks about offers no rule, and a rule granted before does not clear it`() {
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptApprovals(
+                ApprovalAnswer.Allowed(operator, always = true),
+                ApprovalAnswer.Allowed(operator, always = true),
+            )
+            run("make", "test")
+            run("make", "test", "${ASKED}notes")
+
+            val asked = channel().approvals[1]
+            assertEquals(listOf(null, emptyList<RuleSubject>()), listOf(asked.always, asked.alwaysRules))
+            assertEquals("${ASKED}notes is in a place the floor asks about", asked.reason)
+            assertEquals(listOf(ClearanceKind.HUMAN, ClearanceKind.HUMAN), exec.cleared.toList())
+            assertEquals(1, get<AgentControl>().allowRules(channel().chat()).size)
+        }
+    }
+
     /** `command.exec` reviewed as a run of the `argv` it is given, whose rule is the program and its first word. */
     private class FakeExec : ReviewedTool {
         val cleared = CopyOnWriteArrayList<ClearanceKind?>()
@@ -199,6 +218,7 @@ class AllowRulesTurnsTest {
             return CallReview(
                 preview = ReviewPreview.Command(argv, Path.of("/srv"), null, false),
                 rule = RuleSubject("command.exec", tokens, tokens.joinToString(" ")),
+                person = argv.firstOrNull { it.startsWith(ASKED) }?.let { "$it is in a place the floor asks about" },
             )
         }
 
@@ -212,6 +232,8 @@ class AllowRulesTurnsTest {
     }
 
     private companion object {
+        const val ASKED = "/asked/"
+
         val GRANTED = Regex(
             """2\. command\.exec: make test \(allowed by Operator at \d{4}-\d\d-\d\d \d\d:\d\d \S+ until /new\)""",
         )

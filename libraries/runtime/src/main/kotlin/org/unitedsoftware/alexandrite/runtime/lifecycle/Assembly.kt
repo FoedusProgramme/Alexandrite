@@ -188,7 +188,6 @@ internal class Assembly(
         CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.texts.collect(texts::install) }
         val writer = ConfigWriter(spec.writableFile, spec.environment, name)
         val editors = enabled.associate { it.id to PluginConfigEditor(it, writer) }
-        val hostConfig = HostConfigFile(spec.writableFile, spec.plugins, spec.environment, name)
         val runtime = runtimeBindings(
             spec.config,
             spec.configFile,
@@ -201,7 +200,7 @@ internal class Assembly(
             texts,
             control,
             editors::getValue,
-            hostConfig,
+            { live -> HostConfigFile(spec.writableFile, spec.plugins, spec.environment, name, live) },
             scopes,
             directory,
             channels,

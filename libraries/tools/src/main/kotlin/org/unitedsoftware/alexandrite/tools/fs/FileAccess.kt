@@ -17,6 +17,8 @@ import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
+import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -79,12 +81,52 @@ internal suspend fun ToolContext.searched(argument: String?): Path {
     return openWorkspace()
 }
 
-/** [path] made canonical for the call of [context], refused when it lies in a protected place. */
-internal fun HardFloor.allowed(path: Path, context: ToolContext): Path =
+/**
+ * [path] made canonical for the call of [context], refused when it lies in a protected place, or in one that the floor
+ * asks a person about and nobody allowed the call.
+ */
+internal fun HardFloor.allowed(path: Path, context: ToolContext): Path = readRoot(path, context).canonical
+
+/** [path] made canonical as by [allowed], and whether the floor asks a person about it. */
+internal fun HardFloor.readRoot(path: Path, context: ToolContext): ReadRoot =
     when (val check = checkRead(path, context.turn.agent, context.turn.rootConversation)) {
-        is FloorCheck.Allowed -> check.canonical
+        is FloorCheck.Allowed -> ReadRoot(check.canonical, false)
+
+        is FloorCheck.Ask -> {
+            checkPerson(path, check, context)
+            ReadRoot(check.canonical, true)
+        }
+
         is FloorCheck.Denied -> throw Refusal("$path is protected (${check.reason}): no file tool may read it.")
     }
+
+/** A canonical path that a read starts at, [asked] when a person allowed it as the floor asks one. */
+internal class ReadRoot(val canonical: Path, val asked: Boolean)
+
+/** Why only a person may allow a call that reaches [path], which the floor [check] asks a person about. */
+internal fun askedPlace(path: Path, check: FloorCheck.Ask): String =
+    "$path is in a place the floor asks a person about (${check.reason})"
+
+/** Refuses the call of [context] unless a person allowed it, as the floor [check] of [path] asks. */
+internal fun checkPerson(path: Path, check: FloorCheck.Ask, context: ToolContext) {
+    if (context.clearance?.kind != ClearanceKind.HUMAN) {
+        throw Blocked("${askedPlace(path, check)}, and no person allowed this call.")
+    }
+}
+
+/** The review of a call that reads [argument], the workspace when it is null or empty, asking where the floor asks. */
+internal suspend fun HardFloor.readReview(argument: String?, context: ToolContext): CallReview {
+    val path = try {
+        when {
+            argument.isNullOrEmpty() -> context.workspace
+            else -> Path.of(expandHome(argument)).let { if (it.isAbsolute) it else context.workspace?.resolve(it) }
+        }?.normalize()
+    } catch (e: InvalidPathException) {
+        null
+    } ?: return CallReview()
+    val check = blocking { checkRead(path, context.turn.agent, context.turn.rootConversation) }
+    return CallReview(person = (check as? FloorCheck.Ask)?.let { askedPlace(path, it) })
+}
 
 /** The attributes of [path] itself, a link not followed. */
 internal fun attributes(path: Path): BasicFileAttributes =

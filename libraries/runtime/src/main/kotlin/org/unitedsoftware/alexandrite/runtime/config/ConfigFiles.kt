@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
+import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -18,9 +19,12 @@ import org.unitedsoftware.alexandrite.internal.path.syncDirectory
 import org.unitedsoftware.alexandrite.internal.path.writeNewFile
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
+import org.unitedsoftware.alexandrite.runtime.channel.pluginChannel
+import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.di.container.Scope
@@ -119,6 +123,66 @@ internal fun checkSecrets(
         "The change would write a secret at '$root.${leaked.first}' into the config file. Secrets stay out of " +
             "the file: write an \${env:NAME} reference instead.",
     )
+}
+
+/** [written] with each [Secret] of the sections of [members] that is no reference shown as hidden. */
+internal fun maskedSecrets(members: List<PluginSet.Member>, written: JsonObject): JsonObject {
+    var masked = written
+    for (member in members) {
+        val index = member.index
+        val root = index.configRoot.split('.')
+        val instances = if (pluginChannel(member.id, index.bindings()).type == null) {
+            emptyList()
+        } else {
+            (masked.at(root + PluginIds.INSTANCES_KEY) as? JsonObject)?.keys.orEmpty()
+                .map { listOf(PluginIds.INSTANCES_KEY, it) }
+        }
+        for (section in index.configSections()) {
+            val bases = if (section.scope == Scope.CHANNEL_INSTANCE) instances else listOf(emptyList())
+            val path = section.path.split('.').filter(String::isNotEmpty)
+            for (base in bases) {
+                val keys = root + base + path
+                val tree = masked.at(keys) ?: continue
+                masked = masked.with(keys, masked(section.deserializer.descriptor, tree))
+            }
+        }
+    }
+    return masked
+}
+
+/** [element] as [descriptor] decodes it, each [Secret] in it that is no reference shown as hidden. */
+private fun masked(descriptor: SerialDescriptor, element: JsonElement): JsonElement = when {
+    descriptor.serialName.removeSuffix("?") == SECRET_NAME ->
+        if (isReference(element)) element else JsonPrimitive(HostConfig.HIDDEN_SECRET)
+
+    descriptor.isInline -> masked(descriptor.getElementDescriptor(0), element)
+
+    element is JsonObject && descriptor.kind == StructureKind.CLASS -> JsonObject(
+        element.mapValues { (key, value) ->
+            val index = descriptor.getElementIndex(key)
+            if (index == CompositeDecoder.UNKNOWN_NAME) value else masked(descriptor.getElementDescriptor(index), value)
+        },
+    )
+
+    element is JsonObject && descriptor.kind == StructureKind.MAP ->
+        JsonObject(element.mapValues { masked(descriptor.getElementDescriptor(1), it.value) })
+
+    element is JsonArray && descriptor.kind == StructureKind.LIST ->
+        JsonArray(element.map { masked(descriptor.getElementDescriptor(0), it) })
+
+    else -> element
+}
+
+/** The value at [keys], null when there is none. */
+private fun JsonObject.at(keys: List<String>): JsonElement? =
+    keys.fold(this as JsonElement?) { element, key -> (element as? JsonObject)?.get(key) }
+
+/** This object with [value] at [keys], whose objects on the way exist. */
+private fun JsonObject.with(keys: List<String>, value: JsonElement): JsonObject {
+    if (keys.isEmpty()) return value as JsonObject
+    val key = keys.first()
+    val next = if (keys.size == 1) value else (this[key] as JsonObject).with(keys.drop(1), value)
+    return JsonObject(this + (key to next))
 }
 
 /** The file to write: the configured one, or the target it links to. */

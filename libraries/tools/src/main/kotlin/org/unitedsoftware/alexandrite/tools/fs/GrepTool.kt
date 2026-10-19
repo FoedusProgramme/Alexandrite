@@ -6,7 +6,9 @@ import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -19,7 +21,7 @@ import java.util.regex.PatternSyntaxException
 
 @Singleton
 @Contribute(Tool::class)
-internal class GrepTool(private val floor: HardFloor) : Tool {
+internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "fs.grep",
         description = "Searches UTF-8 text files for the lines that match a regular expression (Java syntax), or a " +
@@ -46,6 +48,12 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
         titleArguments = listOf("pattern"),
     )
 
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
+        floor.readReview(arguments.string("path"), context)
+    } catch (e: Refusal) {
+        CallReview()
+    }
+
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val search = Search(regex(arguments))
         val filter = arguments.string("glob")?.let(::filter)
@@ -54,11 +62,12 @@ internal class GrepTool(private val floor: HardFloor) : Tool {
     }
 
     private fun grep(search: Search, filter: ((String) -> Boolean)?, path: Path, context: ToolContext): ToolResult {
-        val root = floor.allowed(path, context)
+        val start = floor.readRoot(path, context)
+        val root = start.canonical
         val attributes = attributes(root)
         if (attributes.isDirectory) {
             context.touched(root)
-            val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation)
+            val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation, asked = start.asked)
             walk.walk(root) { entry ->
                 if (entry.attributes.isRegularFile && filter?.invoke(entry.relative) != false) search.entry(entry)
                 !search.full

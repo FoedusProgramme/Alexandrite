@@ -16,17 +16,22 @@ internal class Entry(val path: Path, val relative: String, val attributes: Basic
 
 /**
  * Walks the tree under a directory in name order, depth first, without following links: skips what the floor refuses
- * [agent] and version-control directories, and visits at most [maxEntries] entries.
+ * [agent], what it asks a person about unless one was [asked] about the walk's root, and version-control directories,
+ * and visits at most [maxEntries] entries.
  */
 internal class TreeWalk(
     private val floor: HardFloor,
     private val agent: AgentId,
     private val conversation: ConversationId?,
+    private val asked: Boolean = false,
     private val maxEntries: Int = MAX_ENTRIES,
     private val list: (Path) -> DirectoryStream<Path> = { Files.newDirectoryStream(it) },
 ) {
     /** Each entry the floor refused, with the kind of protected place it lies in. */
     private val protected = mutableListOf<Pair<Path, String>>()
+
+    /** Each entry the floor asks a person about, with the kind of place it lies in. */
+    private val personal = mutableListOf<Pair<Path, String>>()
 
     private val unreadable = mutableListOf<Path>()
 
@@ -39,6 +44,10 @@ internal class TreeWalk(
         get() = buildList {
             if (exhausted) add("The search stopped after $maxEntries entries: give a narrower 'path'.")
             named("Skipped protected places", protected.map { (path, reason) -> "$path ($reason)" })?.let(::add)
+            named(
+                "Skipped places that a person must allow (name one as 'path' to ask)",
+                personal.map { (path, reason) -> "$path ($reason)" },
+            )?.let(::add)
             named("Could not read", unreadable.map { "$it" })?.let(::add)
         }
 
@@ -61,10 +70,18 @@ internal class TreeWalk(
             }
             val child = children.next()
             val name = child.fileName.toString()
-            val denied = floor.checkRead(child, agent, conversation) as? FloorCheck.Denied
-            if (denied != null) {
-                protected.add(child to denied.reason)
-                continue
+            when (val check = floor.checkRead(child, agent, conversation)) {
+                is FloorCheck.Denied -> {
+                    protected.add(child to check.reason)
+                    continue
+                }
+
+                is FloorCheck.Ask -> if (!asked) {
+                    personal.add(child to check.reason)
+                    continue
+                }
+
+                else -> Unit
             }
             val attributes = try {
                 attributes(child)

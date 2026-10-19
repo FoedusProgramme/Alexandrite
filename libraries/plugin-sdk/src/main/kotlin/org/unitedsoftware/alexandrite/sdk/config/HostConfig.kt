@@ -9,7 +9,10 @@ import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface HostConfig {
-    /** The value at [path] as the file writes it, null when there is none. */
+    /**
+     * The value at [path] as the file writes it, the whole file for "", null when there is none, with each secret that
+     * the file holds as a value in place of a `${'$'}{env:NAME}` reference shown as [HIDDEN_SECRET].
+     */
     public suspend fun get(path: String): JsonElement?
 
     /**
@@ -20,6 +23,17 @@ public interface HostConfig {
 
     /** Writes [text] in the place of the whole file, or nothing and throws [ConfigEditException]. */
     public suspend fun replace(text: String): ConfigChanges
+
+    /**
+     * What [edit] would write for [block] without writing it, or throws [ConfigEditException] as [edit] would; null
+     * when this host cannot tell.
+     */
+    public suspend fun check(block: ConfigEdit.() -> Unit): ConfigChanges? = null
+
+    public companion object {
+        /** What [get] shows in the place of a secret's value. */
+        public const val HIDDEN_SECRET: String = "[secret]"
+    }
 }
 
 /** What a [HostConfig] change wrote. */
@@ -27,6 +41,6 @@ public interface HostConfig {
 public class ConfigChanges(
     /** The paths whose values changed, in file order. */
     public val changed: List<String>,
-    /** The paths of [changed] that take effect only once the runtime starts again. */
+    /** The paths of [changed] that take effect only once the runtime starts again, the others having taken effect. */
     public val restart: List<String>,
 )

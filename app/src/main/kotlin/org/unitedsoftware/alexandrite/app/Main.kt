@@ -213,7 +213,7 @@ private fun host(
     val config = try {
         RuntimeConfig.builder(locations.dataDir)
             .cacheDir(locations.cacheDir)
-            .apply { install?.let { protect(it) } }
+            .apply { installPlaces(environment, install).forEach { protect(it) } }
             .zone(settings.zoneId)
             .language(settings.languageTag)
             .shutdownGrace(settings.shutdownGraceSeconds.seconds)

@@ -33,6 +33,8 @@ public class CallReview(
     public val background: Boolean = false,
     /** Whether the call's output joins the conversation as untrusted content, which [ToolContext.untrusted] reports. */
     public val untrusted: Boolean = false,
+    /** Why only a person may allow the call whatever the mode, null when a mode, a rule or the judge may. */
+    public val person: String? = null,
 ) {
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -44,7 +46,8 @@ public class CallReview(
         problem: String? = null,
         exempt: Boolean = false,
         background: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, false)
+        untrusted: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, untrusted, null)
 
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -55,7 +58,8 @@ public class CallReview(
         rule: RuleSubject? = null,
         problem: String? = null,
         exempt: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false, false)
+        background: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, false, null)
 
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -65,7 +69,18 @@ public class CallReview(
         snapshot: String? = null,
         rule: RuleSubject? = null,
         problem: String? = null,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false, false)
+        exempt: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false, false, null)
+
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false, false, null)
 }
 
 /** What an approver is shown of a call. */

@@ -346,6 +346,69 @@ class PermissionGateTest {
         assertEquals("mode", outcome(gate.admit(write)))
     }
 
+    // The places that the floor asks a person about.
+
+    @Test
+    fun `a call into a place the floor asks about goes to a person in every mode but plan, whatever clears others`() =
+        runTest {
+            val read = reviewedTool("fs.read", ToolRisk.READ_ONLY) { CallReview(person = FLOOR_ASK) }
+            val write = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) {
+                CallReview(person = FLOOR_ASK, exempt = true)
+            }
+            val gate = gate(listOf(read, write), builtIn = setOf(read, write))
+            rules.allowed = true
+            judge.verdict = Verdict.Allow
+
+            val outcomes = PermissionMode.entries.associate { mode ->
+                setMode(operator, mode, clock.now.plus(Duration.ofHours(1)).takeIf { mode == PermissionMode.BYPASS })
+                "$mode" to listOf(read, write).map { outcome(gate.admit(it)) }
+            }
+
+            val asked = listOf("ask", "ask")
+            assertEquals(
+                mapOf(
+                    "plan" to listOf("plan", "plan"),
+                    "manual" to asked,
+                    "ask" to asked,
+                    "allowedit" to asked,
+                    "auto" to asked,
+                    "bypass" to asked,
+                ),
+                outcomes,
+            )
+            assertEquals(0, rules.allowChecks)
+            assertEquals(emptyList(), judge.calls)
+            assertEquals(List(10) { FLOOR_ASK }, approvals.reasons)
+        }
+
+    @Test
+    fun `a guest's, an automation's and a mandated turn's call into a place the floor asks about asks a person`() =
+        runTest {
+            val read = reviewedTool("fs.read", ToolRisk.READ_ONLY) { CallReview(person = FLOOR_ASK) }
+            val gate = gate(listOf(read), mode = "auto", builtIn = setOf(read))
+            val reminder = testTurn(TurnKind.REMINDER) { actor(testUser("operator", isOperator = true)) }
+            setMode(reminder, PermissionMode.BYPASS, clock.now.plus(Duration.ofHours(1)))
+            rules.allowed = true
+            judge.verdict = Verdict.Allow
+
+            val outcomes = listOf(guest, automation, reminder).map { outcome(gate.admit(read, it)) }
+
+            assertEquals(listOf("ask", "ask", "ask"), outcomes)
+            assertEquals(List(3) { FLOOR_ASK }, approvals.reasons)
+        }
+
+    @Test
+    fun `a deny rule refuses a call into a place the floor asks about before anyone is asked`() = runTest {
+        val read = reviewedTool("fs.read", ToolRisk.READ_ONLY) { CallReview(person = FLOOR_ASK) }
+        rules.denied = "the operator denies it"
+
+        assertEquals(
+            ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY),
+            refused(gate(listOf(read)).admit(read)).first,
+        )
+        assertEquals(emptyList(), approvals.reasons)
+    }
+
     // The conversation directory exemption.
 
     @Test
@@ -708,6 +771,8 @@ class PermissionGateTest {
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Ran.")
         }
 }
+
+private const val FLOOR_ASK = "/home/user/.ssh/config is in a place the floor asks a person about (SSH keys)"
 
 /** Chat states whose per-agent reads always fail, as if the backing store were unavailable. */
 private class FailingChatStates : ChatStates {

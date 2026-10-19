@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.permission
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
@@ -9,13 +11,20 @@ import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
+import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
 class AgentFloorTest {
@@ -202,6 +211,78 @@ class AgentFloorTest {
         floor("\"~/vault\"") { floor ->
             assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(home.resolve("vault/notes.md")))
             assertIs<FloorCheck.Allowed>(floor.checkRead(configFile))
+        }
+    }
+
+    // The places that a person must allow.
+
+    @Test
+    fun `the floor asks about the places of agent floor ask, refuses those of deny first, and keeps carve-outs`() {
+        val shared = root.resolve("shared")
+        val config = """
+            {"floor": {"deny": ["credentials"], "ask": ["credentials", "alexandrite", ${JsonPrimitive("$shared")}]},
+             "agents": {"coder": {"description": "Codes."}}}
+        """.trimIndent()
+        agentHarness(config) {
+            dataRoot(data)
+            configFile(configFile)
+        }.execute {
+            val floor = get<HardFloor>()
+            val coder = AgentId("coder")
+            val mine = ConversationId("mine")
+            val own = get<ConversationDirectories>().path(coder, mine).resolve("notes.md")
+            val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
+
+            assertEquals(FloorCheck.Ask(configFile, "Alexandrite's configuration"), floor.checkRead(configFile))
+            assertEquals(FloorCheck.Denied("SSH keys"), floor.checkRead(home.resolve(".ssh/id_rsa")))
+            assertEquals(FloorCheck.Ask(shared.resolve("a.txt"), OPERATOR), floor.checkWrite(shared.resolve("a.txt")))
+            assertEquals(FloorCheck.Allowed(persona), floor.checkRead(persona, coder))
+            assertEquals(FloorCheck.Allowed(own), floor.checkWrite(own, coder, mine))
+            assertEquals(FloorCheck.Ask(own, "Alexandrite's data"), floor.checkWrite(own, coder, ConversationId("x")))
+            assertEquals(
+                FloorCheck.Ask(root, "a recursive operation would reach Alexandrite's configuration"),
+                floor.checkTree(root),
+            )
+            assertEquals(FloorCheck.Allowed(root.resolve("notes.md")), floor.checkRead(root.resolve("notes.md")))
+        }
+    }
+
+    @Test
+    fun `a change of agent floor through the host config takes effect at once and needs no restart`() {
+        val shared = root.resolve("shared/a.txt")
+        val config = """{"agents": {"coder": {"description": "Codes.", "workspace": "work"}}}"""
+        agentHarness(config) {
+            dataRoot(data)
+            configFile(configFile)
+        }.execute {
+            val floor = get<HardFloor>()
+            val host = get<HostConfig>()
+            assertEquals(FloorCheck.Allowed(shared), floor.checkRead(shared))
+
+            val asked = host.edit { set("agent.floor.ask", JsonArray(listOf(JsonPrimitive("${shared.parent}")))) }
+            assertEquals(ConfigChanges(listOf("agent.floor.ask"), emptyList()), asked)
+            assertEquals(FloorCheck.Ask(shared, OPERATOR), floor.checkRead(shared))
+
+            val denied = host.edit { set("agent.floor", Json.parseToJsonElement("""{"deny": ["../shared"]}""")) }
+            assertEquals(ConfigChanges(listOf("agent.floor"), emptyList()), denied)
+            assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(shared))
+
+            val both = host.edit {
+                remove("agent.floor")
+                set("agent.maxConcurrentTurns", JsonPrimitive(2))
+            }
+            val restart = listOf("agent.maxConcurrentTurns")
+            assertEquals(ConfigChanges(listOf("agent.floor") + restart, restart), both)
+            assertEquals(FloorCheck.Allowed(shared), floor.checkRead(shared))
+
+            val before = Files.readString(configFile)
+            val refused = assertFailsWith<ConfigEditException> {
+                host.edit { set("agent.floor.deny", JsonArray(listOf(JsonPrimitive("work")))) }
+            }
+            assertEquals(ConfigEditRefusal.INVALID_RESULT, refused.refusal)
+            assertContains(refused.message.orEmpty(), "agent.agents.coder.workspace")
+            assertEquals(before, Files.readString(configFile))
+            assertEquals(FloorCheck.Allowed(shared), floor.checkRead(shared))
         }
     }
 

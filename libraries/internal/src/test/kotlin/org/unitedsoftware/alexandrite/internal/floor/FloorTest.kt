@@ -519,4 +519,30 @@ class FloorTest {
 
         assertDenied("test place", root.resolve("\u03AA\u0301/secret"), floor(places, home = null, firmlinks = false))
     }
+
+    // Levels.
+
+    @Test
+    fun `a place the floor asks about is opened once a person allows it, while a refusal wins over an ask`() {
+        val asking = floor(listOf(DenyRoot(home, "the home directory")), home = null)
+        val notes = home.resolve(".config/other.txt")
+
+        assertEquals(
+            FloorDecision.Ask(notes, "the home directory"),
+            leveled(floor.check(notes)) { asking.check(notes) },
+        )
+        assertEquals(
+            FloorDecision.Denied("SSH keys"),
+            leveled(floor.check(home.resolve(".ssh/id_rsa"))) { asking.check(home.resolve(".ssh/id_rsa")) },
+        )
+        assertEquals(
+            FloorDecision.Ask(home, "the home directory", held = false),
+            leveled(FloorDecision.Allowed(home)) { asking.checkTree(home) },
+        )
+        assertEquals(
+            "a recursive operation would reach the home directory",
+            assertIs<FloorDecision.Ask>(leveled(FloorDecision.Allowed(root)) { asking.checkTree(root) }).reason,
+        )
+        assertIs<FloorDecision.Allowed>(leveled(floor.check(data.parent)) { asking.check(data.parent) })
+    }
 }
