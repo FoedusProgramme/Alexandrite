@@ -29,6 +29,7 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
@@ -264,6 +265,7 @@ public class PluginHarness private constructor(
         private val watched = mutableListOf<ScriptedModel>()
         private val tools = mutableListOf<Tool>()
         private val sources = mutableListOf<ToolSource>()
+        private val environments = mutableListOf<ExecutionEnvironment>()
         private val hooks = mutableListOf<Hook>()
         private val handlers = mutableListOf<CommandHandler>()
         private val channels = LinkedHashMap<ChannelType, LinkedHashMap<String, RecordingChannelConfig>>()
@@ -362,6 +364,10 @@ public class PluginHarness private constructor(
         /** Contributes [source], whose tools come and go while the run lasts, through the plugin `testkit`. */
         public fun toolSource(source: ToolSource): Builder = apply { sources += source }
 
+        /** Contributes [environment] through the plugin `testkit`. */
+        public fun executionEnvironment(environment: ExecutionEnvironment): Builder =
+            apply { environments += environment }
+
         /** Contributes [hook] through the plugin `testkit`. */
         public fun hook(hook: Hook): Builder = apply { hooks += hook }
 
@@ -438,6 +444,7 @@ public class PluginHarness private constructor(
                 store?.records ?: records?.store,
                 floor,
                 hostFloor,
+                environments,
             )
             val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
             val owned = tree(recording.associate { it.configRoot to it.config() })

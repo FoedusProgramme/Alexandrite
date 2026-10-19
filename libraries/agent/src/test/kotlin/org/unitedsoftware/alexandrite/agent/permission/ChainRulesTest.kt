@@ -71,8 +71,18 @@ class ChainRulesTest {
         val trusts = AgentTrustRules(directory, registry, records, store.conversations)
         val judge = Judging()
         val approvals = Offering(rules)
-        val gate =
-            PermissionGate(TurnHooks(Proceeding), registry, rules, trusts, judge, approvals, states, directory, clock)
+        val gate = PermissionGate(
+            TurnHooks(Proceeding),
+            registry,
+            rules,
+            trusts,
+            judge,
+            approvals,
+            states,
+            directory,
+            clock,
+            NotContained,
+        )
 
         /** How the gate decided [review] on an operator's turn, tainted when [tainted]: run, rule, judge, ask or refused. */
         suspend fun decide(review: CallReview, tainted: Boolean = false): String {

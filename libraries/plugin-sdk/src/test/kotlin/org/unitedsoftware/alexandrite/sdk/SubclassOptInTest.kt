@@ -78,6 +78,23 @@ class SubclassOptInTest {
 
         class Preview : org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 
+        class Contained : org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox {
+            override val environment get() = TODO()
+            override val strict get() = TODO()
+            override fun boundary(directories: List<java.nio.file.Path>) = TODO()
+            override fun hostProblem(hosts: List<String>) = TODO()
+            override suspend fun open(
+                boundary: org.unitedsoftware.alexandrite.sdk.sandbox.Boundary,
+                hosts: List<String>,
+            ) = TODO()
+        }
+
+        class Lease : org.unitedsoftware.alexandrite.sdk.sandbox.NetworkLease {
+            override val boundary get() = TODO()
+            override val refused get() = TODO()
+            override fun close() = TODO()
+        }
+
         class Activity : org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 
         class ActivityContent : org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content

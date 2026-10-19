@@ -25,6 +25,7 @@ import org.unitedsoftware.alexandrite.agent.job.backgroundResult
 import org.unitedsoftware.alexandrite.agent.permission.MandateGrants
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
+import org.unitedsoftware.alexandrite.agent.sandbox.CallSandboxes
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
@@ -74,6 +75,7 @@ internal class ToolExecutor(
     private val directories: ConversationDirectories,
     private val jobs: Jobs,
     private val grants: MandateGrants,
+    private val sandboxes: CallSandboxes,
 ) {
     /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
     private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
@@ -100,7 +102,7 @@ internal class ToolExecutor(
         val arguments = call.parseArguments()
             ?: return ended(call, "The arguments are not a JSON object.", NotRunReason.INVALID_ARGUMENTS, calls)
         val limit = tool.definition.timeout?.let { maxOf(timeout, it + DECLARED_TIMEOUT_GRACE) } ?: timeout
-        val reviewing = AgentToolContext(turn, call.id, workspaces, directories, null, taint)
+        val reviewing = AgentToolContext(turn, call.id, workspaces, directories, null, taint, sandboxes = sandboxes)
         val admission = try {
             gate.admit(GateCall(turn, call, tool, arguments, limit, taint, reviewing, calls))
         } finally {
@@ -127,6 +129,7 @@ internal class ToolExecutor(
                     startsInBackground = admission.background && tool !is InTurnTool,
                     granting = { grants.grant(turn, tool) },
                     trust = admission.trust,
+                    sandboxes = sandboxes,
                 )
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)

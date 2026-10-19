@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
+import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.tool.BackgroundCall
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -25,7 +26,9 @@ public fun testToolContext(
     clearance: Clearance? = null,
     background: BackgroundCall? = null,
     model: ModelRef? = null,
-): TestToolContext = TestToolContext(turn, call, workspace, conversationDirectory, clearance, background, model)
+    sandbox: Sandbox? = null,
+): TestToolContext =
+    TestToolContext(turn, call, workspace, conversationDirectory, clearance, background, model, sandbox)
 
 /** A tool context that records the paths and the untrusted content its call reports, valid until [end]. */
 public class TestToolContext internal constructor(
@@ -36,6 +39,7 @@ public class TestToolContext internal constructor(
     clearance: Clearance?,
     private val background: BackgroundCall?,
     model: ModelRef?,
+    sandbox: Sandbox?,
 ) : ToolContext {
     private val reported = CopyOnWriteArrayList<Path>()
     private val reasons = CopyOnWriteArrayList<String>()
@@ -59,6 +63,9 @@ public class TestToolContext internal constructor(
         get() = field.also { checkOpen() }
 
     override val model: ModelRef? = model
+        get() = field.also { checkOpen() }
+
+    override val sandbox: Sandbox? = sandbox
         get() = field.also { checkOpen() }
 
     /** The paths that the call reported as touched, in order. */

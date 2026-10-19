@@ -85,7 +85,7 @@ class CallRulesTest {
                 TurnHooks(
                     Proceeding,
                 ),
-                registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock,
+                registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock, NotContained,
             )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */

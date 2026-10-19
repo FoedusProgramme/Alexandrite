@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":libraries:stores:sqlite"))
     implementation(project(":libraries:automations:heartbeat"))
     implementation(project(":libraries:automations:schedule"))
+    implementation(project(":libraries:sandboxes:seatbelt"))
     runtimeOnly(libs.logback.classic)
 
     testImplementation(project(":libraries:testkit"))

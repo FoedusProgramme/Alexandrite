@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
+import org.unitedsoftware.alexandrite.agent.sandbox.networkRule
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.internal.hash.hex
@@ -122,10 +123,17 @@ internal class AgentCallRules(
         return entry?.let { "the operator's rule $it denies it" }
     }
 
-    override suspend fun allowed(call: CheckedCall): Boolean = uncovered(call, offered = false)?.isEmpty() == true
+    override suspend fun allowed(call: CheckedCall): Boolean =
+        call.containment?.hosts.isNullOrEmpty() && uncovered(call, offered = false)?.isEmpty() == true
 
-    override suspend fun grantable(call: CheckedCall): List<RuleSubject> =
-        uncovered(call, offered = true)?.takeIf { mode(call.call) != PermissionMode.MANUAL }.orEmpty()
+    override suspend fun grantable(call: CheckedCall): List<RuleSubject> {
+        if (mode(call.call) == PermissionMode.MANUAL) return emptyList()
+        val containment = call.containment
+        val hosts = containment?.hosts.orEmpty().takeIf { Principal.of(call.call.turn) == Principal.OPERATOR }
+            .orEmpty().map(::networkRule)
+        if (containment?.clearable == true && hosts.isNotEmpty()) return hosts
+        return hosts + uncovered(call, offered = true).orEmpty()
+    }
 
     override suspend fun grant(call: CheckedCall, subjects: List<RuleSubject>, by: ChatUser) {
         val turn = call.call.turn

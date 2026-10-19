@@ -4,6 +4,7 @@ import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
 import java.nio.file.Path
 
 /** A tool that reviews each call before the permission layer decides it. */
@@ -35,6 +36,8 @@ public class CallReview(
     public val untrusted: Boolean = false,
     /** Why only a person may allow the call whatever the mode, null when a mode, a rule or the judge may. */
     public val person: String? = null,
+    /** The sandbox the call runs in, null when it runs on the host. */
+    public val contained: Contained? = null,
 ) {
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -47,7 +50,8 @@ public class CallReview(
         exempt: Boolean = false,
         background: Boolean = false,
         untrusted: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, untrusted, null)
+        person: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, untrusted, person, null)
 
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -59,7 +63,8 @@ public class CallReview(
         problem: String? = null,
         exempt: Boolean = false,
         background: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, false, null)
+        untrusted: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, untrusted, null, null)
 
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -70,7 +75,8 @@ public class CallReview(
         rule: RuleSubject? = null,
         problem: String? = null,
         exempt: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false, false, null)
+        background: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, false, null, null)
 
     @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
     public constructor(
@@ -80,7 +86,18 @@ public class CallReview(
         snapshot: String? = null,
         rule: RuleSubject? = null,
         problem: String? = null,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false, false, null)
+        exempt: Boolean = false,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false, false, null, null)
+
+    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
+    public constructor(
+        risk: ToolRisk? = null,
+        refusal: String? = null,
+        preview: ReviewPreview? = null,
+        snapshot: String? = null,
+        rule: RuleSubject? = null,
+        problem: String? = null,
+    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false, false, null, null)
 }
 
 /** What an approver is shown of a call. */

@@ -96,6 +96,7 @@ class JobsTest {
             ConversationDirectories(ConventionalAgentPlaces(paths), settings("{}")),
             this,
             { _, _ -> null },
+            { _, _ -> null },
         )
         val name = tool.definition.name
         return executor.execute(turn, call, mapOf(name to tool), timeout, setOf(name), taint, DirectCalls)

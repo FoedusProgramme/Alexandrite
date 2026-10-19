@@ -290,7 +290,14 @@ class PublicApiTest {
             testToolContext().end()
             val defined = recordingTool(testToolDefinition("notes.list", ToolRisk.READ_ONLY)) { _, _ -> ToolResult("") }
             val quotaRefusal = context.conversationQuotaRefusal(Path.of("/srv/conversation/notes.md"), 10L)
+            val environment = RecordingEnvironment("seatbelt", available = true)
+            val launched = environment.launch(
+                ProcessBuilder("true"),
+                org.unitedsoftware.alexandrite.sdk.sandbox.Boundary(listOf(Path.of("/srv/work"))),
+            )
+            val launch: RecordingEnvironment.Launch = environment.launches.single()
             return listOf(
+                environment.available(), launched, launch.command, launch.boundary, testToolContext(sandbox = null).sandbox,
                 mandate,
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
                 context.turn, context.call, context.model, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
@@ -323,6 +330,7 @@ class PublicApiTest {
                     },
                 )
                 .hook(hook)
+                .executionEnvironment(RecordingEnvironment())
                 .commandHandler(handler)
                 .config("{}")
                 .config(JsonObject(emptyMap()))

@@ -51,6 +51,7 @@ internal class AgentConfig(
     /** Groups of chat addresses that share one conversation, kept at the first chat of each. */
     val linkedChats: List<List<String>> = emptyList(),
     val budget: BudgetConfig = BudgetConfig(),
+    val sandbox: SandboxConfig = SandboxConfig(),
 )
 
 /** The agent's budgets per period in its zone. */

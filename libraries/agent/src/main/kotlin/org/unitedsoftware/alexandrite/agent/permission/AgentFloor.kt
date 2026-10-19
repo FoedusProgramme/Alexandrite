@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.internal.floor.FloorDecision
 import org.unitedsoftware.alexandrite.internal.floor.Overlap
 import org.unitedsoftware.alexandrite.internal.floor.Placement
 import org.unitedsoftware.alexandrite.internal.floor.StandardPlaces
+import org.unitedsoftware.alexandrite.internal.floor.credentialPlaces
 import org.unitedsoftware.alexandrite.internal.floor.leveled
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -70,6 +71,9 @@ internal class AgentFloor(
     override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         check(path, agent, conversation, tree = true) { it.checkTree(path) }
 
+    /** The places that a sandbox keeps commands out of: those the floor refuses, then those it asks a person about. */
+    fun sandboxPlaces(): Pair<List<Path>, List<Path>> = levels.let { it.denied to it.asked }
+
     /** [path] (absolute) made canonical and checked for a write by the persona tool of [agent]. */
     fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck {
         val levels = levels
@@ -110,8 +114,19 @@ internal class AgentFloor(
     }
 
     /** The floors of [config]; throws a [ConfigException] for places that cannot be protected. */
-    private fun levels(config: FloorConfig, quiet: Boolean): Levels =
-        Levels(level(config.deny, DENY_KEY, quiet), level(config.ask, ASK_KEY, quiet = true))
+    private fun levels(config: FloorConfig, quiet: Boolean): Levels = Levels(
+        level(config.deny, DENY_KEY, quiet),
+        level(config.ask, ASK_KEY, quiet = true),
+        places(config.deny, DENY_KEY),
+        places(config.ask, ASK_KEY),
+    )
+
+    /** The paths of the groups and paths in [entries], written at [key], but for the `system` group's. */
+    private fun places(entries: List<String>, key: String): List<Path> = buildList {
+        if (FloorConfig.CREDENTIALS in entries) addAll(credentialPlaces(userHome(), System.getenv()))
+        if (FloorConfig.ALEXANDRITE in entries) addAll(alexandritePlaces(hostPaths))
+        addAll(operatorPlaces(hostPaths, entries.filterNot { it in FloorConfig.FLOOR_GROUPS }, userHome(), key))
+    }
 
     /** The floor of the groups and paths in [entries], written at [key]. */
     private fun level(entries: List<String>, key: String, quiet: Boolean): HostFloor {
@@ -139,8 +154,8 @@ internal class AgentFloor(
         is FloorDecision.Denied -> FloorCheck.Denied(reason)
     }
 
-    /** The floor that refuses and the one that asks a person. */
-    private class Levels(val deny: HostFloor, val ask: HostFloor)
+    /** The floor that refuses and the one that asks a person, with the paths of each. */
+    private class Levels(val deny: HostFloor, val ask: HostFloor, val denied: List<Path>, val asked: List<Path>)
 }
 
 /** The path that [this] lets a call use, once a person allows it where the floor asks one; null when it refuses. */
@@ -301,6 +316,11 @@ internal fun hostFloor(
     }
     return HostFloor(floor(emptyMap()), own, personas, withConversation)
 }
+
+/** Alexandrite's config, data, plugin data and cache, and the places the host protects. */
+internal fun alexandritePlaces(paths: HostPaths): List<Path> =
+    listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
+        listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
 
 /** [agent]'s persona directory as [places] gives it, created owner-only when missing, null where the host keeps none. */
 internal fun openPersonaDirectory(places: AgentPlaces, agent: AgentId): Path? {

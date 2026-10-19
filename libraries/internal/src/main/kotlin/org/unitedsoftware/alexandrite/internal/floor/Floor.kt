@@ -215,6 +215,19 @@ private fun isMagic(path: CanonicalPath): Boolean {
     }
 }
 
+/**
+ * The places of the [StandardPlaces.CREDENTIALS] group: the credential stores of [home] and those [environment] moves,
+ * with the `.claude*` entries that [home] holds now.
+ */
+public fun credentialPlaces(home: Path?, environment: Map<String, String>): List<Path> {
+    val claude = try {
+        home?.toFile()?.listFiles { file -> file.name.startsWith(CLAUDE_PREFIX) }.orEmpty().map { it.toPath() }
+    } catch (e: SecurityException) {
+        emptyList()
+    }
+    return standardRoots(home, environment, setOf(StandardPlaces.CREDENTIALS)).map { it.path } + claude.sorted()
+}
+
 private fun standardRoots(
     home: Path?,
     environment: Map<String, String>,

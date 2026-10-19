@@ -35,6 +35,7 @@ internal suspend fun runProgram(
     timeout: Duration,
     maxChars: Int,
     onLine: ((String) -> Unit)? = null,
+    launch: (ProcessBuilder) -> Process = ProcessBuilder::start,
 ): ProgramOutcome {
     val builder = ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true)
     builder.environment().apply {
@@ -43,7 +44,7 @@ internal suspend fun runProgram(
     }
     val started = AtomicReference<Process>()
     try {
-        withContext(Dispatchers.IO + NonCancellable) { started.set(builder.start()) }
+        withContext(Dispatchers.IO + NonCancellable) { started.set(launch(builder)) }
         val process = started.get()
         process.outputStream.close()
         val output = OutputCollector(maxChars)
@@ -163,8 +164,8 @@ private val READER_WAIT = 1.seconds
 private const val CHUNK = 8192
 
 /**
- * Runs the steps of [call] in turn, without a shell, each program with [environment] and its own variables, all of
- * them for at most [timeout], keeping [maxChars] of their output.
+ * Runs the steps of [call] in turn, without a shell, each program started by [launch] with [environment] and its own
+ * variables, all of them for at most [timeout], keeping [maxChars] of their output.
  *
  * A step is checked again by [planner] right before it runs, and the call stops where the check finds a change.
  */
@@ -175,6 +176,7 @@ internal suspend fun runSteps(
     timeout: Duration,
     maxChars: Int,
     onLine: ((String) -> Unit)? = null,
+    launch: (ProcessBuilder) -> Process = ProcessBuilder::start,
 ): ProgramOutcome {
     val start = TimeSource.Monotonic.markNow()
     val single = call.steps.size == 1
@@ -225,6 +227,7 @@ internal suspend fun runSteps(
                 limited ?: left,
                 maxChars,
                 onLine,
+                launch,
             )
             val output = outcome.output.trimEnd()
             val code = outcome.exitCode ?: if (limited != null) TIMED_OUT else null

@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.config
 
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
+import org.unitedsoftware.alexandrite.agent.sandbox.HostPattern
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
@@ -13,6 +14,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -156,7 +158,39 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
         "$path.description is missing: an agent that serves no channels is a profile, which needs one"
     }
     checkLinks(path, agent)
+    checkSandbox("$path.sandbox", agent.sandbox)
 }
+
+private fun checkSandbox(path: String, sandbox: SandboxConfig) {
+    require(
+        sandbox.type == SandboxConfig.HOST || sandbox.type == SandboxConfig.AUTO ||
+            ExecutionEnvironment.NAME.matches(sandbox.type),
+    ) {
+        "$path.type must be \"host\", \"auto\" or the name of a sandbox, such as \"seatbelt\""
+    }
+    require(sandbox.allowWrite.all(::isPath)) { "$path.allowWrite holds a blank or malformed path" }
+    require(sandbox.denyRead.all(::isPath)) { "$path.denyRead holds a blank or malformed path" }
+    for ((index, entry) in sandbox.protect.orEmpty().withIndex()) {
+        require(isProtectEntry(entry)) {
+            "$path.protect[$index] is neither \"alexandrite\", a path, nor a relative path without \".\" or \"..\""
+        }
+    }
+    for ((index, entry) in sandbox.network.allowedDomains.withIndex()) {
+        require(HostPattern.parse(entry) != null) {
+            "$path.network.allowedDomains[$index] is no host: write a name such as \"example.com\" or " +
+                "\"*.example.com\", or an address such as \"127.0.0.1\", each with an optional \":port\""
+        }
+    }
+}
+
+/** Whether [entry] is something `sandbox.protect` takes. */
+internal fun isProtectEntry(entry: String): Boolean = entry == SandboxConfig.ALEXANDRITE ||
+    (
+        isPath(entry) && (
+            entry.startsWith("/") || entry == "~" || entry.startsWith("~/") ||
+                entry.split('/').none { it.isEmpty() || it == "." || it == ".." }
+            )
+        )
 
 private fun checkLinks(path: String, agent: AgentConfig) {
     val attached = agent.channels.keys.mapNotNull(ChannelInstanceId::parseOrNull).toSet()

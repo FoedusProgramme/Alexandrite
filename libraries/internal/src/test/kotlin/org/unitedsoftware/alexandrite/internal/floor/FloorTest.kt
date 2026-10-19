@@ -545,4 +545,17 @@ class FloorTest {
         )
         assertIs<FloorDecision.Allowed>(leveled(floor.check(data.parent)) { asking.check(data.parent) })
     }
+
+    @Test
+    fun `the credential places are the home's stores, the moved ones and the claude entries there now`() {
+        val moved = root.resolve("elsewhere/gh")
+
+        val places = credentialPlaces(home, mapOf("GH_CONFIG_DIR" to moved.toString()))
+
+        assertContains(places, home.resolve(".ssh"))
+        assertContains(places, home.resolve(".config/gh"))
+        assertContains(places, moved)
+        assertContains(places, home.resolve(".claude"))
+        assertEquals(emptyList(), credentialPlaces(null, emptyMap()))
+    }
 }

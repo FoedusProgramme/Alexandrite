@@ -95,7 +95,18 @@ class PermissionGateTest {
             override fun isBuiltIn(instance: Any): Boolean = builtIn.any { it === instance }
         }
         val registry = ToolRegistry(tools, emptyList(), directory, origins)
-        return PermissionGate(TurnHooks(hooks), registry, rules, NoTrust, judge, approvals, states, directory, clock)
+        return PermissionGate(
+            TurnHooks(hooks),
+            registry,
+            rules,
+            NoTrust,
+            judge,
+            approvals,
+            states,
+            directory,
+            clock,
+            NotContained,
+        )
     }
 
     private suspend fun setMode(turn: TurnInfo, mode: PermissionMode, until: Instant? = null) {
@@ -705,6 +716,7 @@ class PermissionGateTest {
             SettingsStates(FailingChatStates()),
             directory,
             clock,
+            NotContained,
         )
         lateinit var result: GateResult
 

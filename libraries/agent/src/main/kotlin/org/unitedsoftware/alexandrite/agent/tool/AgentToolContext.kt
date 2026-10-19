@@ -7,11 +7,13 @@ import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
+import org.unitedsoftware.alexandrite.agent.sandbox.CallSandboxes
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
+import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.tool.BackgroundCall
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -37,6 +39,7 @@ internal class AgentToolContext(
     private val granting: (suspend () -> Mandate?)? = null,
     /** How far the call's output is trusted. */
     val trust: CallTrust = CallTrust.NONE,
+    sandboxes: CallSandboxes? = null,
 ) : ToolContext {
     @Volatile
     private var open = true
@@ -79,6 +82,9 @@ internal class AgentToolContext(
         get() = directories.path(turn)
 
     override val clearance: Clearance? = clearance
+        get() = field.also { checkOpen() }
+
+    override val sandbox: Sandbox? = sandboxes?.sandbox(turn, clearance)
         get() = field.also { checkOpen() }
 
     override suspend fun openWorkspace(): Path {

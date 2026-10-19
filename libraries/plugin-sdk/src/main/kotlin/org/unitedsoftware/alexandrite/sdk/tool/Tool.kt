@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.ContributedSpi
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
+import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutputPart
@@ -109,6 +110,9 @@ public interface ToolContext {
      * until the plugin revokes it ([TurnInitiator.revoke]).
      */
     public suspend fun mandate(): Mandate? = null
+
+    /** The sandbox that the call's commands run in, null when they run on the host. */
+    public val sandbox: Sandbox? get() = null
 }
 
 /** A tool call that runs as a background job from its start, whose results come in later turns. */

@@ -24,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.store.ChatStateStore
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.MediaStore
@@ -71,6 +72,7 @@ internal class DoublesPlugin(
     floor: HardFloor?,
     /** Whether to bind the test floor over the run's host paths. */
     hostFloor: Boolean,
+    environments: List<ExecutionEnvironment>,
 ) : HarnessPlugin(ID, "Test doubles") {
     private val bindings = buildList {
         if (models.isNotEmpty()) {
@@ -84,6 +86,9 @@ internal class DoublesPlugin(
             add(instanceBinding(key<ToolSource>(), it, ID, "ToolSource ${it.namespace}", multi = true))
         }
         hooks.forEach { add(instanceBinding(key<Hook>(), it, ID, "Hook ${it.javaClass.name}", multi = true)) }
+        environments.forEach {
+            add(instanceBinding(key<ExecutionEnvironment>(), it, ID, "ExecutionEnvironment ${it.name}", multi = true))
+        }
         handlers.forEach {
             add(instanceBinding(key<CommandHandler>(), it, ID, "CommandHandler ${it.javaClass.name}", multi = true))
         }

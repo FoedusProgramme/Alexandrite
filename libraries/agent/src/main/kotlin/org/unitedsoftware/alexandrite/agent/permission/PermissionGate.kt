@@ -34,6 +34,8 @@ internal class CheckedCall(
     val risk: ToolRisk,
     /** Why a hook requires a person to approve the call, null when none does. */
     val requiredApproval: String?,
+    /** How the call stands in its agent's sandbox, null when it runs on the host. */
+    val containment: Containment? = null,
 )
 
 /**
@@ -52,6 +54,7 @@ internal class PermissionGate(
     private val settings: SettingsStates,
     private val directory: AgentDirectory,
     private val clock: Clock,
+    private val containments: Containments,
 ) : ToolGate {
     override suspend fun admit(call: GateCall): GateResult {
         val review = when (val reviewed = review(call)) {
@@ -76,7 +79,8 @@ internal class PermissionGate(
                 check.reply?.takeIf { it.isNotBlank() },
             )
         }
-        val checked = CheckedCall(call, review, risk, required)
+        val containment = if (tools.isBuiltIn(call.tool)) containments.containment(call.turn, review) else null
+        val checked = CheckedCall(call, review, risk, required, containment)
         rules.denied(checked)?.let { return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(it)) }
         val principal = Principal.of(call.turn)
         val person = review.person
@@ -91,7 +95,10 @@ internal class PermissionGate(
         if (person != null) return ask(checked, person)
         if (required == null && review.exempt) return admitted(checked, ClearanceKind.SCRATCH)
         if (principal == Principal.OPERATOR) {
-            if (required == null) cleared(checked, mode)?.let { return admitted(checked, it) }
+            if (required == null) {
+                if (contained(checked, mode)) return admitted(checked, ClearanceKind.SANDBOX)
+                cleared(checked, mode)?.let { return admitted(checked, it) }
+            }
             if (mode == PermissionMode.AUTO) {
                 if (call.taint.tainted && checked.opaque) {
                     return ask(checked, "an opaque program, and ${tainted(call.taint)}")
@@ -111,7 +118,7 @@ internal class PermissionGate(
 
     /** [review] without its exemption, which only a built-in tool may claim. */
     private fun unexempted(review: CallReview): CallReview = with(review) {
-        CallReview(risk, refusal, preview, snapshot, rule, problem, false, background, untrusted, person)
+        CallReview(risk, refusal, preview, snapshot, rule, problem, false, background, untrusted, person, contained)
     }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
@@ -136,6 +143,12 @@ internal class PermissionGate(
         mode == PermissionMode.ALLOW_EDIT && call.risk == ToolRisk.WORKSPACE_WRITE && !call.opaque -> ClearanceKind.MODE
         mode != PermissionMode.MANUAL && rules.allowed(call) -> ClearanceKind.RULE
         else -> null
+    }
+
+    /** Whether the sandbox lets the gated [call] of an operator's turn run in [mode] without asking anyone. */
+    private fun contained(call: CheckedCall, mode: PermissionMode): Boolean {
+        val containment = call.containment ?: return false
+        return containment.clearable && containment.hosts.isEmpty() && mode in CONTAINED_MODES
     }
 
     /** The permission mode of [call] and whether a profile of its chain tightened it, `ask` for an unread mode. */
@@ -211,12 +224,24 @@ internal class PermissionGate(
 /** Why a person is asked about the gated [call] of [principal] in [mode], which a profile [tightened] to it. */
 private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode, tightened: Boolean): String = when {
     call.requiredApproval != null -> call.requiredApproval
+
     principal == Principal.GUEST -> "a guest's call"
+
     principal == Principal.AUTOMATION -> "a call of a turn that nobody sent"
+
     call.risk == ToolRisk.PERSISTENT_STATE -> tainted(call.call.taint)
+
     tightened -> "the sub-agent's profile sets $mode mode"
+
+    !call.containment?.hosts.isNullOrEmpty() ->
+        "the command asks to reach ${call.containment.hosts.joinToString()}, which its sandbox does " +
+            "not allow yet"
+
     else -> "the chat is in $mode mode"
 }
+
+/** The modes in which a call that runs wholly in its sandbox runs without asking. */
+private val CONTAINED_MODES = setOf(PermissionMode.ASK, PermissionMode.ALLOW_EDIT, PermissionMode.AUTO)
 
 /** Whether the call runs a program whose code no safeguard inspects. */
 private val CheckedCall.opaque: Boolean get() = (review.preview as? ReviewPreview.Command)?.opaque == true

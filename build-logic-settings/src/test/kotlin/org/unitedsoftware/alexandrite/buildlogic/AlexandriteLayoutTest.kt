@@ -31,6 +31,7 @@ class AlexandriteLayoutTest {
     private val sqlite = ":libraries:stores:sqlite"
     private val automationCommon = ":libraries:automation-common"
     private val schedule = ":libraries:automations:schedule"
+    private val seatbelt = ":libraries:sandboxes:seatbelt"
     private val testkit = ":libraries:testkit"
     private val ksp = ":build-ksp-plugin"
     private val app = ":app"
@@ -553,6 +554,7 @@ class AlexandriteLayoutTest {
                 PROVIDER,
                 STORE,
                 AUTOMATION,
+                SANDBOX,
                 APP,
             }
 
@@ -759,6 +761,32 @@ class AlexandriteLayoutTest {
     }
 
     @Test
+    fun `sandboxes sit on the SDK and internal, below the app, and nothing else depends on them`() {
+        for (to in all - sdk - internals - testkit + ":libraries:sandboxes:bubblewrap") {
+            assertForbidden(seatbelt, to)
+        }
+        assertAllowed(seatbelt, sdk)
+        assertAllowed(seatbelt, internals)
+        assertAllowed(seatbelt, testkit, "testImplementation")
+        for (from in all - app + schedule) {
+            assertForbidden(from, seatbelt)
+            assertForbidden(from, seatbelt, "testImplementation")
+        }
+        assertAllowed(app, seatbelt)
+    }
+
+    @Test
+    fun `a sandbox gets its layer, jar name, config root, package and group from its directory`() {
+        val module = module(seatbelt)
+        assertEquals(Layer.SANDBOX, module.layer)
+        assertEquals("alexandrite-sandbox-seatbelt", module.jarName)
+        assertEquals("sandboxes.seatbelt", module.configRoot)
+        assertEquals("org.unitedsoftware.alexandrite.sandbox.seatbelt", module.packageName)
+        assertEquals("org.unitedsoftware.alexandrite.sandboxes", module.group)
+        assertTrue(module.builtIn)
+    }
+
+    @Test
     fun `an example depends on the SDK and the support libraries and tests with the testkit`() {
         for (configuration in listOf("testImplementation", "testCompileOnly", "testRuntimeOnly")) {
             assertAllowed(notes, testkit, configuration)
@@ -850,7 +878,7 @@ class AlexandriteLayoutTest {
         assertContains(
             assertNotNull(violation(app, ksp)),
             ":libraries:channels:*, $channelCommon, :libraries:providers:*, :libraries:provider-common, " +
-                ":libraries:stores:*, :libraries:automations:*, $automationCommon; " +
+                ":libraries:stores:*, :libraries:automations:*, $automationCommon, :libraries:sandboxes:*; " +
                 "$testkit, :examples:* only from configurations named test*;",
         )
         assertContains(

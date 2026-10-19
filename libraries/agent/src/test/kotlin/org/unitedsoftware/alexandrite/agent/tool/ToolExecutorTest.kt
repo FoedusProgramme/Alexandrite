@@ -96,7 +96,7 @@ class ToolExecutorTest {
             Jobs(settings, JobRecords(testRecords()), {
                 true
             }, Clock.systemUTC(), QuietHooks, pluginScope(GlobalJobs))
-        return ToolExecutor(gate, settings, workspaces, directories, jobs) { _, _ -> null }
+        return ToolExecutor(gate, settings, workspaces, directories, jobs, { _, _ -> null }) { _, _ -> null }
     }
 
     private fun abandoned(after: String) =
