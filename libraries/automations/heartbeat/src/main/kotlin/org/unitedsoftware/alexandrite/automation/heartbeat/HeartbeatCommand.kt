@@ -32,7 +32,7 @@ internal class HeartbeatCommand(
         listOf(CommandSpec.builder(NAME, description(NAME, null)).build())
 
     override fun description(command: String, language: LanguageTag?): String =
-        texts.text("command.$command.description", language)
+        texts.text(TextKeys.DESCRIPTION, language)
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
         val replies = Replies(texts, context.turn.language)
@@ -102,6 +102,7 @@ private class Replies(private val texts: Texts, private val language: LanguageTa
 
 /** The keys of the plugin's texts for people. */
 internal object TextKeys {
+    const val DESCRIPTION: String = "command.heartbeat.description"
     const val USAGE: String = "usage.heartbeat"
     const val NONE: String = "heartbeat.none"
     const val SHOWN: String = "heartbeat.shown"

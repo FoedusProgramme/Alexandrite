@@ -28,7 +28,6 @@ internal data class JsonRpcError(val code: Int, val message: String, val data: J
 internal object JsonRpc {
     const val VERSION = "2.0"
     const val METHOD_NOT_FOUND = -32601
-    const val INVALID_PARAMS = -32602
 
     val json: Json = Json { ignoreUnknownKeys = true }
 

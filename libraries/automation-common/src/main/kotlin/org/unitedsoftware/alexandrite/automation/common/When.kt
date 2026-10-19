@@ -31,15 +31,7 @@ public sealed interface When {
 
         override fun next(after: Instant, zone: ZoneId): Instant? {
             if (after < from) return from
-            val step = interval.toJavaDuration()
-            return try {
-                val steps = java.time.Duration.between(from, after).dividedBy(step) + 1
-                from.plus(step.multipliedBy(steps))
-            } catch (_: ArithmeticException) {
-                null
-            } catch (_: DateTimeException) {
-                null
-            }
+            return stepAfter(from, interval.toJavaDuration(), after)
         }
     }
 
@@ -47,4 +39,13 @@ public sealed interface When {
     public class Cron(public val expression: CronExpression) : When {
         override fun next(after: Instant, zone: ZoneId): Instant? = expression.next(after, zone)
     }
+}
+
+/** The first of the instants every [step] from [from] that comes after [after], null past the end of time. */
+internal fun stepAfter(from: Instant, step: java.time.Duration, after: Instant): Instant? = try {
+    from.plus(step.multipliedBy(java.time.Duration.between(from, after).dividedBy(step) + 1))
+} catch (_: ArithmeticException) {
+    null
+} catch (_: DateTimeException) {
+    null
 }

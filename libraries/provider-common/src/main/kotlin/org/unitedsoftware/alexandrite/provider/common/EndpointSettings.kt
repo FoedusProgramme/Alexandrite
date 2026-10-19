@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.internal.http.isHeaderValue
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import java.math.BigDecimal
@@ -90,6 +91,10 @@ public enum class TurnContextSetting(internal val id: String) {
     /** Into the turn's user entry. */
     BAKE("bake"),
 }
+
+/** The turn context mode of an endpoint whose models all render turn context alike. */
+internal fun EndpointSettings.turnContextMode(): TurnContextMode =
+    if (turnContext == TurnContextSetting.TRANSIENT) TurnContextMode.TRANSIENT else TurnContextMode.NOT_SUPPORTED
 
 internal object TurnContextSerializer : KSerializer<TurnContextSetting> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor(

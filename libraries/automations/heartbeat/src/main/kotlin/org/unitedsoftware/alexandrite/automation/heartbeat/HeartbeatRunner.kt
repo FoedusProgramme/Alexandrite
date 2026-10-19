@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.automation.common.BeatSkip
 import org.unitedsoftware.alexandrite.automation.common.Beater
 import org.unitedsoftware.alexandrite.automation.common.Beats
 import org.unitedsoftware.alexandrite.automation.common.TimeSource
+import org.unitedsoftware.alexandrite.automation.common.restarting
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -22,11 +23,9 @@ import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
-import kotlin.time.toJavaDuration
 
 /** Beats the configured heartbeats while the plugin is open, each beat a heartbeat turn of its agent. */
 @Singleton
@@ -73,19 +72,15 @@ internal class HeartbeatRunner(
     }
 
     private suspend fun supervise() {
-        var failures = 0
-        while (true) {
-            try {
-                val start = time.now().also { started = it }
-                Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, time).run(start)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                failures++
-                val pause = backOff(failures)
-                logger.error("The heartbeats stopped, restarting them in {}", pause, e)
-                time.sleepUntil(time.now().plus(pause.toJavaDuration()))
-            }
+        restarting(
+            time,
+            first = 5.seconds,
+            last = 5.minutes,
+            steady = Duration.INFINITE,
+            failed = { e, pause -> logger.error("The heartbeats stopped, restarting them in {}", pause, e) },
+        ) {
+            val start = time.now().also { started = it }
+            Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, time).run(start)
         }
     }
 
@@ -129,9 +124,6 @@ internal class HeartbeatRunner(
     override fun failed(id: AgentId, error: Exception) {
         logger.warn("A heartbeat of agent '{}' failed", id, error)
     }
-
-    private fun backOff(failures: Int): Duration =
-        (5.seconds * (1 shl (failures - 1).coerceAtMost(6))).coerceAtMost(5.minutes)
 }
 
 private val HORIZON = java.time.Duration.ofDays(7)

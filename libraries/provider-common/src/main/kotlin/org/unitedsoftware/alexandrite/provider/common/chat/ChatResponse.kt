@@ -6,12 +6,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.provider.common.long
 import org.unitedsoftware.alexandrite.provider.common.modelException
 import org.unitedsoftware.alexandrite.provider.common.obj
 import org.unitedsoftware.alexandrite.provider.common.streamError
 import org.unitedsoftware.alexandrite.provider.common.string
+import org.unitedsoftware.alexandrite.provider.common.stringContent
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.model.FinishReason
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
@@ -132,14 +132,14 @@ internal class ChatResponse(
         } catch (e: IllegalArgumentException) {
             throw failure(ModelErrorKind.PROTOCOL, "The response sent a delta that does not read.")
         }
-        val reasoning = delta.reasoningContent ?: delta.reasoning.text()
+        val reasoning = delta.reasoningContent ?: delta.reasoning.stringContent()
         val reader = (current as? ReasoningBuilder)?.reader ?: flavor.reasoning.reader(request.model)
         val own = reader.read(raw)
         if (!reasoning.isNullOrEmpty() || own != null) {
             val builder = current as? ReasoningBuilder ?: open(ReasoningBuilder(parts.size, reader), events)
             builder.add(reasoning, own, events)
         }
-        delta.content.text()?.takeIf { it.isNotEmpty() }?.let { text ->
+        delta.content.stringContent()?.takeIf { it.isNotEmpty() }?.let { text ->
             val builder = current as? TextBuilder ?: open(TextBuilder(parts.size, flavor.text.reader()), events)
             val read = builder.reader.read(text)
             read.malformed?.let { throw failure(ModelErrorKind.MALFORMED_OUTPUT, it) }
@@ -283,8 +283,6 @@ internal class ChatResponse(
         }
     }
 }
-
-private fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 /** The usage that [raw] reports, its cache counts read by [caching] and its negative counts left out. */
 internal fun usage(raw: JsonObject, caching: ChatCaching): Usage {

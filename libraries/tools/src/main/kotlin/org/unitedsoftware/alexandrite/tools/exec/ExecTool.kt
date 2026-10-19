@@ -131,7 +131,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                     .preview(ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)))
                     .snapshot(snapshot)
                     .rule(rule)
-                    .background(startsInBackground(arguments))
+                    .background(inspection.background)
                     .untrusted(!vetted)
                     .person(asks.takeIf { it.isNotEmpty() }?.joinToString("; "))
                     .contained(
@@ -277,7 +277,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
         val contained = sandbox?.takeIf { parsed.contained }
         contained?.hostProblem(parsed.hosts)?.let { throw CallProblem(it) }
-        Inspection.Ready(call, planner, monitor, contained, if (contained == null) emptyList() else parsed.hosts)
+        val hosts = if (contained == null) emptyList() else parsed.hosts
+        Inspection.Ready(call, planner, monitor, contained, hosts, parsed.background || monitor != null)
     } catch (e: CallProblem) {
         Inspection.Problem(e.message)
     } catch (e: FloorRefusal) {
@@ -299,11 +300,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun request(arguments: JsonObject): ParsedRequest {
-        arguments.optional("background")?.let { value ->
-            if ((value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) {
-                throw CallProblem("'background' must be a boolean.")
-            }
-        }
+        val background = arguments.optional("background")?.let { value ->
+            (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                ?: throw CallProblem("'background' must be a boolean.")
+        } ?: false
         val command = arguments.optional("command")?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: throw CallProblem("'command' must be a string.")
@@ -351,15 +351,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                     ?: throw CallProblem("'network' must be an array of strings.")
             }
         }.orEmpty()
-        return ParsedRequest(words, cwd, seconds.seconds, contained, hosts.distinct())
+        return ParsedRequest(words, cwd, seconds.seconds, contained, hosts.distinct(), background)
     }
-
-    /**
-     * Whether the call asks to start as a background job, with `background` (checked by [request]) or a `monitor`
-     * (checked by [monitorOptions]).
-     */
-    private fun startsInBackground(arguments: JsonObject): Boolean =
-        (arguments["background"] as? JsonPrimitive)?.booleanOrNull == true || arguments["monitor"] is JsonObject
 
     private fun monitorOptions(arguments: JsonObject, timeout: Duration): MonitorOptions? {
         val value = arguments.optional("monitor") ?: return null
@@ -398,6 +391,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             val monitor: MonitorOptions?,
             val sandbox: Sandbox?,
             val hosts: List<String>,
+            /** Whether the call starts as a background job. */
+            val background: Boolean,
         ) : Inspection
     }
 
@@ -409,6 +404,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         /** Whether the program runs in the agent's sandbox when it has one. */
         val contained: Boolean,
         val hosts: List<String>,
+        val background: Boolean,
     )
 }
 

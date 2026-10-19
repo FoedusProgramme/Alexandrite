@@ -69,6 +69,10 @@ internal class McpStdioConnection private constructor(
 
     override var protocolVersion: String? = null
 
+    override val mirrorsParams: Boolean = false
+
+    override val listensLegacy: Boolean = false
+
     private fun startReaders() {
         thread(isDaemon = true, name = "mcp stdout ${process.pid()}") {
             readLines(process.inputStream, MESSAGE_LIMIT, onLong = { onInvalid("A message of more than $it bytes.") }) {

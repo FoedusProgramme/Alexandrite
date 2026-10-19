@@ -9,8 +9,8 @@ import org.unitedsoftware.alexandrite.internal.http.HttpResponseStream
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
-import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
 import org.unitedsoftware.alexandrite.provider.common.modelException
+import org.unitedsoftware.alexandrite.provider.common.turnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
@@ -47,17 +47,11 @@ public class ChatEndpoint(
     }
 
     override fun turnContextMode(model: String, options: ModelOptions, trust: Trust): TurnContextMode =
-        if (settings.turnContext == TurnContextSetting.TRANSIENT) {
-            TurnContextMode.TRANSIENT
-        } else {
-            TurnContextMode.NOT_SUPPORTED
-        }
+        settings.turnContextMode()
 
     override fun close() {
         core.close()
     }
-
-    internal fun describe(model: String): ModelInfo = core.describe(model)
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: ChatResponse) {
         when (stream.mediaType) {

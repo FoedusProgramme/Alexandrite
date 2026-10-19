@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.http.HttpException
 import org.unitedsoftware.alexandrite.internal.http.HttpResponseStream
+import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
@@ -71,6 +72,27 @@ internal class EndpointCore(
         } catch (e: ModelException) {
             throw e.masked(call::mask)
         }
+    }
+
+    /** The JSON object that [path] answers to a non-streamed post of [body]. */
+    suspend fun postJson(
+        path: String,
+        body: String,
+        extra: Map<String, String>,
+        classify: (ErrorDetail) -> ModelErrorKind? = { null },
+    ): JsonObject {
+        var answer: JsonObject? = null
+        post(path, body, extra, { false }, classify) { response ->
+            if (response.mediaType != null && response.mediaType != "application/json") {
+                throw unreadable(response.mediaType, false)
+            }
+            answer = try {
+                Json.parseToJsonElement(response.text(HttpTransport.DEFAULT_LIMIT)) as? JsonObject
+            } catch (_: SerializationException) {
+                null
+            }
+        }
+        return answer ?: protocol("Endpoint '$id' answered with no JSON object.")
     }
 
     /** The failure of a response in [mediaType], which no endpoint reads. */

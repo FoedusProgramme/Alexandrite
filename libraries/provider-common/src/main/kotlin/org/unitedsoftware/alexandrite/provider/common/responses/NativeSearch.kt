@@ -1,7 +1,5 @@
 package org.unitedsoftware.alexandrite.provider.common.responses
 
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -9,11 +7,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
-import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
 import org.unitedsoftware.alexandrite.provider.common.modelException
 import org.unitedsoftware.alexandrite.provider.common.obj
+import org.unitedsoftware.alexandrite.provider.common.protocol
 import org.unitedsoftware.alexandrite.provider.common.string
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
@@ -39,18 +37,8 @@ internal suspend fun nativeSearch(
         put("store", false)
         put("stream", false)
     }
-    var response: JsonObject? = null
-    core.post("/responses", body.toString(), emptyMap(), { false }, classify) { stream ->
-        if (stream.mediaType != null && stream.mediaType != "application/json") {
-            throw core.unreadable(stream.mediaType, false)
-        }
-        response = try {
-            Json.parseToJsonElement(stream.text(HttpTransport.DEFAULT_LIMIT)) as? JsonObject
-        } catch (_: SerializationException) {
-            protocol("Native web search returned invalid JSON.")
-        }
-    }
-    val output = response?.get("output") as? JsonArray ?: protocol("Native web search returned no output.")
+    val response = core.postJson("/responses", body.toString(), emptyMap(), classify)
+    val output = response["output"] as? JsonArray ?: protocol("Native web search returned no output.")
     val found = linkedMapOf<String, WebSearchResult>()
     val sources = mutableListOf<String>()
     var searched = false
@@ -96,5 +84,3 @@ private fun cite(content: JsonObject?, found: MutableMap<String, WebSearchResult
 
 private fun JsonObject.index(name: String): Int? =
     (this[name] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 0 }
-
-private fun protocol(message: String): Nothing = throw modelException(ModelErrorKind.PROTOCOL, message, false)

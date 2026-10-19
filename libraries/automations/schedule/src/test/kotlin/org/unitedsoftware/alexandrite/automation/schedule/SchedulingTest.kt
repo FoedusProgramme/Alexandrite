@@ -318,6 +318,22 @@ class SchedulingTest {
     }
 
     @Test
+    fun `a record whose creation time cannot be read is skipped and the others load`() = test {
+        val first = opened()
+        val broken = first.make(mapOf("in" to "10m"))
+        val kept = first.make(mapOf("in" to "20m"))
+        first.stop()
+        val collection = records.of(PLUGIN).collection("tasks", TaskRecord.serializer())
+        val record = collection.list().single { it.key == broken }.value
+        collection.put(broken, record.copy(createdAt = "yesterday"), record.createdBy)
+
+        val second = opened()
+
+        assertEquals(null, second.tasks.live(broken))
+        assertNotNull(second.tasks.live(kept))
+    }
+
+    @Test
     fun `a task of a chat whose zone differs is told in the zone it was made in`() = test {
         val schedule = opened()
         val utc = turn(chat = testChat("utc")) { zone(java.time.ZoneOffset.UTC) }

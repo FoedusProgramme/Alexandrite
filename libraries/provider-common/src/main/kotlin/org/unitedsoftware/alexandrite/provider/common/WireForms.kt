@@ -1,11 +1,19 @@
 package org.unitedsoftware.alexandrite.provider.common
 
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Warning
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
+import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 
 /** The form a wire API takes of a stored value: the value where it matches [grammar], else [MAPPED] and its hash. */
 internal class WireForm(private val grammar: Regex) {
@@ -28,6 +36,48 @@ internal fun wireToolName(name: String): String = when {
     ToolNames.PATTERN.matches(name) -> ToolNames.wire(name)
     ToolNames.fromWire(name) == null -> TOOL_NAMES.of(name)
     else -> mapped(name)
+}
+
+/** Which tool calls and results of [request]'s history go on the wire as such. */
+internal class ToolCallIndex(request: ModelRequest) {
+    private val offersTools = request.tools.isNotEmpty()
+
+    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
+
+    private val called = request.history.filterIsInstance<AssistantEntry>()
+        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+
+    /** Whether the call [id] goes as a call: the request offers tools and the history answers it. */
+    fun sendsCall(id: ToolCallId): Boolean = offersTools && id in answered
+
+    /** Whether the result of the call [id] goes as a result: the request offers tools and the history made the call. */
+    fun sendsResult(id: ToolCallId): Boolean = offersTools && id in called
+}
+
+/**
+ * Adds the `tool_choice` field that asks for [choice] to this body, or returns why it adds none.
+ *
+ * [named] fills the object that names the tool of a [ToolChoice.Named].
+ */
+internal fun JsonObjectBuilder.putToolChoice(
+    choice: ToolChoice,
+    named: JsonObjectBuilder.(ToolChoice.Named) -> Unit,
+): Warning? {
+    when (choice) {
+        ToolChoice.Auto -> Unit
+
+        ToolChoice.None -> put("tool_choice", "none")
+
+        ToolChoice.Required -> put("tool_choice", "required")
+
+        is ToolChoice.Named -> putJsonObject("tool_choice") {
+            put("type", "function")
+            named(choice)
+        }
+
+        else -> return Warning("unsupported_option", "The tool choice $choice is unknown, so the model decides.")
+    }
+    return null
 }
 
 /** The text that stands for [call] of the tool [name] in a request that offers no tools. */

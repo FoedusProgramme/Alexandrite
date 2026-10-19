@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.automation.schedule
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -18,6 +17,7 @@ import org.unitedsoftware.alexandrite.automation.common.Task
 import org.unitedsoftware.alexandrite.automation.common.TimeSource
 import org.unitedsoftware.alexandrite.automation.common.Trigger
 import org.unitedsoftware.alexandrite.automation.common.When
+import org.unitedsoftware.alexandrite.automation.common.restarting
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -83,20 +83,17 @@ internal class Scheduling(
         Scheduler(tasks, trigger, events, time, config.missedWindowHours.hours)
 
     private suspend fun supervise() {
-        var pause = FIRST_PAUSE
-        while (true) {
-            val started = kotlin.time.TimeSource.Monotonic.markNow()
-            try {
-                current.run()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                logger.error("The schedule stopped, and starts again in {}", pause, e)
-            }
-            if (started.elapsedNow() > STEADY) pause = FIRST_PAUSE
-            delay(pause)
-            pause = (pause * 2).coerceAtMost(LAST_PAUSE)
-            current = newScheduler()
+        var fresh = true
+        restarting(
+            time,
+            FIRST_PAUSE,
+            LAST_PAUSE,
+            STEADY,
+            failed = { e, pause -> logger.error("The schedule stopped, and starts again in {}", pause, e) },
+        ) {
+            if (!fresh) current = newScheduler()
+            fresh = false
+            current.run()
         }
     }
 

@@ -76,7 +76,7 @@ internal class McpClient private constructor(
     /** Completes with the reason once the connection ended. */
     val ended: Deferred<McpException> get() = connection.ended
 
-    private val mirrorsParams: Boolean get() = connection is McpHttpConnection && !server.legacy
+    private val mirrorsParams: Boolean get() = connection.mirrorsParams && !server.legacy
 
     /** All tools of the server, page after page. */
     suspend fun listTools(): McpToolList {
@@ -319,7 +319,7 @@ internal class McpClient private constructor(
         if (!info.toolsListChanged) return
         listening = when {
             !info.legacy -> scope.launch { keepListening { listen() } }
-            connection is McpHttpConnection -> scope.launch { keepListening { listenLegacy() } }
+            connection.listensLegacy -> scope.launch { keepListening { listenLegacy() } }
             else -> null
         }
     }

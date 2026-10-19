@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.provider.common.long
 import org.unitedsoftware.alexandrite.provider.common.obj
 import org.unitedsoftware.alexandrite.provider.common.positiveInt
 import org.unitedsoftware.alexandrite.provider.common.string
+import org.unitedsoftware.alexandrite.provider.common.stringContent
 import org.unitedsoftware.alexandrite.provider.common.strings
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
@@ -155,8 +156,8 @@ private class DetailsReader(private val origin: ModelRef) : ChatReasoningReader(
         }
         val merged = last.toMutableMap()
         for ((name, value) in detail) {
-            val before = merged[name].text()
-            val added = value.text()
+            val before = merged[name].stringContent()
+            val added = value.stringContent()
             merged[name] = when {
                 value is JsonNull -> merged[name] ?: value
                 name in CONCATENATED && before != null && added != null -> JsonPrimitive(before + added)
@@ -171,8 +172,6 @@ private class DetailsReader(private val origin: ModelRef) : ChatReasoningReader(
         val CONCATENATED = setOf("text", "summary", "data")
     }
 }
-
-private fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 internal object OpenRouterCaching : ChatCaching() {
     override fun key(key: String, body: JsonObjectBuilder) {

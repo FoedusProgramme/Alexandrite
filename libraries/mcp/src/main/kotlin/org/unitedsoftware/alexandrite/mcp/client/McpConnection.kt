@@ -16,6 +16,12 @@ internal interface McpConnection {
     /** The protocol version requests carry outside their body, null before a legacy handshake. */
     var protocolVersion: String?
 
+    /** Whether requests to a current-revision server mirror tool parameters into headers. */
+    val mirrorsParams: Boolean
+
+    /** Whether [listenLegacy] can open a stream at all. */
+    val listensLegacy: Boolean
+
     /**
      * The result of the request [method] with [params], [meta] merged into its `_meta`.
      *

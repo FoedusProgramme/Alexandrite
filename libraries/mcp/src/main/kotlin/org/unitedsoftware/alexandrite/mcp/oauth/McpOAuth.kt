@@ -123,10 +123,14 @@ internal class McpOAuth(
     /** The scopes [server] last asked a wider login for, null when it asked for none. */
     fun widerScopes(server: String): List<String>? = wider[server]
 
+    /** The transport that a login to [server] goes over, which throws [OAuthException] when it has none. */
+    fun loginTransport(server: String): Transport.Http =
+        settings.servers.firstOrNull { it.name == server }?.transport as? Transport.Http
+            ?: throw OAuthException("MCP server $server is not reached over HTTP, so it has no login.")
+
     /** Starts a login to [server], whose authorization link the operator opens. */
     suspend fun start(server: String): LoginStart {
-        val transport = settings.servers.firstOrNull { it.name == server }?.transport as? Transport.Http
-            ?: throw OAuthException("MCP server $server is not reached over HTTP, so it has no login.")
+        val transport = loginTransport(server)
         val resourceMetadata = discovery.resource(transport.url, challenges[server])
         val resource = resource(transport.url, resourceMetadata)
         val metadata = discovery.authorizationServer(resourceMetadata.authorizationServers.first())
@@ -141,7 +145,7 @@ internal class McpOAuth(
                 val state = randomToken()
                 logins.values.removeIf { it.server == server }
                 logins[state] =
-                    Login(server, state, pkce, metadata, client, redirect, resource, scopes, clock.instant())
+                    Login(server, pkce, metadata, client, redirect, resource, scopes, clock.instant())
                 scope.launch {
                     delay(LOGIN_TTL)
                     listening.withLock { expire() }
@@ -482,7 +486,6 @@ internal class McpOAuth(
 
     private class Login(
         val server: String,
-        val state: String,
         val pkce: Pkce,
         val metadata: ServerMetadata,
         val client: ClientAuth,

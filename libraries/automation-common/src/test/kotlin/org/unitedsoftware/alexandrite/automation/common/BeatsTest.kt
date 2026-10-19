@@ -163,6 +163,13 @@ class BeatsTest {
     }
 
     @Test
+    fun `a beat past the end of time never comes`() {
+        val plan = BeatPlan("a", 1.hours, UTC)
+
+        assertEquals(Instant.MAX, plan.dueAfter(ORIGIN, Instant.MAX))
+    }
+
+    @Test
     fun `malformed active hours and plans are refused`() {
         for (text in listOf("", "08:00", "8-12", "08:00-25:00", "08:00-12:00-14:00")) {
             assertFailsWith<IllegalArgumentException>(text) { ActiveHours.parse(text) }
