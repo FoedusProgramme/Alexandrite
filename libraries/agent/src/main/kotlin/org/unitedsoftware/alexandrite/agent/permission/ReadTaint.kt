@@ -20,8 +20,8 @@ import java.nio.file.Path
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Finds the paths a tool call reached outside the trusted folders, the agent's workspace, its persona directory and
- * the turn's own conversation directory, and those that a tainted conversation wrote.
+ * Finds the paths a tool call reached outside the trusted folders, the agent's workspace, its persona and skill
+ * directories and the turn's own conversation directory, and those that a tainted conversation wrote.
  */
 @Singleton
 internal class ReadTaint(
