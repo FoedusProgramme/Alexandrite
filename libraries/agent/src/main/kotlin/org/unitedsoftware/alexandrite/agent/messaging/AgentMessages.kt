@@ -6,10 +6,7 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.delivery.visibleText
-import org.unitedsoftware.alexandrite.agent.job.AGENT_MESSAGE_TOOL
 import org.unitedsoftware.alexandrite.agent.job.JobCarried
-import org.unitedsoftware.alexandrite.agent.job.JobRecord
-import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
@@ -19,6 +16,7 @@ import org.unitedsoftware.alexandrite.agent.worker.AgentTicket
 import org.unitedsoftware.alexandrite.agent.worker.SubmitLock
 import org.unitedsoftware.alexandrite.agent.worker.TurnWorkers
 import org.unitedsoftware.alexandrite.agent.worker.WorkerJob
+import org.unitedsoftware.alexandrite.agent.worker.newRunId
 import org.unitedsoftware.alexandrite.agent.worker.newTurnId
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -37,7 +35,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnTicket
 import java.time.Clock
-import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -102,7 +99,7 @@ internal class AgentMessages(
     private val workers: Lazy<TurnWorkers>,
     private val lock: SubmitLock,
     private val clock: Clock,
-    private val records: JobRecords,
+    private val records: MessageRecords,
     private val conversations: ConversationStore,
 ) {
     suspend fun send(agent: AgentId, text: String, context: AgentToolContext): InTurnResult {
@@ -143,16 +140,15 @@ internal class AgentMessages(
             )
         }
         budget.track(admission.ticket)
-        val exchange = newExchangeId()
+        val exchange = newRunId("m-")
         records.put(
             exchange,
-            JobRecord(
+            MessageRecord(
                 turn.rootConversation,
                 turn.key,
                 turn.chat,
                 turn.lineage?.rootTurn ?: turn.id,
-                AGENT_MESSAGE_TOOL,
-                agent.value,
+                agent,
                 clock.instant().toString(),
             ),
         )
@@ -207,12 +203,6 @@ internal class AgentMessages(
         return "a reply from agent '$agent', whose conversation took in untrusted content ($why)"
     }
 
-    /** A new id for an exchange's record, `m-` and six random letters and digits. */
-    private fun newExchangeId(): RunId {
-        val random = ThreadLocalRandom.current()
-        return RunId("m-" + String(CharArray(EXCHANGE_ID_LENGTH) { ALPHABET[random.nextInt(ALPHABET.length)] }))
-    }
-
     private fun enqueue(
         key: AgentChatKey,
         chat: ChatAddress,
@@ -239,9 +229,5 @@ internal class AgentMessages(
 
 /** The agent messages that one root turn may send. */
 internal const val MAX_ROUND_TRIPS = 3
-
-private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
-
-private const val EXCHANGE_ID_LENGTH = 6
 
 private val logger = LoggerFactory.getLogger(AgentMessages::class.java)

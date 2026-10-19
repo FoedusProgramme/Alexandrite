@@ -4,7 +4,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
-import org.unitedsoftware.alexandrite.agent.control.effectiveZone
+import org.unitedsoftware.alexandrite.agent.control.commandTurn
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
-import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
@@ -57,13 +56,7 @@ internal class ContextControl(
         val before = record.promptTokens?.takeIf { record.density(window) != null } ?: estimated.toLong()
         val fold = fold(view.summary, entries, record.clearedIds, Keep(config.keepTurns), density, before)
             ?: throw Refused(TextKeys.NOTHING_TO_COMPACT, "turns" to config.keepTurns)
-        val turn = TurnInfo.builder(newTurnId(clock.instant()), chat, conversation, TurnKind.COMMAND)
-            .actor(by)
-            .language(states.language(key) ?: agent.language)
-            .zone(states.effectiveZone(key, agent, clock))
-            .agent(key.agent)
-            .key(key)
-            .build()
+        val turn = states.commandTurn(newTurnId(clock.instant()), key, chat, conversation, by, agent, clock)
         val summaryModel = agent.summaryModel ?: model
         val compaction = compactor.compact(turn, fold, focus, summaryModel, config.maxSummaryTokens, 0) { summary ->
             store(turn, summary)
@@ -91,10 +84,8 @@ internal class ContextControl(
         val window = info?.contextWindow
         val record = records.get(conversation)
         val stored = transcripts.entries(conversation)
-        val summary = stored.lastOrNull { it is SummaryEntry } as SummaryEntry?
-        val summarized = summary?.let { last ->
-            stored.count { entry -> isSent(entry) && entry.record?.id?.let(last::covers) == true }
-        } ?: 0
+        val view = contextView(stored)
+        val summarized = stored.count(::isSent) - view.entries.count(::isSent)
         val reserve = agent?.let { info?.let { model -> outputReserve(it, model) } }
         val limits = window?.let { agent?.config?.compaction?.limits(it, reserve) }
         return ContextStatus(
@@ -105,7 +96,7 @@ internal class ContextControl(
             window,
             limits?.trigger,
             limits?.target,
-            summary?.record?.createdAt,
+            view.summary?.record?.createdAt,
             summarized,
         )
     }

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime.lifecycle
 
+import org.unitedsoftware.alexandrite.internal.path.createOwnerOnly
 import org.unitedsoftware.alexandrite.runtime.RuntimeConfig
 import org.unitedsoftware.alexandrite.runtime.chat.MemoryChatStateStore
 import org.unitedsoftware.alexandrite.runtime.chat.PluginChatStates

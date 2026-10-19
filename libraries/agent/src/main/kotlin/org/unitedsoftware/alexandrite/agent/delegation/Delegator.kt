@@ -9,8 +9,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.context.ContextRecords
@@ -35,6 +33,7 @@ import org.unitedsoftware.alexandrite.agent.turn.TurnPlan
 import org.unitedsoftware.alexandrite.agent.turn.TurnRunner
 import org.unitedsoftware.alexandrite.agent.turn.TurnSource
 import org.unitedsoftware.alexandrite.agent.usage.Budgets
+import org.unitedsoftware.alexandrite.agent.worker.newRunId
 import org.unitedsoftware.alexandrite.agent.worker.newTurnId
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
@@ -67,7 +66,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.AgentRunLifecycle
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import java.time.Clock
-import java.util.concurrent.ThreadLocalRandom
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
 
@@ -131,7 +129,7 @@ internal class Delegator(
         val profile = profile(profileId) ?: return invalid(unknown(profileId))
         val call = context.call
         val now = clock.instant()
-        val run = newRunId()
+        val run = newRunId("r-")
         val lineage = TurnLineage(
             run = run,
             parentTurn = turn.id,
@@ -192,12 +190,11 @@ internal class Delegator(
         if (background) {
             val activityReady = CompletableDeferred<Unit>()
             val callPart = ToolCallPart(call, DELEGATE_TOOL, "{}")
-            val arguments = JsonObject(mapOf("profile" to JsonPrimitive(id)))
             val messageBudget = currentCoroutineContext()[MessageBudget]
             val job = jobs.start(
                 turn,
                 callPart,
-                arguments,
+                id.orEmpty(),
                 context,
                 Duration.INFINITE,
                 run,
@@ -407,12 +404,6 @@ internal class Delegator(
             )
         }
     }
-
-    /** A new run id, `r-` and six random letters and digits. */
-    private fun newRunId(): RunId {
-        val random = ThreadLocalRandom.current()
-        return RunId("r-" + String(CharArray(RUN_ID_LENGTH) { ALPHABET[random.nextInt(ALPHABET.length)] }))
-    }
 }
 
 /** The chain of a run of [profile] on [task] below [parent]. */
@@ -432,10 +423,6 @@ private fun actorBelow(turn: TurnInfo): ChatUser? {
     if (!actor.isOperator || Principal.of(turn) == Principal.OPERATOR) return actor
     return ChatUser(actor.address, actor.displayName, actor.username, actor.isBot, isOperator = false)
 }
-
-private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
-
-private const val RUN_ID_LENGTH = 6
 
 private val logger = LoggerFactory.getLogger(Delegator::class.java)
 

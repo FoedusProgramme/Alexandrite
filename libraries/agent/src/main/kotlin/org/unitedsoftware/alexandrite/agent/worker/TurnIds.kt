@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.worker
 
+import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import java.time.Instant
 import java.util.concurrent.ThreadLocalRandom
@@ -17,6 +18,14 @@ internal fun newTurnId(now: Instant): TurnId {
     return TurnId("t-${String(chars)}")
 }
 
+/** A new run id, [prefix] and six random letters and digits, such as `j-7kq2mx`. */
+internal fun newRunId(prefix: String): RunId {
+    val random = ThreadLocalRandom.current()
+    return RunId(prefix + String(CharArray(RUN_ID_LENGTH) { RUN_ID_ALPHABET[random.nextInt(RUN_ID_ALPHABET.length)] }))
+}
+
+private const val RUN_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
+private const val RUN_ID_LENGTH = 6
 private const val CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 private const val TIME_LENGTH = 10
 private const val ULID_LENGTH = 26

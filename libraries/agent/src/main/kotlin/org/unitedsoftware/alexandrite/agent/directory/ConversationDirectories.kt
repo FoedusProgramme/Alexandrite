@@ -4,8 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
-import org.unitedsoftware.alexandrite.agent.workspace.createOwnerOnly
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
+import org.unitedsoftware.alexandrite.internal.path.createOwnerOnly
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo

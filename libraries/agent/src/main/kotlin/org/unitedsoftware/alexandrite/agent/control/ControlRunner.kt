@@ -84,6 +84,20 @@ internal class ControlRunner(
         }
         return result.await()
     }
+
+    /** Runs [effect] at [key] once the turns queued there have ended, without waiting, logging a failure as [what]. */
+    fun detached(key: AgentChatKey, what: String, effect: suspend () -> Unit) {
+        val job = WorkerJob.Control { effect() }
+        try {
+            workers.control(key, job)
+        } catch (e: IllegalStateException) {
+            logger.warn("{} of {} is not made: {}", what, key, e.message)
+            return
+        }
+        job.done.invokeOnCompletion { error ->
+            if (error != null) logger.warn("{} of {} is not made: {}", what, key, error.toString())
+        }
+    }
 }
 
 private val logger = LoggerFactory.getLogger(ControlRunner::class.java)

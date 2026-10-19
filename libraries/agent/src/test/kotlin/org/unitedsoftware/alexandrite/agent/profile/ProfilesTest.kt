@@ -9,7 +9,7 @@ import org.unitedsoftware.alexandrite.agent.model.Endpoints
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
 import org.unitedsoftware.alexandrite.agent.provider
 import org.unitedsoftware.alexandrite.agent.settings
-import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource

@@ -347,7 +347,7 @@ class DelegationTurnsTest {
                     invalid to
                         "No profile 'nobody'. Choose one of reviewer, writer, planner, doer, runner, reader, " +
                         "hurried, nester, general.",
-                    invalid to "'background' must be a boolean.",
+                    invalid to "'background' must be true or false.",
                     invalid to "'context' is \"fresh\" or \"fork\".",
                 ),
                 rootResults().map { it.shown() }.toSet(),

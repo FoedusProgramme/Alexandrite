@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.profile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
@@ -11,10 +10,13 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
-import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.requiredText
+import org.unitedsoftware.alexandrite.agent.tool.stringArrayProperty
 import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -303,24 +305,6 @@ private fun idOnlySchema(description: String): JsonObject = buildJsonObject {
     put("required", JsonArray(listOf(JsonPrimitive("id"))))
     put("additionalProperties", false)
 }
-
-private fun JsonObjectBuilder.property(name: String, type: String, description: String) {
-    putJsonObject(name) {
-        put("type", type)
-        put("description", description)
-    }
-}
-
-private fun JsonObjectBuilder.stringArrayProperty(name: String, description: String) {
-    putJsonObject(name) {
-        put("type", "array")
-        putJsonObject("items") { put("type", "string") }
-        put("description", description)
-    }
-}
-
-private fun JsonObject.requiredText(name: String): String =
-    text(name)?.takeIf { it.isNotEmpty() } ?: throw ToolRefusal("Give '$name' as a non-empty string.")
 
 private fun JsonObject.strings(name: String): List<String>? {
     val value = this[name] ?: return null

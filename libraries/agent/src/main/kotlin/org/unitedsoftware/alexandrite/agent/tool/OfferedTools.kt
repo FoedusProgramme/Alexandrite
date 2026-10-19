@@ -5,6 +5,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.pruneInactive
 import org.unitedsoftware.alexandrite.agent.permission.ArgsCanonicalizer
 import org.unitedsoftware.alexandrite.agent.prompt.TOOLS_HEADER
 import org.unitedsoftware.alexandrite.internal.hash.hex
@@ -13,7 +14,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
@@ -34,10 +34,7 @@ internal class OfferedTools(records: Records, private val conversations: Convers
     private val offered = records.collection<Fingerprint>(COLLECTION)
 
     override suspend fun onStart() {
-        for (record in offered.list()) {
-            val state = conversations.conversation(ConversationId(record.key))?.state
-            if (state != ConversationState.ACTIVE) offered.remove(record.key)
-        }
+        offered.pruneInactive(conversations)
     }
 
     /** [definitions] beside the tools that [conversation]'s last turn offered, null when those cannot be read. */

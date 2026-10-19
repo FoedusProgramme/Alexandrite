@@ -4,13 +4,13 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentConfig
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.config.configuredPath
+import org.unitedsoftware.alexandrite.internal.path.createOwnerOnly
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 
 /** The directories where the agents keep their own files. */
 @Singleton
@@ -42,16 +42,5 @@ private fun workspace(id: String, config: AgentConfig, paths: HostPaths, places:
     val configured = config.workspace ?: return places.workspace(AgentId(id)).normalize()
     return configuredPath(paths, "agent.agents.$id.workspace", "the workspace", configured)
 }
-
-/** Creates [directory] and its missing parents owner-only where the file system has POSIX permissions. */
-internal fun createOwnerOnly(directory: Path) {
-    if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
-        Files.createDirectories(directory, OWNER_ONLY)
-    } else {
-        Files.createDirectories(directory)
-    }
-}
-
-private val OWNER_ONLY = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------"))
 
 private val logger = LoggerFactory.getLogger(Workspaces::class.java)

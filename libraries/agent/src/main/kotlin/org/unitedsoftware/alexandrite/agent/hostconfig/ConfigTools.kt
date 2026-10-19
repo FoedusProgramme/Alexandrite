@@ -13,6 +13,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.tool.AgentScopedTool
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
@@ -250,13 +251,6 @@ private fun schema(vararg required: String, properties: JsonObjectBuilder.() -> 
     putJsonObject("properties", properties)
     if (required.isNotEmpty()) put("required", JsonArray(required.map(::JsonPrimitive)))
     put("additionalProperties", false)
-}
-
-private fun JsonObjectBuilder.property(name: String, type: String, description: String) {
-    putJsonObject(name) {
-        put("type", type)
-        put("description", description)
-    }
 }
 
 private val FLOOR = listOf("agent", "floor")

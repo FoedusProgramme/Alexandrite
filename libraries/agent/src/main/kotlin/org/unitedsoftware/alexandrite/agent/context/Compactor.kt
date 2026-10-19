@@ -244,25 +244,31 @@ internal class Compactor(
             val compaction = compact(turn, fold, null, summaryModel, config.maxSummaryTokens, round, store)
             if (compaction is Compaction.Done) {
                 summary = compaction.summary
-                kept(compaction.summary)
+                forgetCovered(compaction.summary)
             }
             return compaction
         }
 
         /** Forgets the cleared results that [summary] stands in for. */
-        private suspend fun kept(summary: SummaryEntry) {
-            val remaining = cleared.filterNotTo(HashSet(), summary::covers)
-            if (remaining.size == cleared.size) return
-            cleared = remaining
-            record = records.cleared(turn.conversation, remaining)
+        private suspend fun forgetCovered(summary: SummaryEntry) {
+            record = withoutCovered(turn.conversation, cleared, summary) ?: return
+            cleared = record.clearedIds
         }
     }
 
     /** Forgets the cleared results of [conversation] that [summary] stands in for. */
     suspend fun kept(conversation: ConversationId, summary: SummaryEntry) {
-        val record = records.get(conversation)
-        val remaining = record.clearedIds.filterNotTo(HashSet(), summary::covers)
-        if (remaining.size != record.cleared.size) records.cleared(conversation, remaining)
+        withoutCovered(conversation, records.get(conversation).clearedIds, summary)
+    }
+
+    /** Records [conversation]'s [cleared] results without those [summary] stands in for, null when it covers none. */
+    private suspend fun withoutCovered(
+        conversation: ConversationId,
+        cleared: Set<EntryId>,
+        summary: SummaryEntry,
+    ): ContextRecord? {
+        val remaining = cleared.filterNotTo(HashSet(), summary::covers)
+        return if (remaining.size == cleared.size) null else records.cleared(conversation, remaining)
     }
 }
 

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime.lifecycle
 
+import org.unitedsoftware.alexandrite.internal.path.createOwnerOnly
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel

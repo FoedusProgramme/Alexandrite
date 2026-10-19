@@ -5,11 +5,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
@@ -17,12 +14,14 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.permission.askedPlace
 import org.unitedsoftware.alexandrite.agent.permission.checkPerson
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
-import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.flag
+import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelCapabilities
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
@@ -160,12 +159,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
         val path = arguments.text("path")?.takeIf { it.isNotEmpty() }
             ?: throw ToolRefusal("Give 'path', the file to send.")
         val caption = arguments.text("caption")?.takeIf { it.isNotBlank() }
-        val asFile = when (val value = arguments["asFile"]) {
-            null, JsonNull -> false
-
-            else -> (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                ?: throw ToolRefusal("'asFile' must be true or false.")
-        }
+        val asFile = arguments.flag("asFile") ?: false
         return Request(absolute(path, context), caption, asFile)
     }
 
@@ -258,13 +252,6 @@ internal fun mediaTypeOf(name: String): String {
 private fun unreadable(e: IOException): String = when (e) {
     is NoSuchFileException -> "Nothing exists at ${e.file}."
     else -> "The file could not be read: ${e.message ?: e.javaClass.simpleName}"
-}
-
-private fun JsonObjectBuilder.property(name: String, type: String, description: String) {
-    putJsonObject(name) {
-        put("type", type)
-        put("description", description)
-    }
 }
 
 private val MEDIA_TYPES = mapOf(

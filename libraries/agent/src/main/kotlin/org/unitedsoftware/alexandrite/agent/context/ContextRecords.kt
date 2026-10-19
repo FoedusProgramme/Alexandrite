@@ -5,11 +5,11 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.pruneInactive
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
@@ -27,10 +27,7 @@ internal class ContextRecords(records: Records, private val conversations: Conve
     private val cached = ConcurrentHashMap<ConversationId, ContextRecord>()
 
     override suspend fun onStart() {
-        for (record in stored.list()) {
-            val state = conversations.conversation(ConversationId(record.key))?.state
-            if (state != ConversationState.ACTIVE) stored.remove(record.key)
-        }
+        stored.pruneInactive(conversations)
     }
 
     /** The record of [conversation], empty when it has none or it cannot be read. */

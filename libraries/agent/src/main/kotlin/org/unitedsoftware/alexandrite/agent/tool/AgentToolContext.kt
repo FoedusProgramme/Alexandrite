@@ -53,7 +53,7 @@ internal class AgentToolContext(
     }
 
     /** Sets up the call's background job, whose updates go to [updates]. */
-    fun background(updates: suspend (ToolResult) -> Boolean) {
+    fun attachBackground(updates: suspend (ToolResult) -> Boolean) {
         job.complete(
             object : BackgroundCall {
                 override suspend fun update(result: ToolResult): Boolean {

@@ -1,12 +1,9 @@
 package org.unitedsoftware.alexandrite.agent.delivery
 
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
-import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.PendingRecords
+import org.unitedsoftware.alexandrite.agent.control.afterShown
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.SENT_HEADER
 import org.unitedsoftware.alexandrite.agent.prompt.lines
@@ -15,7 +12,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
@@ -40,72 +36,35 @@ internal const val SENT_SOURCE: String = "alexandrite.sent"
 internal class SentMessages(records: Records, private val conversations: ConversationStore) :
     Lifecycle,
     ConversationSeals {
-    private val pending = records.collection<SentRecord>(COLLECTION)
-    private val writing = Mutex()
+    private val pending = PendingRecords(records.collection<SentRecord>(COLLECTION), "sent messages") {
+        it.messages.isEmpty()
+    }
 
     override suspend fun onStart() {
-        for (record in pending.list()) {
-            val state = conversations.conversation(ConversationId(record.key))?.state
-            if (state != ConversationState.ACTIVE) pending.remove(record.key)
-        }
+        pending.prune(conversations)
     }
 
     /** Records that [message] was sent to the chat of [conversation]; keeps the newest [MAX_MESSAGES]. */
     suspend fun add(conversation: ConversationId, message: SentMessage) {
-        writing.withLock {
-            try {
-                val next = (read(conversation) + message.cut()).takeLast(MAX_MESSAGES)
-                pending.put(conversation.value, SentRecord(next), null)
-            } catch (e: Exception) {
-                currentCoroutineContext().ensureActive()
-                logger.warn("Cannot note a message sent to conversation {}: {}", conversation, e.toString())
-            }
+        pending.change(conversation) { current ->
+            SentRecord((current?.messages.orEmpty() + message.cut()).takeLast(MAX_MESSAGES))
         }
     }
 
     /** The messages sent to [conversation]'s chat, told in [zone], null when there are none or they cannot be read. */
-    suspend fun pending(conversation: ConversationId, zone: ZoneId): SentComparison? {
-        val messages = try {
-            read(conversation)
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("Cannot read the messages sent to conversation {}: {}", conversation, e.toString())
-            return null
-        }
-        return messages.takeIf { it.isNotEmpty() }?.let { SentComparison(it, zone) }
-    }
+    suspend fun pending(conversation: ConversationId, zone: ZoneId): SentComparison? =
+        pending.get(conversation)?.let { SentComparison(it.messages, zone) }
 
     /** Clears the messages of [comparison] from [conversation], keeping any sent since it was read. */
     suspend fun clear(conversation: ConversationId, comparison: SentComparison) {
-        writing.withLock {
-            try {
-                val current = read(conversation)
-                if (current.take(comparison.messages.size) != comparison.messages) return@withLock
-                val remainder = current.drop(comparison.messages.size)
-                if (remainder.isEmpty()) {
-                    pending.remove(conversation.value)
-                } else {
-                    pending.put(conversation.value, SentRecord(remainder), null)
-                }
-            } catch (e: Exception) {
-                currentCoroutineContext().ensureActive()
-                logger.warn("Cannot clear the messages shown to conversation {}: {}", conversation, e.toString())
-            }
+        pending.change(conversation) { current ->
+            current?.let { SentRecord(it.messages.afterShown(comparison.messages)) }
         }
     }
 
-    /** Forgets the messages sent to [conversation], which was sealed. */
     override suspend fun sealed(conversation: ConversationId) {
-        try {
-            pending.remove(conversation.value)
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("Cannot forget the messages sent to sealed conversation {}: {}", conversation, e.toString())
-        }
+        pending.forget(conversation)
     }
-
-    private suspend fun read(conversation: ConversationId): List<SentMessage> =
-        pending.get(conversation.value)?.value?.messages.orEmpty()
 
     private companion object {
         const val COLLECTION = "sent_messages"
@@ -157,5 +116,3 @@ private fun instantOrNull(text: String): Instant? = try {
 }
 
 private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)
-
-private val logger = LoggerFactory.getLogger(SentMessages::class.java)

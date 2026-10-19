@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.agent.config
 
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
+import org.unitedsoftware.alexandrite.internal.path.resolveConfigured
 import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
@@ -41,16 +42,14 @@ internal fun homeChat(key: String, home: String): ChatAddress? = ChatAddress.par
  */
 internal fun configuredPath(paths: HostPaths, key: String, what: String, entry: String): Path {
     val path = try {
-        Path.of(entry)
+        resolveConfigured(entry, paths.configFile?.parent)
     } catch (e: InvalidPathException) {
         throw ConfigException(key, "$what '$entry' is no valid path", e)
     }
-    if (path.isAbsolute) return path.normalize()
-    val directory = paths.configFile?.parent ?: throw ConfigException(
+    return path ?: throw ConfigException(
         key,
         "$what '$entry' is relative, but the host read no config file to resolve it against: give an absolute path",
     )
-    return directory.resolve(path).normalize()
 }
 
 internal fun isAgentId(id: String): Boolean = PluginIds.PATTERN.matches(id)

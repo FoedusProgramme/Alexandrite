@@ -15,20 +15,22 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.cancel.TurnShutdown
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.config.DEFAULT_FOREGROUND_SECONDS
 import org.unitedsoftware.alexandrite.agent.delegation.DELEGATE_TOOL
+import org.unitedsoftware.alexandrite.agent.tool.ABANDON_AFTER
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CANCELLED_RESULT
 import org.unitedsoftware.alexandrite.agent.tool.failedResult
 import org.unitedsoftware.alexandrite.agent.tool.shaped
+import org.unitedsoftware.alexandrite.agent.tool.shutdownWait
 import org.unitedsoftware.alexandrite.agent.tool.textResult
 import org.unitedsoftware.alexandrite.agent.tool.timedOutResult
 import org.unitedsoftware.alexandrite.agent.who
+import org.unitedsoftware.alexandrite.agent.worker.newRunId
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -52,7 +54,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
-import java.util.concurrent.ThreadLocalRandom
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
@@ -100,7 +101,7 @@ internal class EndedJob(
 internal class Detaching(
     val turn: TurnInfo,
     val call: ToolCallPart,
-    val arguments: JsonObject,
+    val title: String,
     val running: Deferred<ToolResult>,
     val context: AgentToolContext,
     val ran: Duration,
@@ -144,8 +145,7 @@ internal class Jobs(
     private val active = LinkedHashMap<RunId, Active>()
     private var open = true
 
-    /** How long a job stopped at a shutdown may take to end before it is abandoned. */
-    private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
+    private val shutdownWait = shutdownWait(settings)
 
     /** How long a call of [agent] runs before it moves to the background. */
     fun foreground(agent: AgentId): Duration =
@@ -172,7 +172,7 @@ internal class Jobs(
                     detaching.id ?: newJobId(),
                     turn,
                     call,
-                    callTitle(detaching.arguments),
+                    detaching.title,
                     started,
                     detaching.limit,
                     carried,
@@ -192,7 +192,7 @@ internal class Jobs(
                 records.put(job.job)
                 hooks.fire(TurnPoints.JOB_STARTED, payload(job.job))
                 if (detaching.ran.isPositive()) hooks.fire(TurnPoints.TOOL_BACKGROUNDED, payload(job.job))
-                job.context.background { update -> update(job, update) }
+                job.context.attachBackground { update -> update(job, update) }
             }
         } finally {
             job.recorded.complete(Unit)
@@ -233,7 +233,7 @@ internal class Jobs(
     suspend fun start(
         turn: TurnInfo,
         call: ToolCallPart,
-        arguments: JsonObject,
+        title: String,
         context: AgentToolContext,
         limit: Duration,
         id: RunId? = null,
@@ -243,7 +243,7 @@ internal class Jobs(
     ): Detached {
         val running = scope.async(start = CoroutineStart.LAZY) { block() }
         return try {
-            detach(Detaching(turn, call, arguments, running, context, Duration.ZERO, limit, id, cleanup, delegated))
+            detach(Detaching(turn, call, title, running, context, Duration.ZERO, limit, id, cleanup, delegated))
                 .also { if (it is Detached.Kept) running.cancel() }
         } catch (e: Throwable) {
             running.cancel()
@@ -440,12 +440,10 @@ internal class Jobs(
         )
     }
 
-    /** A new job id, `j-` and six random letters and digits not used by a running job. */
+    /** A new job id not used by a running job. */
     private fun newJobId(): RunId {
-        val random = ThreadLocalRandom.current()
         while (true) {
-            val chars = CharArray(JOB_ID_LENGTH) { ALPHABET[random.nextInt(ALPHABET.length)] }
-            val id = RunId("j-${String(chars)}")
+            val id = newRunId("j-")
             if (id !in active) return id
         }
     }
@@ -480,13 +478,6 @@ private class Active(
         return true
     }
 }
-
-/** How long a stopped tool may take to end before it is abandoned. */
-private val ABANDON_AFTER = 5.seconds
-
-private const val ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
-
-private const val JOB_ID_LENGTH = 6
 
 private val logger = LoggerFactory.getLogger(Jobs::class.java)
 

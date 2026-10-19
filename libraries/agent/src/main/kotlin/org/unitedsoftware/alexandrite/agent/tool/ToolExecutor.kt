@@ -77,8 +77,7 @@ internal class ToolExecutor(
     private val grants: MandateGrants,
     private val sandboxes: CallSandboxes,
 ) {
-    /** How long a tool cancelled at a shutdown may take to end before it is abandoned. */
-    private val shutdownWait = minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
+    private val shutdownWait = shutdownWait(settings)
 
     /**
      * How [call] in [turn] ends, where the turn offers [tools], may call those named in [callable], a tool may run
@@ -166,7 +165,17 @@ internal class ToolExecutor(
                     timeout
                 }
                 (if (explicit) null else withTimeoutOrNull(foreground) { running.await() }) ?: run {
-                    val job = jobs.detach(Detaching(turn, call, arguments, running, context, foreground, timeout))
+                    val job = jobs.detach(
+                        Detaching(
+                            turn,
+                            call,
+                            callTitle(tool.definition, arguments),
+                            running,
+                            context,
+                            foreground,
+                            timeout,
+                        ),
+                    )
                     if (job is Detached.Started) {
                         detached = true
                         return backgroundResult(call, job.id)
@@ -323,8 +332,12 @@ internal fun shaped(content: List<ToolOutputPart>): List<ToolOutputPart> {
     return kept + TextPart(note)
 }
 
-/** How long a cancelled tool may take to end before it is abandoned. */
-private val ABANDON_AFTER = 5.seconds
+/** How long a stopped tool may take to end before it is abandoned. */
+internal val ABANDON_AFTER: Duration = 5.seconds
+
+/** How long a tool stopped at a shutdown may take to end before it is abandoned. */
+internal fun shutdownWait(settings: AgentSettings): Duration =
+    minOf(ABANDON_AFTER, settings.shutdown.cancelJoinSeconds.seconds / 2)
 
 /** How much longer than its declared timeout a tool may run. */
 private val DECLARED_TIMEOUT_GRACE = 5.seconds

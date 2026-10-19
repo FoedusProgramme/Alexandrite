@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -49,10 +50,7 @@ internal class SkillLoadTool(private val skills: Skills) :
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
-                putJsonObject("name") {
-                    put("type", "string")
-                    put("description", "The skill's name.")
-                }
+                property("name", "string", "The skill's name.")
             }
             put("required", JsonArray(listOf(JsonPrimitive("name"))))
             put("additionalProperties", false)
@@ -133,9 +131,12 @@ internal class SkillLoadTool(private val skills: Skills) :
     }
 
     private companion object {
-        const val NAME = "skill.load"
+        const val NAME = SKILL_LOAD_TOOL
     }
 }
+
+/** The name of the tool that loads a skill's instructions. */
+internal const val SKILL_LOAD_TOOL: String = "skill.load"
 
 /** The unstored entry of [skill]'s instructions [body], which Alexandrite wrote as trusted instructions. */
 internal fun skillEntry(skill: Skill, body: String): UserEntry = UserEntry(

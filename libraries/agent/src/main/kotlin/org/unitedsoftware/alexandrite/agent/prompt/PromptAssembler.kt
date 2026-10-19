@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
+import org.unitedsoftware.alexandrite.agent.skill.SKILL_LOAD_TOOL
 import org.unitedsoftware.alexandrite.agent.skill.Skills
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
@@ -54,7 +55,7 @@ internal class PromptAssembler(
 
     /** The skills section of [turn], for an agent offered `skill.load`. */
     private fun MutableList<PromptSection>.addSkills(turn: TurnInfo) {
-        if (tools.offered(turn.agent).any { it.definition.name == SKILL_LOAD }) {
+        if (tools.offered(turn.agent).any { it.definition.name == SKILL_LOAD_TOOL }) {
             add(skillsSection(skills.global(turn.agent).values))
         }
     }
@@ -64,5 +65,3 @@ internal class PromptAssembler(
         if (tools.offered(turn.agent).isNotEmpty()) add(conversationDirectorySection(directories.path(turn)))
     }
 }
-
-private const val SKILL_LOAD = "skill.load"

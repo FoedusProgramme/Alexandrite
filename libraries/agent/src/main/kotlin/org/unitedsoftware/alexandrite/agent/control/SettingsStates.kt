@@ -9,8 +9,13 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ChatState
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
+import org.unitedsoftware.alexandrite.sdk.chat.TurnId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.agentState
 import org.unitedsoftware.alexandrite.sdk.chat.state
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -51,11 +56,7 @@ internal class SettingsStates(states: ChatStates) {
 
     /** Stores [change] of the agent that [chat] switched to, and caches what [chat] reads then. */
     suspend fun selectAgent(chat: ChatAddress, change: SettingChange<AgentId>) {
-        when (change) {
-            is SettingChange.SetTo -> agent.set(chat, Choice(change.value))
-            SettingChange.Reset -> agent.reset(chat)
-            else -> return
-        }
+        if (!agent.change(chat, change) { Choice(it) }) return
         val read = agent.get(chat)
         synchronized(selections) {
             selections[chat] = read
@@ -82,23 +83,15 @@ internal class SettingsStates(states: ChatStates) {
 
     /** Stores [change] of the permission mode at [key], where [until] ends a bypass. */
     suspend fun changeMode(key: AgentChatKey, change: SettingChange<PermissionMode>, until: Instant?) {
-        when (change) {
-            is SettingChange.SetTo -> mode.set(key, ModeChoice(change.value, until?.toString()))
-            SettingChange.Reset -> mode.reset(key)
-            else -> Unit
-        }
+        mode.change(key, change) { ModeChoice(it, until?.toString()) }
     }
 
     /** Stores the changes of [update] to the model, reasoning, language and zone at [key]. */
     suspend fun update(key: AgentChatKey, update: ChatSettingsUpdate) {
-        model.change(key, update.model)
-        reasoning.change(key, update.reasoning)
-        language.change(key, update.language)
-        when (val change = update.zone) {
-            is SettingChange.SetTo -> zone.set(key, Choice(change.value.id))
-            SettingChange.Reset -> zone.reset(key)
-            else -> Unit
-        }
+        model.change(key, update.model) { Choice(it) }
+        reasoning.change(key, update.reasoning) { Choice(it) }
+        language.change(key, update.language) { Choice(it) }
+        zone.change(key, update.zone) { Choice(it.id) }
     }
 
     companion object {
@@ -131,12 +124,35 @@ private fun instantOrNull(text: String): Instant? = try {
 internal suspend fun SettingsStates.effectiveZone(key: AgentChatKey, agent: Agent?, clock: Clock): ZoneId =
     zone(key) ?: agent?.zone ?: clock.zone
 
+/** The COMMAND turn [id] of [by] in [chat] at [key]'s [conversation], told in the language and zone that hold there. */
+internal suspend fun SettingsStates.commandTurn(
+    id: TurnId,
+    key: AgentChatKey,
+    chat: ChatAddress,
+    conversation: ConversationId,
+    by: ChatUser?,
+    agent: Agent?,
+    clock: Clock,
+): TurnInfo = TurnInfo.builder(id, chat, conversation, TurnKind.COMMAND)
+    .actor(by)
+    .language(language(key) ?: agent?.language)
+    .zone(effectiveZone(key, agent, clock))
+    .agent(key.agent)
+    .key(key)
+    .build()
+
 internal class StoredMode(val mode: PermissionMode, val until: Instant?)
 
-private suspend fun <T : Any> ChatState<AgentChatKey, Choice<T>>.change(key: AgentChatKey, change: SettingChange<T>) {
+/** Stores [change] at [key] as [stored] keeps its value, and returns false when it keeps the setting as it is. */
+private suspend fun <K : Any, S : Any, T : Any> ChatState<K, S>.change(
+    key: K,
+    change: SettingChange<T>,
+    stored: (T) -> S,
+): Boolean {
     when (change) {
-        is SettingChange.SetTo -> set(key, Choice(change.value))
+        is SettingChange.SetTo -> set(key, stored(change.value))
         SettingChange.Reset -> reset(key)
-        else -> Unit
+        else -> return false
     }
+    return true
 }

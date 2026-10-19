@@ -14,8 +14,9 @@ import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
-import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.agent.tool.text
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.Markup
@@ -170,14 +171,8 @@ internal class ChatSendTool(
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
-                putJsonObject("to") {
-                    put("type", "string")
-                    put("description", "'home', 'here' or a chat address such as telegram:main:1234.")
-                }
-                putJsonObject("text") {
-                    put("type", "string")
-                    put("description", "The message, in Markdown.")
-                }
+                property("to", "string", "'home', 'here' or a chat address such as telegram:main:1234.")
+                property("text", "string", "The message, in Markdown.")
             }
             put("required", JsonArray(listOf(JsonPrimitive("to"), JsonPrimitive("text"))))
             put("additionalProperties", false)
