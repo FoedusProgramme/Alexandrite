@@ -57,6 +57,14 @@ class OneBotMarkdownTest {
     }
 
     @Test
+    fun `an image that names a local file stays text`() {
+        assertEquals(
+            listOf(OneBotSegment.Text("picture (file:///etc/passwd)")),
+            OneBotMarkdown.segments("![picture](file:///etc/passwd)"),
+        )
+    }
+
+    @Test
     fun `a list keeps its marker and loses the markers inside its item`() {
         assertEquals("- done\n* first\n1. second", text("- **done**\n* *first*\n1. **second**"))
     }

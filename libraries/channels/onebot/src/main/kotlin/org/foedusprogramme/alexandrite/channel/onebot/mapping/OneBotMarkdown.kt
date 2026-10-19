@@ -96,8 +96,15 @@ private class Renderer {
         val code = mutableListOf<String>()
         var work = protectCode(source.trimEnd(), code)
         work = IMAGE.replace(work) { match ->
-            images += match.groupValues[2]
-            "$IMAGE_MARKER${images.lastIndex}$MARKER_END"
+            val target = match.groupValues[2]
+            if (target.startsWith("https://") || target.startsWith("http://")) {
+                images += target
+                "$IMAGE_MARKER${images.lastIndex}$MARKER_END"
+            } else {
+                // A model's image target is not a path this host may read: only a public URL becomes an image.
+                val label = match.groupValues[1].trim()
+                if (label.isEmpty()) target else "$label ($target)"
+            }
         }
         work = LINK.replace(work) { match ->
             val label = match.groupValues[1].trim()
