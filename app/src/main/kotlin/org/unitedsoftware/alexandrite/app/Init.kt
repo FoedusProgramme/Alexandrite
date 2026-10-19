@@ -191,7 +191,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             if (config.at("$root.apiKey") != null) changes += ConfigChangeView("$root.apiKey", remove = true)
         } else {
             secrets[variable] = key
-            changes += ConfigChangeView("$root.apiKey", JsonPrimitive("\${env:$variable}"))
+            changes += ConfigChangeView("$root.apiKey", JsonPrimitive(envReference(variable)))
         }
         if (base != kind.defaultUrl) {
             changes += ConfigChangeView("$root.baseUrl", JsonPrimitive(base))
@@ -341,7 +341,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         summary["init.summary.bot"] = described(cli, found)
         val variable = telegramVariable(INSTANCE)
         secrets[variable] = token
-        changes += ConfigChangeView("$TELEGRAM_INSTANCES.$INSTANCE.botToken", JsonPrimitive("\${env:$variable}"))
+        changes += ConfigChangeView("$TELEGRAM_INSTANCES.$INSTANCE.botToken", JsonPrimitive(envReference(variable)))
         options.apiBaseUrl?.let {
             changes += ConfigChangeView("$TELEGRAM_INSTANCES.$INSTANCE.apiBaseUrl", JsonPrimitive(it))
         }
@@ -400,7 +400,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
     /** The bot of the configured [instance] and its token, null after printing why there is none. */
     private fun existingBot(instance: JsonObject): Pair<BotCheck.Bot, String>? {
         val written = instance["botToken"].text ?: return null
-        val variable = Regex("\\$\\{env:([A-Za-z_][A-Za-z0-9_]*)}").matchEntire(written)?.groupValues?.get(1)
+        val variable = referencedVariable(written)
         val token = if (variable == null) {
             written
         } else {
@@ -584,7 +584,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             summary["init.summary.service"] =
                 cli.t("service.state", "service" to service.description, "state" to described(cli, status))
         }
-        ui.say(cli.t("init.service.logs", "logs" to service.logs))
+        ui.say(cli.t("init.service.logs", "logs" to service.logsHint))
         return ready
     }
 }

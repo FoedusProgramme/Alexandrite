@@ -47,3 +47,28 @@ internal fun writeSecrets(file: Path, secrets: Map<String, String>) {
 /** [environment] over the variables of the secrets [file]. */
 internal fun withSecrets(environment: Map<String, String>, file: Path): Map<String, String> =
     readSecrets(file) + environment
+
+private val ENV_REFERENCE = Regex("\\$\\{env:(${NAME.pattern})}")
+
+internal fun envReference(name: String): String = "\${env:$name}"
+
+/** The variable [text] names when it is one whole `${env:NAME}` reference, null otherwise. */
+internal fun referencedVariable(text: String): String? = ENV_REFERENCE.matchEntire(text)?.groupValues?.get(1)
+
+internal fun referencedVariables(text: String): Sequence<String> = ENV_REFERENCE.findAll(text).map { it.groupValues[1] }
+
+/** [text] with its `${env:NAME}` references replaced from [environment], null when one is unset. */
+internal fun resolveReferences(text: String, environment: Map<String, String>): String? {
+    val parts = text.split("$\${")
+    return parts.map { part ->
+        var missing = false
+        val replaced = ENV_REFERENCE.replace(part) { match ->
+            environment[match.groupValues[1]] ?: run {
+                missing = true
+                ""
+            }
+        }
+        if (missing) return null
+        replaced
+    }.joinToString("\${")
+}

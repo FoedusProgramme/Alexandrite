@@ -77,6 +77,17 @@ internal class Cli(
         null
     }
 
+    /** The running app's answer to [request], null after printing [noDaemon] when none runs or why it failed. */
+    fun askOrFail(request: ControlRequest, noDaemon: String): ControlReply? = try {
+        ask(request) ?: run {
+            fail(noDaemon, ExitCode.UNAVAILABLE)
+            null
+        }
+    } catch (e: IOException) {
+        fail(t("unreachable", "reason" to (e.message ?: e)))
+        null
+    }
+
     /** The status of the running app, null when none answers. */
     fun status(): ControlReply.Status? = try {
         ask(ControlRequest.Status) as? ControlReply.Status

@@ -152,9 +152,8 @@ internal fun parseArguments(
     val words = rest.takeWhile { !it.startsWith("-") }
     val command = commands.filter { words.take(it.words.size) == it.words }.maxByOrNull { it.words.size }
         ?: return unknown(words, commands, texts)
-    val given = given(command, rest.drop(command.words.size)) ?: return Command.Help(command)
     val action = try {
-        command.read(given.getOrThrow())
+        command.read(given(command, rest.drop(command.words.size)) ?: return Command.Help(command))
     } catch (e: UsageException) {
         return Command.Invalid(texts(e.text), command)
     }
@@ -166,7 +165,7 @@ internal fun parseArguments(
 }
 
 /** What [arguments] give [command], null when they ask for its help. */
-private fun given(command: CliCommand, arguments: List<String>): Result<Given>? {
+private fun given(command: CliCommand, arguments: List<String>): Given? {
     val operands = mutableListOf<String>()
     val flags = mutableSetOf<String>()
     val options = mutableMapOf<String, MutableList<String>>()
@@ -186,21 +185,18 @@ private fun given(command: CliCommand, arguments: List<String>): Result<Given>? 
 
             name in command.options -> {
                 val value = if ('=' in arg) arg.substringAfter('=') else arguments.getOrNull(index++)
-                if (value == null || value.startsWith("--")) return failure("usage.needs_value", "option" to name)
+                if (value == null || value.startsWith("--")) throw UsageException("usage.needs_value", "option" to name)
                 options.getOrPut(name, ::mutableListOf) += value
             }
 
             arg.startsWith("-") && arg != "-" && arg.getOrNull(1)?.isDigit() != true ->
-                return failure("usage.unknown_option", "option" to arg)
+                throw UsageException("usage.unknown_option", "option" to arg)
 
             else -> operands += arg
         }
     }
-    return Result.success(Given(operands, flags, options))
+    return Given(operands, flags, options)
 }
-
-private fun failure(key: String, vararg args: Pair<String, Any?>): Result<Given> =
-    Result.failure(UsageException(key, *args))
 
 private fun unknown(words: List<String>, commands: List<CliCommand>, texts: CliTexts): Command {
     val group = commands.filter { it.words.size > 1 && it.words.first() == words.first() }

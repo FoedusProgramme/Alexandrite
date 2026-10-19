@@ -9,9 +9,6 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.tui.Mark
 import org.unitedsoftware.alexandrite.app.tui.columns
 import org.unitedsoftware.alexandrite.app.tui.pad
-import org.unitedsoftware.alexandrite.runtime.ConfigFile
-import org.unitedsoftware.alexandrite.runtime.ConfigFileException
-import org.unitedsoftware.alexandrite.runtime.configProblems
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -33,8 +30,6 @@ internal class Finding(val check: String, val verdict: Verdict, val detail: Stri
 
 private const val GIB = 1024L * 1024 * 1024
 private const val MIB = 1024L * 1024
-
-private val REFERENCE = Regex("\\$\\{env:([A-Za-z_][A-Za-z0-9_]*)}")
 
 /** Checks what Alexandrite needs to run and prints each finding. */
 internal fun doctor(cli: Cli, json: Boolean): Int {
@@ -144,7 +139,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
     } catch (e: IOException) {
         null
     }
-    val unset = raw?.let { strings(it) }.orEmpty().flatMap { text -> REFERENCE.findAll(text).map { it.groupValues[1] } }
+    val unset = raw?.let { strings(it) }.orEmpty().flatMap { referencedVariables(it) }
         .filter { it !in environment }.distinct()
     if (unset.isNotEmpty()) {
         findings += Finding(
@@ -159,11 +154,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
         )
         return raw
     }
-    val problems = try {
-        configProblems(plugins(cli), ConfigFile.read(file, environment)).map { it.message }
-    } catch (e: ConfigFileException) {
-        listOf(e.message.orEmpty())
-    }
+    val problems = configFileProblems(cli, environment)
     findings += if (problems.isEmpty()) {
         Finding("config", Verdict.OK, cli.t("doctor.config_passes", "file" to file))
     } else {
@@ -261,12 +252,12 @@ private fun endpoints(cli: Cli, raw: JsonObject, environment: Map<String, String
         ((value as? JsonObject)?.get("endpoints") as? JsonObject).orEmpty().map { (id, endpoint) ->
             val config = endpoint as? JsonObject ?: JsonObject(emptyMap())
             val check = "endpoint $id"
-            val base = config["baseUrl"].text?.let { resolved(it, environment) } ?: provider.defaultUrl
+            val base = config["baseUrl"].text?.let { resolveReferences(it, environment) } ?: provider.defaultUrl
                 ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_base_url"))
-            val key = config["apiKey"].text?.let { resolved(it, environment) }
+            val key = config["apiKey"].text?.let { resolveReferences(it, environment) }
             val headers = buildMap {
                 (config["headers"] as? JsonObject)?.forEach { (header, text) ->
-                    text.text?.let { resolved(it, environment) }?.let { put(header, it) }
+                    text.text?.let { resolveReferences(it, environment) }?.let { put(header, it) }
                 }
                 putAll(keyHeaders(provider, key))
             }
@@ -317,9 +308,9 @@ private fun telegram(cli: Cli, raw: JsonObject, environment: Map<String, String>
     raw.objectAt("channels.telegram.instances").map { (name, value) ->
         val config = value as? JsonObject ?: JsonObject(emptyMap())
         val check = "telegram:$name"
-        val token = config["botToken"].text?.let { resolved(it, environment) }
+        val token = config["botToken"].text?.let { resolveReferences(it, environment) }
             ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_token"))
-        val base = config["apiBaseUrl"].text?.let { resolved(it, environment) } ?: TELEGRAM_API
+        val base = config["apiBaseUrl"].text?.let { resolveReferences(it, environment) } ?: TELEGRAM_API
         when (val bot = telegramBot(cli, base, token)) {
             is BotCheck.Bot -> Finding(check, Verdict.OK, cli.t("bot.belongs", "bot" to described(cli, bot)))
             is BotCheck.Refused -> Finding(check, Verdict.FAIL, cli.texts(bot.reason))
@@ -331,22 +322,6 @@ private fun service(cli: Cli): Finding {
         ?: return Finding("service", Verdict.WARN, cli.t("doctor.no_service"))
     val state = service.state() ?: cli.t("service.state_unknown")
     return Finding("service", Verdict.OK, cli.t("doctor.service", "service" to service.description, "state" to state))
-}
-
-/** [text] with its `${env:NAME}` references replaced from [environment], null when one is unset. */
-private fun resolved(text: String, environment: Map<String, String>): String? {
-    val parts = text.split("$\${")
-    return parts.map { part ->
-        var missing = false
-        val replaced = REFERENCE.replace(part) { match ->
-            environment[match.groupValues[1]] ?: run {
-                missing = true
-                ""
-            }
-        }
-        if (missing) return null
-        replaced
-    }.joinToString("\${")
 }
 
 private fun JsonObject?.orEmpty(): JsonObject = this ?: JsonObject(emptyMap())

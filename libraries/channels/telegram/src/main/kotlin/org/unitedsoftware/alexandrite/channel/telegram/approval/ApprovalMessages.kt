@@ -1,6 +1,6 @@
 package org.unitedsoftware.alexandrite.channel.telegram.approval
 
-import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 
 /** The messages that showed the latest approval requests, by Telegram chat and message id. */

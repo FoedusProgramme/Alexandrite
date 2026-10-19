@@ -32,9 +32,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import java.time.Instant
 import java.util.Locale
 
-/** The bot as Telegram knows it. */
-internal class BotIdentity(val id: Long, val username: String)
-
 /** What a Telegram message is to the channel. */
 internal sealed interface Inbound {
     class Message(val message: IncomingMessage) : Inbound
@@ -183,7 +180,7 @@ internal class UpdateReader(
             .height((media.height ?: media.length)?.takeIf { it > 0 })
             .name(name?.takeIf { it.isNotBlank() })
             .fromQuote(quoted)
-            .unavailable(TOO_LARGE.takeIf { tooLarge })
+            .unavailable(TOO_LARGE_TO_DOWNLOAD.takeIf { tooLarge })
             .build()
     }
 
@@ -345,8 +342,6 @@ private const val OCTETS = "application/octet-stream"
 
 /** The image types that a document may hold as a picture. */
 private val IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
-
-private const val TOO_LARGE = "larger than the 20 MB that a bot may download from Telegram"
 
 /** Whether [message] holds media or other content than text. */
 private fun hasContent(message: Message): Boolean = CONTENT.any { it(message) }

@@ -103,12 +103,8 @@ internal class ChatDesk(
     suspend fun paired(): List<PairedChat> = pairings.paired().filter { it.chat.instance == instance }
 
     /** Calls [method] with [params] for [target] at the chat's pace, a [ToolProblem] when Telegram refuses it. */
-    suspend fun act(target: Target, method: String, params: JsonObject): JsonElement = try {
-        outbox.paced(target) { api.act(method, params) }
-    } catch (e: BotApiException) {
-        outbox.checkToken(e)
-        throw ToolProblem(e.message ?: "$method failed.")
-    }
+    suspend fun act(target: Target, method: String, params: JsonObject): JsonElement =
+        call(method, params) { outbox.paced(target, it) }
 
     /** Sends what [method] with [params] posts in [chat], after what the chat's open replies hold so far. */
     suspend fun post(chat: ChatAddress, method: String, params: JsonObject): JsonElement {
@@ -117,8 +113,15 @@ internal class ChatDesk(
     }
 
     /** Calls the read [method] with [params] at the bot's pace, a [ToolProblem] when Telegram refuses it. */
-    suspend fun read(method: String, params: JsonObject): JsonElement = try {
-        limiter.message(null) { api.act(method, params) }
+    suspend fun read(method: String, params: JsonObject): JsonElement =
+        call(method, params) { limiter.message(null, it) }
+
+    private suspend fun call(
+        method: String,
+        params: JsonObject,
+        pacing: suspend (suspend () -> JsonElement) -> JsonElement,
+    ): JsonElement = try {
+        pacing { api.act(method, params) }
     } catch (e: BotApiException) {
         outbox.checkToken(e)
         throw ToolProblem(e.message ?: "$method failed.")

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.internal.path
 
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -25,9 +26,7 @@ public class NameCaseProbe(
     /** How [directory] compares names, looked up through [entry] in it, null when that cannot tell. */
     private val directoryCase: (directory: Path, entry: Path?) -> NameCase? = ::directoryCase,
 ) {
-    private val known = object : LinkedHashMap<Path, Probed>(INITIAL, LOAD_FACTOR, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Path, Probed>): Boolean = size > MAX_KNOWN
-    }
+    private val known = BoundedMap<Path, Probed>(MAX_KNOWN)
 
     /** How the directories from the root down to [existing], an existing real path, compare names. */
     public fun nameCase(existing: Path): NameCase {
@@ -63,8 +62,6 @@ public class NameCaseProbe(
 
     private companion object {
         const val MAX_KNOWN = 4096
-        const val INITIAL = 16
-        const val LOAD_FACTOR = 0.75f
     }
 }
 

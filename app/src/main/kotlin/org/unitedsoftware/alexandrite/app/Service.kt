@@ -26,7 +26,7 @@ internal sealed class Service(protected val cli: Cli) {
     abstract val definition: Path?
 
     /** Where its log is, for people. */
-    abstract val logs: String
+    abstract val logsHint: String
 
     /** Writes its definition for [launch] and registers it with the manager, which then starts it at each login. */
     abstract fun install(launch: Launch): Int
@@ -72,7 +72,7 @@ internal sealed class Service(protected val cli: Cli) {
     class Systemd(cli: Cli, override val definition: Path) : Service(cli) {
         override val description = cli.t("service.systemd", "unit" to SYSTEMD_UNIT)
 
-        override val logs: String = "journalctl --user --unit $SYSTEMD_UNIT"
+        override val logsHint: String = "journalctl --user --unit $SYSTEMD_UNIT"
 
         private val user: String? by lazy {
             cli.environment["USER"]?.takeIf { it.isNotEmpty() }
@@ -127,7 +127,7 @@ internal sealed class Service(protected val cli: Cli) {
     class Launchd(cli: Cli, override val definition: Path) : Service(cli) {
         override val description = cli.t("service.launchd", "label" to LAUNCHD_LABEL)
 
-        override val logs: String get() = "${logFile()}"
+        override val logsHint: String get() = "${logFile()}"
 
         private val domain: String by lazy { "gui/${execute("id", "-u").output.trim()}" }
 
@@ -186,7 +186,7 @@ internal sealed class Service(protected val cli: Cli) {
 
         override val definition: Path? = null
 
-        override val logs: String get() = "${serviceLog(cli.locations)}"
+        override val logsHint: String get() = "${serviceLog(cli.locations)}"
 
         override fun install(launch: Launch): Int {
             val user = listOf("USERDOMAIN", "USERNAME").map { cli.environment[it].orEmpty() }

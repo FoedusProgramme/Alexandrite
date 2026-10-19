@@ -28,3 +28,7 @@ internal class TelegramFiles(private val api: BotApi, private val limiter: SendL
 
 /** The most bytes of a file that a bot may download from Telegram. */
 internal const val MAX_DOWNLOAD_BYTES: Long = 20L * 1024 * 1024
+
+/** Why a file past [MAX_DOWNLOAD_BYTES] is unavailable. */
+internal const val TOO_LARGE_TO_DOWNLOAD =
+    "larger than the ${MAX_DOWNLOAD_BYTES / (1024 * 1024)} MB that a bot may download from Telegram"

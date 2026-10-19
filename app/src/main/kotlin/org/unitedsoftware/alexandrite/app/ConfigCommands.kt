@@ -151,13 +151,17 @@ internal fun configGet(cli: Cli, key: String?, json: Boolean): Int {
     return ExitCode.OK
 }
 
+/** The problems of the config file read with [environment], empty when it passes. */
+internal fun configFileProblems(cli: Cli, environment: Map<String, String>): List<String> = try {
+    configProblems(plugins(cli), ConfigFile.read(cli.locations.configFile, environment)).map { it.message }
+} catch (e: ConfigFileException) {
+    listOf(e.message.orEmpty())
+}
+
 internal fun configCheck(cli: Cli, json: Boolean): Int {
     val file = cli.locations.configFile
     val problems = try {
-        val source = ConfigFile.read(file, withSecrets(cli.environment, cli.secrets))
-        configProblems(plugins(cli), source).map { it.message }
-    } catch (e: ConfigFileException) {
-        listOf(e.message.orEmpty())
+        configFileProblems(cli, withSecrets(cli.environment, cli.secrets))
     } catch (e: IOException) {
         listOf(cli.t("secret.unreadable", "file" to SECRETS_FILE, "reason" to (e.message ?: e)))
     }

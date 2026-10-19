@@ -2,12 +2,12 @@ package org.unitedsoftware.alexandrite.channel.telegram.intake
 
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.channel.common.pairing.InstancePairing
-import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramInstanceConfig
 import org.unitedsoftware.alexandrite.channel.telegram.configPath
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.channel.telegram.pairing.TelegramPairingDesk
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress

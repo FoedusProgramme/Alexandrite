@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.channel.telegram
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.ADA
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.BOB
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.GROUP
-import org.unitedsoftware.alexandrite.channel.telegram.menu.candidates
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
@@ -122,13 +121,26 @@ class TelegramMenuTest {
     }
 
     @Test
-    fun `the languages a menu may go out in are those of the chats, then each two-letter one by itself`() {
-        val languages = candidates(listOf(LanguageTag("zh-TW"), CHINESE, LanguageTag("fil"), LanguageTag("pt-BR")))
+    fun `a two-letter menu goes out in the language of a chat that has one, else in the bare language`() {
+        val notes = DescribedCommands()
+        val builder = telegram.builder("work" to telegram.instance(more = """, "commands": {"notes": "anyone"}"""))
+            .commandHandler(notes)
 
-        assertEquals(listOf("pt" to LanguageTag("pt-BR"), "zh" to CHINESE), languages.take(2))
-        assertTrue("en" to LanguageTag("en") in languages)
-        assertEquals(languages.map { it.first }.distinct(), languages.map { it.first })
-        assertTrue(languages.all { it.first.length == 2 })
+        telegram.run(builder) {
+            assertEquals("列出笔记。", fake.await { menu("all_private_chats", language = "zh") }["notes"])
+
+            val taiwan = ChatSettingsUpdate.builder().language(LanguageTag("zh-TW")).build()
+            telegram.control.settings.update(bobAddress, taiwan, null)
+            fake.send(telegram.bob, telegram.bobChat, "/settings")
+
+            val traditional = fake.await {
+                menu("all_private_chats", language = "zh")?.get("notes")?.takeIf {
+                    it !=
+                        "列出笔记。"
+                }
+            }
+            assertEquals("列出筆記。", traditional)
+        }
     }
 
     // Who may run what.
@@ -174,8 +186,11 @@ class TelegramMenuTest {
 
         override val commands: List<CommandSpec> = listOf(CommandSpec.builder("notes", "Lists the notes.").build())
 
-        override fun description(command: String, language: LanguageTag?): String =
-            if (language?.value?.startsWith("zh") == true) "列出笔记。" else english
+        override fun description(command: String, language: LanguageTag?): String = when {
+            language?.value == "zh-TW" -> "列出筆記。"
+            language?.value?.startsWith("zh") == true -> "列出笔记。"
+            else -> english
+        }
 
         override suspend fun handle(invocation: CommandInvocation, context: CommandContext): Unit =
             error("The test runs no command.")

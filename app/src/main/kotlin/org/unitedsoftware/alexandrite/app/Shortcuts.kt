@@ -271,7 +271,7 @@ internal fun telegramChanges(
     apiBaseUrl: String?,
 ): List<ConfigChangeView> {
     val instance = buildJsonObject {
-        put("botToken", "\${env:$secret}")
+        put("botToken", envReference(secret))
         put("adminUserIds", buildJsonArray { admins.forEach { add(it) } })
         put("allowedChats", buildJsonArray { admins.forEach { add(it) } })
         apiBaseUrl?.let { put("apiBaseUrl", it) }
@@ -313,12 +313,10 @@ internal fun configuredBot(cli: Cli, config: JsonObject, token: String): String?
     }
     return config.objectAt(TELEGRAM_INSTANCES).entries.firstOrNull { (_, value) ->
         val written = (value as? JsonObject)?.get("botToken").text ?: return@firstOrNull false
-        val variable = REFERENCE.matchEntire(written)?.groupValues?.get(1)
+        val variable = referencedVariable(written)
         (if (variable != null) environment[variable] else written) == token
     }?.key
 }
-
-private val REFERENCE = Regex("\\$\\{env:([A-Za-z_][A-Za-z0-9_]*)}")
 
 // MCP servers.
 
@@ -426,13 +424,4 @@ private fun mcpAnswered(cli: Cli, server: String, request: ControlRequest): Int 
         else -> cli.fail(cli.t("unexpected_answer"))
     }
 
-/** The running app's answer to [request], null after printing that none runs or why it failed. */
-private fun mcpAsk(cli: Cli, request: ControlRequest): ControlReply? = try {
-    cli.ask(request) ?: run {
-        cli.fail(cli.t("mcp.not_running"), ExitCode.UNAVAILABLE)
-        null
-    }
-} catch (e: IOException) {
-    cli.fail(cli.t("unreachable", "reason" to (e.message ?: e)))
-    null
-}
+private fun mcpAsk(cli: Cli, request: ControlRequest): ControlReply? = cli.askOrFail(request, cli.t("mcp.not_running"))

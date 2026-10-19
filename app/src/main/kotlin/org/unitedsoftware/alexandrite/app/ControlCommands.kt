@@ -102,8 +102,8 @@ internal fun pairings(cli: Cli, json: Boolean): Int {
     if (reply !is ControlReply.Pairings) return answered(cli, reply)
     cli.printJson(
         buildJsonObject {
-            put("waiting", PROTOCOL.encodeToJsonElement(ListSerializer(RequestView.serializer()), reply.requests))
-            put("paired", PROTOCOL.encodeToJsonElement(ListSerializer(PairedView.serializer()), reply.paired))
+            put("waiting", OUTPUT_JSON.encodeToJsonElement(ListSerializer(RequestView.serializer()), reply.requests))
+            put("paired", OUTPUT_JSON.encodeToJsonElement(ListSerializer(PairedView.serializer()), reply.paired))
         },
     )
     return ExitCode.OK
@@ -114,7 +114,7 @@ internal fun chats(cli: Cli, json: Boolean): Int {
     val reply = asked(cli, ControlRequest.Chats) ?: return ExitCode.UNAVAILABLE
     if (reply !is ControlReply.Chats) return answered(cli, reply)
     if (json) {
-        cli.printJson(PROTOCOL.encodeToJsonElement(ListSerializer(ChatView.serializer()), reply.chats))
+        cli.printJson(OUTPUT_JSON.encodeToJsonElement(ListSerializer(ChatView.serializer()), reply.chats))
         return ExitCode.OK
     }
     if (reply.chats.isEmpty()) return cli.done(cli.t("pairing.none_paired"))
@@ -129,17 +129,8 @@ internal fun chats(cli: Cli, json: Boolean): Int {
     return ExitCode.OK
 }
 
-/** The running app's answer to [request], null after printing that none runs or why it failed. */
-private fun asked(cli: Cli, request: ControlRequest): ControlReply? = try {
-    cli.ask(request) ?: run {
-        val socket = controlSocket(cli.locations.dataDir)
-        cli.fail(cli.t("control.not_running", "directory" to socket.parent), ExitCode.UNAVAILABLE)
-        null
-    }
-} catch (e: IOException) {
-    cli.fail(e.message ?: "$e")
-    null
-}
+private fun asked(cli: Cli, request: ControlRequest): ControlReply? =
+    cli.askOrFail(request, cli.t("control.not_running", "directory" to controlSocket(cli.locations.dataDir).parent))
 
 private fun answered(cli: Cli, reply: ControlReply): Int = when (reply) {
     ControlReply.NoDesk -> cli.fail(cli.t("pairing.no_desk"))
@@ -147,7 +138,7 @@ private fun answered(cli: Cli, reply: ControlReply): Int = when (reply) {
     else -> cli.fail(cli.t("unexpected_answer"))
 }
 
-private val PROTOCOL = Json { encodeDefaults = true }
+private val OUTPUT_JSON = Json { encodeDefaults = true }
 
 private fun pairings(
     t: CliTexts,

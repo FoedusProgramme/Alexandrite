@@ -10,12 +10,12 @@ internal class TelegramBots {
     private val instances = HashMap<String, ChannelInstanceId>()
     private val streaming = ConcurrentHashMap<ChannelInstanceId, StreamingConfig>()
 
-    /** Notes [config] as how the bot of [instance] streams its replies until it [stopped]. */
-    fun started(instance: ChannelInstanceId, config: StreamingConfig) {
+    /** Notes [config] as how the bot of [instance] streams its replies until [streamingStopped]. */
+    fun streamingStarted(instance: ChannelInstanceId, config: StreamingConfig) {
         streaming[instance] = config
     }
 
-    fun stopped(instance: ChannelInstanceId) {
+    fun streamingStopped(instance: ChannelInstanceId) {
         streaming.remove(instance)
     }
 

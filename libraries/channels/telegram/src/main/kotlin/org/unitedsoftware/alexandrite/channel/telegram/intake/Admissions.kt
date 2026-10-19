@@ -1,11 +1,11 @@
 package org.unitedsoftware.alexandrite.channel.telegram.intake
 
 import org.slf4j.LoggerFactory
-import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.api.Message
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.channel.telegram.replay.Replay
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind

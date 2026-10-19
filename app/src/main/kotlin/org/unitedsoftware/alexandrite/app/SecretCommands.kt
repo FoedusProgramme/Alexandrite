@@ -42,7 +42,7 @@ internal fun secretUnset(cli: Cli, name: String): Int {
     val written = editSecrets(cli) { had = it.remove(name) != null } ?: return ExitCode.FAILURE
     if (!had) return cli.fail(cli.t("secret.not_held", "file" to written, "name" to name))
     cli.out.println(cli.t("secret.removed", "name" to name, "file" to written))
-    val referenced = cli.rawConfig()?.let { "\${env:$name}" in "$it" } == true
+    val referenced = cli.rawConfig()?.let { envReference(name) in "$it" } == true
     if (referenced) cli.out.println(cli.t("secret.still_referred", "name" to name))
     return cli.done(afterChange(cli))
 }
