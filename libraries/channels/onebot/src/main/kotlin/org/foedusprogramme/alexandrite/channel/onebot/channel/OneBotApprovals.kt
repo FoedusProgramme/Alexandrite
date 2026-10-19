@@ -346,26 +346,29 @@ internal class OneBotApprovals(
     }
 
     /** What [request] is about in [language]: its preview, else its arguments. */
-    private fun body(request: ApprovalRequest, language: LanguageTag?): String = when (val preview = request.preview) {
-        is ReviewPreview.Diff ->
-            text(TextKeys.APPROVAL_FILE, language, "path" to preview.path) + "\n\n" + preview.unified
+    private fun body(request: ApprovalRequest, language: LanguageTag?): String {
+        val said = when (val preview = request.preview) {
+            is ReviewPreview.Diff ->
+                text(TextKeys.APPROVAL_FILE, language, "path" to preview.path) + "\n\n" + preview.unified
 
-        is ReviewPreview.Command -> buildString {
-            append(text(TextKeys.APPROVAL_DIRECTORY, language, "directory" to preview.cwd)).append('\n')
-            append(
-                text(
-                    TextKeys.APPROVAL_PROGRAM,
-                    language,
-                    "program" to (preview.executable ?: text(TextKeys.APPROVAL_PROGRAM_UNKNOWN, language)),
-                ),
-            )
-            if (preview.opaque) append(' ').append(text(TextKeys.APPROVAL_OPAQUE, language))
-            append("\n\n").append(commandLine(preview.argv))
+            is ReviewPreview.Command -> buildString {
+                append(text(TextKeys.APPROVAL_DIRECTORY, language, "directory" to preview.cwd)).append('\n')
+                append(
+                    text(
+                        TextKeys.APPROVAL_PROGRAM,
+                        language,
+                        "program" to (preview.executable ?: text(TextKeys.APPROVAL_PROGRAM_UNKNOWN, language)),
+                    ),
+                )
+                if (preview.opaque) append(' ').append(text(TextKeys.APPROVAL_OPAQUE, language))
+                append("\n\n").append(commandLine(preview.argv))
+            }
+
+            is ReviewPreview.Text -> preview.text
+
+            else -> text(TextKeys.APPROVAL_ARGUMENTS, language) + "\n" + request.arguments
         }
-
-        is ReviewPreview.Text -> preview.text
-
-        else -> text(TextKeys.APPROVAL_ARGUMENTS, language) + "\n" + request.arguments
+        return if (said.length <= MAX_BODY) said else said.take(MAX_BODY) + "\n…"
     }
 
     /** One request on its way, with the messages that carry it by the chat they are in. */
@@ -454,5 +457,8 @@ private fun commandLine(argv: List<String>): String = argv.joinToString(" ") { w
 
 /** The characters a shell takes as part of a word. */
 private const val PLAIN = "-_./=:,+@%"
+
+/** How much of an approval's body one chat message carries. */
+private const val MAX_BODY = 1_500
 
 private val logger = LoggerFactory.getLogger(OneBotApprovals::class.java)

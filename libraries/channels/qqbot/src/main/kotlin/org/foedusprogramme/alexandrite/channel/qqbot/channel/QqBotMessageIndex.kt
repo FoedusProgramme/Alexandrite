@@ -2,7 +2,7 @@ package org.foedusprogramme.alexandrite.channel.qqbot.channel
 
 import org.foedusprogramme.alexandrite.sdk.chat.ChatAddress
 import org.foedusprogramme.alexandrite.sdk.di.Singleton
-import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 
 /**
  * The message ids behind the reference indexes the platform uses for quotes.
@@ -13,9 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @Singleton
 internal class QqBotMessageIndex {
-    private val ids = ConcurrentHashMap<Key, String>()
-    private val references = ConcurrentHashMap<Key, String>()
-    private val quotes = ConcurrentHashMap<Key, String>()
+    private val ids = bounded()
+    private val references = bounded()
+    private val quotes = bounded()
 
     private data class Key(val chat: ChatAddress, val reference: String)
 
@@ -40,4 +40,15 @@ internal class QqBotMessageIndex {
 
     /** The message id that the message [trigger] of [chat] quotes, null when it quotes none this process saw. */
     fun quotedTarget(chat: ChatAddress, trigger: String?): String? = trigger?.let { quotes[Key(chat, it)] }
+
+    /** A map that keeps the most recent [KEPT] entries, so a long-running bot does not grow without bound. */
+    private fun bounded(): MutableMap<Key, String> = Collections.synchronizedMap(
+        object : LinkedHashMap<Key, String>(64, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, String>?): Boolean = size > KEPT
+        },
+    )
+
+    private companion object {
+        const val KEPT = 1024
+    }
 }
