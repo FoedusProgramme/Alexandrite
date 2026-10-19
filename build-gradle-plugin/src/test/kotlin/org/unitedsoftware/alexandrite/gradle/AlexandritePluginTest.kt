@@ -3,7 +3,10 @@ package org.unitedsoftware.alexandrite.gradle
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.artifacts.ExternalDependency
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.testfixtures.ProjectBuilder
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -84,5 +87,15 @@ class AlexandritePluginTest {
         val failure = assertFailsWith<GradleException> { KspOptions(project().alexandrite).asArguments() }
 
         assertContains(failure.message.orEmpty(), "alexandrite { pluginId = \"my-plugin\" }")
+    }
+
+    @Test
+    fun `classes target the host's Java release whatever JDK builds them`() {
+        val project = project()
+
+        val kotlin = project.tasks.withType(KotlinJvmCompile::class.java).getByName("compileKotlin")
+        val java = project.tasks.withType(JavaCompile::class.java).getByName("compileJava")
+        assertEquals(JvmTarget.JVM_21, kotlin.compilerOptions.jvmTarget.get())
+        assertEquals(21, java.options.release.get())
     }
 }
