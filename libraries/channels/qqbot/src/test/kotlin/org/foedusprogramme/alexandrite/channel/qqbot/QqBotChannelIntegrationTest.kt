@@ -413,6 +413,45 @@ class QqBotChannelIntegrationTest {
     }
 
     @Test
+    fun `an approval can be denied by a press`() {
+        val api = FakeApiServer()
+        api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
+        api.on(SEND_DIRECT, """{"id":"sent1","timestamp":"2026-07-21T10:00:00+08:00"}""")
+        val platform = FakeGatewayServer().startAndAwait()
+        val submitter = RecordingTurnSubmitter()
+        try {
+            runBlocking {
+                PluginHarness.builder(AlexandriteChannelQqbotIndex())
+                    .config(config(api.base, platform.url, admins = setOf("u1")))
+                    .turnSubmitter(submitter)
+                    .build()
+                    .run {
+                        assertTrue(platform.awaitConnection(), "the gateway was not connected")
+                        val channel = get(directory).channel(instance) ?: error("the instance has no channel")
+                        val chat = ChatAddress(instance, "private:u1")
+                        val request = ApprovalRequest(
+                            "req1",
+                            testTurn(chat = chat),
+                            "command.exec",
+                            ToolRisk.EXEC,
+                            "{}",
+                            null,
+                            "it runs a command",
+                            null,
+                        )
+                        val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
+                        assertNotNull(api.awaitRequest(SEND_DIRECT))
+                        platform.push(APPROVAL_DENY)
+                        assertIs<ApprovalAnswer.Denied>(withTimeout(10.seconds) { waiting.await() })
+                    }
+            }
+        } finally {
+            platform.stop()
+            api.close()
+        }
+    }
+
+    @Test
     fun `a command reaches the agent as a command rather than as a message`() {
         val api = FakeApiServer()
         api.on(TOKEN_PATH, """{"access_token":"access","expires_in":"7200"}""")
@@ -529,6 +568,10 @@ class QqBotChannelIntegrationTest {
         const val APPROVAL_PRESS = """{"id":"event-approve","op":0,"s":2,"t":"C2C_MESSAGE_CREATE","d":""" +
             """{"id":"msg-approve","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
             """"content":"/approve req1","message_type":0,"timestamp":"2026-07-21T10:00:00+08:00"}}"""
+
+        const val APPROVAL_DENY = """{"id":"event-deny","op":0,"s":2,"t":"C2C_MESSAGE_CREATE","d":""" +
+            """{"id":"msg-deny","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
+            """"content":"/deny req1","message_type":0,"timestamp":"2026-07-21T10:00:00+08:00"}}"""
 
         const val COMMAND_EVENT = """{"id":"event-command","op":0,"s":3,"t":"C2C_MESSAGE_CREATE","d":""" +
             """{"id":"msg-command","author":{"id":"u1","user_openid":"u1","username":"Ada","bot":false},""" +
