@@ -29,9 +29,7 @@ internal class Redactor {
 
     fun request(request: StopRequest): StopRequest {
         val reason = text(request.reason)
-        if (reason == request.reason) return request
-        val masked = StopRequest(request.kind, reason)
-        return request.plugin?.let(masked::from) ?: masked
+        return if (reason == request.reason) request else request.withReason(reason)
     }
 
     /** [error], or a copy of it with its text masked when that text holds anything to mask. */

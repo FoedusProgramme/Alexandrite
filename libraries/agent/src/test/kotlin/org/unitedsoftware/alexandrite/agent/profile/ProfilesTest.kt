@@ -85,19 +85,15 @@ class ProfilesTest {
 
         assertEquals(ProfileSource.Config, summary?.source)
         assertEquals(
-            AgentProfile(
-                AgentId("coder"),
-                "coder",
-                "Codes.",
-                "Be brief.\n\nRead the code first.",
-                ModelRef.parse("scripted/test-model"),
-                ReasoningEffort.HIGH,
-                listOf("fs.*"),
-                listOf("fs.write"),
-                PermissionMode.ASK,
-                10,
-                1000,
-            ),
+            AgentProfile.builder(AgentId("coder"), "coder", "Codes.", "Be brief.\n\nRead the code first.")
+                .model(ModelRef.parse("scripted/test-model"))
+                .reasoning(ReasoningEffort.HIGH)
+                .toolsAllow(listOf("fs.*"))
+                .toolsDeny(listOf("fs.write"))
+                .mode(PermissionMode.ASK)
+                .maxRounds(10)
+                .maxTurnTokens(1000)
+                .build(),
             summary?.profile,
         )
     }
@@ -114,7 +110,7 @@ class ProfilesTest {
 
     @Test
     fun `a plugin-contributed profile is listed, an id a config entry or another plugin uses fails the start`() {
-        val reviewer = AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict.")
+        val reviewer = AgentProfile.builder(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict.").build()
 
         val all = blocking { profiles(contributed = listOf(reviewer)).all() }
 
@@ -129,7 +125,7 @@ class ProfilesTest {
     fun `a config entry named general replaces the built-in profile`() {
         val config = """{"agents": {"general": {"description": "A custom one."}}}"""
 
-        val all = blocking { profiles(config, listOf(GeneralProfile())).all() }
+        val all = blocking { profiles(config, listOf(GENERAL_PROFILE)).all() }
 
         assertEquals(
             listOf(Triple(AgentId("general"), "A custom one.", ProfileSource.Config)),
@@ -141,7 +137,7 @@ class ProfilesTest {
 
     @Test
     fun `a record of an id that config or a plugin already uses is never listed or editable`() {
-        val reviewer = AgentProfile(AgentId("reviewer"), "Plugin's", "Plugin's own.", "Be strict.")
+        val reviewer = AgentProfile.builder(AgentId("reviewer"), "Plugin's", "Plugin's own.", "Be strict.").build()
         val catalog = profiles("""{"agents": {"coder": {"description": "Codes."}}}""", listOf(reviewer))
 
         assertFailsWith<ToolRefusal> { blocking { catalog.create(draft("coder"), operator) } }
@@ -224,7 +220,7 @@ class ProfilesTest {
 
     @Test
     fun `editing an unknown, a config's or a plugin's profile is refused`() {
-        val reviewer = AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews.", "Be strict.")
+        val reviewer = AgentProfile.builder(AgentId("reviewer"), "Reviewer", "Reviews.", "Be strict.").build()
         val catalog = profiles(contributed = listOf(reviewer))
 
         assertFailsWith<ToolRefusal> { blocking { catalog.plannedEdit(AgentId("ghost"), ProfileEdit()) } }

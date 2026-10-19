@@ -50,7 +50,7 @@ class MemoryStoreTest {
         val clock = Clock.offset(Clock.fixed(TEST_TIME, ZoneOffset.UTC), Duration.ofNanos(123_456_789))
         val store = MemoryStore(clock)
         val conversation = blocking { store.conversations.current(AgentChatKey(AgentId.MAIN, testChat())) }
-        val turn = testTurn { conversation(conversation.id) }
+        val turn = testTurn(conversation = conversation.id)
 
         val stored = blocking {
             store.conversations.startTurn(turn)

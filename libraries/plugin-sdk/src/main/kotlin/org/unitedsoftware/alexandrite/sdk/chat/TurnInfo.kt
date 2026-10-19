@@ -45,20 +45,24 @@ public class TurnInfo private constructor(
     public val actorIsOperator: Boolean get() = actor?.isOperator == true
 
     /** A builder of this turn, whose key follows its agent and chat unless it is kept at another chat. */
-    public fun toBuilder(): Builder = Builder(id, chat, conversation, kind)
-        .actor(actor)
-        .language(language)
-        .zone(zone)
-        .agent(agent)
-        .lineage(lineage)
-        .replyTarget(replyTarget)
-        .key(key.takeUnless { it == AgentChatKey(agent, chat) })
+    public fun toBuilder(): Builder = toBuilder(id, conversation)
+
+    /** A builder of the turn [id] in [conversation] that is otherwise this one. */
+    public fun toBuilder(id: TurnId, conversation: ConversationId = this.conversation): Builder =
+        Builder(id, chat, conversation, kind)
+            .actor(actor)
+            .language(language)
+            .zone(zone)
+            .agent(agent)
+            .lineage(lineage)
+            .replyTarget(replyTarget)
+            .key(key.takeUnless { it == AgentChatKey(agent, chat) })
 
     public class Builder internal constructor(
-        private var id: TurnId,
-        private var chat: ChatAddress,
-        private var conversation: ConversationId,
-        private var kind: TurnKind,
+        private val id: TurnId,
+        private val chat: ChatAddress,
+        private val conversation: ConversationId,
+        private val kind: TurnKind,
     ) {
         private var actor: ChatUser? = null
         private var language: LanguageTag? = null
@@ -67,14 +71,6 @@ public class TurnInfo private constructor(
         private var lineage: TurnLineage? = null
         private var replyTarget: ReplyTarget = ReplyTarget.CHAT
         private var key: AgentChatKey? = null
-
-        public fun id(id: TurnId): Builder = apply { this.id = id }
-
-        public fun chat(chat: ChatAddress): Builder = apply { this.chat = chat }
-
-        public fun conversation(conversation: ConversationId): Builder = apply { this.conversation = conversation }
-
-        public fun kind(kind: TurnKind): Builder = apply { this.kind = kind }
 
         public fun actor(actor: ChatUser?): Builder = apply { this.actor = actor }
 

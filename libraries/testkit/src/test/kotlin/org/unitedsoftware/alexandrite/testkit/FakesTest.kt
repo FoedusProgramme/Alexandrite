@@ -296,6 +296,19 @@ class FakesTest {
     }
 
     @Test
+    fun `a recording agent's unscripted report of every agent lists the other agents after the chat's`() = blocking {
+        val control = RecordingAgent()
+        control.scriptAgent(AgentId("coder"))
+
+        val own = control.usage.report(testChat()).agents
+        val every = control.usage.report(testChat(), everyAgent = true).agents
+
+        assertEquals(listOf(AgentId.MAIN), own.map { it.agent })
+        assertEquals(listOf(AgentId.MAIN, AgentId("coder")), every.map { it.agent })
+        assertEquals(emptyList(), every.last().chat)
+    }
+
+    @Test
     fun `a recording agent lists the jobs of a chat and finds them when it stops or cancels`() {
         val control = RecordingAgent()
         val (chat, other) = listOf(testChat(), testChat("other"))
@@ -482,9 +495,13 @@ class FakesTest {
             control.settings.update(chat, ChatSettingsUpdate.builder().agent(helper).home().build(), null)
         }
         val languages = blocking {
-            val german = control.settings.language(chat)
+            val german = control.settings.snapshot(chat).effectiveLanguage
             control.settings.update(chat, ChatSettingsUpdate.builder().language(LanguageTag("fr")).build(), null)
-            listOf(german, control.settings.language(chat), control.settings.language(testChat("other")))
+            listOf(
+                german,
+                control.settings.snapshot(chat).effectiveLanguage,
+                control.settings.snapshot(testChat("other")).effectiveLanguage,
+            )
         }
 
         assertEquals(

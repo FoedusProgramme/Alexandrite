@@ -77,7 +77,7 @@ class RuntimeChangesTest {
         }
         """.trimIndent(),
         store,
-    ) { channel().channel("side").model(model).hook(sealed).writeConfigFile(file).apply(configure) }
+    ) { channel().channel("side").model(model).hook(sealed).keptConfigFile(file).apply(configure) }
 
     /** The agent's records of [collection] as `<key> by <who>`. */
     private fun stored(collection: String): List<String> =

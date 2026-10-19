@@ -53,6 +53,11 @@ class TurnValuesTest {
 
     private fun invocation(name: String = "new"): CommandInvocation.Builder = CommandInvocation.builder(chat, name, ada)
 
+    @Test
+    fun `a mandate names a grant`() {
+        assertFailsWith<IllegalArgumentException> { Mandate("") }
+    }
+
     // Commands.
 
     @Test
@@ -80,7 +85,8 @@ class TurnValuesTest {
         val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isOperator = false)
 
         assertFailsWith<IllegalArgumentException> { invocation().trigger(elsewhere).build() }
-        val error = assertFailsWith<IllegalArgumentException> { invocation().issuer(stranger).build() }
+        val error =
+            assertFailsWith<IllegalArgumentException> { CommandInvocation.builder(chat, "new", stranger).build() }
         assertEquals("The issuer telegram:home@1 is no user of channel instance telegram:work.", error.message)
     }
 
@@ -130,10 +136,7 @@ class TurnValuesTest {
     @Test
     fun `the message of a command submission is the invocation's trigger, sent by its issuer`() {
         val untriggered = invocation().build()
-        val bobs = untriggered.rebuild {
-            trigger(ref)
-            issuer(bob)
-        }
+        val bobs = CommandInvocation.builder(chat, "new", bob).trigger(ref).build()
 
         assertFailsWith<IllegalArgumentException> { Submission.Command(untriggered, message()) }
         assertFailsWith<IllegalArgumentException> { Submission.Command(bobs, message()) }

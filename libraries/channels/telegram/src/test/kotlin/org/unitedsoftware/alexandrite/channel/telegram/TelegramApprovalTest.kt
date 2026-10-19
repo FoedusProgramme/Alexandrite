@@ -100,7 +100,7 @@ class TelegramApprovalTest {
 
     private fun request(preview: ReviewPreview?): ApprovalRequest {
         val turn = testTurn(chat = telegram.address(ADA)) { actor(ada) }
-        return ApprovalRequest("k3x9", turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", preview, "a test", null)
+        return ApprovalRequest("k3x9", turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", preview, "a test")
     }
 
     private fun PluginHarness.Running.telegramChannel() = checkNotNull(get<ChannelDirectory>().channel(WORK))

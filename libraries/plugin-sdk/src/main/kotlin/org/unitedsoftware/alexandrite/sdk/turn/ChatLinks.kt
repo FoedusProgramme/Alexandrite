@@ -35,14 +35,14 @@ public interface ChatLinks {
 
 /** Chats whose messages to [agent] continue one conversation, kept at [anchor]. */
 @Poko
-public class ChatLinkGroup(
+public class ChatLinkGroup private constructor(
     public val agent: AgentId,
     public val anchor: ChatAddress,
     public val members: List<ChatAddress>,
     /** Whether the config file declares the group. */
-    public val declared: Boolean = false,
+    public val declared: Boolean,
     /** The links of [members] made at runtime, by member. */
-    public val links: Map<ChatAddress, ChatLink> = emptyMap(),
+    public val links: Map<ChatAddress, ChatLink>,
 ) {
     init {
         require(members.isNotEmpty()) { "A linked group of $anchor has at least one member." }
@@ -50,6 +50,16 @@ public class ChatLinkGroup(
             "A linked group holds each chat once, was $anchor with $members."
         }
         require(members.containsAll(links.keys)) { "A linked group has links of its members only, was ${links.keys}." }
+    }
+
+    public companion object {
+        public operator fun invoke(
+            agent: AgentId,
+            anchor: ChatAddress,
+            members: List<ChatAddress>,
+            declared: Boolean = false,
+            links: Map<ChatAddress, ChatLink> = emptyMap(),
+        ): ChatLinkGroup = ChatLinkGroup(agent, anchor, members.toList(), declared, links.toMap())
     }
 }
 

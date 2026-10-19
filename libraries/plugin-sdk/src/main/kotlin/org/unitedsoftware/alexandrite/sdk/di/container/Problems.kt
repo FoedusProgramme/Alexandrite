@@ -32,7 +32,7 @@ internal object Problems {
 
     fun pluginMismatch(id: String, binding: Binding<*>): Problem = Problem(
         PLUGIN_MISMATCH,
-        "Plugin mismatch: the bindings of plugin '$id' include ${label(binding)}, " +
+        "Plugin mismatch: the bindings of plugin '$id' include ${binding.label}, " +
             "which belongs to plugin '${binding.plugin}'.",
         id,
     )
@@ -64,7 +64,7 @@ internal object Problems {
 
     fun extraScope(binding: Binding<*>): Problem = Problem(
         EXTRA_SCOPE,
-        "Wrong scope: ${label(binding)} is added to a channel instance container, " +
+        "Wrong scope: ${binding.label} is added to a channel instance container, " +
             "but is not channel-instance-scoped.",
         binding.plugin,
     )
@@ -157,7 +157,7 @@ internal object Problems {
     )
 
     fun undeclared(binding: Binding<*>, key: Key<*>, kind: DependencyKind): String =
-        "${label(binding)} resolved $key as $kind without declaring it. " +
+        "${binding.label} resolved $key as $kind without declaring it. " +
             "Add it to the binding's dependencies with DependencyKind.$kind."
 
     fun reentrant(node: Node): Problem = Problem(
@@ -177,8 +177,6 @@ internal object Problems {
 
     fun closedParent(site: Site, name: String): Problem =
         Problem(CLOSED, "Cannot create channel instance container '$name': ${site.label} is closed.", null)
-
-    fun label(binding: Binding<*>): String = "${binding.origin} (plugin ${binding.plugin})"
 
     private fun wrongKind(key: Key<*>, use: String, bound: List<Node>, plugin: String?): Problem {
         val has = if (bound.first().binding.multi) {

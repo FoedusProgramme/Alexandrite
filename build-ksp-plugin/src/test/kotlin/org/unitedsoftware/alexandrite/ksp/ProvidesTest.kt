@@ -220,6 +220,49 @@ class ProvidesTest {
     }
 
     @Test
+    fun `a component that contributes its own type is bound only as that contribution`() {
+        val profiles = source(
+            "Profiles.kt",
+            """
+            package sample
+
+            import org.unitedsoftware.alexandrite.sdk.di.Contribute
+            import org.unitedsoftware.alexandrite.sdk.di.Provides
+            import org.unitedsoftware.alexandrite.sdk.di.Singleton
+
+            class Profile(val name: String)
+
+            @Provides
+            @Contribute(Profile::class)
+            fun reviewer(): Profile = Profile("reviewer")
+
+            @Provides
+            @Contribute(Profile::class)
+            fun writer(): Profile = Profile("writer")
+
+            @Singleton
+            @Contribute(Marker::class)
+            class Marker
+            """,
+        )
+        compile(workingDir.resolve("itself"), profiles, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            val index = compiled.indexes().single()
+            assertEquals(
+                mapOf(
+                    "Marker" to listOf("sample.Marker SINGLETON multi <- "),
+                    "reviewer()" to listOf("sample.Profile SINGLETON multi <- "),
+                    "writer()" to listOf("sample.Profile SINGLETON multi <- "),
+                ),
+                index.bindings().filter { it.origin != "sample.SamplePlugin" }
+                    .groupBy({ simpleOrigin(it.origin, "sample") }, ::describe),
+            )
+            Container.build(listOf(index.pluginBindings()), emptyList()).close()
+        }
+    }
+
+    @Test
     fun `a provider in a companion object is called through it, and overloads have their own origins`() {
         val clocks = source(
             "Clocks.kt",

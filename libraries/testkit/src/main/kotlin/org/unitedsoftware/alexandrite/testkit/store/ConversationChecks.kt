@@ -190,7 +190,7 @@ internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
             val parentConversation = conversations.current(main)
             val parent = startTurn(parentConversation)
             val good = lineage(parent, "run-1")
-            val unrecorded = lineage(parent.rebuild { id(TurnId("missing")) }, "run-1")
+            val unrecorded = lineage(parent.toBuilder(TurnId("missing")).build(), "run-1")
             val cases = mapOf(
                 "a parent turn that is not recorded" to (reviewer to unrecorded),
                 "a parent turn of another conversation" to (reviewer to good.with(ConversationId("other"))),
@@ -247,14 +247,11 @@ internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
             expectEqual(TurnKind.HEARTBEAT, record.kind, "its kind")
             val cases = mapOf(
                 "a turn recorded already" to turn,
-                "a turn of another agent" to turn.rebuild {
-                    id(TurnId("coder-turn"))
-                    agent(coder.agent)
-                },
-                "a turn of an unknown conversation" to turn.rebuild {
-                    id(TurnId("lost"))
-                    conversation(ConversationId("missing"))
-                },
+                "a turn of another agent" to turn.toBuilder(TurnId("coder-turn")).agent(coder.agent).build(),
+                "a turn of an unknown conversation" to turn.toBuilder(
+                    TurnId("lost"),
+                    ConversationId("missing"),
+                ).build(),
             )
             for ((case, refused) in cases) {
                 expectThrows<IllegalArgumentException>("Starting $case") { conversations.startTurn(refused) }
@@ -277,10 +274,7 @@ internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
 
             expectThrows<IllegalArgumentException>("Starting a turn of the linked chat's own key there") {
                 conversations.startTurn(
-                    turn.rebuild {
-                        id(TurnId("unlinked"))
-                        key(null)
-                    },
+                    turn.toBuilder(TurnId("unlinked")).key(null).build(),
                 )
             }
             conversations.turn(turn.id) ?: fail("The linked chat's turn is not recorded.")

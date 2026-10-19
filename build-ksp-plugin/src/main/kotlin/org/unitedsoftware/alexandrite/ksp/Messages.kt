@@ -223,6 +223,10 @@ internal object Messages {
             "arguments are unknown. Implement $bound with concrete type arguments directly in $subject."
     }
 
+    fun ownContributionWithOthers(name: String, type: String): String =
+        "$name contributes $type, its own type, which binds it only as that contribution, so it can bind or " +
+            "contribute nothing else. Keep only @Contribute(${simple(type)}::class)."
+
     fun listedTwice(name: String, annotation: String, bound: String): String =
         "$name lists $bound twice in $annotation. Remove one of them."
 

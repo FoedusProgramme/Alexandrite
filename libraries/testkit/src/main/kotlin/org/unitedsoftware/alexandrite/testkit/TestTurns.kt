@@ -8,19 +8,21 @@ import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
-import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
+import org.unitedsoftware.alexandrite.testkit.store.testLineage
 
 /**
- * The turn `test-turn` of conversation `test` at [chat], changed by [block], whose actor is a guest in a message or
- * command turn and nobody in any other.
+ * The turn [id] of [conversation] at [chat], changed by [block], whose actor is a guest in a message or command turn
+ * and nobody in any other.
  */
 public fun testTurn(
     kind: TurnKind = TurnKind.MESSAGE,
     chat: ChatAddress = testChat(),
+    id: TurnId = TurnId("test-turn"),
+    conversation: ConversationId = ConversationId("test"),
     block: TurnInfo.Builder.() -> Unit = {},
 ): TurnInfo {
     val actor = testUser(instance = chat.instance).takeIf { kind == TurnKind.MESSAGE || kind == TurnKind.COMMAND }
-    return TurnInfo.builder(TurnId("test-turn"), chat, ConversationId("test"), kind).actor(actor).apply(block).build()
+    return TurnInfo.builder(id, chat, conversation, kind).actor(actor).apply(block).build()
 }
 
 /**
@@ -33,16 +35,7 @@ public fun testDelegatedTurn(
     call: ToolCallId? = ToolCallId("test-call"),
     block: TurnInfo.Builder.() -> Unit = {},
 ): TurnInfo {
-    val root = parent.lineage
-    val lineage = TurnLineage(
-        run = run,
-        parentTurn = parent.id,
-        parentConversation = parent.conversation,
-        parentCall = call,
-        rootTurn = root?.rootTurn ?: parent.id,
-        rootConversation = root?.rootConversation ?: parent.conversation,
-        depth = (root?.depth ?: 0) + 1,
-    )
+    val lineage = testLineage(parent, run, call)
     return TurnInfo.builder(TurnId("$run-turn"), parent.chat, ConversationId("$run"), TurnKind.DELEGATED)
         .actor(parent.actor)
         .language(parent.language)

@@ -118,21 +118,33 @@ public interface ReviewPreview {
     @Poko
     public class Diff(public val path: Path, public val unified: String) : ReviewPreview
 
-    /** A program run. */
+    /** A program run: the command line as the call writes it, and the steps it is parsed into when it has any. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class Command(
+    public class Command private constructor(
+        /** The command line as the call writes it, which runs itself only when [segments] is empty. */
         public val argv: List<String>,
+        /** The working directory of the call. */
         public val cwd: Path,
-        /** The real path of the program, null when it cannot be resolved. */
+        /** The real path of [argv]'s program, null when it cannot be resolved. */
         public val executable: Path?,
-        /** Whether the program runs code that the floor cannot see, such as a shell's. */
+        /** Whether [argv]'s program runs code that the floor cannot see, such as a shell's. */
         public val opaque: Boolean,
         /** The steps that the call runs in turn in place of [argv], empty when it runs [argv] itself. */
-        public val segments: List<CommandSegment> = emptyList(),
+        public val segments: List<CommandSegment>,
     ) : ReviewPreview {
         init {
             require(argv.isNotEmpty()) { "A command names its program." }
+        }
+
+        public companion object {
+            public operator fun invoke(
+                argv: List<String>,
+                cwd: Path,
+                executable: Path?,
+                opaque: Boolean,
+                segments: List<CommandSegment> = emptyList(),
+            ): Command = Command(argv.toList(), cwd, executable, opaque, segments.toList())
         }
     }
 
@@ -161,7 +173,7 @@ public interface ReviewPreview {
 
 /** One step of a [ReviewPreview.Command] that runs several: a program, or a change of directory. */
 @Poko
-public class CommandSegment(
+public class CommandSegment private constructor(
     public val argv: List<String>,
     /** Where the program runs, or where a change of directory leads. */
     public val cwd: Path,
@@ -170,20 +182,46 @@ public class CommandSegment(
     /** How the step follows the one before it, null for the first. */
     public val joint: SegmentJoint?,
     /** Whether the program runs code that the floor cannot see. */
-    public val opaque: Boolean = false,
+    public val opaque: Boolean,
     /** Whether the step only changes the directory of the steps after it. */
-    public val changesDirectory: Boolean = false,
+    public val changesDirectory: Boolean,
     /** Whether the program only reads, so that it needs no approval. */
-    public val readOnly: Boolean = false,
+    public val readOnly: Boolean,
     /** Whether the program's output joins the conversation as untrusted content. */
-    public val untrusted: Boolean = false,
+    public val untrusted: Boolean,
     /** The variables that the program gets beside the usual ones. */
-    public val environment: Map<String, String> = emptyMap(),
+    public val environment: Map<String, String>,
     /** What allowing such programs for good would cover, null when it may not be offered. */
-    public val rule: RuleSubject? = null,
+    public val rule: RuleSubject?,
 ) {
     init {
         require(argv.isNotEmpty()) { "A command segment names its program." }
+    }
+
+    public companion object {
+        public operator fun invoke(
+            argv: List<String>,
+            cwd: Path,
+            executable: Path?,
+            joint: SegmentJoint?,
+            opaque: Boolean = false,
+            changesDirectory: Boolean = false,
+            readOnly: Boolean = false,
+            untrusted: Boolean = false,
+            environment: Map<String, String> = emptyMap(),
+            rule: RuleSubject? = null,
+        ): CommandSegment = CommandSegment(
+            argv.toList(),
+            cwd,
+            executable,
+            joint,
+            opaque,
+            changesDirectory,
+            readOnly,
+            untrusted,
+            environment.toMap(),
+            rule,
+        )
     }
 }
 
@@ -204,7 +242,7 @@ public enum class SegmentJoint(
 
 /** The calls that an allow rule covers: those of [tool] whose subject starts with [tokens]. */
 @Poko
-public class RuleSubject(
+public class RuleSubject private constructor(
     public val tool: String,
     /** Such as a program and its first word, empty for every call of [tool]. */
     public val tokens: List<String>,
@@ -214,5 +252,10 @@ public class RuleSubject(
     init {
         require(ToolNames.PATTERN.matches(tool)) { "Malformed tool name '$tool'." }
         require(display.isNotBlank()) { "A rule subject of $tool shows some text." }
+    }
+
+    public companion object {
+        public operator fun invoke(tool: String, tokens: List<String>, display: String): RuleSubject =
+            RuleSubject(tool, tokens.toList(), display)
     }
 }

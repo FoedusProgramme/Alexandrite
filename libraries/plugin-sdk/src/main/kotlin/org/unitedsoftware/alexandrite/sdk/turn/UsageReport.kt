@@ -20,25 +20,45 @@ public interface UsageReports {
 
 /** The model usage shown at [chat]: that of the chat's agent first, then of the other agents asked for. */
 @Poko
-public class UsageReport(public val chat: ChatAddress, public val agents: List<AgentUsage>)
+public class UsageReport private constructor(public val chat: ChatAddress, public val agents: List<AgentUsage>) {
+    public companion object {
+        public operator fun invoke(chat: ChatAddress, agents: List<AgentUsage>): UsageReport =
+            UsageReport(chat, agents.toList())
+    }
+}
 
 /** What [agent]'s model calls used, summed by period in its [zone]. */
 @Poko
-public class AgentUsage(
+public class AgentUsage private constructor(
     public val agent: AgentId,
     public val zone: ZoneId,
     /** What the agent used at the chat of the report, empty for the other agents. */
     public val chat: List<PeriodUsage>,
     public val total: List<PeriodUsage>,
     public val budgets: List<BudgetStatus>,
-)
+) {
+    public companion object {
+        public operator fun invoke(
+            agent: AgentId,
+            zone: ZoneId,
+            chat: List<PeriodUsage>,
+            total: List<PeriodUsage>,
+            budgets: List<BudgetStatus>,
+        ): AgentUsage = AgentUsage(agent, zone, chat.toList(), total.toList(), budgets.toList())
+    }
+}
 
 @Poko
-public class PeriodUsage(
+public class PeriodUsage private constructor(
     public val period: UsagePeriod,
     /** The most tokens first. */
     public val models: List<ModelUsage>,
-)
+) {
+    public companion object {
+        public operator fun invoke(period: UsagePeriod, models: List<ModelUsage>): PeriodUsage =
+            PeriodUsage(period, models.toList())
+    }
+}
 
 /** The tokens of one model's calls in a period. */
 @Poko

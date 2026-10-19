@@ -58,7 +58,7 @@ class MainTest {
                 whileReady()
                 coroutineScope {
                     launch(start = CoroutineStart.UNDISPATCHED) { block() }
-                    stop(StopRequest(kind, "requested by the test"))
+                    stop(stopRequest(kind, "requested by the test"))
                 }
             }
         }

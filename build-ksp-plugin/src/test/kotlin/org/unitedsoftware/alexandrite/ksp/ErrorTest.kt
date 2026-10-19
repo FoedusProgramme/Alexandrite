@@ -291,6 +291,19 @@ class ErrorTest : FailingSamples() {
     }
 
     @Test
+    fun `a component that contributes its own type binds and contributes nothing else`() {
+        assertErrors(
+            """
+            interface Api
+            @Contribute(Itself::class, Api::class) class Itself : Api
+            @Binds(Api::class) @Contribute(Bound::class) class Bound : Api
+            """,
+            "class Itself" to Messages.ownContributionWithOthers("sample.Itself", "sample.Itself"),
+            "class Bound" to Messages.ownContributionWithOthers("sample.Bound", "sample.Bound"),
+        )
+    }
+
+    @Test
     fun `a generic type bound only through a generic class is rejected`() {
         assertErrors(
             """

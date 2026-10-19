@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.sdk.channel
 
 import kotlinx.coroutines.runBlocking
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
@@ -16,6 +17,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import java.time.Instant
@@ -70,7 +72,9 @@ class ChannelValuesTest {
         val stranger =
             ChatUser(UserAddress(ChannelInstanceId(ChannelType("telegram"), "home"), "1"), "Bo", null, false, false)
 
-        val error = assertFailsWith<IllegalArgumentException> { message().sender(stranger).build() }
+        val error = assertFailsWith<IllegalArgumentException> {
+            IncomingMessage.builder(ref, stranger, group, at, forwarded = null).build()
+        }
 
         assertEquals("The sender telegram:home@1 is no user of channel instance telegram:work.", error.message)
     }
@@ -217,7 +221,7 @@ class ChannelValuesTest {
     @Test
     fun `an approval request has a short id of letters, digits, hyphens and underscores, and a tool name`() {
         fun request(id: String, tool: String = "fs.write") =
-            ApprovalRequest(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", null, "a guest's call", null)
+            ApprovalRequest(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", null, "a guest's call")
 
         assertEquals("a-Z_09", request("a-Z_09").id)
         assertEquals(32, request("x".repeat(32)).id.length)
@@ -225,6 +229,23 @@ class ChannelValuesTest {
             assertFailsWith<IllegalArgumentException>(id) { request(id) }
         }
         assertFailsWith<IllegalArgumentException> { request("k3x9", tool = "fs-write") }
+    }
+
+    @Test
+    fun `an approval request keeps copies of its lists, and the rule it offers first is always`() {
+        val chain = mutableListOf(AgentId("coder"))
+        val rules = mutableListOf(RuleSubject("fs.write", listOf("notes.md"), "fs.write notes.md"))
+        val request =
+            ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x", chain, rules)
+        val offered = rules.first()
+
+        chain.clear()
+        rules.clear()
+
+        assertEquals(listOf(AgentId("coder")), request.chain)
+        assertEquals(listOf(offered), request.alwaysRules)
+        assertEquals(offered, request.always)
+        assertNull(ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x").always)
     }
 
     private val bare = object : Channel {
@@ -253,7 +274,7 @@ class ChannelValuesTest {
     @Test
     fun `a channel that does not ask for approvals answers that it cannot`() {
         val channel = bare
-        val request = ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x", null)
+        val request = ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x")
 
         assertEquals(
             ApprovalAnswer.Unavailable("this channel cannot ask for approvals"),

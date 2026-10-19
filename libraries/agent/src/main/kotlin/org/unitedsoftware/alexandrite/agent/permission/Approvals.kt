@@ -72,7 +72,6 @@ internal class ChannelApprovals(
             ReviewText.escape(canonical),
             call.review.preview?.let { escaped(it) },
             ReviewText.escape(reason),
-            shown.firstOrNull(),
             gate.calls.chain?.agents.orEmpty(),
             shown,
             taints(call),

@@ -45,23 +45,17 @@ public class CommandInvocation private constructor(
         .chatKind(chatKind)
 
     public class Builder internal constructor(
-        private var chat: ChatAddress,
-        private var name: String,
-        private var issuer: ChatUser,
+        private val chat: ChatAddress,
+        private val name: String,
+        private val issuer: ChatUser,
     ) {
         private var arguments: String = ""
         private var trigger: ChannelMessageRef? = null
         private var chatKind: ChatKind = ChatKind.UNKNOWN
 
-        public fun chat(chat: ChatAddress): Builder = apply { this.chat = chat }
-
-        public fun name(name: String): Builder = apply { this.name = name }
-
         public fun arguments(arguments: String): Builder = apply { this.arguments = arguments }
 
         public fun trigger(trigger: ChannelMessageRef?): Builder = apply { this.trigger = trigger }
-
-        public fun issuer(issuer: ChatUser): Builder = apply { this.issuer = issuer }
 
         public fun chatKind(chatKind: ChatKind): Builder = apply { this.chatKind = chatKind }
 

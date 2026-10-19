@@ -306,9 +306,7 @@ class JobsTest {
 
     @Test
     fun `a job that a run started records the run's conversation and turn, which take its result`() = runTest {
-        val child = turn.rebuild {
-            id(TurnId("child-turn"))
-            conversation(ConversationId("child-conversation"))
+        val child = turn.toBuilder(TurnId("child-turn"), ConversationId("child-conversation")).apply {
             lineage(
                 TurnLineage(
                     RunId("parent-run"),
@@ -320,7 +318,7 @@ class JobsTest {
                     1,
                 ),
             )
-        }
+        }.build()
         val job = BackgroundJob(RunId("nested-job"), child, call, "reviewer", clock.now, 120.seconds)
         val records = JobRecords(records.of("alexandrite-agent"))
         records.put(job)

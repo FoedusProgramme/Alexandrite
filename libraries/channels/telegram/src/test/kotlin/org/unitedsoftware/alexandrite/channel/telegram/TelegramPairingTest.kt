@@ -72,7 +72,7 @@ class TelegramPairingTest {
 
     /** The harness of the instance `work` over [store], whose config file declares the chats [allowed] paired. */
     private fun builder(allowed: String = "[$ADA]", harness: TelegramHarness = telegram): PluginHarness.Builder =
-        harness.builder("work" to harness.instance(allowed = allowed)).writeConfigFile(file).store(store)
+        harness.builder("work" to harness.instance(allowed = allowed)).keptConfigFile(file).store(store)
 
     private fun PluginHarness.Running.desk(): PairingDesk = getAll<PairingDesk>().single()
 

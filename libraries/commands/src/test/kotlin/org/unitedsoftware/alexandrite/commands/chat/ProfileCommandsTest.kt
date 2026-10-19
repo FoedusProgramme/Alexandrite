@@ -28,22 +28,18 @@ class ProfileCommandsTest {
     @Test
     fun `it lists each profile's id, name, description, model, mode and source`() = runTest {
         control.scriptProfile(
-            AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict."),
+            AgentProfile.builder(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict.").build(),
             ProfileSource.Config,
         )
         control.scriptProfile(
-            AgentProfile(
-                AgentId("writer"),
-                "Writer",
-                "Writes docs.",
-                "Be clear.",
-                model = ModelRef.parse("anthropic/claude-haiku-5-5"),
-                mode = PermissionMode.ASK,
-            ),
+            AgentProfile.builder(AgentId("writer"), "Writer", "Writes docs.", "Be clear.")
+                .model(ModelRef.parse("anthropic/claude-haiku-5-5"))
+                .mode(PermissionMode.ASK)
+                .build(),
             ProfileSource.Plugin,
         )
         control.scriptProfile(
-            AgentProfile(AgentId("helper"), "Helper", "Helps.", "Be kind."),
+            AgentProfile.builder(AgentId("helper"), "Helper", "Helps.", "Be kind.").build(),
             ProfileSource.Created(testUser("ada", isOperator = true), Instant.parse("2026-10-01T00:00:00Z")),
         )
 
@@ -61,7 +57,7 @@ class ProfileCommandsTest {
     @Test
     fun `a profile created by the host is shown as such`() = runTest {
         control.scriptProfile(
-            AgentProfile(AgentId("helper"), "Helper", "Helps.", "Be kind."),
+            AgentProfile.builder(AgentId("helper"), "Helper", "Helps.", "Be kind.").build(),
             ProfileSource.Created(null, Instant.parse("2026-10-01T00:00:00Z")),
         )
 

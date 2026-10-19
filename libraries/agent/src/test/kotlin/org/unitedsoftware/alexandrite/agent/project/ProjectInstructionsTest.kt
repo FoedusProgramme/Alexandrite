@@ -251,7 +251,7 @@ class ProjectInstructionsTest {
         val operator = "Operator"
         lateinit var config: String
 
-        harness { writeConfigFile(file) }.execute {
+        harness { keptConfigFile(file) }.execute {
             config = Files.readString(file)
             val control = get<TrustedFolders>()
             val by = channel().user("operator")
@@ -272,7 +272,7 @@ class ProjectInstructionsTest {
             )
         }
         reads(main)
-        harness { writeConfigFile(file) }.execute {
+        harness { keptConfigFile(file) }.execute {
             get<ConversationControl>().newConversation(channel().chat(), null)
             ask()
 
@@ -321,7 +321,7 @@ class ProjectInstructionsTest {
         val declared = listOf(repository, "../shared", "\${env:HOME}/$ABSENT")
         lateinit var config: String
 
-        harness(trusted = declared) { writeConfigFile(file) }.execute {
+        harness(trusted = declared) { keptConfigFile(file) }.execute {
             config = Files.readString(file)
             val control = get<TrustedFolders>()
             val absent = control.list().last().path
@@ -338,7 +338,7 @@ class ProjectInstructionsTest {
             assertEquals(List(2) { Revocation(false, true) }, kept)
             assertEquals(listOf("$other by null"), grants())
         }
-        harness(trusted = declared) { writeConfigFile(file) }.execute {
+        harness(trusted = declared) { keptConfigFile(file) }.execute {
             val control = get<TrustedFolders>()
 
             assertEquals(listOf(true, true, true, false), control.list().map { it.declared })
@@ -376,7 +376,7 @@ class ProjectInstructionsTest {
         repository()
         val secret = root.resolve("secret").createDirectories()
 
-        harness { writeConfigFile(file).protect(secret) }.execute {
+        harness { keptConfigFile(file).protect(secret) }.execute {
             val control = get<TrustedFolders>()
             suspend fun refused(block: suspend () -> Any) =
                 assertFailsWith<IllegalArgumentException> { block() }.message
@@ -601,7 +601,7 @@ class ProjectInstructionsTest {
         reads(main)
         reads(main)
 
-        harness(trusted = listOf(root)) { writeConfigFile(file) }.execute {
+        harness(trusted = listOf(root)) { keptConfigFile(file) }.execute {
             val control = get<TrustedFolders>()
             ask()
             val before = projects(stored())

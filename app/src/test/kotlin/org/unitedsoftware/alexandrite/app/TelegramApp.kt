@@ -68,7 +68,7 @@ class TelegramApp(
             .config(telegram, telegramConfig(paired))
             .model(model)
             .dataRoot(dataDir(directory))
-            .writeConfigFile(directory.toRealPath().resolve("config/alexandrite.json"))
+            .keptConfigFile(directory.toRealPath().resolve("config/alexandrite.json"))
         return if (sqlite) builder.plugin(AlexandriteStoreSqliteIndex()) else builder.store(store)
     }
 

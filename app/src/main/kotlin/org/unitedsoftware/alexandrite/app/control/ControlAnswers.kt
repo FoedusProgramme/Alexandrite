@@ -111,7 +111,7 @@ internal class ControlAnswers(
         ControlRequest.McpServers -> withMcp { mcp ->
             ControlReply.McpServers(
                 mcp.servers().map {
-                    McpServerView(it.name, it.transport, it.state, it.tools, it.lastError, it.widerScopes)
+                    McpServerView(it.name, it.transport.id, it.state.id, it.tools, it.lastError, it.widerScopes)
                 },
             )
         }

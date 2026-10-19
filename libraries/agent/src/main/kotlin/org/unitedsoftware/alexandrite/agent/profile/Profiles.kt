@@ -63,7 +63,7 @@ internal class ProfileEdit(
  * plugins contribute, and those the agent created itself through `profile.create`.
  *
  * An id a config entry or a plugin already uses cannot be created or edited through this class. A config entry
- * `general` replaces the built-in [GeneralProfile].
+ * `general` replaces the built-in [GENERAL_PROFILE].
  */
 @Singleton
 internal class Profiles(
@@ -81,7 +81,7 @@ internal class Profiles(
     init {
         val byId = LinkedHashMap<AgentId, AgentProfile>()
         for (profile in contributed) {
-            if (profile is GeneralProfile && profile.id in config) continue
+            if (profile === GENERAL_PROFILE && profile.id in config) continue
             if (profile.id in config) {
                 throw ConfigException(
                     null,
@@ -136,19 +136,15 @@ internal class Profiles(
         val mode = draft.mode?.let(::parseMode)
         checkMaxRounds(draft.maxRounds)
         checkMaxTurnTokens(draft.maxTurnTokens)
-        return AgentProfile(
-            id,
-            draft.name,
-            draft.description,
-            draft.instructions,
-            model,
-            reasoning,
-            draft.toolsAllow,
-            draft.toolsDeny,
-            mode,
-            draft.maxRounds,
-            draft.maxTurnTokens,
-        )
+        return AgentProfile.builder(id, draft.name, draft.description, draft.instructions)
+            .model(model)
+            .reasoning(reasoning)
+            .toolsAllow(draft.toolsAllow)
+            .toolsDeny(draft.toolsDeny)
+            .mode(mode)
+            .maxRounds(draft.maxRounds)
+            .maxTurnTokens(draft.maxTurnTokens)
+            .build()
     }
 
     /** Creates [profile], failing when its id was taken since it was planned. */
@@ -178,19 +174,15 @@ internal class Profiles(
         val maxTurnTokens = keptChange(changes.maxTurnTokens, current.maxTurnTokens)
         checkMaxRounds(maxRounds)
         checkMaxTurnTokens(maxTurnTokens)
-        val updated = AgentProfile(
-            id,
-            name,
-            description,
-            instructions,
-            model,
-            reasoning,
-            toolsAllow,
-            toolsDeny,
-            mode,
-            maxRounds,
-            maxTurnTokens,
-        )
+        val updated = AgentProfile.builder(id, name, description, instructions)
+            .model(model)
+            .reasoning(reasoning)
+            .toolsAllow(toolsAllow)
+            .toolsDeny(toolsDeny)
+            .mode(mode)
+            .maxRounds(maxRounds)
+            .maxTurnTokens(maxTurnTokens)
+            .build()
         return current to updated
     }
 
@@ -218,19 +210,20 @@ internal class Profiles(
         val conditions = PersonaConditions(chatKind = null, turnKind = TurnKind.DELEGATED)
         val instructions = persona.sections(agent.id, conditions).joinToString("\n\n") { it.text }
         val tools = agent.config.tools
-        return AgentProfile(
+        return AgentProfile.builder(
             agent.id,
             agent.name,
             checkNotNull(agent.config.description) { "Agent '${agent.id}' is a profile without a description." },
             instructions,
-            agent.model,
-            agent.reasoning,
-            tools.allow,
-            tools.deny,
-            agent.mode,
-            agent.config.maxRounds,
-            agent.config.maxTurnTokens,
         )
+            .model(agent.model)
+            .reasoning(agent.reasoning)
+            .toolsAllow(tools.allow)
+            .toolsDeny(tools.deny)
+            .mode(agent.mode)
+            .maxRounds(agent.config.maxRounds)
+            .maxTurnTokens(agent.config.maxTurnTokens)
+            .build()
     }
 
     private fun recordOf(profile: AgentProfile, createdBy: Granter?): ProfileRecord = ProfileRecord(
@@ -247,19 +240,16 @@ internal class Profiles(
         createdBy,
     )
 
-    private fun toProfile(id: AgentId, record: ProfileRecord): AgentProfile = AgentProfile(
-        id,
-        record.name,
-        record.description,
-        record.instructions,
-        record.model,
-        record.reasoning,
-        record.toolsAllow,
-        record.toolsDeny,
-        record.mode,
-        record.maxRounds,
-        record.maxTurnTokens,
-    )
+    private fun toProfile(id: AgentId, record: ProfileRecord): AgentProfile =
+        AgentProfile.builder(id, record.name, record.description, record.instructions)
+            .model(record.model)
+            .reasoning(record.reasoning)
+            .toolsAllow(record.toolsAllow)
+            .toolsDeny(record.toolsDeny)
+            .mode(record.mode)
+            .maxRounds(record.maxRounds)
+            .maxTurnTokens(record.maxTurnTokens)
+            .build()
 
     /** Throws when [id] is declared by the config or a plugin, which the agent may not create or edit. */
     private fun checkFree(id: AgentId) {

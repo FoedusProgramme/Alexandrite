@@ -43,7 +43,7 @@ class RecordingChannelTest {
         id: String,
         block: TurnInfo.Builder.() -> Unit = {
         },
-    ): TurnInfo = testTurn { id(TurnId(id)).apply(block) }
+    ): TurnInfo = testTurn(id = TurnId(id), block = block)
 
     private fun open(turn: TurnInfo = this.turn): ReplySink = blocking { channel.openReply(ReplyRequest(turn, null)) }
 
@@ -345,7 +345,7 @@ class RecordingChannelTest {
     }
 
     private fun approval(id: String, turn: TurnInfo = this.turn) =
-        ApprovalRequest(id, turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test", null)
+        ApprovalRequest(id, turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test")
 
     @Test
     fun `a stopped instance takes the agent's calls, ignores previews and delivers nothing`() {

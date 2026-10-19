@@ -6,7 +6,9 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
+import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -147,11 +149,7 @@ internal class DoublesPlugin(
 internal class RecordingChannelConfig(
     val operators: Set<String> = emptySet(),
     val partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
-) {
-    init {
-        require(partLength > 0) { "partLength must be positive, was $partLength" }
-    }
-}
+)
 
 /** The plugin `<type>-channel`, whose channel of [type] is a [RecordingChannel] per instance of [instances]. */
 internal class RecordingChannelPlugin(
@@ -239,4 +237,17 @@ internal class StopWatch(private val channel: RecordingChannel) : Lifecycle {
     override fun onStop() {
         channel.stopped = true
     }
+}
+
+/** The deliveries scripted for the next sends, to one chat or to any. */
+internal class ScriptedDeliveries {
+    private val queues = HashMap<ChatAddress?, ArrayDeque<Delivery>>()
+
+    /** Queues [deliveries] for [chat], or for any chat when it is null. */
+    fun script(deliveries: Array<out Delivery>, chat: ChatAddress? = null) {
+        queues.getOrPut(chat) { ArrayDeque() }.addAll(deliveries)
+    }
+
+    /** The next delivery scripted for [chat], else for any chat, null when none is left. */
+    fun next(chat: ChatAddress): Delivery? = queues[chat]?.removeFirstOrNull() ?: queues[null]?.removeFirstOrNull()
 }

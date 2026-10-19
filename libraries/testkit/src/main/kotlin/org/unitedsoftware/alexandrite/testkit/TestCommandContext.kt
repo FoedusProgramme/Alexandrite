@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
+import org.unitedsoftware.alexandrite.testkit.plugin.ScriptedDeliveries
 
 /** A [CommandContext] that records the notices its handler replies with, each in reply to [trigger]. */
 public class TestCommandContext(
@@ -18,7 +19,7 @@ public class TestCommandContext(
     private val lock = Any()
     private val sent = mutableListOf<OutboundMessage>()
     private val visibility = mutableListOf<Boolean>()
-    private val deliveries = ArrayDeque<Delivery>()
+    private val deliveries = ScriptedDeliveries()
 
     public val replies: List<OutboundMessage> get() = synchronized(lock) { sent.toList() }
 
@@ -27,13 +28,13 @@ public class TestCommandContext(
 
     /** Queues the deliveries of the next replies. An unscripted reply reaches the chat as one message. */
     public fun scriptDeliveries(vararg deliveries: Delivery) {
-        synchronized(lock) { this.deliveries.addAll(deliveries) }
+        synchronized(lock) { this.deliveries.script(deliveries) }
     }
 
     override suspend fun reply(text: String, markup: Markup, forModel: Boolean): Delivery = synchronized(lock) {
         sent += OutboundMessage.builder(text, MessageKind.NOTICE).markup(markup).replyTo(trigger).build()
         visibility += forModel
-        deliveries.removeFirstOrNull() ?: Delivery.Delivered(listOf(ChannelMessageRef(turn.chat, "reply-${sent.size}")))
+        deliveries.next(turn.chat) ?: Delivery.Delivered(listOf(ChannelMessageRef(turn.chat, "reply-${sent.size}")))
     }
 }
 

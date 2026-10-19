@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
-import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -26,7 +25,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
-import java.time.ZoneId
 
 @Singleton
 @Binds(ChatSettings::class)
@@ -75,16 +73,6 @@ internal class ChatSettingsImpl(
             logger.info("The settings of {} are changed by {}: {}", key, who(by), changes)
         }
         return snapshot(chat)
-    }
-
-    override suspend fun language(chat: ChatAddress): LanguageTag? {
-        val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
-        return states.language(key) ?: directory.agent(key.agent)?.language
-    }
-
-    override suspend fun zone(chat: ChatAddress): ZoneId? {
-        val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
-        return states.zone(key) ?: directory.agent(key.agent)?.zone
     }
 
     private suspend fun snapshot(served: Resolution.Served): ChatSettingsSnapshot {

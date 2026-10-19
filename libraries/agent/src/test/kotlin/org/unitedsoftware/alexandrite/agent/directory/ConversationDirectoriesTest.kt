@@ -41,7 +41,7 @@ class ConversationDirectoriesTest {
 
     @Test
     fun `a delegated run's directory is its root conversation's, not its own`() {
-        val root = testTurn { agent(coder).conversation(conversation) }
+        val root = testTurn(conversation = conversation) { agent(coder) }
         val child = testDelegatedTurn(root)
 
         assertEquals(directories().path(coder, conversation), directories().path(child))

@@ -60,7 +60,7 @@ public interface ProviderFixture {
     /** A model of the endpoint that takes no tools and no images, null when the endpoint can have none. */
     public val plainModel: String? get() = null
 
-    /** A new endpoint under check, which sends its requests to [server] and which the check closes. */
+    /** A new endpoint under check that sends its requests to [server], which the check closes if it is [AutoCloseable]. */
     public fun endpoint(server: FakeModelServer): ModelEndpoint
 
     /** Queues on [server] what the endpoint's `models()` asks for. */

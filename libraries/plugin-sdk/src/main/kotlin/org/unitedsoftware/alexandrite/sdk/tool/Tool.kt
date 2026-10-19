@@ -26,21 +26,21 @@ public interface Tool {
 
 /** What the model and the permission layer know about a [Tool]. */
 @Poko
-public class ToolDefinition(
+public class ToolDefinition private constructor(
     public val name: String,
     public val description: String,
     /** JSON Schema of the arguments. */
     public val parameters: JsonObject,
-    public val risk: ToolRisk = ToolRisk.EXEC,
+    public val risk: ToolRisk,
     /**
      * A tool that bounds its own calls declares the longest; the agent then waits that long plus a grace instead of
      * its default.
      */
-    public val timeout: Duration? = null,
+    public val timeout: Duration?,
     /** What kind of effect a call has, for a channel to show as it runs. */
-    public val activity: ToolActivity = ToolActivity.OTHER,
+    public val activity: ToolActivity,
     /** The arguments that title a call: every one present, in order, joined with a space, an array with spaces too. */
-    public val titleArguments: List<String> = emptyList(),
+    public val titleArguments: List<String>,
 ) {
     init {
         require(ToolNames.PATTERN.matches(name)) {
@@ -48,6 +48,26 @@ public class ToolDefinition(
                 "a letter, joined by dots, 64 characters at most, such as \"notes.add\"."
         }
         require(timeout == null || timeout.isPositive()) { "Tool '$name' declares a timeout that is not positive." }
+    }
+
+    public companion object {
+        public operator fun invoke(
+            name: String,
+            description: String,
+            parameters: JsonObject,
+            risk: ToolRisk = ToolRisk.EXEC,
+            timeout: Duration? = null,
+            activity: ToolActivity = ToolActivity.OTHER,
+            titleArguments: List<String> = emptyList(),
+        ): ToolDefinition = ToolDefinition(
+            name,
+            description,
+            parameters,
+            risk,
+            timeout,
+            activity,
+            titleArguments.toList(),
+        )
     }
 }
 
@@ -119,6 +139,11 @@ public interface BackgroundCall {
 
 /** What a tool call returns to the model. */
 @Poko
-public class ToolResult(public val content: List<ToolOutputPart>, public val isError: Boolean = false) {
+public class ToolResult private constructor(public val content: List<ToolOutputPart>, public val isError: Boolean) {
     public constructor(text: String, isError: Boolean = false) : this(listOf(TextPart(text)), isError)
+
+    public companion object {
+        public operator fun invoke(content: List<ToolOutputPart>, isError: Boolean = false): ToolResult =
+            ToolResult(content.toList(), isError)
+    }
 }

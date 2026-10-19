@@ -113,7 +113,7 @@ class PublicApiTest {
             channel.scriptApprovals(ApprovalAnswer.Expired)
             channel.holdApprovals()
             channel.releaseApprovals()
-            val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test", null)
+            val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test")
             val answer: ApprovalAnswer = channel.askApproval(request)
             val approvals: List<ApprovalRequest> = channel.awaitApprovals(1) + channel.approvals
             channel.guestsMayRun = false
@@ -172,7 +172,7 @@ class PublicApiTest {
             control.scriptUsage(testChat(), UsageReport(testChat(), emptyList()))
             control.scriptAgent(AgentId("coder"), "Coder", "Writes code.", TEST_MODEL, null, LanguageTag("en"))
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
-            control.scriptProfile(AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict."))
+            control.scriptProfile(AgentProfile.builder(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict.").build())
             control.refuseNext("No agent serves the chat.")
             control.turns.cancel(testChat(), null)
             control.turns.cancelTurn(TurnId("t"), null)
@@ -220,12 +220,12 @@ class PublicApiTest {
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies,
                 context.repliesForModel, invoked, call,
                 control.turns.turns(null), control.turns.jobs(testChat()), control.settings.snapshot(testChat()),
-                control.links.groups(), control.settings.zone(testChat()), control.usage.report(testChat()),
+                control.links.groups(), control.usage.report(testChat()),
                 control.conversations.context(testChat()), control.compaction,
                 control.folders.list(),
                 control.rules.allowRules(testChat()),
                 control.rules.trustRules(testChat()),
-                control.catalog.agents(TEST_INSTANCE), control.catalog.profiles(), control.settings.language(testChat()),
+                control.catalog.agents(TEST_INSTANCE), control.catalog.profiles(),
                 control.catalog.endpoints(),
                 control.catalog.models(EndpointId("scripted")),
                 states.of("probe"),
@@ -340,7 +340,7 @@ class PublicApiTest {
                 .config(other, JsonObject(emptyMap()))
                 .dataRoot(root)
                 .configFile(root.resolve("alexandrite.json"))
-                .writeConfigFile(root.resolve("alexandrite.json"))
+                .keptConfigFile(root.resolve("alexandrite.json"))
                 .protect(root.resolve("logs"))
                 .zone(ZoneOffset.UTC)
                 .language(LanguageTag("zh-CN"))

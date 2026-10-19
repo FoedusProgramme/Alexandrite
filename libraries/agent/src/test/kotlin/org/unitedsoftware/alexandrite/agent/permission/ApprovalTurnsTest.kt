@@ -212,7 +212,6 @@ class ApprovalTurnsTest {
                     "{\"a\":\"x\\u2066y\",\"z\":1}",
                     ReviewPreview.Command(listOf("rm", "a\\u202Eb"), Path.of("/srv/a\\u200Bb"), null, true),
                     "the chat is in ask mode",
-                    null,
                 ),
                 first,
             )

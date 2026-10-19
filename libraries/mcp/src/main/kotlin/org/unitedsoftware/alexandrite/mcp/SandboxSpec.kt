@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.mcp
 
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.path.expandHome
+import org.unitedsoftware.alexandrite.internal.path.resolveConfigured
 import org.unitedsoftware.alexandrite.internal.sandbox.ALEXANDRITE_PLACES
 import org.unitedsoftware.alexandrite.internal.sandbox.DEFAULT_PROTECT
 import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
@@ -113,12 +114,10 @@ private fun resolved(paths: HostPaths, key: String, entry: String): Path {
     } catch (e: InvalidPathException) {
         throw ConfigException(key, "'$entry' is no valid path", e)
     }
-    if (path.isAbsolute) return path.normalize()
-    val directory = paths.configFile?.parent ?: throw ConfigException(
+    return resolveConfigured(path.toString(), paths.configFile?.parent) ?: throw ConfigException(
         key,
         "'$entry' is relative, but the host read no config file to resolve it against: give an absolute path",
     )
-    return directory.resolve(path).normalize()
 }
 
 private val logger = LoggerFactory.getLogger(SandboxSpec::class.java)

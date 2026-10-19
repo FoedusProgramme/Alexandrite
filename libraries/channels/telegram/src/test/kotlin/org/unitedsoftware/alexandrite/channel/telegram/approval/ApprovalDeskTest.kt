@@ -132,7 +132,6 @@ class ApprovalDeskTest {
         """{"path":"notes.md"}""",
         preview,
         "the chat is in ask mode",
-        always,
         alwaysRules = rules,
         taints = taints,
     )
@@ -621,7 +620,7 @@ class ApprovalDeskTest {
         keyboard.inlineKeyboard.flatten().joinToString("|", "[", "]") { it.text }
 
     private fun ApprovalRequest.rebuildChain(chain: List<AgentId>) =
-        ApprovalRequest(id, turn, tool, risk, arguments, preview, reason, always, chain, alwaysRules, taints)
+        ApprovalRequest(id, turn, tool, risk, arguments, preview, reason, chain, alwaysRules, taints)
 
     private fun turnOf(actor: ChatUser, chat: Long): TurnInfo = testTurn(chat = ChatAddress(WORK, "$chat")) {
         actor(actor)

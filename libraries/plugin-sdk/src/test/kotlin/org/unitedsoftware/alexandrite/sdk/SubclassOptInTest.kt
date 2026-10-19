@@ -322,8 +322,6 @@ class SubclassOptInTest {
                 update: org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
-            override suspend fun language(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
-            override suspend fun zone(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
         }
 
         class Links : org.unitedsoftware.alexandrite.sdk.turn.ChatLinks {

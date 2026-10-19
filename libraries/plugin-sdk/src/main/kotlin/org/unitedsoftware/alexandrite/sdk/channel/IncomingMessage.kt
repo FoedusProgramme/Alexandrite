@@ -43,10 +43,10 @@ public class IncomingMessage private constructor(
         .facts(facts)
 
     public class Builder internal constructor(
-        private var ref: ChannelMessageRef,
-        private var sender: ChatUser,
+        private val ref: ChannelMessageRef,
+        private val sender: ChatUser,
         private var chatInfo: ChatInfo,
-        private var receivedAt: Instant,
+        private val receivedAt: Instant,
         private var forwarded: ForwardOrigin?,
     ) {
         private var text: String = ""
@@ -54,13 +54,7 @@ public class IncomingMessage private constructor(
         private var quote: Quote? = null
         private var facts: List<DisplayFact> = emptyList()
 
-        public fun ref(ref: ChannelMessageRef): Builder = apply { this.ref = ref }
-
-        public fun sender(sender: ChatUser): Builder = apply { this.sender = sender }
-
         public fun chatInfo(chatInfo: ChatInfo): Builder = apply { this.chatInfo = chatInfo }
-
-        public fun receivedAt(receivedAt: Instant): Builder = apply { this.receivedAt = receivedAt }
 
         public fun forwarded(forwarded: ForwardOrigin?): Builder = apply { this.forwarded = forwarded }
 

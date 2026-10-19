@@ -114,17 +114,17 @@ class CallRulesTest {
 
     private suspend fun operator(): TurnInfo {
         val conversation = conversation()
-        return testTurn { actor(operator).conversation(conversation) }
+        return testTurn(conversation = conversation) { actor(operator) }
     }
 
     private suspend fun guest(): TurnInfo {
         val conversation = conversation()
-        return testTurn { conversation(conversation) }
+        return testTurn(conversation = conversation)
     }
 
     private suspend fun automation(): TurnInfo {
         val conversation = conversation()
-        return testTurn(TurnKind.HEARTBEAT) { conversation(conversation) }
+        return testTurn(TurnKind.HEARTBEAT, conversation = conversation)
     }
 
     private suspend fun setMode(mode: PermissionMode) {
@@ -301,7 +301,7 @@ class CallRulesTest {
         val setup = Setup()
         val test = run("make", "test")
         val elsewhere = store.conversations.current(AgentChatKey(AgentId.MAIN, testChat("other"))).id
-        val other = testTurn(chat = testChat("other")) { actor(operator).conversation(elsewhere) }
+        val other = testTurn(chat = testChat("other"), conversation = elsewhere) { actor(operator) }
         val before = setup.decide(exec, test, operator())
 
         setup.rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)

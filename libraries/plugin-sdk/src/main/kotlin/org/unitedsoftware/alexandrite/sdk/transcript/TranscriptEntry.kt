@@ -39,7 +39,7 @@ public class EntryRecord(
 /** Input that the model reads as the user's. */
 @OptIn(InternalAlexandriteApi::class)
 @Poko
-public class UserEntry(
+public class UserEntry private constructor(
     override val record: EntryRecord?,
     public val parts: List<UserPart>,
     public val origin: UserOrigin,
@@ -49,28 +49,42 @@ public class UserEntry(
     }
 
     override fun withRecord(record: EntryRecord): UserEntry = UserEntry(record, parts, origin)
+
+    public companion object {
+        public operator fun invoke(record: EntryRecord?, parts: List<UserPart>, origin: UserOrigin): UserEntry =
+            UserEntry(record, parts.toList(), origin)
+    }
 }
 
 /** One response of a model. */
 @OptIn(InternalAlexandriteApi::class)
 @Poko
-public class AssistantEntry(
+public class AssistantEntry private constructor(
     override val record: EntryRecord?,
     public val parts: List<AssistantPart>,
     public val producedBy: ModelRef,
-    public val providerData: ProviderData = ProviderData.EMPTY,
+    public val providerData: ProviderData,
 ) : TranscriptEntry {
     /** Whether the response holds neither visible text nor a tool call. */
     public val blank: Boolean get() = parts.none { (it is TextPart && it.text.isNotBlank()) || it is ToolCallPart }
 
     override fun withRecord(record: EntryRecord): AssistantEntry =
         AssistantEntry(record, parts, producedBy, providerData)
+
+    public companion object {
+        public operator fun invoke(
+            record: EntryRecord?,
+            parts: List<AssistantPart>,
+            producedBy: ModelRef,
+            providerData: ProviderData = ProviderData.EMPTY,
+        ): AssistantEntry = AssistantEntry(record, parts.toList(), producedBy, providerData)
+    }
 }
 
 /** The result of one tool call. */
 @OptIn(InternalAlexandriteApi::class)
 @Poko
-public class ToolResultEntry(
+public class ToolResultEntry private constructor(
     override val record: EntryRecord?,
     public val callId: ToolCallId,
     /** The name the call gave. */
@@ -80,18 +94,28 @@ public class ToolResultEntry(
 ) : TranscriptEntry {
     override fun withRecord(record: EntryRecord): ToolResultEntry =
         ToolResultEntry(record, callId, toolName, content, outcome)
+
+    public companion object {
+        public operator fun invoke(
+            record: EntryRecord?,
+            callId: ToolCallId,
+            toolName: String,
+            content: List<ToolOutputPart>,
+            outcome: ToolOutcome,
+        ): ToolResultEntry = ToolResultEntry(record, callId, toolName, content.toList(), outcome)
+    }
 }
 
 /** A summary of the conversation that stands in for the entries it covers. */
 @OptIn(InternalAlexandriteApi::class)
 @Poko
-public class SummaryEntry(
+public class SummaryEntry private constructor(
     override val record: EntryRecord?,
     public val text: String,
     /** The last entry the summary covers. */
     public val through: EntryId,
     /** The entries before [through] that the summary does not cover, which requests read right after it. */
-    public val kept: List<EntryId> = emptyList(),
+    public val kept: List<EntryId>,
 ) : TranscriptEntry {
     init {
         require(kept.all { it.value < through.value } && kept.toSet().size == kept.size) {
@@ -103,6 +127,15 @@ public class SummaryEntry(
     public fun covers(id: EntryId): Boolean = id.value <= through.value && id !in kept
 
     override fun withRecord(record: EntryRecord): SummaryEntry = SummaryEntry(record, text, through, kept)
+
+    public companion object {
+        public operator fun invoke(
+            record: EntryRecord?,
+            text: String,
+            through: EntryId,
+            kept: List<EntryId> = emptyList(),
+        ): SummaryEntry = SummaryEntry(record, text, through, kept.toList())
+    }
 }
 
 /** A notice the agent sent the chat, which no model is sent. */

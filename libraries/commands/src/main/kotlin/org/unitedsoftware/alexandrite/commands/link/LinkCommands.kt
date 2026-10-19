@@ -28,6 +28,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -134,9 +135,14 @@ internal class LinkCommands(
     private suspend fun tellAnchor(offer: LinkOffer, member: ChatAddress) {
         val anchor = offer.anchor
         val delivery = try {
+            val language = try {
+                settings.snapshot(anchor).effectiveLanguage
+            } catch (_: ControlRefusedException) {
+                null
+            }
             val text = texts.text(
                 TextKeys.LINK_ANCHOR_NOTICE,
-                settings.language(anchor),
+                language,
                 "chat" to member,
                 "agent" to offer.agent,
             )

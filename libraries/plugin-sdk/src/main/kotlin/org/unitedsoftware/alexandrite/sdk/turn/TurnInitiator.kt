@@ -140,18 +140,28 @@ public interface ReplyRoute {
     /** The home chat of the turn's agent on each of [channels], or on each of the agent's channels when null. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class AgentHomes(public val channels: Set<ChannelInstanceId>? = null) : ReplyRoute {
+    public class AgentHomes private constructor(public val channels: Set<ChannelInstanceId>?) : ReplyRoute {
         init {
             requireChannels(channels)
+        }
+
+        public companion object {
+            public operator fun invoke(channels: Set<ChannelInstanceId>? = null): AgentHomes =
+                AgentHomes(channels?.toSet())
         }
     }
 
     /** Every chat where the turn's agent has a conversation, on [channels], or on all its channels when null. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class Broadcast(public val channels: Set<ChannelInstanceId>? = null) : ReplyRoute {
+    public class Broadcast private constructor(public val channels: Set<ChannelInstanceId>?) : ReplyRoute {
         init {
             requireChannels(channels)
+        }
+
+        public companion object {
+            public operator fun invoke(channels: Set<ChannelInstanceId>? = null): Broadcast =
+                Broadcast(channels?.toSet())
         }
     }
 }

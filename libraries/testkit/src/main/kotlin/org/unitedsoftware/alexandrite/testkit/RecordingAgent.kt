@@ -345,14 +345,6 @@ public class RecordingAgent(
                 .build()
             settingsAt(chat)
         }
-
-        /** The language stored at [chat], else the one its agent is scripted with. */
-        override suspend fun language(chat: ChatAddress): LanguageTag? = synchronized(lock) {
-            settingsAt(chat).effectiveLanguage
-        }
-
-        /** The zone stored at [chat], else the one its agent is scripted with. */
-        override suspend fun zone(chat: ChatAddress): ZoneId? = synchronized(lock) { settingsAt(chat).effectiveZone }
     }
 
     private inner class Links : ChatLinks {
@@ -516,11 +508,20 @@ public class RecordingAgent(
     }
 
     private inner class Usage : UsageReports {
-        /** The report scripted at [chat], else one of the chat's agent that used nothing and has no budgets. */
+        /**
+         * The report scripted at [chat], else one where the chat's agent, and every other scripted agent when
+         * [everyAgent], used nothing and has no budgets.
+         */
         override suspend fun report(chat: ChatAddress, everyAgent: Boolean): UsageReport = synchronized(lock) {
             usages[chat] ?: run {
                 val none = UsagePeriod.entries.map { PeriodUsage(it, emptyList()) }
-                UsageReport(chat, listOf(AgentUsage(settingsAt(chat).agent, clock.zone, none, none, emptyList())))
+                val own = settingsAt(chat).agent
+                val others = if (everyAgent) agents.keys.filter { it != own } else emptyList()
+                UsageReport(
+                    chat,
+                    listOf(AgentUsage(own, clock.zone, none, none, emptyList())) +
+                        others.map { AgentUsage(it, clock.zone, emptyList(), none, emptyList()) },
+                )
             }
         }
     }

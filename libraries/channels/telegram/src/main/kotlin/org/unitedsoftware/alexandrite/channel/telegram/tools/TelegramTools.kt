@@ -15,6 +15,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Target
 import org.unitedsoftware.alexandrite.channel.telegram.tools.ChatDesk.Companion.QUOTED
 import org.unitedsoftware.alexandrite.channel.telegram.tools.ChatDesk.Companion.THIS
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -41,7 +42,7 @@ internal abstract class TelegramTool(private val desks: TelegramDesks) : Reviewe
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val planned = planned(arguments, context.turn)
         CallReview.builder().preview(ReviewPreview.Text(planned.shown)).rule(planned.rule).build()
-    } catch (e: ToolProblem) {
+    } catch (e: ToolRefusal) {
         CallReview.builder().problem(e.message).build()
     }
 
@@ -50,13 +51,13 @@ internal abstract class TelegramTool(private val desks: TelegramDesks) : Reviewe
         val output = planned.run()
         planned.untrusted?.let(context::untrusted)
         ToolResult(output)
-    } catch (e: ToolProblem) {
+    } catch (e: ToolRefusal) {
         ToolResult(e.message.orEmpty(), isError = true)
     }
 
     private suspend fun planned(arguments: JsonObject, turn: TurnInfo): Planned {
         val desk = desks.of(turn.chat.instance)
-            ?: throw ToolProblem("${definition.name} acts only in the chats of a Telegram bot that runs.")
+            ?: throw ToolRefusal("${definition.name} acts only in the chats of a Telegram bot that runs.")
         return plan(arguments, turn, desk)
     }
 }
@@ -143,9 +144,9 @@ internal class TitleTool(desks: TelegramDesks) : TelegramTool(desks) {
 
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
-        if (!target.group) throw ToolProblem("Only a group has a title that the bot may change.")
+        if (!target.group) throw ToolRefusal("Only a group has a title that the bot may change.")
         val title = arguments.required("title")
-        if (title.length > MAX_TITLE) throw ToolProblem("A title has $MAX_TITLE characters at most.")
+        if (title.length > MAX_TITLE) throw ToolRefusal("A title has $MAX_TITLE characters at most.")
         return Planned("Rename ${desk.name(turn.chat)} to \"$title\"") {
             desk.act(
                 target,
@@ -184,12 +185,12 @@ internal class PollTool(desks: TelegramDesks) : TelegramTool(desks) {
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
         val question = arguments.required("question")
-        if (question.length > MAX_QUESTION) throw ToolProblem("A question has $MAX_QUESTION characters at most.")
+        if (question.length > MAX_QUESTION) throw ToolRefusal("A question has $MAX_QUESTION characters at most.")
         val options = (arguments["options"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull?.trim() }
         val fits =
             options?.size in 2..MAX_OPTIONS && options.orEmpty().all { !it.isNullOrEmpty() && it.length <= MAX_OPTION }
         if (options == null || !fits) {
-            throw ToolProblem("Give 'options' as 2 to $MAX_OPTIONS answers of 1 to $MAX_OPTION characters.")
+            throw ToolRefusal("Give 'options' as 2 to $MAX_OPTIONS answers of 1 to $MAX_OPTION characters.")
         }
         val anonymous = arguments.flag("anonymous") ?: true
         val multiple = arguments.flag("multiple") ?: false
@@ -261,7 +262,7 @@ internal class MemberTool(desks: TelegramDesks) : TelegramTool(desks) {
                     put("chat_id", target.chat)
                     put("user_id", user)
                 },
-            ) as? JsonObject ?: throw ToolProblem("Telegram told nothing of $asked.")
+            ) as? JsonObject ?: throw ToolRefusal("Telegram told nothing of $asked.")
             val found = member["user"] as? JsonObject
             val name = listOfNotNull(found.string("first_name"), found.string("last_name")).joinToString(" ")
             val handle = found.string("username")?.let { "@$it, " }.orEmpty()
@@ -299,7 +300,7 @@ private fun property(type: String, description: String): JsonObject = buildJsonO
 private fun JsonObject.text(name: String): String? = (this[name] as? JsonPrimitive)?.contentOrNull
 
 private fun JsonObject.required(name: String): String =
-    text(name)?.trim()?.ifEmpty { null } ?: throw ToolProblem("Give '$name'.")
+    text(name)?.trim()?.ifEmpty { null } ?: throw ToolRefusal("Give '$name'.")
 
 private fun JsonObject.flag(name: String): Boolean? = (this[name] as? JsonPrimitive)?.booleanOrNull
 
@@ -321,4 +322,4 @@ private fun onMessage(target: Target, message: Long, more: JsonObjectBuilder.() 
 
 private fun messageId(sent: JsonElement): Long =
     ((sent as? JsonObject)?.get("message_id") as? JsonPrimitive)?.longOrNull
-        ?: throw ToolProblem("Telegram sent it but told no message id.")
+        ?: throw ToolRefusal("Telegram sent it but told no message id.")

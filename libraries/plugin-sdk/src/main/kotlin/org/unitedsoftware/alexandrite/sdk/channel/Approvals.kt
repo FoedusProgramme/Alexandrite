@@ -12,7 +12,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 
 /** A gated tool call of [turn] that the agent asks an approver about, where every text is escaped for review. */
 @Poko
-public class ApprovalRequest(
+public class ApprovalRequest private constructor(
     /** Up to 32 letters, digits, `-` and `_`, shown to approvers and logged. */
     public val id: String,
     public val turn: TurnInfo,
@@ -23,23 +23,47 @@ public class ApprovalRequest(
     public val preview: ReviewPreview?,
     /** Why a person is asked, in lower case without a closing full stop. */
     public val reason: String,
-    /** What allowing such calls for good would grant, null when it may not be offered. */
-    public val always: RuleSubject?,
     /** The agents from the root turn's down to the sub-agent that made the call, empty for a top-level turn's call. */
-    public val chain: List<AgentId> = emptyList(),
-    /** Every rule that allowing such calls for good grants, [always] first. */
-    public val alwaysRules: List<RuleSubject> = listOfNotNull(always),
+    public val chain: List<AgentId>,
+    /** Every rule that allowing such calls for good grants, empty when it may not be offered. */
+    public val alwaysRules: List<RuleSubject>,
     /** Whether the call's output would taint the conversation, so that an approver may trust it. */
-    public val taints: Boolean = false,
+    public val taints: Boolean,
 ) {
     init {
         require(ID.matches(id)) { "Malformed approval request id '$id'." }
         require(ToolNames.PATTERN.matches(tool)) { "Malformed tool name '$tool'." }
-        require(alwaysRules.firstOrNull() == always) { "The rules of approval request $id start with its own." }
     }
 
-    private companion object {
-        val ID = Regex("[A-Za-z0-9_-]{1,32}")
+    /** The first of [alwaysRules], null when allowing such calls for good may not be offered. */
+    public val always: RuleSubject? get() = alwaysRules.firstOrNull()
+
+    public companion object {
+        private val ID = Regex("[A-Za-z0-9_-]{1,32}")
+
+        public operator fun invoke(
+            id: String,
+            turn: TurnInfo,
+            tool: String,
+            risk: ToolRisk,
+            arguments: String,
+            preview: ReviewPreview?,
+            reason: String,
+            chain: List<AgentId> = emptyList(),
+            alwaysRules: List<RuleSubject> = emptyList(),
+            taints: Boolean = false,
+        ): ApprovalRequest = ApprovalRequest(
+            id,
+            turn,
+            tool,
+            risk,
+            arguments,
+            preview,
+            reason,
+            chain.toList(),
+            alwaysRules.toList(),
+            taints,
+        )
     }
 }
 

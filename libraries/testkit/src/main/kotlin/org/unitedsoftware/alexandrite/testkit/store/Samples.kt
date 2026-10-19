@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.testkit.store
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
@@ -56,7 +57,9 @@ internal val model: ModelRef = ModelRef(EndpointId("anthropic"), "claude-opus")
 internal val anthropic: Dialect = Dialect("anthropic")
 internal val png: ByteArray = byteArrayOf(-119, 80, 78, 71, 13, 10, 26, 10)
 
-internal fun json(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject
+internal fun jsonElement(text: String): JsonElement = Json.parseToJsonElement(text)
+
+internal fun json(text: String): JsonObject = jsonElement(text).jsonObject
 
 /** A guest's message [text] of [chat], carried by the platform message [id]. */
 internal fun message(text: String, id: String = "m-$text", chat: ChatAddress = main.chat): UserEntry = UserEntry(
@@ -69,13 +72,16 @@ internal fun mediaPart(media: StoredMedia, kind: MediaKind = MediaKind.IMAGE): M
     MediaPart(kind, "image/png", media, "photo.png", 640, 480)
 
 /** The lineage of the run [run] that [parent] delegates through a tool call. */
-internal fun lineage(parent: TurnInfo, run: String): TurnLineage {
+internal fun lineage(parent: TurnInfo, run: String): TurnLineage = testLineage(parent, RunId(run), ToolCallId("call"))
+
+/** The lineage of the run [run] that [parent] delegates through [call]. */
+internal fun testLineage(parent: TurnInfo, run: RunId, call: ToolCallId?): TurnLineage {
     val root = parent.lineage
     return TurnLineage(
-        run = RunId(run),
+        run = run,
         parentTurn = parent.id,
         parentConversation = parent.conversation,
-        parentCall = ToolCallId("call"),
+        parentCall = call,
         rootTurn = root?.rootTurn ?: parent.id,
         rootConversation = root?.rootConversation ?: parent.conversation,
         depth = (root?.depth ?: 0) + 1,

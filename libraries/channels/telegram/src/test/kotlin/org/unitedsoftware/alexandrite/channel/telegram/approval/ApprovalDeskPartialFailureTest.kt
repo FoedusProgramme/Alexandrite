@@ -89,7 +89,6 @@ class ApprovalDeskPartialFailureTest {
                 """{"path":"notes.md"}""",
                 diff,
                 "the chat is in ask mode",
-                null,
             )
             fake.fail("sendMessage", 500, "boom", nth = 2)
 

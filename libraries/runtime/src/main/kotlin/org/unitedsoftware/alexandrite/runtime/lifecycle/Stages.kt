@@ -102,13 +102,15 @@ internal class Stages(
             logger.error("{}: {}", name, message, redactor.error(error))
             problems += Problem(kind, message, null)
         }
-        suspend fun step(kind: RuntimeProblemKind, what: String, block: suspend () -> List<StepReport>) {
+        val stopStep: StopStep = { kind, what, block ->
             try {
-                block().mapNotNullTo(problems) { problem(it, grace) }
+                problems += block()
             } catch (e: Throwable) {
                 failed(kind, what, e)
             }
         }
+        suspend fun step(kind: RuntimeProblemKind, what: String, block: suspend () -> List<StepReport>) =
+            stopStep(kind, what) { block().mapNotNull { problem(it, grace) } }
         val root = container
         val all = instances.toList()
         val owned = all.filter { it.claim(setOf(InstanceState.STARTING, InstanceState.OPEN)) }
@@ -124,13 +126,7 @@ internal class Stages(
                 step(RuntimeProblemKind.DRAIN_FAILED, "Draining ${child.label}") { child.container.drainAll(deadline) }
             }
             for (child in children) {
-                directory?.leave(child.id)
-                step(RuntimeProblemKind.STOP_FAILED, "Stopping ${child.label}") { child.container.stopAll() }
-                try {
-                    scopes.cancel(child.scope, child.plugin, child.id, deadline, grace)?.let(problems::add)
-                } catch (e: Throwable) {
-                    failed(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the scope of ${child.label}", e)
-                }
+                stopInstance(child, deadline, grace, stopStep)
                 child.markStopped()
             }
             root?.let { step(RuntimeProblemKind.STOP_FAILED, "Stopping") { it.stopAll() } }
@@ -209,27 +205,35 @@ internal class Stages(
         } else {
             logger.info("{}: stopping channel instance {} at the request of {}", name, child.id, by.address)
         }
-        suspend fun step(what: String, block: suspend () -> List<StepReport>) {
+        val stopStep: StopStep = { _, what, block ->
             try {
-                block().forEach { problem(it, grace) }
+                block()
             } catch (e: Exception) {
-                logger.error("{}: {}", name, redactor.text("$what ${child.label} failed: $e"), redactor.error(e))
+                logger.error("{}: {}", name, redactor.text("$what failed: $e"), redactor.error(e))
             }
         }
+        suspend fun step(kind: RuntimeProblemKind, what: String, block: suspend () -> List<StepReport>) =
+            stopStep(kind, "$what ${child.label}") { block().mapNotNull { problem(it, grace) } }
         try {
-            step("Closing") { child.container.closeAll(deadline) }
-            step("Draining") { child.container.drainAll(deadline) }
-            directory?.leave(child.id)
-            step("Stopping") { child.container.stopAll() }
-            step("Cancelling the scope of") {
-                scopes.cancel(child.scope, child.plugin, child.id, deadline, grace)
-                emptyList()
-            }
-            step("Destroying") { child.container.destroy() }
+            step(RuntimeProblemKind.CLOSE_FAILED, "Closing") { child.container.closeAll(deadline) }
+            step(RuntimeProblemKind.DRAIN_FAILED, "Draining") { child.container.drainAll(deadline) }
+            stopInstance(child, deadline, grace, stopStep)
+            step(RuntimeProblemKind.DESTROY_FAILED, "Destroying") { child.container.destroy() }
         } finally {
             child.markStopped()
         }
         logger.info("{}: stopped channel instance {}", name, child.id)
+    }
+
+    /** Takes [child] out of the directory, stops it and cancels its scope, each a step of [step]. */
+    private suspend fun stopInstance(child: InstanceContainer, deadline: TimeMark, grace: Duration, step: StopStep) {
+        directory?.leave(child.id)
+        step(RuntimeProblemKind.STOP_FAILED, "Stopping ${child.label}") {
+            child.container.stopAll().mapNotNull { problem(it, grace) }
+        }
+        step(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the scope of ${child.label}") {
+            listOfNotNull(scopes.cancel(child.scope, child.plugin, child.id, deadline, grace))
+        }
     }
 
     private fun problem(report: StepReport, grace: Duration): Problem? {
@@ -303,3 +307,6 @@ private fun <T> Outcome.pick(failed: T, timedOut: T, notCalled: T): T = when (th
 }
 
 private fun String.capitalized(): String = replaceFirstChar(Char::uppercaseChar)
+
+/** Runs a step of a stop, named with the kind of problem its failure is, and takes the problems it reports. */
+private typealias StopStep = suspend (RuntimeProblemKind, String, suspend () -> List<Problem>) -> Unit

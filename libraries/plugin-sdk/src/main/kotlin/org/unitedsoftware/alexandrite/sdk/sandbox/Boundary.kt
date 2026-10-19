@@ -9,20 +9,20 @@ import java.nio.file.Path
  * Of nested places the innermost decides, and a path that [protectedNames] matches is never writable.
  */
 @Poko
-public class Boundary(
+public class Boundary private constructor(
     /** The places the program may write. */
     public val writable: List<Path>,
     /** The places it may not write, which lie in [writable] ones or hold them. */
-    public val writeDenied: List<Path> = emptyList(),
+    public val writeDenied: List<Path>,
     /** Relative paths, such as `.git/hooks`, that the program may not write at any depth of a [writable] place. */
-    public val protectedNames: List<String> = emptyList(),
+    public val protectedNames: List<String>,
     /** The places the program may neither read nor write. */
-    public val readDenied: List<Path> = emptyList(),
+    public val readDenied: List<Path>,
     /** The places in [readDenied] ones that it may read. */
-    public val readable: List<Path> = emptyList(),
-    public val network: NetworkAccess = NetworkAccess.None,
+    public val readable: List<Path>,
+    public val network: NetworkAccess,
     /** The variables the program gets beside its own. */
-    public val environment: Map<String, String> = emptyMap(),
+    public val environment: Map<String, String>,
 ) {
     init {
         for (path in writable + writeDenied + readDenied + readable) {
@@ -35,8 +35,26 @@ public class Boundary(
         }
     }
 
-    private companion object {
-        val DOTS = setOf("", ".", "..")
+    public companion object {
+        public operator fun invoke(
+            writable: List<Path>,
+            writeDenied: List<Path> = emptyList(),
+            protectedNames: List<String> = emptyList(),
+            readDenied: List<Path> = emptyList(),
+            readable: List<Path> = emptyList(),
+            network: NetworkAccess = NetworkAccess.None,
+            environment: Map<String, String> = emptyMap(),
+        ): Boundary = Boundary(
+            writable.toList(),
+            writeDenied.toList(),
+            protectedNames.toList(),
+            readDenied.toList(),
+            readable.toList(),
+            network,
+            environment.toMap(),
+        )
+
+        private val DOTS = setOf("", ".", "..")
     }
 }
 

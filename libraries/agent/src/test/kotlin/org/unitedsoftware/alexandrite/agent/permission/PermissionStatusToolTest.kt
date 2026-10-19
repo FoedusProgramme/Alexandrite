@@ -123,7 +123,7 @@ class PermissionStatusToolTest {
             grant(operator, "make", "test")
             clock.now += Duration.ofMinutes(5)
             grant(operator, "./gradlew", "build")
-            grant(testTurn { actor(operatorUser).conversation(ConversationId("other")) }, "make", "clean")
+            grant(testTurn(conversation = ConversationId("other")) { actor(operatorUser) }, "make", "clean")
 
             assertEquals(
                 listOf(
@@ -209,7 +209,7 @@ class PermissionStatusToolTest {
     @Test
     fun `outside a call of the agent the store says whether the conversation is tainted`() = runTest {
         val conversation = store.conversations.current(operator.key)
-        val turn = testTurn { actor(testUser("operator", isOperator = true)).conversation(conversation.id) }
+        val turn = testTurn(conversation = conversation.id) { actor(testUser("operator", isOperator = true)) }
         store.conversations.markTainted(conversation.id, forwarded.reason, forwarded.at)
 
         val line = status(turn = turn, context = testToolContext(turn)).last()

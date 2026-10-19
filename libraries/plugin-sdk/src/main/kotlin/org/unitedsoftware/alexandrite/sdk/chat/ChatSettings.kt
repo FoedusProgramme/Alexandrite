@@ -28,12 +28,6 @@ public interface ChatSettings {
      * that breaks a rule throws [ControlRefusedException] with a message for the user and changes nothing.
      */
     public suspend fun update(chat: ChatAddress, update: ChatSettingsUpdate, by: ChatUser?): ChatSettingsSnapshot
-
-    /** The language the agent answers [chat] in, null when the host's default language applies. */
-    public suspend fun language(chat: ChatAddress): LanguageTag?
-
-    /** The zone the agent tells [chat]'s times in, null when the host's zone applies. */
-    public suspend fun zone(chat: ChatAddress): ZoneId?
 }
 
 /**

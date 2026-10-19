@@ -31,6 +31,7 @@ import java.nio.file.Path
  * The host's config [file], whose changes must pass the stages PLUGINS and CONFIG of a runtime of [plugins], and take
  * effect at once where a [LiveConfig] of the [live] ones takes them.
  */
+@InternalAlexandriteApi
 public class HostConfigFile(
     private val file: Path?,
     private val plugins: PluginSet,
@@ -198,10 +199,6 @@ private object NoResolver : Resolver {
 
     private fun unresolved(key: Key<*>): Nothing = throw IllegalStateException("A config section resolves no $key.")
 }
-
-/** The value at [keys], null when there is none. */
-private fun JsonObject.at(keys: List<String>): JsonElement? =
-    keys.fold(this as JsonElement?) { element, key -> (element as? JsonObject)?.get(key) }
 
 /** Adds the keys below [keys] whose values differ from [before] to [after] to [changed], whole where one is new. */
 private fun changedPaths(

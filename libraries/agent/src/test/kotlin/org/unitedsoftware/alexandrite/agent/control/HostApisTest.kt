@@ -212,7 +212,7 @@ class HostApisTest {
             delay(100)
 
             assertFalse(tune.ticket.ended)
-            assertEquals(LanguageTag("en"), get<ChatSettings>().language(channel.chat()))
+            assertEquals(LanguageTag("en"), get<ChatSettings>().snapshot(channel.chat()).effectiveLanguage)
             first.complete(Unit)
             assertTrue(tune.accepted.ticket.outcome() is TurnOutcome.Completed)
             val after = channel.answered(channel.receive("Again")).turn
@@ -224,8 +224,7 @@ class HostApisTest {
             assertEquals(listOf(model.ref, ModelRef.parse("scripted/other")), listOf(old.model, new.model))
             assertEquals(listOf(null, ReasoningEffort.HIGH), listOf(old.options.reasoning, new.options.reasoning))
             assertEquals(LanguageTag("de"), after.language)
-            assertEquals(LanguageTag("de"), get<ChatSettings>().language(channel.chat()))
-            assertNull(get<ChatSettings>().language(ChatAddress.parse("test:other:1")))
+            assertEquals(LanguageTag("de"), get<ChatSettings>().snapshot(channel.chat()).effectiveLanguage)
         }
     }
 

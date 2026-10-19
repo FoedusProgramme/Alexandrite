@@ -8,7 +8,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** The language of [chat], null when it has none or these settings cannot tell. */
 internal suspend fun ChatSettings?.languageOrNull(chat: ChatAddress): LanguageTag? = try {
-    this?.language(chat)
+    this?.snapshot(chat)?.effectiveLanguage
 } catch (e: CancellationException) {
     throw e
 } catch (e: Exception) {

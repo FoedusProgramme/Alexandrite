@@ -132,7 +132,7 @@ class ChainRulesTest {
 
     private val conversation = blocking { store.conversations.current(key).id }
 
-    private fun operatorTurn(): TurnInfo = testTurn { actor(operator).conversation(conversation) }
+    private fun operatorTurn(): TurnInfo = testTurn(conversation = conversation) { actor(operator) }
 
     private suspend fun setMode(mode: PermissionMode) {
         states.changeMode(key, SettingChange.SetTo(mode), null)

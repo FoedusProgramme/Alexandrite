@@ -28,6 +28,7 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.runtime.RuntimeControl
+import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -249,4 +250,10 @@ internal class Commands(
         )
         return Printed(code, out.toString(Charsets.UTF_8), err.toString(Charsets.UTF_8))
     }
+}
+
+fun stopRequest(kind: StopKind, reason: String): StopRequest = when (kind) {
+    StopKind.SHUTDOWN -> StopRequest.shutdown(reason)
+    StopKind.RESTART -> StopRequest.restart(reason)
+    StopKind.FAILURE -> StopRequest.failure(reason)
 }

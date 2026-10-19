@@ -303,9 +303,9 @@ public class PluginHarness private constructor(
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
 
         /**
-         * The config file that each run writes the harness's config into and reads, none unless set.
+         * The config file that each run writes the harness's config into afresh and reads, none unless set.
          *
-         * A run keeps a file that no harness wrote, as [writeConfigFile] does.
+         * A run keeps a file that no harness wrote, as [keptConfigFile] does.
          */
         public fun configFile(file: Path): Builder = apply {
             configFile = file
@@ -313,11 +313,11 @@ public class PluginHarness private constructor(
         }
 
         /**
-         * Keeps the config in [file]: a run writes the harness's config there when the file does not exist, else
-         * splices in the sections of the harness's recording channels, and reads the file, so what the plugins write
-         * reaches later runs.
+         * The config file that runs keep: a run writes the harness's config there only when the file does not exist,
+         * else splices in the sections of the harness's recording channels, and reads the file, so what the plugins
+         * write reaches later runs.
          */
-        public fun writeConfigFile(file: Path): Builder = apply {
+        public fun keptConfigFile(file: Path): Builder = apply {
             configFile = file
             keepsConfig = true
         }
