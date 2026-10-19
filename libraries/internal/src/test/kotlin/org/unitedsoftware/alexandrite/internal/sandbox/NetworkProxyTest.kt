@@ -9,7 +9,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NetworkProxyTest {
@@ -116,6 +116,16 @@ class NetworkProxyTest {
 
         lease.close()
 
-        assertFailsWith<IOException> { Socket(InetAddress.getLoopbackAddress(), lease.port).close() }
+        assertFalse(listens(lease.port))
+    }
+
+    /**
+     * Whether something accepts connections on [port]. Linux may connect a client to itself when it picks the closed
+     * port as its own ephemeral one, which is no listener.
+     */
+    private fun listens(port: Int): Boolean = try {
+        Socket(InetAddress.getLoopbackAddress(), port).use { it.localPort != it.port }
+    } catch (e: IOException) {
+        false
     }
 }

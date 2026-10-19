@@ -140,6 +140,9 @@ class McpHubTest {
         }
 
         assertEquals(2, running)
+        // A process the drain ended may still be reaped a moment later.
+        val deadline = System.nanoTime() + 5_000_000_000
+        while (fakeProcesses().isNotEmpty() && System.nanoTime() < deadline) Thread.sleep(20)
         assertEquals(emptyList(), fakeProcesses())
     }
 
