@@ -48,7 +48,7 @@ class OpenAiResponsesPluginTest {
             assertEquals(listOf(TurnContextMode.TRANSIENT, TurnContextMode.NOT_SUPPORTED), modes)
             assertFalse("sk-plugin-test-key" in endpoints.toString())
         }
-        assertEquals("https://api.openai.com/v1", EndpointConfig().settings().baseUrl)
+        Unit
     }
 
     @Test

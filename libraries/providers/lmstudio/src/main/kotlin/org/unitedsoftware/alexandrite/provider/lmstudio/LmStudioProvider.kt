@@ -14,7 +14,7 @@ internal class LmStudioProvider(config: LmStudioConfig) :
     ModelProvider,
     Lifecycle {
     private val chats = config.endpoints.map { (id, endpoint) ->
-        ChatEndpoint(EndpointId(id), endpoint.settings(), LMSTUDIO_FLAVOR)
+        ChatEndpoint(EndpointId(id), endpoint.settings, LMSTUDIO_FLAVOR)
     }
 
     override val endpoints: List<ModelEndpoint> = chats

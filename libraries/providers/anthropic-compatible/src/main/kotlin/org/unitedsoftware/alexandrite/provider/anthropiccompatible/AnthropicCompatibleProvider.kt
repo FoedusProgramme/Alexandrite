@@ -15,7 +15,7 @@ internal class AnthropicCompatibleProvider(config: AnthropicCompatibleConfig) :
     ModelProvider,
     Lifecycle {
     private val messages = config.endpoints.map { (id, endpoint) ->
-        MessagesEndpoint(EndpointId(id), endpoint.settings(), MessagesFlavor.STANDARD, endpoint.messages())
+        MessagesEndpoint(EndpointId(id), endpoint.settings, MessagesFlavor.STANDARD, endpoint.options)
     }
 
     override val endpoints: List<ModelEndpoint> = messages

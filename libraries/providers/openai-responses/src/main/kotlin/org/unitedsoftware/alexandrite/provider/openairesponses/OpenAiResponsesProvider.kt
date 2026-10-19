@@ -15,7 +15,7 @@ internal class OpenAiResponsesProvider(config: OpenAiResponsesConfig) :
     ModelProvider,
     Lifecycle {
     private val responses = config.endpoints.map { (id, endpoint) ->
-        ResponsesEndpoint(EndpointId(id), endpoint.settings(), ResponsesFlavor.STANDARD, endpoint.responses())
+        ResponsesEndpoint(EndpointId(id), endpoint.settings, ResponsesFlavor.STANDARD, endpoint.options)
     }
 
     override val endpoints: List<ModelEndpoint> = responses

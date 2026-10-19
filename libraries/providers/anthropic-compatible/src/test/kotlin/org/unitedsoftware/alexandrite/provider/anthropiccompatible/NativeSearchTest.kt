@@ -4,9 +4,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.unitedsoftware.alexandrite.provider.common.ModelConfig
 import org.unitedsoftware.alexandrite.provider.common.messages.MessagesEndpoint
 import org.unitedsoftware.alexandrite.provider.common.messages.MessagesFlavor
+import org.unitedsoftware.alexandrite.provider.common.read
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -23,13 +23,12 @@ class NativeSearchTest {
     private val ref = ModelRef(EndpointId("test"), "selected-model")
 
     private fun endpoint(server: FakeModelServer, enabled: Boolean = false): MessagesEndpoint {
-        val config = EndpointConfig(
-            baseUrl = server.baseUrl,
-            models = mapOf(ref.model to ModelConfig()),
-            discover = false,
-            nativeSearch = enabled,
+        val config = EndpointSerializer.read(
+            """
+            {"baseUrl": "${server.baseUrl}", "models": {"${ref.model}": {}}, "discover": false, "nativeSearch": $enabled}
+            """.trimIndent(),
         )
-        return MessagesEndpoint(ref.endpoint, config.settings(), MessagesFlavor.STANDARD, config.messages())
+        return MessagesEndpoint(ref.endpoint, config.settings, MessagesFlavor.STANDARD, config.options)
     }
 
     @Test

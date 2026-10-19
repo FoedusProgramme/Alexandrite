@@ -30,6 +30,7 @@ import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 
 /** What an endpoint of the Responses API does beyond its [EndpointSettings]. */
+@Serializable
 public class ResponsesSettings(
     /** Whether requests carry the agent's cache key. */
     public val promptCacheKey: Boolean = true,

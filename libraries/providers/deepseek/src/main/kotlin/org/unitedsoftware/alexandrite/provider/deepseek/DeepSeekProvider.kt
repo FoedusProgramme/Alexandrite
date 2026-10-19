@@ -14,7 +14,7 @@ internal class DeepSeekProvider(config: DeepSeekConfig) :
     ModelProvider,
     Lifecycle {
     private val chats = config.endpoints.map { (id, endpoint) ->
-        ChatEndpoint(EndpointId(id), endpoint.settings(), DEEPSEEK_FLAVOR)
+        ChatEndpoint(EndpointId(id), endpoint.settings, DEEPSEEK_FLAVOR)
     }
 
     override val endpoints: List<ModelEndpoint> = chats
