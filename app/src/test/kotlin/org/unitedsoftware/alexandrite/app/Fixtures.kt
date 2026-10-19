@@ -10,6 +10,7 @@ import kotlinx.serialization.json.jsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
 import org.unitedsoftware.alexandrite.app.control.askDaemon
+import org.unitedsoftware.alexandrite.app.tui.Console
 import org.unitedsoftware.alexandrite.runtime.RuntimeConfig
 import org.unitedsoftware.alexandrite.runtime.RuntimeListener
 import org.unitedsoftware.alexandrite.runtime.RuntimeSpec
@@ -165,6 +166,13 @@ internal class FakeMachine(
 
     /** How many more rounds a follow of a log goes on. */
     var follows = 0
+
+    override var styled = false
+
+    /** The terminal prompts draw on, none by default. */
+    var console: Console? = null
+
+    override fun console(): Console? = console
 
     override fun ask(prompt: String): String? {
         prompts += prompt

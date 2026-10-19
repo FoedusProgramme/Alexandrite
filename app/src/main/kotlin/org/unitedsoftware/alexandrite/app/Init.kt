@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
+import org.unitedsoftware.alexandrite.app.tui.Choice
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import java.io.IOException
@@ -52,20 +53,21 @@ private const val INSTANCE = "main"
 /** How often a step asks again for an answer it cannot use. */
 private const val ATTEMPTS = 3
 
-/** The models a listing shows at once. */
-private const val SHOWN_MODELS = 30
-
 /** Sets Alexandrite up step by step, and returns the exit code. */
-internal fun init(cli: Cli, options: InitOptions): Int = Setup(cli, options).run()
+internal fun init(cli: Cli, options: InitOptions): Int = cli.onTerminal { Setup(cli, options).run() }
 
 /** One run of `init`: what its steps found, the changes they make and the secrets they save. */
 private class Setup(private val cli: Cli, private val options: InitOptions) {
     private val interactive = options.interactive && cli.machine.interactive
+    private val ui: Ui get() = cli.ui
     private val changes = mutableListOf<ConfigChangeView>()
     private val secrets = linkedMapOf<String, String>()
     private val skipped = mutableListOf<InitStep>()
     private var config = JsonObject(emptyMap())
     private lateinit var agent: String
+
+    /** The rows of the summary, by the key of their label. */
+    private val summary = linkedMapOf<String, String>()
 
     private val telegramApi: String
         get() = options.apiBaseUrl ?: (config.at("$TELEGRAM_INSTANCES.$INSTANCE.apiBaseUrl").text ?: TELEGRAM_API)
@@ -74,8 +76,9 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
     private var bot: Pair<BotCheck.Bot, String>? = null
 
     fun run(): Int {
-        if (options.interactive && !cli.machine.interactive) cli.out.println(cli.t("init.no_terminal"))
-        cli.out.println(cli.t("init.welcome", "file" to cli.locations.configFile))
+        if (ui.rich) ui.intro(cli.t("init.title"))
+        if (options.interactive && !cli.machine.interactive) ui.say(cli.t("init.no_terminal"))
+        ui.say(cli.t("init.welcome", "file" to cli.locations.configFile))
         val exists = Files.exists(cli.locations.configFile)
         var steps = options.steps
         if (exists) {
@@ -83,7 +86,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             if (steps.any { it != InitStep.SERVICE } && !options.force) {
                 if (!interactive) return cli.fail(cli.t("init.existing_force", "file" to cli.locations.configFile))
                 if (!cli.confirm(cli.t("init.existing", "file" to cli.locations.configFile))) {
-                    cli.out.println(cli.t("init.existing_kept"))
+                    ui.say(cli.t("init.existing_kept"))
                     steps = steps.filterTo(mutableSetOf()) { it == InitStep.SERVICE }
                 }
             }
@@ -108,15 +111,16 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             if (code != ExitCode.OK) return code
         }
         for (step in skipped) {
-            cli.out.println(
-                cli.t(
-                    "init.redo",
-                    "step" to step.id,
-                    "how" to Text("init.redo.${step.id}"),
-                ),
-            )
+            ui.warn(cli.t("init.redo", "step" to step.id, "how" to Text("init.redo.${step.id}")))
         }
-        return cli.done(cli.t("init.done"))
+        summary["init.summary.next"] = if ("init.summary.service" in summary) {
+            "alexandrite status · alexandrite logs -f · alexandrite doctor"
+        } else {
+            "alexandrite run · alexandrite doctor"
+        }
+        ui.summary(cli.t("init.summary.title"), summary.map { (key, value) -> cli.t(key) to value })
+        ui.outro(cli.t("init.done"))
+        return ExitCode.OK
     }
 
     /** The agent the steps set up: the one named, the only one, or `main`; null after printing that it is unclear. */
@@ -133,8 +137,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
 
     /** Whether the step [step] goes ahead: always without a terminal, else when the person agrees. */
     private fun begins(step: InitStep): Boolean {
-        cli.out.println()
-        cli.out.println(cli.t("init.step.${step.id}"))
+        ui.heading(cli.t("init.step.${step.id}"))
         if (!interactive || cli.confirm(cli.t("init.ask.${step.id}"), default = true)) return true
         skip(step)
         return false
@@ -144,19 +147,15 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         skipped += step
     }
 
-    /** The answer to [prompt], [default] when the person just presses Enter, null at the end of the input. */
-    private fun ask(prompt: String, default: String? = null): String? {
-        val shown = if (default.isNullOrEmpty()) "$prompt: " else "$prompt [$default]: "
-        val answer = cli.machine.ask(shown)?.trim() ?: return null
-        return answer.ifEmpty { default.orEmpty() }
-    }
+    /** The text of [plain], or of [rich] when the prompts draw on the terminal. */
+    private fun prompt(plain: String, rich: String, vararg args: Pair<String, Any?>): String =
+        cli.t(if (ui.rich) rich else plain, *args)
 
     // Model.
 
     private fun model(): Int {
         if (!interactive && options.provider == null) {
-            cli.out.println()
-            cli.out.println(cli.t("init.model.no_provider"))
+            ui.warn(cli.t("init.model.no_provider"))
             skip(InitStep.MODEL)
             return ExitCode.OK
         }
@@ -169,13 +168,14 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         var listing: Listing? = null
         for (attempt in 1..ATTEMPTS) {
             key = key(kind, variable) ?: return ExitCode.FAILURE
-            listing = listModels(cli, kind, base, key.ifEmpty { null })
+            val given = key.ifEmpty { null }
+            listing = ui.busy({ cli.t("init.model.checking", "base" to base) }) { listModels(cli, kind, base, given) }
             if (listing is Listing.Models) break
             cli.fail(cli.texts((listing as Listing.Refused).reason))
             if (!interactive || attempt == ATTEMPTS) return ExitCode.FAILURE
         }
         val listed = (listing as Listing.Models).ids
-        cli.out.println(cli.t("init.model.listed", "base" to base, "count" to listed.size))
+        ui.good(cli.t("init.model.listed", "base" to base, "count" to listed.size))
         val models = chooseModels(listed) ?: return ExitCode.FAILURE
         val root = "providers.${kind.id}.endpoints.$endpoint"
         if (key.isNullOrEmpty()) {
@@ -189,21 +189,14 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         } else if (config.at("$root.baseUrl") != null) {
             changes += ConfigChangeView("$root.baseUrl", remove = true)
         }
-        if (agentConfig ==
-            null
-        ) {
+        if (agentConfig == null) {
             changes += ConfigChangeView("$AGENTS.$agent.description", JsonPrimitive(cli.t("init.agent")))
         }
-        changes += defaultModels(agent, agentConfig, models.map { "$endpoint/$it" })
-        cli.out.println(
-            cli.t(
-                "init.model.chosen",
-                "agent" to agent,
-                "models" to models.joinToString {
-                    "$endpoint/$it"
-                },
-            ),
-        )
+        val named = models.map { "$endpoint/$it" }
+        changes += defaultModels(agent, agentConfig, named)
+        ui.good(cli.t("init.model.chosen", "agent" to agent, "models" to named.joinToString()))
+        summary["init.summary.provider"] = "${kind.title} · $base"
+        summary["init.summary.models"] = cli.t("init.summary.models_value", "models" to named.joinToString())
         val instance = config.at("$TELEGRAM_INSTANCES.$INSTANCE") as? JsonObject
         val served = agents(config).any { it.channels["telegram:$INSTANCE"] != null }
         if (instance != null && !served) {
@@ -221,17 +214,10 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         get() = agentConfig?.let { AgentEntry(agent, it).models }.orEmpty().isNotEmpty() ||
             changes.any { it.path == "$AGENTS.$agent.model" || it.path == "$AGENTS.$agent.models" }
 
-    private fun chooseProvider(): ProviderKind? {
-        PROVIDER_KINDS.forEachIndexed { index, kind -> cli.out.println("  ${index + 1}. ${kind.title}") }
-        repeat(ATTEMPTS) {
-            val answer = ask(cli.t("init.model.provider"), "1") ?: return null
-            val chosen = answer.toIntOrNull()?.let { PROVIDER_KINDS.getOrNull(it - 1) }
-                ?: PROVIDER_KINDS.firstOrNull { it.id.equals(answer, true) || it.title.equals(answer, true) }
-            if (chosen != null) return chosen
-            cli.out.println(cli.t("init.model.no_such_provider", "answer" to answer))
-        }
-        return null
-    }
+    private fun chooseProvider(): ProviderKind? = ui.choose(
+        prompt("init.model.provider", "init.model.provider_title"),
+        PROVIDER_KINDS.map { Choice(it.title, it, key = it.id) },
+    ) { cli.t("init.model.no_such_provider", "answer" to it) }
 
     /** The endpoint's address, asked for when the provider has none or lets it be moved; null after printing why. */
     private fun baseUrl(kind: ProviderKind): String? {
@@ -242,12 +228,11 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
                 null
             }
         }
-        repeat(ATTEMPTS) {
-            val answer = ask(cli.t("init.model.base_url"), kind.defaultUrl) ?: return null
-            if (answer.startsWith("http://") || answer.startsWith("https://")) return answer.trimEnd('/')
-            cli.out.println(cli.t("init.model.no_url", "answer" to answer))
-        }
-        return null
+        val answer = ui.ask(cli.t("init.model.base_url"), kind.defaultUrl) {
+            val web = it.startsWith("http://") || it.startsWith("https://")
+            if (web) null else cli.t("init.model.no_url", "answer" to it)
+        } ?: return null.also { cli.fail(cli.t("init.no_answer")) }
+        return answer.trimEnd('/')
     }
 
     /** The key of the endpoint, empty for none; null after printing that a needed one is missing. */
@@ -266,15 +251,16 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             }
             return environment.orEmpty()
         }
-        val prompt = cli.t(
-            if (kind.keyRequired) "init.model.key" else "init.model.key_optional",
-            "provider" to kind.title,
-        )
+        val prompt = if (kind.keyRequired) {
+            prompt("init.model.key", "init.model.key_title", "provider" to kind.title)
+        } else {
+            prompt("init.model.key_optional", "init.model.key_optional_title", "provider" to kind.title)
+        }
         repeat(ATTEMPTS) {
-            val typed = cli.machine.askSecret(prompt)?.trim() ?: return null.also { cli.fail(cli.t("init.no_answer")) }
+            val typed = ui.secret(prompt)?.trim() ?: return null.also { cli.fail(cli.t("init.no_answer")) }
             val key = typed.ifEmpty { environment.orEmpty() }
             if (key.isNotEmpty() || !kind.keyRequired) return key
-            cli.out.println(cli.t("init.model.key_needed"))
+            ui.warn(cli.t("init.model.key_needed"))
         }
         cli.fail(cli.t("init.no_answer"))
         return null
@@ -293,29 +279,14 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             return null
         }
         val own = agentConfig?.let { AgentEntry(agent, it).models }.orEmpty()
-        if (own.isNotEmpty()) cli.out.println(cli.t("init.model.own", "agent" to agent, "models" to own.joinToString()))
-        var shown = listed
-        repeat(ATTEMPTS * 2) {
-            shown.take(SHOWN_MODELS).forEachIndexed { index, id -> cli.out.println("  ${index + 1}. $id") }
-            if (shown.size >
-                SHOWN_MODELS
-            ) {
-                cli.out.println(cli.t("init.model.more", "count" to shown.size - SHOWN_MODELS))
-            }
-            val answer = ask(cli.t(if (listed.isEmpty()) "init.model.type" else "init.model.pick")) ?: return null
-            if (answer.isEmpty()) return@repeat
-            val parts = answer.split(',').map(String::trim).filter(String::isNotEmpty)
-            val picked = parts.map { part -> part.toIntOrNull()?.let { shown.getOrNull(it - 1) } ?: part }
-            if (listed.isEmpty() || picked.all { it in listed }) return picked.distinct()
-            val matching = listed.filter { it.contains(answer, ignoreCase = true) }
-            if (matching.isEmpty()) {
-                cli.out.println(cli.t("init.model.no_match", "answer" to answer))
-            } else {
-                shown = matching
-            }
+        if (own.isNotEmpty()) ui.say(cli.t("init.model.own", "agent" to agent, "models" to own.joinToString()))
+        val picked = if (listed.isEmpty()) {
+            ui.ask(cli.t("init.model.type")) { if (it.isBlank()) cli.t("init.no_answer") else null }
+                ?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)?.distinct()
+        } else {
+            ui.pick(prompt("init.model.pick", "init.model.pick_title"), listed, cli.t("init.model.pick_hint"))
         }
-        cli.fail(cli.t("init.no_answer"))
-        return null
+        return picked ?: null.also { cli.fail(cli.t("init.no_answer")) }
     }
 
     private fun sample(listed: List<String>): String = if (listed.isEmpty()) {
@@ -330,13 +301,12 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
     private fun telegram(): Int {
         val given = cli.environment[TELEGRAM_TOKEN_VARIABLE]?.takeIf { it.isNotEmpty() }
         if (!interactive && given == null) {
-            cli.out.println()
-            cli.out.println(cli.t("init.telegram.no_token", "variable" to TELEGRAM_TOKEN_VARIABLE))
+            ui.warn(cli.t("init.telegram.no_token", "variable" to TELEGRAM_TOKEN_VARIABLE))
             skip(InitStep.TELEGRAM)
             return ExitCode.OK
         }
         if (!begins(InitStep.TELEGRAM)) return ExitCode.OK
-        if (interactive && given == null) cli.out.println(cli.t("init.telegram.about"))
+        if (interactive && given == null) ui.say(cli.t("init.telegram.about"))
         var checked: Pair<BotCheck.Bot, String>? = null
         for (attempt in 1..ATTEMPTS) {
             checked = askBot(cli, telegramApi, given.takeIf { attempt == 1 })
@@ -347,20 +317,20 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             return cli.fail(cli.t("channel.same_bot", "instance" to it))
         }
         bot = checked
+        summary["init.summary.bot"] = described(cli, found)
         val variable = telegramVariable(INSTANCE)
         secrets[variable] = token
         changes += ConfigChangeView("$TELEGRAM_INSTANCES.$INSTANCE.botToken", JsonPrimitive("\${env:$variable}"))
         options.apiBaseUrl?.let {
-            changes +=
-                ConfigChangeView("$TELEGRAM_INSTANCES.$INSTANCE.apiBaseUrl", JsonPrimitive(it))
+            changes += ConfigChangeView("$TELEGRAM_INSTANCES.$INSTANCE.apiBaseUrl", JsonPrimitive(it))
         }
         if (agentConfig?.objectAt("channels")?.get("telegram:$INSTANCE") != null) {
-            cli.out.println(cli.t("init.telegram.chosen", "bot" to described(cli, found), "agent" to agent))
+            ui.good(cli.t("init.telegram.chosen", "bot" to described(cli, found), "agent" to agent))
         } else if (hasModel) {
             changes += ConfigChangeView("$AGENTS.$agent.channels.telegram:$INSTANCE", JsonObject(emptyMap()))
-            cli.out.println(cli.t("init.telegram.chosen", "bot" to described(cli, found), "agent" to agent))
+            ui.good(cli.t("init.telegram.chosen", "bot" to described(cli, found), "agent" to agent))
         } else {
-            cli.out.println(cli.t("init.telegram.no_model", "agent" to agent))
+            ui.warn(cli.t("init.telegram.no_model", "agent" to agent))
         }
         return ExitCode.OK
     }
@@ -371,8 +341,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         val instance = config.at("$TELEGRAM_INSTANCES.$INSTANCE") as? JsonObject
         val current = bot ?: instance?.let { existingBot(it) }
         if (current == null) {
-            cli.out.println()
-            cli.out.println(cli.t("init.admin.no_bot"))
+            ui.warn(cli.t("init.admin.no_bot"))
             skip(InitStep.ADMIN)
             return ExitCode.OK
         }
@@ -390,8 +359,10 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
                     return ExitCode.OK
                 }
             }
+            summary["init.summary.admin"] = claimant.described
             listOf(claimant.id)
         }
+        summary.putIfAbsent("init.summary.admin", admins.joinToString())
         val root = "$TELEGRAM_INSTANCES.$INSTANCE"
         changes += ConfigChangeView("$root.adminUserIds", ids((instance?.get("adminUserIds") as? JsonArray), admins))
         changes += ConfigChangeView("$root.allowedChats", ids((instance?.get("allowedChats") as? JsonArray), admins))
@@ -401,7 +372,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             changes +=
                 ConfigChangeView("$AGENTS.$agent.channels.telegram:$INSTANCE.home", JsonPrimitive("${admins.first()}"))
         }
-        cli.out.println(cli.t("init.admin.chosen", "admins" to admins.joinToString(), "agent" to agent))
+        ui.good(cli.t("init.admin.chosen", "admins" to admins.joinToString(), "agent" to agent))
         return ExitCode.OK
     }
 
@@ -419,7 +390,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             }
         } ?: return null
         val base = instance["apiBaseUrl"].text ?: telegramApi
-        return when (val checked = telegramBot(cli, base, token)) {
+        return when (val checked = ui.busy({ cli.t("bot.checking") }) { telegramBot(cli, base, token) }) {
             is BotCheck.Bot -> checked to token
 
             is BotCheck.Refused -> {
@@ -449,7 +420,8 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             answered(options.zone ?: cli.zone.id, "init.zone.prompt") { zoneOrNull(it)?.id } ?: return ExitCode.FAILURE
         changes += ConfigChangeView("app.language", JsonPrimitive(language))
         changes += ConfigChangeView("app.zone", JsonPrimitive(zone))
-        cli.out.println(cli.t("init.language.chosen", "language" to language, "zone" to zone))
+        ui.good(cli.t("init.language.chosen", "language" to language, "zone" to zone))
+        summary["init.summary.language"] = "$language · $zone"
         return ExitCode.OK
     }
 
@@ -461,13 +433,10 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
                 null
             }
         }
-        repeat(ATTEMPTS) {
-            val answer = ask(cli.t(prompt), read(default)) ?: return null.also { cli.fail(cli.t("init.no_answer")) }
-            read(answer)?.let { return it }
-            cli.out.println(cli.t("init.invalid", "answer" to answer))
-        }
-        cli.fail(cli.t("init.no_answer"))
-        return null
+        val answer = ui.ask(cli.t(prompt), read(default)) {
+            if (read(it) == null) cli.t("init.invalid", "answer" to it) else null
+        } ?: return null.also { cli.fail(cli.t("init.no_answer")) }
+        return read(answer)
     }
 
     /** The language the environment's locale names, else the system's, English when neither names one. */
@@ -491,7 +460,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
     // Writing.
 
     private fun write(exists: Boolean): Int {
-        cli.out.println()
+        ui.heading(cli.t("init.step.write"))
         val file = cli.locations.configFile
         if (!exists) {
             try {
@@ -531,18 +500,14 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             if (secrets.isNotEmpty()) restore(before, secretsExisted)
             return undo(exists, ExitCode.FAILURE)
         }
-        cli.out.println(cli.t("init.written", "file" to written.file))
+        ui.good(cli.t("init.written", "file" to written.file))
+        summary["init.summary.config"] = written.file
         if (secrets.isNotEmpty()) {
-            cli.out.println(
-                cli.t(
-                    "init.secrets",
-                    "names" to secrets.keys.joinToString(),
-                    "file" to cli.secrets,
-                ),
-            )
+            ui.good(cli.t("init.secrets", "names" to secrets.keys.joinToString(), "file" to cli.secrets))
+            summary["init.summary.secrets"] = "${cli.secrets}"
         }
         val checked = configCheck(cli, false)
-        if (checked != ExitCode.OK) cli.err.println("alexandrite: ${cli.t("init.check_failed")}")
+        if (checked != ExitCode.OK) cli.fail(cli.t("init.check_failed"))
         return checked
     }
 
@@ -566,35 +531,39 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         if (!begins(InitStep.SERVICE)) return ExitCode.OK
         if (!Files.exists(cli.locations.configFile)) return cli.fail(cli.t("init.service.no_config"))
         val launch = serviceLaunch(cli) ?: run {
-            cli.out.println(cli.t("init.service.no_launcher"))
+            ui.warn(cli.t("init.service.no_launcher"))
             skip(InitStep.SERVICE)
             return ExitCode.OK
         }
         val service = platformService(cli) ?: run {
-            cli.out.println(cli.t("init.service.no_systemd", "command" to launch.command.joinToString(" ")))
+            ui.warn(cli.t("init.service.no_systemd", "command" to launch.command.joinToString(" ")))
             skip(InitStep.SERVICE)
             return ExitCode.OK
         }
         val before = installedService(cli)
         val running = cli.status()
         if (running != null && before == null) {
-            cli.out.println(cli.t("init.service.foreground", "app" to described(cli, running)))
+            ui.warn(cli.t("init.service.foreground", "app" to described(cli, running)))
         }
         try {
-            if (service.install(launch) !=
-                0
-            ) {
+            if (service.install(launch) != 0) {
                 return cli.fail(cli.t("init.service.not_installed", "service" to service.description))
             }
         } catch (e: IOException) {
             return cli.fail(cli.t("init.service.cannot_write", "reason" to (e.message ?: e)))
         }
-        cli.out.println(cli.t("init.service.installed", "service" to service.description))
+        ui.good(cli.t("init.service.installed", "service" to service.description))
+        summary["init.summary.service"] = service.description
         if (running != null && before == null) return ExitCode.OK
         val code = if (running != null) service.restart() else service.start()
         if (code != 0) return cli.fail(cli.t("service.cannot_start", "service" to service.description))
-        val ready = ready(cli, awaitReady(cli, running?.pid))
-        cli.out.println(cli.t("init.service.logs", "logs" to service.logs))
+        val status = ui.busy({ cli.t("init.service.waiting") }) { awaitReady(cli, running?.pid) }
+        val ready = ready(cli, status)
+        if (status != null) {
+            summary["init.summary.service"] =
+                cli.t("service.state", "service" to service.description, "state" to described(cli, status))
+        }
+        ui.say(cli.t("init.service.logs", "logs" to service.logs))
         return ready
     }
 }

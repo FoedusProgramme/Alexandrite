@@ -147,6 +147,7 @@ internal fun run(
                 locale,
                 zone,
                 claimCode,
+                command.options.plain,
             )
             return try {
                 command.action.run(cli)

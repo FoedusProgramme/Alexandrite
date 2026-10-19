@@ -87,14 +87,14 @@ private fun change(cli: Cli, request: ControlRequest, local: suspend HostConfig.
         null -> try {
             Written("${cli.locations.configFile}", runBlocking { localConfig(cli).local() }, running = false)
         } catch (e: ConfigEditException) {
-            cli.err.println("alexandrite: ${e.message}")
+            cli.fail("${e.message}")
             null
         }
 
         is ControlReply.ConfigChanged -> Written(reply.file, ConfigChanges(reply.changed, reply.restart), true)
 
         is ControlReply.ConfigRefused -> {
-            cli.err.println("alexandrite: ${reply.message}")
+            cli.fail(reply.message)
             null
         }
 
@@ -107,9 +107,9 @@ private fun change(cli: Cli, request: ControlRequest, local: suspend HostConfig.
 private fun reported(cli: Cli, written: Written, restartAfter: Boolean): Int {
     val changes = written.changes
     if (changes.changed.isEmpty()) return cli.done(cli.t("change.none"))
-    cli.out.println(cli.t("change.done", "keys" to changes.changed.joinToString(), "file" to written.file))
+    cli.ui.good(cli.t("change.done", "keys" to changes.changed.joinToString(), "file" to written.file))
     val live = changes.changed - changes.restart.toSet()
-    if (written.running && live.isNotEmpty()) cli.out.println(cli.t("change.live", "keys" to live.joinToString()))
+    if (written.running && live.isNotEmpty()) cli.say(cli.t("change.live", "keys" to live.joinToString()))
     if (changes.restart.isEmpty()) return ExitCode.OK
     if (!written.running) return cli.done(cli.t("change.at_start"))
     if (restartAfter || (installedService(cli) != null && cli.confirm(cli.t("change.restart_now")))) {
@@ -170,10 +170,10 @@ internal fun configCheck(cli: Cli, json: Boolean): Int {
             },
         )
     } else if (problems.isEmpty()) {
-        cli.out.println(cli.t("check.passes", "file" to file))
+        cli.done(cli.t("check.passes", "file" to file))
     } else {
         cli.fail(cli.t("check.fails", "file" to file))
-        problems.forEach { cli.err.println("  - $it") }
+        problems.forEach(cli.ui::detail)
     }
     return if (problems.isEmpty()) ExitCode.OK else ExitCode.CONFIG
 }

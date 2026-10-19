@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.app.control.ControlRequest
 import org.unitedsoftware.alexandrite.app.control.NoDaemonException
 import org.unitedsoftware.alexandrite.app.control.askDaemon
 import org.unitedsoftware.alexandrite.app.control.controlSocket
+import org.unitedsoftware.alexandrite.app.tui.Style
 import java.io.IOException
 import java.io.PrintStream
 import java.nio.file.Files
@@ -35,22 +36,38 @@ internal class Cli(
     val zone: ZoneId = ZoneId.systemDefault(),
     /** Draws the one-time code of an admin claim. */
     val claimCode: () -> String = ::newClaimCode,
+    /** Whether `--plain` asks for plain lines without glyphs, colours or prompts drawn on the terminal. */
+    plain: Boolean = false,
 ) {
     val secrets: Path get() = secretsFile(locations.configFile)
+
+    /** How the command talks with the person, in plain lines unless [onTerminal] draws on the terminal. */
+    var ui: Ui = PlainUi(out, err, machine, texts)
+
+    /** Whether the output stays plain text, as `--plain` or a dumb terminal ask. */
+    val plainOutput: Boolean = plain || environment["TERM"] == "dumb"
+
+    /** Whether the output may have colours, which `NO_COLOR` turns off. */
+    val colors: Boolean get() = environment["NO_COLOR"].isNullOrEmpty()
+
+    /** The glyphs and colours of a report on the terminal, null for plain text. */
+    val style: Style? get() = if (plainOutput || !machine.styled) null else Style(colors)
 
     /** The text of [key] in the command's language. */
     fun t(key: String, vararg args: Pair<String, Any?>): String = texts(key, *args)
 
-    /** Prints [message] to stderr and returns [code]. */
+    /** Reports the error [message] and returns [code]. */
     fun fail(message: String, code: Int = ExitCode.FAILURE): Int {
-        err.println("alexandrite: $message")
+        ui.error(message)
         return code
     }
 
     fun done(message: String): Int {
-        out.println(message)
+        ui.good(message)
         return ExitCode.OK
     }
+
+    fun say(message: String) = ui.say(message)
 
     /** The answer of the running app to [request], null when none runs. */
     fun ask(request: ControlRequest, timeout: Duration? = null): ControlReply? = try {
@@ -72,11 +89,7 @@ internal class Cli(
     }
 
     /** Whether the person at the terminal answers [question] with yes, [default] when they just press Enter. */
-    fun confirm(question: String, default: Boolean = false): Boolean {
-        if (!machine.interactive) return false
-        val answer = machine.ask("$question ${if (default) "[Y/n]" else "[y/N]"} ")?.trim()?.lowercase() ?: return false
-        return if (answer.isEmpty()) default else answer in YES
-    }
+    fun confirm(question: String, default: Boolean = false): Boolean = ui.confirm(question, default)
 
     /** The config file as written, or null after printing why it cannot be read. */
     fun rawConfig(): JsonObject? {
@@ -97,8 +110,6 @@ internal class Cli(
     }
 
     private companion object {
-        val YES = setOf("y", "yes", "是", "好")
-
         @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
         val PRETTY = Json {
             prettyPrint = true

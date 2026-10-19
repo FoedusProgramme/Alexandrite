@@ -5,7 +5,13 @@ import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /** The locations given on the command line. */
-internal class Options(val configFile: Path? = null, val dataDir: Path? = null, val cacheDir: Path? = null)
+internal class Options(
+    val configFile: Path? = null,
+    val dataDir: Path? = null,
+    val cacheDir: Path? = null,
+    /** Whether `--plain` asks for plain lines. */
+    val plain: Boolean = false,
+)
 
 /** What the command line asks for. */
 internal sealed interface Command {
@@ -91,6 +97,7 @@ private const val DATA_DIR = "--data-dir"
 private const val CACHE_DIR = "--cache-dir"
 private const val VERSION = "--version"
 private const val HELP = "--help"
+private const val PLAIN = "--plain"
 private const val END = "--"
 
 /** Where the summaries start in the usage's list of commands. */
@@ -103,12 +110,17 @@ internal fun parseArguments(
 ): Command {
     val paths = mutableMapOf<String, Path>()
     val rest = mutableListOf<String>()
+    var plain = false
     var index = 0
     while (index < args.size) {
         val arg = args[index++]
         if (arg == END) {
             rest += args.subList(index - 1, args.size)
             break
+        }
+        if (arg == PLAIN) {
+            plain = true
+            continue
         }
         val option = arg.substringBefore('=')
         if (option == CONFIG || option == DATA_DIR || option == CACHE_DIR) {
@@ -126,7 +138,7 @@ internal fun parseArguments(
             rest += arg
         }
     }
-    val options = Options(paths[CONFIG], paths[DATA_DIR], paths[CACHE_DIR])
+    val options = Options(paths[CONFIG], paths[DATA_DIR], paths[CACHE_DIR], plain)
     if (rest.isEmpty() || rest.first().startsWith("-")) {
         rest.firstOrNull { it != HELP && it != VERSION }?.let {
             return Command.Invalid(texts("usage.unknown_option", "option" to it))
@@ -216,7 +228,7 @@ internal fun usage(
     appendLine(
         texts(
             "usage.line",
-            "options" to "[$CONFIG <file>] [$DATA_DIR <dir>] [$CACHE_DIR <dir>] [$VERSION] [$HELP]",
+            "options" to "[$CONFIG <file>] [$DATA_DIR <dir>] [$CACHE_DIR <dir>] [$PLAIN] [$VERSION] [$HELP]",
         ),
     )
     appendLine(texts("usage.line_command", "help" to HELP))
@@ -242,6 +254,7 @@ internal fun usage(
         "$CONFIG <file>" to texts("usage.option.config", "default" to defaults.configFile),
         "$DATA_DIR <dir>" to texts("usage.option.data_dir", "default" to defaults.dataDir),
         "$CACHE_DIR <dir>" to texts("usage.option.cache_dir", "default" to defaults.cacheDir),
+        PLAIN to texts("usage.option.plain"),
         VERSION to texts("usage.option.version"),
         HELP to texts("usage.option.help"),
     )

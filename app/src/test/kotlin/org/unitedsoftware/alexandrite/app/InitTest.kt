@@ -13,6 +13,9 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.control.ControlAnswers
 import org.unitedsoftware.alexandrite.app.control.controlSocket
 import org.unitedsoftware.alexandrite.app.control.serveControl
+import org.unitedsoftware.alexandrite.app.tui.Key
+import org.unitedsoftware.alexandrite.app.tui.ScriptedConsole
+import org.unitedsoftware.alexandrite.app.tui.typed
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesks
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotApi
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeUser
@@ -317,5 +320,90 @@ class InitTest {
         assertContains(status.out, "Alexandrite 没有在运行。")
         assertContains(usage.err, "'nothing' 不是 init 的步骤")
         assertContains(usage.err, "用法：alexandrite init")
+    }
+
+    // On the terminal.
+
+    @Test
+    fun `init draws its prompts on the terminal, with the key masked and a summary at the end`() {
+        val console = ScriptedConsole(
+            listOf(Key.Enter, Key.Enter) + typed("sk-test") + Key.Enter +
+                listOf(Key.Down, Key.Space, Key.Up, Key.Space, Key.Enter) +
+                listOf(Key.Enter) + typed("zh-CN") + Key.Enter + Key.Enter,
+            width = 200,
+        )
+        cli.machine.console = console
+
+        val printed = cli("init", "--only", "model", "--only", "language", "--base-url", models.baseUrl)
+
+        assertEquals(0, printed.code, printed.out + printed.err + console.screen.lines())
+        assertEquals("", printed.out + printed.err)
+        assertTrue(cli.machine.prompts.isEmpty(), "${cli.machine.prompts}")
+        val screen = console.screen.lines()
+        val expected = listOf(
+            "┌   Alexandrite setup",
+            "│",
+            "│  Setting Alexandrite up, with the config file ${cli.configFile}.",
+            "│",
+            "◈  Step 1 of 6: the model.",
+            "│",
+            "◇  Set up a model provider now?",
+            "│  Yes",
+            "│",
+            "◇  Model provider",
+            "│  DeepSeek",
+            "│",
+            "◇  API key for DeepSeek",
+            "│  ▪▪▪▪▪▪▪",
+            "│",
+            "✓  ${models.baseUrl} takes the key and lists 2 models.",
+            "│",
+            "◇  Models",
+            "│  deepseek-reasoner, deepseek-chat",
+            "│",
+            "✓  The agent main uses deepseek/deepseek-reasoner, deepseek/deepseek-chat.",
+        )
+        assertEquals(expected, screen.take(expected.size))
+        assertTrue(screen.any { it.startsWith("│  Provider            DeepSeek · ${models.baseUrl}  ") }, "$screen")
+        assertTrue(screen.any { it.startsWith("│  Language and zone   zh-CN · Europe/Berlin  ") }, "$screen")
+        assertEquals("└  Done.", screen.last())
+        assertFalse("sk-test" in "${console.written}")
+        assertTrue(console.closed)
+        assertEquals(
+            """["deepseek/deepseek-reasoner","deepseek/deepseek-chat"]""",
+            "${file().at("agent.agents.main.models")}",
+        )
+        assertEquals("""{"language":"zh-CN","zone":"Europe/Berlin"}""", "${file().at("app")}")
+    }
+
+    @Test
+    fun `a cancelled prompt stops init without writing`() {
+        val console = ScriptedConsole(listOf(Key.Enter, Key.Interrupt))
+        cli.machine.console = console
+
+        val printed = cli("init", "--only", "model", "--base-url", models.baseUrl)
+
+        assertEquals(1, printed.code)
+        assertContains(console.screen.lines(), "■  Model provider")
+        assertEquals("└  Stopped at your request.", console.screen.lines().last())
+        assertFalse(Files.exists(cli.configFile))
+    }
+
+    @Test
+    fun `--plain, a dumb terminal or no terminal keep the plain prompts`() {
+        val console = ScriptedConsole()
+        cli.machine.console = console
+        cli.machine.answers += listOf("", "fr", "")
+
+        val plain = cli("init", "--plain", "--only", "language")
+        cli.environment = mapOf("TERM" to "dumb")
+        cli.machine.answers += listOf("y", "", "", "")
+        val dumb = cli("init", "--only", "language")
+
+        assertEquals(0, plain.code, plain.err)
+        assertEquals(0, dumb.code, dumb.err)
+        assertContains(plain.out, "Step 4 of 6: language and time zone.")
+        assertContains(cli.machine.prompts, "Language of the agent's answers [en]: ")
+        assertEquals("", "${console.written}")
     }
 }

@@ -74,12 +74,17 @@ EOF
     done
     unset LC_ALL LC_MESSAGES ALEXANDRITE_INSTALL_DIR ALEXANDRITE_BIN_DIR ALEXANDRITE_JAVA_HOME
     unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME ALEXANDRITE_CONFIG ALEXANDRITE_DATA_DIR ALEXANDRITE_CACHE_DIR
+    unset NO_COLOR ZDOTDIR
     LANG=C
+    SHELL=/bin/sh
     PATH=$case_dir/fakebin:$original_path
     ALEXANDRITE_INSTALL_BASE=file://$RELEASES
     ALEXANDRITE_ADOPTIUM_BASE=file://$ADOPTIUM
     ALEXANDRITE_READY_TIMEOUT=3
-    export HOME LANG PATH CALLS ALEXANDRITE_INSTALL_BASE ALEXANDRITE_ADOPTIUM_BASE ALEXANDRITE_READY_TIMEOUT
+    ALEXANDRITE_INSTALL_TTY=$case_dir/no-terminal
+    CONFIG=$HOME/.config/alexandrite/alexandrite.json
+    export HOME LANG SHELL PATH CALLS ALEXANDRITE_INSTALL_BASE ALEXANDRITE_ADOPTIUM_BASE ALEXANDRITE_READY_TIMEOUT
+    export ALEXANDRITE_INSTALL_TTY
     ROOT=$HOME/.local/lib/alexandrite
     serve_jre "$(sha256_of_jre)"
 }
@@ -141,9 +146,10 @@ case "\$1" in
     --version) echo "alexandrite $version" ;;
     config)
         case \$kind in
-            badcheck) echo "config: the endpoint is unknown" >&2 && exit 78 ;;
             nocheck | old) echo "alexandrite: Unknown command config." >&2 && exit 64 ;;
         esac
+        if [ "\$2" = path ]; then echo "\$HOME/.config/alexandrite/alexandrite.json" && exit 0; fi
+        if [ "\$kind" = badcheck ]; then echo "config: the endpoint is unknown" >&2 && exit 78; fi
         ;;
     status)
         case \$kind in
@@ -192,6 +198,36 @@ skip() {
     exit 3
 }
 
+configured() {
+    mkdir -p "${CONFIG%/*}"
+    printf '{}\n' >"$CONFIG"
+}
+
+markers() {
+    grep -c '^# >>> alexandrite >>>$' "$1" || true
+}
+
+inits() {
+    grep -c ' init$' "$CALLS" || true
+}
+
+# The output in LOG without escape sequences.
+drawn() {
+    sed "s/$(printf '\033')\[[0-9;?]*[A-Za-z]//g" "$LOG"
+}
+
+# Runs install.sh under a pseudo-terminal, its output in LOG; skips without script(1).
+installs_on_terminal() {
+    command -v script >/dev/null 2>&1 || skip "no script(1)"
+    if script --version 2>/dev/null | grep -q util-linux; then
+        command="$shell '$script'"
+        for argument in "$@"; do command="$command '$argument'"; done
+        TERM=xterm script -qec "$command" /dev/null </dev/null >"$LOG" 2>&1 || fail "install.sh $* failed"
+    else
+        TERM=xterm script -q /dev/null "$shell" "$script" "$@" </dev/null >"$LOG" 2>&1 || fail "install.sh $* failed"
+    fi
+}
+
 real_release() {
     [ -n "$real_archive" ] && [ -f "$real_archive" ] || skip "no distribution archive given"
     [ -n "$real_java" ] || skip "no Java 21+"
@@ -211,7 +247,9 @@ case_installs_the_real_distribution() {
     expect_eq "$(current)" "versions/$version" "current"
     [ -x "$ROOT/install.sh" ] || fail "install.sh is not kept"
     [ -x "$(cat "$ROOT/java-home")/bin/java" ] || fail "java-home names no Java"
-    expect_contains "$(cat "$LOG")" "is not on your PATH" "the PATH hint"
+    expect_eq "$(markers "$HOME/.profile")" 1 "the PATH block"
+    expect_contains "$("$HOME/.local/bin/alexandrite" config path)" "/alexandrite.json" "the config path init looks for"
+    expect_lacks "$(calls)" " init" "--no-init"
 }
 
 case_runs_on_a_downloaded_runtime() {
@@ -242,6 +280,7 @@ case_upgrades_keeps_two_and_rolls_back() {
     expect_eq "$(previous)" "" "previous after the first install"
     expect_lacks "$(calls)" "init" "--no-init"
 
+    configured
     service_on
     publish 1.1.0 ok
     installs
@@ -327,6 +366,134 @@ case_speaks_chinese() {
     publish 1.1.0 ok
     installs --update
     expect_contains "$(cat "$LOG")" "已安装 Alexandrite 1.1.0（原为 1.0.0）。" "the Chinese message"
+    rm -rf "$ROOT"
+    installs
+    expect_contains "$(cat "$LOG")" "已跳过设置（没有终端）；安装后请运行 'alexandrite init'。" "the Chinese skip line"
+    expect_lacks "$(cat "$LOG")" "Added" "the Chinese PATH note"
+}
+
+case_prints_plain_lines_without_a_terminal() {
+    fresh plain
+    publish 1.0.0 ok
+    installs --no-init
+    escape=$(printf '\033')
+    for drawn in ┌ ◆ ✓ ✗ → · "[1/4]" "$escape"; do expect_lacks "$(cat "$LOG")" "$drawn" "the plain output"; done
+    expect_contains "$(cat "$LOG")" "Alexandrite 1.0.0 is installed: $HOME/.local/bin/alexandrite" "the summary"
+}
+
+case_draws_on_a_terminal() {
+    fresh terminal
+    publish 1.0.0 ok
+    installs_on_terminal --no-init
+    for drawn in "┌──" "◆ Alexandrite" "Distributed Model Harness." "[1/4] Environment" "[3/4] Download and verify" \
+        "[4/4] Install" "✓ Detected:" "Install directory:" "✓ Downloaded alexandrite-1.0.0.tar.gz" \
+        "✓ Alexandrite 1.0.0 is installed." "Then run: alexandrite"; do
+        expect_contains "$(drawn)" "$drawn" "the terminal output"
+    done
+    expect_contains "$(cat "$LOG")" "$(printf '\033[32m')" "the colours"
+
+    fresh terminal-no-color
+    NO_COLOR=1
+    export NO_COLOR
+    publish 1.0.0 ok
+    installs_on_terminal --no-init
+    expect_contains "$(drawn)" "✓ Detected:" "the glyphs with NO_COLOR"
+    expect_lacks "$(cat "$LOG")" "$(printf '\033[32m')" "the colours with NO_COLOR"
+}
+
+case_speaks_chinese_on_a_terminal() {
+    fresh terminal-chinese
+    LANG=zh_CN.UTF-8
+    publish 1.0.0 ok
+    installs_on_terminal --no-init
+    for drawn in "分布式模型运行框架。" "[1/4] 环境" "[3/4] 下载并校验" "[4/4] 安装" "已检测：" "安装目录：" "然后运行：alexandrite"; do
+        expect_contains "$(drawn)" "$drawn" "the Chinese terminal output"
+    done
+    for english in Environment Download Detected Install Version Command Location Run Added Harness; do
+        expect_lacks "$(cat "$LOG")" "$english" "the Chinese terminal output"
+    done
+}
+
+case_shows_the_log_of_a_failed_download() {
+    fresh failed-download
+    publish 1.0.0 ok
+    rm "$RELEASES/download/v1.0.0/alexandrite-1.0.0.tar.gz"
+    refuses --no-init
+    expect_contains "$(cat "$LOG")" "Downloading Alexandrite 1.0.0 ...
+  | " "the log's end"
+    expect_contains "$(cat "$LOG")" "Cannot download alexandrite-1.0.0.tar.gz." "the refusal"
+    expect_eq "$(current)" "" "current"
+}
+
+case_puts_the_command_on_path() {
+    fresh path-zsh
+    SHELL=/bin/zsh
+    publish 1.0.0 ok
+    installs --no-init
+    installs --no-init
+    expect_contains "$(cat "$LOG")" "installed already" "the second run"
+    expect_eq "$(markers "$HOME/.profile")" 1 "the block in .profile"
+    expect_eq "$(markers "$HOME/.zshrc")" 1 "the block in .zshrc"
+    expect_eq "$(env -i HOME="$HOME" PATH=/usr/bin:/bin sh -c '. "$HOME/.profile" && command -v alexandrite')" \
+        "$HOME/.local/bin/alexandrite" "the command after .profile"
+    if command -v zsh >/dev/null 2>&1; then
+        expect_eq "$(env -i HOME="$HOME" PATH=/usr/bin:/bin zsh -f -c '. "$HOME/.zshrc" && command -v alexandrite')" \
+            "$HOME/.local/bin/alexandrite" "the command after .zshrc"
+    fi
+
+    fresh path-bash
+    SHELL=/bin/bash
+    printf 'echo kept' >"$HOME/.bashrc"
+    publish 1.0.0 ok
+    installs --no-init
+    expect_contains "$(cat "$LOG")" "Added $HOME/.local/bin to PATH in ~/.profile, ~/.bashrc." "the changed files"
+    expect_eq "$(head -n 2 "$HOME/.bashrc")" "echo kept
+# >>> alexandrite >>>" "the block after the last line"
+
+    fresh path-fish
+    SHELL=/usr/bin/fish
+    publish 1.0.0 ok
+    installs --no-init
+    installs --no-init
+    fish=$HOME/.config/fish/conf.d/alexandrite.fish
+    expect_eq "$(markers "$fish")" 1 "the fish block"
+    expect_contains "$(cat "$fish")" "set -gx PATH \"$HOME/.local/bin\" \$PATH" "the fish line"
+}
+
+case_leaves_path_alone_when_asked() {
+    fresh no-path
+    publish 1.0.0 ok
+    installs --no-init --no-modify-path
+    [ ! -e "$HOME/.profile" ] || fail ".profile was written"
+    expect_contains "$(cat "$LOG")" "is not on your PATH" "the PATH hint"
+}
+
+case_runs_init_until_a_config_exists() {
+    fresh init
+    : >"$case_dir/terminal"
+    ALEXANDRITE_INSTALL_TTY=$case_dir/terminal
+    publish 1.0.0 ok
+    installs
+    expect_eq "$(inits)" 1 "init after the first install"
+    expect_contains "$(cat "$LOG")" "Starting setup: alexandrite init" "the note"
+
+    publish 1.1.0 ok
+    installs
+    expect_eq "$(inits)" 2 "init after an upgrade without a config"
+
+    configured
+    publish 1.2.0 ok
+    installs
+    expect_eq "$(inits)" 2 "init with a config"
+
+    rm "$CONFIG"
+    installs --no-init
+    expect_eq "$(inits)" 2 "--no-init"
+
+    ALEXANDRITE_INSTALL_TTY=$case_dir/no-terminal
+    installs
+    expect_eq "$(inits)" 2 "init without a terminal"
+    expect_contains "$(cat "$LOG")" "Setup skipped (no terminal); run 'alexandrite init' after install." "the skip line"
 }
 
 for test_case in \
@@ -337,7 +504,14 @@ for test_case in \
     case_updates_versions_before_config_check \
     case_goes_on_when_both_versions_fail_the_config_check \
     case_update_needs_an_installation \
-    case_speaks_chinese; do
+    case_speaks_chinese \
+    case_prints_plain_lines_without_a_terminal \
+    case_draws_on_a_terminal \
+    case_speaks_chinese_on_a_terminal \
+    case_shows_the_log_of_a_failed_download \
+    case_puts_the_command_on_path \
+    case_leaves_path_alone_when_asked \
+    case_runs_init_until_a_config_exists; do
     printf '%s\n' "$test_case"
     set +e
     (

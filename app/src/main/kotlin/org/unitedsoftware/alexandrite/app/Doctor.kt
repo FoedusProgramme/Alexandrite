@@ -6,6 +6,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.unitedsoftware.alexandrite.app.tui.Mark
+import org.unitedsoftware.alexandrite.app.tui.columns
+import org.unitedsoftware.alexandrite.app.tui.pad
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.configProblems
@@ -19,7 +22,12 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.Locale
 
 /** How a check of `doctor` came out. */
-internal enum class Verdict(val label: String) { OK("ok"), WARN("warn"), FAIL("FAIL"), SKIP("skip") }
+internal enum class Verdict(val label: String, val mark: Mark) {
+    OK("ok", Mark.OK),
+    WARN("warn", Mark.WARN),
+    FAIL("FAIL", Mark.FAIL),
+    SKIP("skip", Mark.SKIP),
+}
 
 internal class Finding(val check: String, val verdict: Verdict, val detail: String)
 
@@ -50,16 +58,28 @@ internal fun doctor(cli: Cli, json: Boolean): Int {
             },
         )
     } else {
-        for (finding in findings) {
-            cli.out.println("${finding.verdict.label.padEnd(5)} ${finding.check}: ${finding.detail}")
-        }
         val failed = findings.count { it.verdict == Verdict.FAIL }
         val summary = when (failed) {
             0 -> cli.t("doctor.fine")
             1 -> cli.t("doctor.one_fails")
             else -> cli.t("doctor.fail", "count" to failed)
         }
-        cli.out.println(summary)
+        val style = cli.style
+        if (style == null) {
+            for (finding in findings) {
+                cli.out.println("${finding.verdict.label.padEnd(5)} ${finding.check}: ${finding.detail}")
+            }
+            cli.out.println(summary)
+        } else {
+            val width = findings.maxOf { columns(it.check) }
+            for (finding in findings) {
+                cli.out.println(
+                    "${style.mark(finding.verdict.mark)} ${style.bold(pad(finding.check, width))}  ${finding.detail}",
+                )
+            }
+            cli.out.println()
+            cli.out.println("${style.mark(if (failed == 0) Mark.OK else Mark.FAIL)} $summary")
+        }
     }
     return if (findings.any { it.verdict == Verdict.FAIL }) ExitCode.FAILURE else ExitCode.OK
 }

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.IOException
 import java.security.SecureRandom
+import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -94,10 +95,45 @@ internal fun claimAdmin(
         return null
     }
     val code = cli.claimCode()
-    cli.out.println(cli.t("claim.send", "bot" to described(cli, bot), "code" to code))
-    bot.username?.let { cli.out.println(cli.t("claim.link", "link" to "https://t.me/$it?start=$code")) }
-    cli.out.println(cli.t("claim.waiting", "minutes" to timeout.inWholeMinutes))
+    val ui = cli.ui
+    if (ui.rich) {
+        ui.say(cli.t("claim.send_code", "bot" to described(cli, bot)))
+        ui.code(code)
+    } else {
+        ui.say(cli.t("claim.send", "bot" to described(cli, bot), "code" to code))
+    }
+    bot.username?.let { ui.say(cli.t("claim.link", "link" to "https://t.me/$it?start=$code")) }
+    ui.say(cli.t("claim.waiting", "minutes" to timeout.inWholeMinutes))
     val deadline = System.nanoTime() + timeout.inWholeNanoseconds
+    val sender = ui.busy({ cli.t("claim.countdown", "left" to left(deadline)) }) {
+        awaitCode(cli, api, code, deadline, timeout, base, token)
+    }
+    if (sender == null) return null
+    try {
+        api.call("sendMessage", welcome(sender.id, cli.t("claim.welcome")))
+    } catch (e: IOException) {
+        // The claim stands without the greeting.
+    }
+    ui.good(cli.t("claim.done", "sender" to sender.described))
+    return sender
+}
+
+/** `m:ss` until [deadline] of [System.nanoTime]. */
+private fun left(deadline: Long): String {
+    val seconds = ((deadline - System.nanoTime()) / 1_000_000_000).coerceAtLeast(0)
+    return "%d:%02d".format(Locale.ROOT, seconds / 60, seconds % 60)
+}
+
+/** The person who sends [code] to the bot before [deadline], null after printing why nobody did. */
+private fun awaitCode(
+    cli: Cli,
+    api: BotCalls,
+    code: String,
+    deadline: Long,
+    timeout: Duration,
+    base: String,
+    token: String,
+): Claimant? {
     var offset: Long? = null
     var failures = 0
     while (System.nanoTime() < deadline) {
@@ -141,16 +177,10 @@ internal fun claimAdmin(
             if (chat["type"].text != "private" || (from["is_bot"] as? JsonPrimitive)?.booleanOrNull == true) continue
             val sender = sender(from) ?: continue
             if (!carries(message["text"].text, code)) {
-                cli.out.println(cli.t("claim.ignored", "sender" to sender.described))
+                cli.say(cli.t("claim.ignored", "sender" to sender.described))
                 continue
             }
             confirm(api, id + 1)
-            try {
-                api.call("sendMessage", welcome(sender.id, cli.t("claim.welcome")))
-            } catch (e: IOException) {
-                // The claim stands without the greeting.
-            }
-            cli.out.println(cli.t("claim.done", "sender" to sender.described))
             return sender
         }
     }

@@ -205,6 +205,16 @@ internal fun channelAddTelegram(
     variable: String?,
     apiBaseUrl: String?,
     restart: Boolean,
+): Int = cli.onTerminal { addTelegram(cli, name, admins, agentId, variable, apiBaseUrl, restart) }
+
+private fun addTelegram(
+    cli: Cli,
+    name: String,
+    admins: List<Long>,
+    agentId: String?,
+    variable: String?,
+    apiBaseUrl: String?,
+    restart: Boolean,
 ): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (config.at("$TELEGRAM_INSTANCES.$name") != null) {
@@ -242,8 +252,8 @@ internal fun channelAddTelegram(
         }
         return code
     }
-    cli.out.println(cli.t("channel.saved", "name" to secret, "file" to cli.secrets))
-    if (agent == null) cli.out.println(cli.t("channel.no_agent", "instance" to name))
+    cli.ui.good(cli.t("channel.saved", "name" to secret, "file" to cli.secrets))
+    if (agent == null) cli.ui.warn(cli.t("channel.no_agent", "instance" to name))
     return ExitCode.OK
 }
 
@@ -275,14 +285,15 @@ internal fun telegramChanges(
 
 /** The token typed after a prompt and the bot Telegram says it belongs to, null after printing why there is none. */
 internal fun askBot(cli: Cli, base: String, given: String? = null): Pair<BotCheck.Bot, String>? {
-    val token = (given ?: cli.machine.askSecret(cli.t("channel.token_prompt")))?.trim()?.takeIf { it.isNotEmpty() }
+    val prompt = cli.t(if (cli.ui.rich) "channel.token_title" else "channel.token_prompt")
+    val token = (given ?: cli.ui.secret(prompt))?.trim()?.takeIf { it.isNotEmpty() }
         ?: run {
             cli.fail(cli.t("channel.no_token"))
             return null
         }
-    return when (val checked = telegramBot(cli, base, token)) {
+    return when (val checked = cli.ui.busy({ cli.t("bot.checking") }) { telegramBot(cli, base, token) }) {
         is BotCheck.Bot -> {
-            cli.out.println(cli.t("bot.belongs", "bot" to described(cli, checked)))
+            cli.ui.good(cli.t("bot.belongs", "bot" to described(cli, checked)))
             checked to token
         }
 
