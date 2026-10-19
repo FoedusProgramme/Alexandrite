@@ -181,7 +181,7 @@ class SandboxesTest {
 
             assertTrue(containment.clearable)
             assertEquals(listOf("example.org:8080"), containment.hosts)
-            assertNull(sandboxes().containment(turn, CallReview()))
+            assertNull(sandboxes().containment(turn, CallReview.builder().build()))
         }
     }
 
@@ -190,7 +190,7 @@ class SandboxesTest {
         harness("""{"type": "seatbelt"}""").execute {
             val segment = CommandSegment(listOf("make"), project, null, null, environment = mapOf("A" to "1"))
             val preview = ReviewPreview.Command(listOf("env", "A=1", "make"), project, null, false, listOf(segment))
-            val review = CallReview(preview = preview, contained = Contained("seatbelt", boundary()))
+            val review = CallReview.builder().preview(preview).contained(Contained("seatbelt", boundary())).build()
 
             assertFalse(assertNotNull(sandboxes().containment(turn, review)).clearable)
         }
@@ -223,5 +223,5 @@ class SandboxesTest {
     private fun boundary() = Boundary(listOf(project))
 
     private fun contained(vararg hosts: String) =
-        CallReview(contained = Contained("seatbelt", boundary(), hosts.toList()))
+        CallReview.builder().contained(Contained("seatbelt", boundary(), hosts.toList())).build()
 }

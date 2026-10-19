@@ -15,7 +15,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import kotlin.coroutines.cancellation.CancellationException
 
 /** Lets the messages of paired chats through and offers each chat that is not paired its pairing code. */
@@ -25,7 +26,8 @@ internal class AccessGate(
     private val config: TelegramInstanceConfig,
     private val desk: TelegramPairingDesk,
     private val outbox: Outbox,
-    private val control: AgentControl?,
+    private val catalog: AgentCatalog?,
+    private val links: ChatLinks?,
 ) : Lifecycle {
     private val dropped = BoundedMap<ChatAddress, Unit>(LOGGED_CHATS)
 
@@ -77,13 +79,13 @@ internal class AccessGate(
 
     /** Warns once of each home chat and linked chat of this instance that is not paired. */
     private fun warnUnpaired(pairing: InstancePairing) {
-        val control = control ?: return
+        if (catalog == null && links == null) return
         val uses = LinkedHashMap<ChatAddress, MutableSet<String>>()
         try {
-            for (agent in control.agents(instance.id)) {
+            for (agent in catalog?.agents(instance.id).orEmpty()) {
                 agent.home?.let { uses.getOrPut(it.parent, ::LinkedHashSet) += "the home chat of agent ${agent.id}" }
             }
-            for (group in control.links()) {
+            for (group in links?.groups().orEmpty()) {
                 for (chat in (listOf(group.anchor) + group.members).filter { it.instance == instance.id }) {
                     uses.getOrPut(chat.parent, ::LinkedHashSet) += "linked at agent ${group.agent}"
                 }

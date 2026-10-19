@@ -74,7 +74,7 @@ internal class Output(
     /** The bot's messages that answered an admin. */
     val vouched = VouchedReplies(instance, testRecords())
     private val pairings = TelegramPairingDesk(Clock.systemUTC(), testRecords())
-    private val gate = AccessGate(instance, config, pairings, outbox, null)
+    private val gate = AccessGate(instance, config, pairings, outbox, null, null)
         .also { runBlocking { it.onStart() } }
     private val approvals =
         ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), ApprovalMessages())

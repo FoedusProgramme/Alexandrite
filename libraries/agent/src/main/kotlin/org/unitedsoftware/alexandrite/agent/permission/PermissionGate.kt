@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.tool.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import java.time.Clock
@@ -117,9 +118,7 @@ internal class PermissionGate(
     }
 
     /** [review] without its exemption, which only a built-in tool may claim. */
-    private fun unexempted(review: CallReview): CallReview = with(review) {
-        CallReview(risk, refusal, preview, snapshot, rule, problem, false, background, untrusted, person, contained)
-    }
+    private fun unexempted(review: CallReview): CallReview = review.rebuild { exempt(false) }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
     private suspend fun review(call: GateCall): Reviewed {
@@ -217,7 +216,7 @@ internal class PermissionGate(
     }
 
     private companion object {
-        val NOT_REVIEWED = CallReview()
+        val NOT_REVIEWED = CallReview.builder().build()
     }
 }
 

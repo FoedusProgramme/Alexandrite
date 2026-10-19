@@ -7,9 +7,9 @@ import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDecision
 import org.unitedsoftware.alexandrite.channel.common.pairing.Unpairing
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -137,14 +137,14 @@ class ControlAnswersTest {
 
     @Test
     fun `an unpaired chat that an agent still keeps as its home chat or linked is named in the reply and the log`() {
-        val control = RecordingAgentControl()
+        val control = RecordingAgent()
         val desk = FakeDesk(paired = listOf(approved(request("9", "NNNN-NNNN")), approved(request("10", "MMMM-MMMM"))))
         lateinit var unpaired: List<ControlReply.Unpaired>
 
         val lines = logged {
-            served(directory, desk, control = control) { socket ->
-                control.updateSettings(chat("9", "5"), ChatSettingsUpdate.builder().home().build(), null)
-                control.link(AgentId.MAIN, chat("7"), chat("9"), null)
+            served(directory, desk, agent = control) { socket ->
+                control.settings.update(chat("9", "5"), ChatSettingsUpdate.builder().home().build(), null)
+                control.links.link(AgentId.MAIN, chat("7"), chat("9"), null)
                 unpaired = listOf("chat:work:9", "chat:work:10").map {
                     assertIs<ControlReply.Unpaired>(ask(socket, ControlRequest.Unpair(it)))
                 }

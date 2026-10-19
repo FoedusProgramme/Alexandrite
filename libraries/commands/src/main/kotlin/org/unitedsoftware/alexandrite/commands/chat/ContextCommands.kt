@@ -11,12 +11,12 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import java.time.Clock
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -25,8 +25,11 @@ import java.util.Locale
 /** `/compact` and `/context`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class ContextCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
-    CommandHandler {
+internal class ContextCommands(
+    private val conversations: ConversationControl,
+    private val texts: Texts,
+    private val clock: Clock,
+) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(COMPACT), texts.spec(CONTEXT))
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
@@ -42,7 +45,7 @@ internal class ContextCommands(private val control: AgentControl, private val te
 
     private suspend fun compact(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val focus = invocation.arguments.trim().takeIf { it.isNotEmpty() }
-        val report = context.refusing { control.compact(invocation.chat, focus, invocation.issuer) } ?: return
+        val report = context.refusing { conversations.compact(invocation.chat, focus, invocation.issuer) } ?: return
         val text = replies.text(
             TextKeys.COMPACT_DONE,
             "count" to report.folded,
@@ -53,7 +56,7 @@ internal class ContextCommands(private val control: AgentControl, private val te
     }
 
     private suspend fun show(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val status = context.refusing { control.context(invocation.chat) } ?: return
+        val status = context.refusing { conversations.context(invocation.chat) } ?: return
         val lines = listOf(title(status, replies), used(status, replies), limits(status, replies))
         context.reply((lines + summary(status, replies)).joinToString("\n"))
     }

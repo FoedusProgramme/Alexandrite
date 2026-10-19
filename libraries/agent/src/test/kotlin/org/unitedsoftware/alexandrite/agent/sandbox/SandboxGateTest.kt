@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -41,7 +42,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RecordingEnvironment
 import org.unitedsoftware.alexandrite.testkit.testToolContext
@@ -158,7 +158,7 @@ class SandboxGateTest {
             assertEquals("refused", gate.decide(contained(argv = listOf("rm", "-rf", "build"))))
             assertEquals("ask", gate.decide(contained(person = "it reaches a place the floor asks a person about")))
             assertEquals("ask", gate.decide(contained(segments = listOf(variables))))
-            assertEquals("ask", gate.decide(CallReview(preview = command())))
+            assertEquals("ask", gate.decide(CallReview.builder().preview(command()).build()))
         }
     }
 
@@ -240,16 +240,16 @@ class SandboxGateTest {
         argv: List<String> = listOf("sh", "-c", "make && ./run"),
         segments: List<CommandSegment> = emptyList(),
         person: String? = null,
-    ) = CallReview(
-        preview = command(argv, segments),
-        untrusted = true,
-        person = person,
-        contained = Contained("seatbelt", Boundary(listOf(CWD)), hosts),
-    )
+    ) = CallReview.builder()
+        .preview(command(argv, segments))
+        .untrusted(true)
+        .person(person)
+        .contained(Contained("seatbelt", Boundary(listOf(CWD)), hosts))
+        .build()
 
     /** command.exec, whose calls are reviewed as [review] says. */
     private class ScriptedExec : ReviewedTool {
-        var review: CallReview = CallReview()
+        var review: CallReview = CallReview.builder().build()
 
         override val definition: ToolDefinition = testToolDefinition("command.exec", ToolRisk.EXEC)
 

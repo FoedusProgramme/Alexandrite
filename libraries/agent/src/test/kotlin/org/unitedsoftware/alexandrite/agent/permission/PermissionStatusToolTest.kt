@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -29,7 +30,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
@@ -71,7 +71,10 @@ class PermissionStatusToolTest {
     private suspend fun grant(turn: TurnInfo, vararg argv: String) {
         val subject = RuleSubject("command.exec", argv.toList(), argv.joinToString(" "))
         val review =
-            CallReview(preview = ReviewPreview.Command(argv.toList(), Path.of("/srv"), null, false), rule = subject)
+            CallReview.builder()
+                .preview(ReviewPreview.Command(argv.toList(), Path.of("/srv"), null, false))
+                .rule(subject)
+                .build()
         val call = ToolCallPart(ToolCallId("call-1"), "command.exec", "{}")
         val context = testToolContext(turn)
         val taint = TurnTaint(turn.id, turn.key)

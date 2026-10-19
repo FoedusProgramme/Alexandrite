@@ -84,6 +84,7 @@ class ApprovalDeskTest {
             TelegramPairingDesk(Clock.systemUTC(), testRecords()),
             outbox,
             null,
+            null,
         )
             .also { runBlocking { it.onStart() } }
         val titles = ChatTitles()

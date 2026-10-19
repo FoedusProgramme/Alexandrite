@@ -84,16 +84,24 @@ internal class PersonaEditTool(
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val edit = planned(arguments, context)
-        CallReview(
-            preview = ReviewPreview.Diff(edit.file, edit.diff().text),
-            snapshot = edit.snapshot,
-            person = edit.person,
-        )
+        CallReview.builder()
+            .preview(ReviewPreview.Diff(edit.file, edit.diff().text))
+            .snapshot(edit.snapshot)
+            .person(edit.person)
+            .build()
     } catch (e: ToolRefusal) {
-        if (e.blocked) CallReview(refusal = e.message) else CallReview(problem = e.message)
+        if (e.blocked) {
+            CallReview.builder().refusal(
+                e.message,
+            ).build()
+        } else {
+            CallReview.builder().problem(e.message).build()
+        }
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
-        CallReview(problem = "The persona file could not be read: ${e.message ?: e.javaClass.simpleName}")
+        CallReview.builder()
+            .problem("The persona file could not be read: ${e.message ?: e.javaClass.simpleName}")
+            .build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {

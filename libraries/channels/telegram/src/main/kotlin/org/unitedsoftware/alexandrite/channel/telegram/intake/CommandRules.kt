@@ -9,7 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Inject
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import java.util.Locale
@@ -21,15 +21,15 @@ import java.util.Locale
 @ChannelInstanceScoped
 internal class CommandRules(
     handlers: List<CommandHandler>,
-    private val control: AgentControl?,
+    private val links: ChatLinks?,
     private val opened: Map<String, Who> = emptyMap(),
 ) {
     @Inject
     constructor(
         handlers: List<CommandHandler>,
-        control: AgentControl?,
+        links: ChatLinks?,
         config: TelegramInstanceConfig,
-    ) : this(handlers, control, config.commands)
+    ) : this(handlers, links, config.commands)
 
     private val claimed = handlers.flatMap { it.commands }.mapTo(HashSet()) { it.name.lowercase(Locale.ROOT) }
     private val operatorsOnly =
@@ -69,7 +69,7 @@ internal class CommandRules(
         }
     }
 
-    private fun linked(chat: ChatAddress): Boolean = control?.links().orEmpty().any { group ->
+    private fun linked(chat: ChatAddress): Boolean = links?.groups().orEmpty().any { group ->
         (group.members + group.anchor).any { it.parent == chat.parent }
     }
 

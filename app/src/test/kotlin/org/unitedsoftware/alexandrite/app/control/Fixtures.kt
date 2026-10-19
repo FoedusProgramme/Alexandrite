@@ -19,7 +19,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.SocketChannel
 import java.nio.file.Path
@@ -114,9 +114,15 @@ internal fun served(directory: Path, answers: ControlAnswers, block: suspend (Pa
     }
 }
 
-/** Runs [block] with the path of a control socket in [directory] over [desks] and the agents' [control]. */
-fun served(directory: Path, vararg desks: PairingDesk, control: AgentControl? = null, block: suspend (Path) -> Unit) =
-    served(directory, ControlAnswers("1.2.3", { control }) { PairingDesks(desks.toList()) }, block)
+/** Runs [block] with the path of a control socket in [directory] over [desks] and the host APIs of [agent]. */
+fun served(directory: Path, vararg desks: PairingDesk, agent: RecordingAgent? = null, block: suspend (Path) -> Unit) =
+    served(
+        directory,
+        ControlAnswers("1.2.3", { agent?.let { AgentApis(it.settings, it.catalog, it.links) } }) {
+            PairingDesks(desks.toList())
+        },
+        block,
+    )
 
 internal suspend fun ask(socket: Path, request: ControlRequest): ControlReply =
     withContext(Dispatchers.IO) { askDaemon(socket, request) }

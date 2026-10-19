@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.Capacity
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
@@ -53,7 +54,7 @@ class CommandLanesTest {
     @Test
     fun `a lane admits commandsPerChat counted invocations and runs them one at a time, in submit order`() {
         harness(perChat = 2).execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val channel = channel()
             val first = channel.receiveCommand("wait", "a").accepted
             val second = channel.receiveCommand("wait", "b").accepted
@@ -66,7 +67,7 @@ class CommandLanesTest {
             assertEquals(Admission.Refused(RefusalReason.QUEUE_FULL, 2), full)
             assertTrue(exempt is Admission.Accepted)
             assertEquals(setOf("wait a", "wait e"), commands.started.toSet())
-            val running = commands.control.turns(channel.chat()).single()
+            val running = get<TurnControl>().turns(channel.chat()).single()
             assertEquals(
                 Triple(first.ticket.turn, TurnKind.COMMAND, TurnPhase.RUNNING),
                 Triple(running.turn.id, running.turn.kind, running.phase),
@@ -87,7 +88,7 @@ class CommandLanesTest {
     @Test
     fun `a chat's commands run one after another in the order they came, and one that runs alongside at once`() {
         harness().execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val channel = channel()
             val first = channel.receiveCommand("wait", "a").accepted
             val second = channel.receiveCommand("wait", "b").accepted
@@ -118,7 +119,7 @@ class CommandLanesTest {
         }
 
         harness().execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val channel = channel()
             val running = channel.receive("Hi").accepted
             model.awaitRequests(1)
@@ -140,7 +141,7 @@ class CommandLanesTest {
         }.reply { text("New.") }
 
         harness(gateSeconds = 1).execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val channel = channel()
             val running = channel.receive("Hi").accepted
             model.awaitRequests(1)
@@ -162,7 +163,7 @@ class CommandLanesTest {
 
         val lines = logged {
             harness(gateSeconds = 1).execute {
-                commands.control = get()
+                commands.connect(get(), get(), get())
                 val channel = channel()
                 val first = channel.receiveCommand("wait", "a").accepted
                 val held = channel.receive("Hi").accepted
@@ -195,7 +196,7 @@ class CommandLanesTest {
 
         val lines = logged {
             harness(gateSeconds = 1).execute {
-                commands.control = get()
+                commands.connect(get(), get(), get())
                 val channel = channel()
                 val hung = channel.receiveCommand("wait", "a").accepted
                 val queued = channel.receiveCommand("wait", "b").accepted
@@ -233,7 +234,7 @@ class CommandLanesTest {
 
         val lines = logged {
             harness().execute {
-                commands.control = get()
+                commands.connect(get(), get(), get())
                 val channel = channel()
                 val boom = channel.receiveCommand("boom").accepted
                 val after = channel.receive("Hi").accepted

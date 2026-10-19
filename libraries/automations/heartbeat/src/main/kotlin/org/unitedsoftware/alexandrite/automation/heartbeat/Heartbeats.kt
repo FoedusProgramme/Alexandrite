@@ -6,7 +6,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import java.time.Clock
 import java.time.ZoneId
 import kotlin.time.Duration
@@ -26,7 +26,7 @@ internal class Heartbeat(
 internal class Heartbeats(
     config: HeartbeatConfig,
     clock: Clock,
-    private val control: AgentControl?,
+    private val catalog: AgentCatalog?,
     private val channels: ChannelDirectory,
 ) {
     /** In config order. */
@@ -38,9 +38,9 @@ internal class Heartbeats(
 
     /** Whether [agent] has no home chat on any channel instance, false when no agent can tell. */
     fun homeless(agent: AgentId): Boolean {
-        val control = control ?: return false
+        val catalog = catalog ?: return false
         return channels.instances.filter { it != ChatAddress.AGENTS }
-            .none { instance -> control.agents(instance).any { it.id == agent && it.home != null } }
+            .none { instance -> catalog.agents(instance).any { it.id == agent && it.home != null } }
     }
 }
 

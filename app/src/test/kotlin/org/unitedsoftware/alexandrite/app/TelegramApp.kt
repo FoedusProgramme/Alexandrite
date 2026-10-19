@@ -22,7 +22,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.store.sqlite.AlexandriteStoreSqliteIndex
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -141,7 +141,7 @@ class TelegramApp(
 /** Waits until the agent lists no turn. */
 suspend fun PluginHarness.Running.idle() {
     withTimeout(10.seconds) {
-        while (get<AgentControl>().turns(null).isNotEmpty()) delay(10.milliseconds)
+        while (get<TurnControl>().turns(null).isNotEmpty()) delay(10.milliseconds)
     }
 }
 

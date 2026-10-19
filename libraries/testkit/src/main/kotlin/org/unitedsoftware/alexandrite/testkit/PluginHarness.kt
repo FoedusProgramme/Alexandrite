@@ -271,7 +271,7 @@ public class PluginHarness private constructor(
         private val channels = LinkedHashMap<ChannelType, LinkedHashMap<String, RecordingChannelConfig>>()
         private var submitter: RecordingTurnSubmitter? = null
         private var initiator: RecordingTurnInitiator? = null
-        private var control: RecordingAgentControl? = null
+        private var agent: RecordingAgent? = null
         private var states: TestChatStates? = null
         private var records: TestRecords? = null
         private var store: MemoryStore? = null
@@ -396,8 +396,8 @@ public class PluginHarness private constructor(
         /** Hands [initiator] every turn that a plugin's TurnInitiator starts, with the plugin's id. */
         public fun turnInitiator(initiator: RecordingTurnInitiator): Builder = apply { this.initiator = initiator }
 
-        /** Binds [control] as the runtime's AgentControl and ChatSettings. */
-        public fun agentControl(control: RecordingAgentControl): Builder = apply { this.control = control }
+        /** Binds the doubles of [agent] as the runtime's agent host APIs. */
+        public fun agent(agent: RecordingAgent): Builder = apply { this.agent = agent }
 
         /** Keeps every plugin's chat states in [states]. */
         public fun chatStates(states: TestChatStates): Builder = apply { this.states = states }
@@ -438,7 +438,7 @@ public class PluginHarness private constructor(
                 handlers,
                 submitter,
                 initiator,
-                control,
+                agent,
                 store,
                 store?.chatStates ?: states?.store,
                 store?.records ?: records?.store,

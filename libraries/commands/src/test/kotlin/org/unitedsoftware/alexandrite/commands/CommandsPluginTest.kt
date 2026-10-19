@@ -9,7 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.assertTextsComplete
 import java.lang.reflect.Modifier
 import kotlin.test.Test
@@ -24,7 +24,7 @@ class CommandsPluginTest {
         lateinit var specs: List<CommandSpec>
 
         runBlocking {
-            PluginHarness.builder(AlexandriteCommandsIndex()).agentControl(RecordingAgentControl()).build().run {
+            PluginHarness.builder(AlexandriteCommandsIndex()).agent(RecordingAgent()).build().run {
                 specs = getAll<CommandHandler>().flatMap { it.commands }
             }
         }
@@ -43,7 +43,7 @@ class CommandsPluginTest {
 
         runBlocking {
             PluginHarness.builder(AlexandriteCommandsIndex())
-                .agentControl(RecordingAgentControl())
+                .agent(RecordingAgent())
                 .language(CHINESE)
                 .texts(catalog)
                 .build()

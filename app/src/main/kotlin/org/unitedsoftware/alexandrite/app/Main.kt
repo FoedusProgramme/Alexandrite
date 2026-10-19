@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.app.control.ControlAnswers
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.RunningApp
 import org.unitedsoftware.alexandrite.app.control.RunningInstances
+import org.unitedsoftware.alexandrite.app.control.agentApis
 import org.unitedsoftware.alexandrite.app.control.serveControl
 import org.unitedsoftware.alexandrite.mcp.McpControl
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
@@ -27,7 +28,6 @@ import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import java.io.FileDescriptor
 import java.io.FileOutputStream
 import java.io.IOException
@@ -271,7 +271,7 @@ private fun host(
                 val app = HostedApp(this, locations, Instant.now())
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
-                    val answers = ControlAnswers(alexandriteVersion, { services.getOrNull<AgentControl>() }, app) {
+                    val answers = ControlAnswers(alexandriteVersion, { agentApis(services) }, app) {
                         services.get<ContributedDesks>().desks
                     }
                     launch { serveControl(locations.dataDir, answers::answer) }

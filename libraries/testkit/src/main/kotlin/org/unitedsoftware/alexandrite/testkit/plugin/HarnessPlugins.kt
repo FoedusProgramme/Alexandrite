@@ -33,13 +33,19 @@ import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnInitiator
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnSubmitter
@@ -65,7 +71,7 @@ internal class DoublesPlugin(
     handlers: List<CommandHandler>,
     submitter: RecordingTurnSubmitter?,
     initiator: RecordingTurnInitiator?,
-    control: RecordingAgentControl?,
+    agent: RecordingAgent?,
     store: MemoryStore?,
     chatStates: ChatStateStore?,
     records: RecordStore?,
@@ -99,9 +105,15 @@ internal class DoublesPlugin(
             }
             add(instanceBinding(key<TurnInitiation>(), initiation, ID, "RecordingTurnInitiator"))
         }
-        control?.let {
-            add(instanceBinding(key<AgentControl>(), it, ID, "RecordingAgentControl"))
-            add(instanceBinding(key<ChatSettings>(), it, ID, "RecordingAgentControl"))
+        agent?.let {
+            add(instanceBinding(key<TurnControl>(), it.turns, ID, "RecordingAgent.turns"))
+            add(instanceBinding(key<ConversationControl>(), it.conversations, ID, "RecordingAgent.conversations"))
+            add(instanceBinding(key<ChatSettings>(), it.settings, ID, "RecordingAgent.settings"))
+            add(instanceBinding(key<ChatLinks>(), it.links, ID, "RecordingAgent.links"))
+            add(instanceBinding(key<TrustedFolders>(), it.folders, ID, "RecordingAgent.folders"))
+            add(instanceBinding(key<PermissionRules>(), it.rules, ID, "RecordingAgent.rules"))
+            add(instanceBinding(key<AgentCatalog>(), it.catalog, ID, "RecordingAgent.catalog"))
+            add(instanceBinding(key<UsageReports>(), it.usage, ID, "RecordingAgent.usage"))
         }
         store?.let {
             add(instanceBinding(key<ConversationStore>(), it.conversations, ID, "MemoryStore.conversations"))

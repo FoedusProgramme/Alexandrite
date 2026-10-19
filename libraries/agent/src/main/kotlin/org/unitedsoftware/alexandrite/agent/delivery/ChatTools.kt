@@ -196,12 +196,12 @@ internal class ChatSendTool(
         val request = requested(arguments, context.turn)
         val untainted = (context as? AgentToolContext)?.taint?.tainted == false
         val title = request.target.title?.let { " \"$it\"" }.orEmpty()
-        CallReview(
-            preview = ReviewPreview.Text("Send to ${request.target.chat}$title:\n\n${request.text}"),
-            exempt = untainted && Principal.of(context.turn) != Principal.GUEST,
-        )
+        CallReview.builder()
+            .preview(ReviewPreview.Text("Send to ${request.target.chat}$title:\n\n${request.text}"))
+            .exempt(untainted && Principal.of(context.turn) != Principal.GUEST)
+            .build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {

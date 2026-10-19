@@ -20,7 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -120,7 +120,7 @@ class TelegramBubblewrapTest {
                 .parts.filterIsInstance<ContextPart>().joinToString("\n") { it.text }
             assertContains(frame, "MATCH refused")
             assertTrue(running(marker))
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             assertTrue(
                 control.stopJob(app.address(app.adaChat), control.jobs(app.address(app.adaChat)).single().id, null),
             )

@@ -6,10 +6,10 @@ import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion
 import org.unitedsoftware.alexandrite.channel.telegram.menu.candidates
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -93,13 +93,13 @@ class TelegramMenuTest {
             assertEquals("The test's /settings", fake.menu("all_private_chats", language = "zh")?.get("settings"))
             assertEquals(setOf("", "zh"), fake.menuKeys.map { it.second }.toSet())
 
-            telegram.control.updateSettings(bobAddress, ChatSettingsUpdate.builder().language(CHINESE).build(), null)
+            telegram.control.settings.update(bobAddress, ChatSettingsUpdate.builder().language(CHINESE).build(), null)
             fake.send(telegram.bob, telegram.bobChat, "/settings")
 
             assertEquals("列出笔记。", fake.await { menu("chat", BOB) }["notes"])
             assertEquals((MEMBER_DIRECT + "notes").sorted(), fake.menu("chat", BOB)?.keys?.toList())
 
-            telegram.control.updateSettings(bobAddress, ChatSettingsUpdate.builder().resetLanguage().build(), null)
+            telegram.control.settings.update(bobAddress, ChatSettingsUpdate.builder().resetLanguage().build(), null)
             fake.send(telegram.bob, telegram.bobChat, "/settings")
 
             fake.await { Unit.takeIf { menu("chat", BOB) == null } }

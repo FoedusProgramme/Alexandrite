@@ -13,8 +13,8 @@ import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.turn.CompactionReport
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.TEST_MODEL
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.testChat
@@ -23,8 +23,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ContextCommandsTest {
-    private val control = RecordingAgentControl()
-    private val commands = ContextCommands(control, commandTexts(), TestClock())
+    private val control = RecordingAgent()
+    private val commands = ContextCommands(control.conversations, commandTexts(), TestClock())
     private val chat = testChat()
     private val conversation = ConversationId("conversation-1")
 
@@ -108,7 +108,7 @@ class ContextCommandsTest {
     @Test
     fun `context answers in the language of the chat`() = runTest {
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "context.not_compacted", "还没有压缩过。").build()
-        val chinese = ContextCommands(control, commandTexts(catalog), TestClock())
+        val chinese = ContextCommands(control.conversations, commandTexts(catalog), TestClock())
         control.scriptContext(chat, ContextStatus(conversation, null, null, null, null, null, null, null, 0))
         val invocation = testCommand("context", issuer = OPERATOR)
 

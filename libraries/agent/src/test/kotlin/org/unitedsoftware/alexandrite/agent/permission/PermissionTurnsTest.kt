@@ -6,6 +6,8 @@ import org.unitedsoftware.alexandrite.agent.turn.Interceptor
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -16,8 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
@@ -54,7 +55,7 @@ class PermissionTurnsTest {
         channel().receive(text, sender = channel().user(user)) as Admission.Accepted
 
     private suspend fun PluginHarness.Running.setMode(mode: PermissionMode, until: Instant? = null) =
-        get<AgentControl>().updateSettings(
+        get<ChatSettings>().update(
             channel().chat(),
             ChatSettingsUpdate.builder().mode(mode, until).build(),
             channel().user("operator"),
@@ -182,7 +183,7 @@ class PermissionTurnsTest {
             )
             assertEquals(
                 PermissionMode.BYPASS to short,
-                get<AgentControl>().settings(channel().chat()).let {
+                get<ChatSettings>().snapshot(channel().chat()).let {
                     it.mode to it.modeUntil
                 },
             )
@@ -192,7 +193,7 @@ class PermissionTurnsTest {
     @Test
     fun `a chat's mode survives a restart and shows beside the agent's default`() {
         harness(""", "permission": {"mode": "manual"}""").execute {
-            val before = get<AgentControl>().settings(channel().chat())
+            val before = get<ChatSettings>().snapshot(channel().chat())
             setMode(PermissionMode.ALLOW_EDIT)
             assertEquals(
                 listOf(null, PermissionMode.MANUAL, PermissionMode.MANUAL),
@@ -200,7 +201,7 @@ class PermissionTurnsTest {
             )
         }
         harness(""", "permission": {"mode": "manual"}""").execute {
-            val after = get<AgentControl>().settings(channel().chat())
+            val after = get<ChatSettings>().snapshot(channel().chat())
 
             assertEquals(PermissionMode.ALLOW_EDIT to PermissionMode.ALLOW_EDIT, after.mode to after.effectiveMode)
         }
@@ -209,13 +210,12 @@ class PermissionTurnsTest {
     @Test
     fun `linked chats share the mode kept at their anchor`() {
         harness().execute {
-            val control = get<AgentControl>()
             val anchor = channel().chat("anchor")
             val member = channel().chat()
-            control.link(coder, anchor, member, channel().user("operator"))
-            control.updateSettings(member, ChatSettingsUpdate.builder().mode(PermissionMode.PLAN).build(), null)
+            get<ChatLinks>().link(coder, anchor, member, channel().user("operator"))
+            get<ChatSettings>().update(member, ChatSettingsUpdate.builder().mode(PermissionMode.PLAN).build(), null)
 
-            assertEquals(PermissionMode.PLAN, control.settings(anchor).mode)
+            assertEquals(PermissionMode.PLAN, get<ChatSettings>().snapshot(anchor).mode)
         }
     }
 

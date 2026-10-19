@@ -14,9 +14,12 @@ import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -27,12 +30,10 @@ import org.unitedsoftware.alexandrite.sdk.store.Rotation
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.AgentSource
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.AgentSummary
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationSealed
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
@@ -61,7 +62,7 @@ private suspend fun attempt(call: suspend () -> Any): String = try {
     e.message.orEmpty()
 }
 
-class AgentControlTest {
+class HostApisTest {
     private val store = MemoryStore()
     private val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo(), ScriptedModel.modelInfo("other")))
     private val commands = TestCommands()
@@ -85,7 +86,7 @@ class AgentControlTest {
     ) { channel().model(model).commandHandler(commands).hook(sealed).apply(configure) }
 
     private fun PluginHarness.Running.start(): RecordingChannel {
-        commands.control = get()
+        commands.connect(get(), get(), get())
         return channel()
     }
 
@@ -186,7 +187,7 @@ class AgentControlTest {
             assertEquals(coder, channel.answered(running).turn.agent)
             assertEquals(listOf(helper, helper, coder), listOf(switched, atHome, switchedHome).map { it.agent })
             assertEquals(listOf(helper, coder), commands.snapshots.map { it.agent })
-            assertEquals(snapshot(coder, AgentSource.SELECTED), commands.control.settings(home))
+            assertEquals(snapshot(coder, AgentSource.SELECTED), get<ChatSettings>().snapshot(home))
         }
     }
 
@@ -218,7 +219,7 @@ class AgentControlTest {
             channel.answered(running)
 
             assertEquals(listOf(tuned), commands.snapshots)
-            assertEquals(tuned, commands.control.settings(channel.chat()))
+            assertEquals(tuned, get<ChatSettings>().snapshot(channel.chat()))
             val (old, new) = model.requests
             assertEquals(listOf(model.ref, ModelRef.parse("scripted/other")), listOf(old.model, new.model))
             assertEquals(listOf(null, ReasoningEffort.HIGH), listOf(old.options.reasoning, new.options.reasoning))
@@ -231,14 +232,14 @@ class AgentControlTest {
     @Test
     fun `settings name why their agent serves the chat and what the agent is configured with`() {
         harness().execute {
-            val control = get<AgentControl>()
+            val control = get<ChatSettings>()
             val chat = channel().chat()
             val home = channel().chat("home")
 
-            val before = listOf(chat, home, channel().chat("home", "1")).map { control.settings(it) }
-            val switched = control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).build(), null)
-            val homeSwitched = control.updateSettings(home, ChatSettingsUpdate.builder().agent(helper).build(), null)
-            val reset = control.updateSettings(chat, ChatSettingsUpdate.builder().resetAgent().build(), null)
+            val before = listOf(chat, home, channel().chat("home", "1")).map { control.snapshot(it) }
+            val switched = control.update(chat, ChatSettingsUpdate.builder().agent(helper).build(), null)
+            val homeSwitched = control.update(home, ChatSettingsUpdate.builder().agent(helper).build(), null)
+            val reset = control.update(chat, ChatSettingsUpdate.builder().resetAgent().build(), null)
 
             assertEquals(
                 listOf(
@@ -272,7 +273,7 @@ class AgentControlTest {
         """.trimIndent()
 
         agentHarness(config, store) { channel().channel("side").model(model) }.execute {
-            val control = get<AgentControl>()
+            val control = get<AgentCatalog>()
             val main = channel().instance
             val side = channel("side").instance
 
@@ -297,14 +298,14 @@ class AgentControlTest {
     fun `a settings update that breaks a rule is refused with a message and changes nothing`() {
         harness().execute {
             val channel = start()
-            val control = get<AgentControl>()
+            val control = get<ChatSettings>()
             val home = channel.chat("home")
 
             suspend fun refused(
                 chat: ChatAddress = channel.chat(),
                 update: ChatSettingsUpdate.Builder.() -> Unit,
             ): String? = assertFailsWith<ControlRefusedException> {
-                control.updateSettings(chat, ChatSettingsUpdate.builder().apply(update).build(), null)
+                control.update(chat, ChatSettingsUpdate.builder().apply(update).build(), null)
             }.message
 
             assertEquals("Agent 'planner' does not serve test:main.", refused { agent(AgentId("planner")).home() })
@@ -319,12 +320,12 @@ class AgentControlTest {
             )
             assertEquals("test:main:home is the home chat of agent 'helper'.", refused(home) { agent(coder).home() })
 
-            assertEquals(snapshot(coder, AgentSource.DEFAULT), control.settings(channel.chat()))
-            assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, control.settings(home))
+            assertEquals(snapshot(coder, AgentSource.DEFAULT), control.snapshot(channel.chat()))
+            assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, control.snapshot(home))
             assertEquals(
                 "No agent serves test:other:1.",
                 assertFailsWith<ControlRefusedException> {
-                    control.settings(ChatAddress.parse("test:other:1"))
+                    control.snapshot(ChatAddress.parse("test:other:1"))
                 }.message,
             )
         }
@@ -333,21 +334,20 @@ class AgentControlTest {
     @Test
     fun `a chat stops being the home only while it or the chat of its thread is the home`() {
         harness().execute {
-            val control = get<AgentControl>()
             val home = channel().chat("home")
             val topic = channel().chat("home", "1")
             val elsewhere = channel().chat("elsewhere")
 
             suspend fun update(chat: ChatAddress, update: ChatSettingsUpdate.Builder.() -> Unit) =
-                control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), null)
+                get<ChatSettings>().update(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), null)
 
             val notHome = update(elsewhere) { noHome() }
-            val stillHome = control.agents(channel().instance).single { it.id == helper }.home
+            val stillHome = get<AgentCatalog>().agents(channel().instance).single { it.id == helper }.home
             val clearedInTopic = update(topic) { noHome() }
-            val noneLeft = control.agents(channel().instance).single { it.id == helper }.home
+            val noneLeft = get<AgentCatalog>().agents(channel().instance).single { it.id == helper }.home
             update(elsewhere) { home() }
             val resetElsewhere = update(elsewhere) { resetHome() }
-            val configured = control.agents(channel().instance).single { it.id == helper }.home
+            val configured = get<AgentCatalog>().agents(channel().instance).single { it.id == helper }.home
 
             assertEquals(snapshot(helper, AgentSource.SELECTED), notHome)
             assertEquals(home, stillHome)
@@ -362,12 +362,15 @@ class AgentControlTest {
     @Test
     fun `a reset from any chat of the instance drops the home set at runtime, also one left without a home`() {
         harness().execute {
-            val control = get<AgentControl>()
             val home = channel().chat("home")
             val operator = channel().user("operator")
-            fun helper() = control.agents(channel().instance).single { it.id == helper }
+            fun helper() = get<AgentCatalog>().agents(channel().instance).single { it.id == helper }
             suspend fun update(chat: ChatAddress, update: ChatSettingsUpdate.Builder.() -> Unit) =
-                control.updateSettings(chat, ChatSettingsUpdate.builder().agent(helper).apply(update).build(), operator)
+                get<ChatSettings>().update(
+                    chat,
+                    ChatSettingsUpdate.builder().agent(helper).apply(update).build(),
+                    operator,
+                )
 
             update(home) { noHome() }
             val off = helper()
@@ -382,15 +385,14 @@ class AgentControlTest {
     @Test
     fun `making a topic of the home group the home keeps the group as the home`() {
         harness().execute {
-            val control = get<AgentControl>()
             val topic = channel().chat("home", "5")
 
-            val snapshot = control.updateSettings(topic, ChatSettingsUpdate.builder().home().build(), null)
+            val snapshot = get<ChatSettings>().update(topic, ChatSettingsUpdate.builder().home().build(), null)
 
             assertEquals(snapshot(helper, AgentSource.HOME) { home(true) }, snapshot)
             val group = listOf(channel().chat("home"), channel().chat("home", "6"))
-            assertEquals(listOf(helper, helper), group.map { control.settings(it).agent })
-            assertNull(control.agents(channel().instance).single { it.id == helper }.homeSetAt)
+            assertEquals(listOf(helper, helper), group.map { get<ChatSettings>().snapshot(it).agent })
+            assertNull(get<AgentCatalog>().agents(channel().instance).single { it.id == helper }.homeSetAt)
         }
     }
 
@@ -404,8 +406,8 @@ class AgentControlTest {
             override suspend fun observe(payload: ConversationSealed) {
                 val chat = payload.turn.chat
                 val effort = ChatSettingsUpdate.builder().reasoning(ReasoningEffort.LOW).build()
-                outcomes += attempt { commands.control.updateSettings(chat, effort, null) }
-                outcomes += attempt { commands.control.newConversation(chat, null) }
+                outcomes += attempt { commands.settings.update(chat, effort, null) }
+                outcomes += attempt { commands.conversations.newConversation(chat, null) }
             }
         }
 
@@ -414,13 +416,13 @@ class AgentControlTest {
             channel.answered(channel.receive("Hi"))
             val started = TimeSource.Monotonic.markNow()
 
-            commands.control.newConversation(channel.chat(), null)
+            get<ConversationControl>().newConversation(channel.chat(), null)
 
             val refused = "A change of a chat, or a hook it fires, cannot wait for another change of the chat, which " +
                 "runs after it."
             assertEquals(List(2) { refused }, outcomes)
             assertTrue(started.elapsedNow() < 5.seconds)
-            assertNull(commands.control.settings(channel.chat()).reasoning)
+            assertNull(get<ChatSettings>().snapshot(channel.chat()).reasoning)
         }
     }
 
@@ -444,7 +446,7 @@ class AgentControlTest {
                 val chat = channel().chat()
                 channel().answered(channel().receive("Hi"))
 
-                val successor = get<AgentControl>().newConversation(chat, null)
+                val successor = get<ConversationControl>().newConversation(chat, null)
 
                 assertEquals(store.conversations.current(AgentChatKey(AgentId("coder"), chat)).id, successor)
             }
@@ -453,7 +455,7 @@ class AgentControlTest {
     @Test
     fun `the agent lists its endpoints and the models a chat's model is checked against`() {
         harness().execute {
-            val control = get<AgentControl>()
+            val control = get<AgentCatalog>()
 
             assertEquals(listOf(EndpointId("scripted")), control.endpoints())
             assertEquals(listOf("test-model", "other"), control.models(EndpointId("scripted")).map { it.id })
@@ -472,19 +474,19 @@ class AgentControlTest {
             .build()
 
         harness { texts(german).language(LanguageTag("de")) }.execute {
-            val control = get<AgentControl>()
+            val control = get<ChatSettings>()
             val chat = channel().chat()
             val nowhere = ChatSettingsUpdate.builder().model(ModelRef.parse("nowhere/m")).build()
 
-            val english = assertFailsWith<ControlRefusedException> { control.updateSettings(chat, nowhere, null) }
-            control.updateSettings(chat, ChatSettingsUpdate.builder().language(LanguageTag("de")).build(), null)
-            val chosen = assertFailsWith<ControlRefusedException> { control.updateSettings(chat, nowhere, null) }
+            val english = assertFailsWith<ControlRefusedException> { control.update(chat, nowhere, null) }
+            control.update(chat, ChatSettingsUpdate.builder().language(LanguageTag("de")).build(), null)
+            val chosen = assertFailsWith<ControlRefusedException> { control.update(chat, nowhere, null) }
             val toCoder = ChatSettingsUpdate.builder().agent(coder).home().build()
             val taken = assertFailsWith<ControlRefusedException> {
-                control.updateSettings(channel().chat("home"), toCoder, null)
+                control.update(channel().chat("home"), toCoder, null)
             }
             val unserved =
-                assertFailsWith<ControlRefusedException> { control.settings(ChatAddress.parse("test:other:1")) }
+                assertFailsWith<ControlRefusedException> { control.snapshot(ChatAddress.parse("test:other:1")) }
 
             assertEquals("There is no model endpoint 'nowhere'.", english.message)
             assertEquals("Kein Endpunkt 'nowhere'.", chosen.message)

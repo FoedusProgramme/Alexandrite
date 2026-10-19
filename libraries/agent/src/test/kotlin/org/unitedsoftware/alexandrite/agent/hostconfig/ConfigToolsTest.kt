@@ -11,6 +11,8 @@ import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
@@ -30,8 +32,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
@@ -95,7 +95,7 @@ class ConfigToolsTest {
         (channel().receive("Change it.", sender = sender) as Admission.Accepted).ticket.outcome()
     }
 
-    private suspend fun PluginHarness.Running.setMode(mode: PermissionMode) = get<AgentControl>().updateSettings(
+    private suspend fun PluginHarness.Running.setMode(mode: PermissionMode) = get<ChatSettings>().update(
         channel().chat(),
         ChatSettingsUpdate.builder()
             .mode(mode, Instant.now().plus(1, ChronoUnit.HOURS).takeIf { mode == PermissionMode.BYPASS })

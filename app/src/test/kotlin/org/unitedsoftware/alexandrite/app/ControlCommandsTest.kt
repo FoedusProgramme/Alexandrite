@@ -18,10 +18,9 @@ import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesk
 import org.unitedsoftware.alexandrite.channel.common.pairing.Unpairing
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Path
@@ -47,14 +46,14 @@ class ControlCommandsTest {
         ),
     )
 
-    /** The exit code, standard output and standard error of [request] while [desks] and the agents' [control] serve. */
+    /** The exit code, standard output and standard error of [request] while [desks] and the host APIs of [agent] serve. */
     private fun printed(
         request: ControlRequest,
         vararg desks: PairingDesk = arrayOf(desk),
-        control: AgentControl? = null,
+        agent: RecordingAgent? = null,
     ): Answered {
         lateinit var result: Answered
-        served(directory, *desks, control = control) {
+        served(directory, *desks, agent = agent) {
             val out = ByteArrayOutputStream()
             val err = ByteArrayOutputStream()
             val code = withContext(Dispatchers.IO) {
@@ -140,10 +139,10 @@ class ControlCommandsTest {
 
     @Test
     fun `unpairing a chat that is still a home chat or linked says that the bot sends it nothing`() {
-        val control = RecordingAgentControl()
+        val control = RecordingAgent()
         runBlocking {
-            control.updateSettings(chat("9"), ChatSettingsUpdate.builder().home().build(), null)
-            control.link(AgentId.MAIN, chat("7"), chat("9"), null)
+            control.settings.update(chat("9"), ChatSettingsUpdate.builder().home().build(), null)
+            control.links.link(AgentId.MAIN, chat("7"), chat("9"), null)
         }
 
         assertEquals(
@@ -153,7 +152,7 @@ class ControlCommandsTest {
                     "sends it nothing until it is paired again.\n",
                 "",
             ),
-            printed(ControlRequest.Unpair("chat:work:9"), control = control),
+            printed(ControlRequest.Unpair("chat:work:9"), agent = control),
         )
     }
 

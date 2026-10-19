@@ -30,6 +30,17 @@ class ValueTypesTest {
         assertEquals(emptyList(), public.filter { it.copiesOrComponents() }.map { it.name })
     }
 
+    @Test
+    fun `no class of the SDK keeps a deprecated member`() {
+        val deprecated = sdkClasses.flatMap { type ->
+            (type.declaredConstructors.toList() + type.declaredMethods + type.declaredFields)
+                .filter { it.isAnnotationPresent(Deprecated::class.java) }
+                .map { "${type.name}.${it.name}" }
+        }
+
+        assertEquals(emptyList(), deprecated)
+    }
+
     private fun Class<*>.copiesOrComponents(): Boolean = methods.any { COPY_OR_COMPONENT.matches(it.name) }
 
     private companion object {

@@ -26,7 +26,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.BudgetStatus
 import org.unitedsoftware.alexandrite.sdk.turn.BudgetUnit
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
@@ -35,6 +34,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.PeriodUsage
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel.Event
@@ -119,7 +119,7 @@ class BudgetsTest {
         harness().execute { ask("First.") }
         harness().execute {
             ask("Second.")
-            val report = get<AgentControl>().usage(chat)
+            val report = get<UsageReports>().report(chat)
 
             val usage = report.agents.single()
             val expected = listOf(ModelUsage(model.ref, 500, 100, 60, 10, 2, null))
@@ -143,7 +143,7 @@ class BudgetsTest {
 
         harness(model = priced).execute {
             ask("Count this.")
-            val usage = get<AgentControl>().usage(chat, everyAgent = true).agents.single()
+            val usage = get<UsageReports>().report(chat, everyAgent = true).agents.single()
 
             fun tokens(period: UsagePeriod, chat: Boolean) =
                 (if (chat) usage.chat else usage.total).single { it.period == period }.models.sumOf { it.tokens }
@@ -167,7 +167,7 @@ class BudgetsTest {
         seed(usage(10, 1))
 
         harness().execute {
-            val today = get<AgentControl>().usage(chat).agents.single().chat.first().models.single()
+            val today = get<UsageReports>().report(chat).agents.single().chat.first().models.single()
 
             assertEquals(1111L to null, today.tokens to today.cost)
         }
@@ -302,7 +302,7 @@ class BudgetsTest {
         harness(config("""{"monthly": {"money": 5}}"""), priced).execute {
             ask("Spend.")
 
-            val status = get<AgentControl>().usage(chat).agents.single().budgets.single()
+            val status = get<UsageReports>().report(chat).agents.single().budgets.single()
             assertEquals(BigDecimal("4.5"), status.spent)
             assertEquals(
                 listOf("Coder has used 90% of its monthly budget: $4.50 of $5.00."),

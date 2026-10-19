@@ -121,23 +121,25 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
         when (val inspection = inspect(arguments, context, running = false)) {
-            is Inspection.Problem -> CallReview(problem = inspection.text)
+            is Inspection.Problem -> CallReview.builder().problem(inspection.text).build()
 
-            is Inspection.Refused -> CallReview(refusal = inspection.text)
+            is Inspection.Refused -> CallReview.builder().refusal(inspection.text).build()
 
             is Inspection.Ready -> with(inspection.call) {
-                CallReview(
-                    risk = if (readOnly) ToolRisk.READ_ONLY else ToolRisk.EXEC,
-                    preview = ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)),
-                    snapshot = snapshot,
-                    rule = rule,
-                    background = startsInBackground(arguments),
-                    untrusted = !vetted,
-                    person = asks.takeIf { it.isNotEmpty() }?.joinToString("; "),
-                    contained = inspection.sandbox?.let { sandbox ->
-                        Contained(sandbox.environment.name, sandbox.boundary(directories(this)), inspection.hosts)
-                    },
-                )
+                CallReview.builder()
+                    .risk(if (readOnly) ToolRisk.READ_ONLY else ToolRisk.EXEC)
+                    .preview(ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)))
+                    .snapshot(snapshot)
+                    .rule(rule)
+                    .background(startsInBackground(arguments))
+                    .untrusted(!vetted)
+                    .person(asks.takeIf { it.isNotEmpty() }?.joinToString("; "))
+                    .contained(
+                        inspection.sandbox?.let { sandbox ->
+                            Contained(sandbox.environment.name, sandbox.boundary(directories(this)), inspection.hosts)
+                        },
+                    )
+                    .build()
             }
         }
 

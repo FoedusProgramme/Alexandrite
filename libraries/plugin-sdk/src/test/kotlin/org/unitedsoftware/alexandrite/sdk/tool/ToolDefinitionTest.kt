@@ -39,56 +39,21 @@ class ToolDefinitionTest {
     }
 
     @Test
-    fun `the constructor before timeout is kept, hidden, for a plugin built against it`() {
-        val ctor = ToolDefinition::class.java.getDeclaredConstructor(
-            String::class.java,
-            String::class.java,
-            JsonObject::class.java,
-            ToolRisk::class.java,
+    fun `a review leaves what its builder is not given unset and rebuilds to an equal one`() {
+        val empty = CallReview.builder().build()
+        val review = CallReview.builder().risk(ToolRisk.READ_ONLY).exempt(true).person("a person decides").build()
+
+        assertEquals(
+            List(6) { null } + listOf(false, false, false, null, null),
+            with(empty) {
+                listOf(risk, refusal, preview, snapshot, rule, problem)
+            } + with(empty) { listOf(exempt, background, untrusted, person, contained) },
         )
-
-        val definition = ctor.newInstance("sample.run", "Runs the sample", JsonObject(emptyMap()), ToolRisk.READ_ONLY)
-
-        assertEquals(ToolRisk.READ_ONLY, definition.risk)
-        assertNull(definition.timeout)
-        assertEquals(ToolActivity.OTHER, definition.activity)
-        assertEquals(emptyList(), definition.titleArguments)
-    }
-
-    @Test
-    fun `the constructor before activity and titleArguments is kept, hidden, for a plugin built against it`() {
-        val ctor = ToolDefinition::class.java.getDeclaredConstructor(
-            String::class.java,
-            String::class.java,
-            JsonObject::class.java,
-            ToolRisk::class.java,
-            Duration::class.java,
+        assertEquals(review, review.rebuild { })
+        assertEquals(
+            CallReview.builder().risk(ToolRisk.READ_ONLY).person("a person decides").build(),
+            review.rebuild { exempt(false) },
         )
-        ctor.isAccessible = true
-
-        val definition =
-            ctor.newInstance("sample.run", "Runs the sample", JsonObject(emptyMap()), ToolRisk.READ_ONLY, 10.minutes)
-
-        assertEquals(ToolRisk.READ_ONLY to 10.minutes, definition.risk to definition.timeout)
-        assertEquals(ToolActivity.OTHER, definition.activity)
-        assertEquals(emptyList(), definition.titleArguments)
-    }
-
-    @Test
-    fun `the review before background is kept, hidden, for a plugin built against it`() {
-        val ctor = CallReview::class.java.getDeclaredConstructor(
-            ToolRisk::class.java,
-            String::class.java,
-            ReviewPreview::class.java,
-            String::class.java,
-            RuleSubject::class.java,
-            String::class.java,
-            Boolean::class.javaPrimitiveType,
-        )
-
-        val review = ctor.newInstance(ToolRisk.READ_ONLY, null, null, null, null, null, true)
-
-        assertEquals(CallReview(ToolRisk.READ_ONLY, exempt = true, background = false), review)
     }
 
     @Test

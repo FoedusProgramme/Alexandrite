@@ -7,7 +7,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -44,7 +44,7 @@ class PendingCommandsLinkedChatTest {
     @Test
     fun `a command run in a linked chat is recorded on the anchor's conversation`() {
         harness().execute {
-            val control = get<AgentControl>()
+            val control = get<ChatLinks>()
             control.link(coder, anchor, member, null)
 
             val side = channel(member.instance)

@@ -13,11 +13,12 @@ import org.unitedsoftware.alexandrite.commands.support.updateSettings
 import org.unitedsoftware.alexandrite.commands.support.words
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.AgentSummary
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
@@ -27,7 +28,11 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 /** `/agent` and `/home`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class AgentCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+internal class AgentCommands(
+    private val settings: ChatSettings,
+    private val catalog: AgentCatalog,
+    private val texts: Texts,
+) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(AGENT), texts.spec(HOME))
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
@@ -54,8 +59,8 @@ internal class AgentCommands(private val control: AgentControl, private val text
 
     private suspend fun agents(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val chat = invocation.chat
-        val snapshot = context.refusing { control.settings(chat) } ?: return
-        val agents = control.agents(chat.instance)
+        val snapshot = context.refusing { settings.snapshot(chat) } ?: return
+        val agents = catalog.agents(chat.instance)
         val current = replies.text(
             TextKeys.AGENT_CURRENT,
             "agent" to snapshot.agent,
@@ -91,7 +96,7 @@ internal class AgentCommands(private val control: AgentControl, private val text
             context.reply(replies.text(TextKeys.AGENT_MALFORMED, "text" to word))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { agent(agent) } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { agent(agent) } ?: return
         val instance = invocation.chat.instance
         val text = texts.replies(snapshot.effectiveLanguage)
             .text(TextKeys.AGENT_SWITCHED, "agent" to snapshot.agent, "name" to name(instance, snapshot.agent))
@@ -99,7 +104,7 @@ internal class AgentCommands(private val control: AgentControl, private val text
     }
 
     private suspend fun resetAgent(invocation: CommandInvocation, context: CommandContext) {
-        val snapshot = context.updateSettings(control, invocation) { resetAgent() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetAgent() } ?: return
         val replies = texts.replies(snapshot.effectiveLanguage)
         val source = replies.agentSource(snapshot, invocation.chat)
         context.reply(replies.text(TextKeys.AGENT_RESET, "agent" to snapshot.agent, "source" to source))
@@ -107,36 +112,36 @@ internal class AgentCommands(private val control: AgentControl, private val text
 
     private suspend fun home(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val instance = invocation.chat.instance
-        val current = context.refusing { control.settings(invocation.chat) } ?: return
+        val current = context.refusing { settings.snapshot(invocation.chat) } ?: return
         if (current.home) {
             context.reply(replies.text(TextKeys.HOME_ALREADY, "agent" to current.agent, "instance" to instance))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { home() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { home() } ?: return
         val text = texts.replies(snapshot.effectiveLanguage)
             .text(TextKeys.HOME_SET, "agent" to snapshot.agent, "instance" to instance)
         context.reply(text)
     }
 
     private suspend fun homeOff(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val current = context.refusing { control.settings(invocation.chat) } ?: return
+        val current = context.refusing { settings.snapshot(invocation.chat) } ?: return
         if (!current.home) {
             context.reply(replies.text(TextKeys.HOME_NOT_HOME, "agent" to current.agent))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { noHome() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { noHome() } ?: return
         context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.HOME_CLEARED, "agent" to current.agent))
     }
 
     private suspend fun resetHome(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val instance = invocation.chat.instance
-        val current = context.refusing { control.settings(invocation.chat) } ?: return
+        val current = context.refusing { settings.snapshot(invocation.chat) } ?: return
         if (summary(instance, current.agent)?.homeSetAt == null) {
             val text = replies.text(TextKeys.HOME_NOTHING_TO_RESET, "agent" to current.agent, "instance" to instance)
             context.reply(text)
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { resetHome() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetHome() } ?: return
         val home = summary(instance, snapshot.agent)?.home
         val reset = texts.replies(snapshot.effectiveLanguage)
         val text = if (home == null) {
@@ -148,7 +153,7 @@ internal class AgentCommands(private val control: AgentControl, private val text
     }
 
     private fun summary(instance: ChannelInstanceId, agent: AgentId): AgentSummary? =
-        control.agents(instance).firstOrNull { it.id == agent }
+        catalog.agents(instance).firstOrNull { it.id == agent }
 
     /** How [agent] calls itself on [instance], its id when it does not serve the instance. */
     private fun name(instance: ChannelInstanceId, agent: AgentId): String =

@@ -3,12 +3,11 @@ package org.unitedsoftware.alexandrite.agent.control
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -65,15 +64,15 @@ class TimeZoneTest {
     @Test
     fun `a chat's zone wins over its agent's and a reset brings the agent's back`() {
         harness(zone = "Europe/Berlin").execute {
-            val control = get<AgentControl>()
+            val control = get<ChatSettings>()
             val chat = channel().chat()
 
             ask()
             val first = received()
-            val set = control.updateSettings(chat, ChatSettingsUpdate.builder().zone(shanghai).build(), null)
+            val set = control.update(chat, ChatSettingsUpdate.builder().zone(shanghai).build(), null)
             ask()
             val second = received()
-            val reset = control.updateSettings(chat, ChatSettingsUpdate.builder().resetZone().build(), null)
+            val reset = control.update(chat, ChatSettingsUpdate.builder().resetZone().build(), null)
             ask()
 
             assertEquals(listOf(berlin, shanghai, berlin), zones)
@@ -92,7 +91,7 @@ class TimeZoneTest {
             assertEquals(listOf<ZoneId?>(ZoneOffset.UTC), zones)
             assertEquals("2026-01-01T00:00Z", received())
             assertNull(get<ChatSettings>().zone(channel().chat()))
-            assertNull(get<AgentControl>().settings(channel().chat()).effectiveZone)
+            assertNull(get<ChatSettings>().snapshot(channel().chat()).effectiveZone)
         }
     }
 }

@@ -149,11 +149,11 @@ private suspend fun reviewed(
     }
     val what = if (value == null) "Remove $path" else "Set $path to ${shown(value)}"
     val effect = changes?.let { "\n${effect(it)}" }.orEmpty()
-    return CallReview(
-        preview = ReviewPreview.Text("$what$effect"),
-        snapshot = snapshot(current),
-        person = FLOOR_CHANGE.takeIf { touchesFloor(config, path, value) },
-    )
+    return CallReview.builder()
+        .preview(ReviewPreview.Text("$what$effect"))
+        .snapshot(snapshot(current))
+        .person(FLOOR_CHANGE.takeIf { touchesFloor(config, path, value) })
+        .build()
 }
 
 /**
@@ -231,9 +231,9 @@ private fun checkedPath(path: String): String {
 private suspend fun reviewing(block: suspend () -> CallReview): CallReview = try {
     block()
 } catch (e: Refused) {
-    CallReview(problem = e.message)
+    CallReview.builder().problem(e.message).build()
 } catch (e: ConfigEditException) {
-    CallReview(problem = e.message ?: "The config file refuses this change.")
+    CallReview.builder().problem(e.message ?: "The config file refuses this change.").build()
 }
 
 /** What [block] returns, or the failed result of what it refuses. */

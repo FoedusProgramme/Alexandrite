@@ -2,11 +2,12 @@ package org.unitedsoftware.alexandrite.automation.heartbeat
 
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -23,7 +24,8 @@ import kotlin.time.Duration
 internal class HeartbeatCommand(
     private val heartbeats: Heartbeats,
     private val runner: HeartbeatRunner,
-    private val control: AgentControl?,
+    private val settings: ChatSettings?,
+    private val catalog: AgentCatalog?,
     private val texts: Texts,
 ) : CommandHandler {
     override val commands: List<CommandSpec> =
@@ -38,14 +40,14 @@ internal class HeartbeatCommand(
             context.reply(replies.text(TextKeys.USAGE))
             return
         }
-        val control = control ?: return
+        val settings = settings ?: return
         val agent = try {
-            control.settings(invocation.chat).agent
+            settings.snapshot(invocation.chat).agent
         } catch (e: ControlRefusedException) {
             context.reply(e.message ?: throw e)
             return
         }
-        val name = name(control, agent, invocation.chat)
+        val name = name(agent, invocation.chat)
         val heartbeat = heartbeats.of(agent)
         if (heartbeat == null) {
             context.reply(replies.text(TextKeys.NONE, "agent" to name))
@@ -54,8 +56,8 @@ internal class HeartbeatCommand(
         context.reply(replies.shown(heartbeat, name, runner.nextBeat(heartbeat), heartbeats.homeless(agent)))
     }
 
-    private fun name(control: AgentControl, agent: AgentId, chat: ChatAddress): String =
-        control.agents(chat.instance).firstOrNull { it.id == agent }?.name ?: agent.value
+    private fun name(agent: AgentId, chat: ChatAddress): String =
+        catalog?.agents(chat.instance)?.firstOrNull { it.id == agent }?.name ?: agent.value
 
     private companion object {
         const val NAME = "heartbeat"

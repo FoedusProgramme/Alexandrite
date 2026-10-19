@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -30,7 +31,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import java.nio.file.Path
 
 @Singleton
@@ -101,9 +101,9 @@ internal class ProfileCreateTool(private val profiles: Profiles) :
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val profile = profiles.plannedCreate(draft(arguments))
-        CallReview(preview = ReviewPreview.Text(profileText(profile)))
+        CallReview.builder().preview(ReviewPreview.Text(profileText(profile))).build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
@@ -151,9 +151,9 @@ internal class ProfileEditTool(private val profiles: Profiles) :
         val (current, updated) = profiles.plannedEdit(id, edit(arguments))
         if (current == updated) throw ToolRefusal("The edit changes nothing in profile '$id'.")
         val preview = ReviewPreview.Diff(syntheticPath(id), diff(current, updated).text)
-        CallReview(preview = preview, snapshot = hash(current))
+        CallReview.builder().preview(preview).snapshot(hash(current)).build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
@@ -208,9 +208,9 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
         val id = AgentId(arguments.requiredText("id"))
         val profile = profiles.plannedRemove(id)
         val preview = ReviewPreview.Text("Removing profile $id:\n\n${profileText(profile)}")
-        CallReview(preview = preview, snapshot = hash(profile))
+        CallReview.builder().preview(preview).snapshot(hash(profile)).build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {

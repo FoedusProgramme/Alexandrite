@@ -15,90 +15,100 @@ public interface ReviewedTool : Tool {
 
 /** What a [ReviewedTool] found out about a call. */
 @Poko
-public class CallReview(
+public class CallReview private constructor(
     /** The risk of this call, null for the declared one. */
-    public val risk: ToolRisk? = null,
+    public val risk: ToolRisk?,
     /** Why the call is refused without asking anyone, null when it is not. */
-    public val refusal: String? = null,
+    public val refusal: String?,
     /** What an approver is shown. */
-    public val preview: ReviewPreview? = null,
+    public val preview: ReviewPreview?,
     /** What the tool compares again before it acts. */
-    public val snapshot: String? = null,
+    public val snapshot: String?,
     /** What allowing such calls for good would cover, null when it may not be offered. */
-    public val rule: RuleSubject? = null,
+    public val rule: RuleSubject?,
     /** Why the call cannot run as asked, null when it can. */
-    public val problem: String? = null,
+    public val problem: String?,
     /** Whether the call needs no approval outside `plan` mode, as a write in the turn's own conversation directory does. */
-    public val exempt: Boolean = false,
+    public val exempt: Boolean,
     /** Whether the call runs as a background job from its start, which [ToolContext.background] then hands it. */
-    public val background: Boolean = false,
+    public val background: Boolean,
     /** Whether the call's output joins the conversation as untrusted content, which [ToolContext.untrusted] reports. */
-    public val untrusted: Boolean = false,
+    public val untrusted: Boolean,
     /** Why only a person may allow the call whatever the mode, null when a mode, a rule or the judge may. */
-    public val person: String? = null,
+    public val person: String?,
     /** The sandbox the call runs in, null when it runs on the host. */
-    public val contained: Contained? = null,
+    public val contained: Contained?,
 ) {
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        risk: ToolRisk? = null,
-        refusal: String? = null,
-        preview: ReviewPreview? = null,
-        snapshot: String? = null,
-        rule: RuleSubject? = null,
-        problem: String? = null,
-        exempt: Boolean = false,
-        background: Boolean = false,
-        untrusted: Boolean = false,
-        person: String? = null,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, untrusted, person, null)
+    public fun toBuilder(): Builder = Builder()
+        .risk(risk)
+        .refusal(refusal)
+        .preview(preview)
+        .snapshot(snapshot)
+        .rule(rule)
+        .problem(problem)
+        .exempt(exempt)
+        .background(background)
+        .untrusted(untrusted)
+        .person(person)
+        .contained(contained)
 
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        risk: ToolRisk? = null,
-        refusal: String? = null,
-        preview: ReviewPreview? = null,
-        snapshot: String? = null,
-        rule: RuleSubject? = null,
-        problem: String? = null,
-        exempt: Boolean = false,
-        background: Boolean = false,
-        untrusted: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, untrusted, null, null)
+    public class Builder internal constructor() {
+        private var risk: ToolRisk? = null
+        private var refusal: String? = null
+        private var preview: ReviewPreview? = null
+        private var snapshot: String? = null
+        private var rule: RuleSubject? = null
+        private var problem: String? = null
+        private var exempt: Boolean = false
+        private var background: Boolean = false
+        private var untrusted: Boolean = false
+        private var person: String? = null
+        private var contained: Contained? = null
 
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        risk: ToolRisk? = null,
-        refusal: String? = null,
-        preview: ReviewPreview? = null,
-        snapshot: String? = null,
-        rule: RuleSubject? = null,
-        problem: String? = null,
-        exempt: Boolean = false,
-        background: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, background, false, null, null)
+        public fun risk(risk: ToolRisk?): Builder = apply { this.risk = risk }
 
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        risk: ToolRisk? = null,
-        refusal: String? = null,
-        preview: ReviewPreview? = null,
-        snapshot: String? = null,
-        rule: RuleSubject? = null,
-        problem: String? = null,
-        exempt: Boolean = false,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, exempt, false, false, null, null)
+        public fun refusal(refusal: String?): Builder = apply { this.refusal = refusal }
 
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        risk: ToolRisk? = null,
-        refusal: String? = null,
-        preview: ReviewPreview? = null,
-        snapshot: String? = null,
-        rule: RuleSubject? = null,
-        problem: String? = null,
-    ) : this(risk, refusal, preview, snapshot, rule, problem, false, false, false, null, null)
+        public fun preview(preview: ReviewPreview?): Builder = apply { this.preview = preview }
+
+        public fun snapshot(snapshot: String?): Builder = apply { this.snapshot = snapshot }
+
+        public fun rule(rule: RuleSubject?): Builder = apply { this.rule = rule }
+
+        public fun problem(problem: String?): Builder = apply { this.problem = problem }
+
+        public fun exempt(exempt: Boolean): Builder = apply { this.exempt = exempt }
+
+        public fun background(background: Boolean): Builder = apply { this.background = background }
+
+        public fun untrusted(untrusted: Boolean): Builder = apply { this.untrusted = untrusted }
+
+        public fun person(person: String?): Builder = apply { this.person = person }
+
+        public fun contained(contained: Contained?): Builder = apply { this.contained = contained }
+
+        public fun build(): CallReview = CallReview(
+            risk,
+            refusal,
+            preview,
+            snapshot,
+            rule,
+            problem,
+            exempt,
+            background,
+            untrusted,
+            person,
+            contained,
+        )
+    }
+
+    public companion object {
+        public fun builder(): Builder = Builder()
+    }
 }
+
+public inline fun CallReview.rebuild(block: CallReview.Builder.() -> Unit): CallReview =
+    toBuilder().apply(block).build()
 
 /** What an approver is shown of a call. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
@@ -121,10 +131,6 @@ public interface ReviewPreview {
         /** The steps that the call runs in turn in place of [argv], empty when it runs [argv] itself. */
         public val segments: List<CommandSegment> = emptyList(),
     ) : ReviewPreview {
-        @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-        public constructor(argv: List<String>, cwd: Path, executable: Path?, opaque: Boolean) :
-            this(argv, cwd, executable, opaque, emptyList())
-
         init {
             require(argv.isNotEmpty()) { "A command names its program." }
         }

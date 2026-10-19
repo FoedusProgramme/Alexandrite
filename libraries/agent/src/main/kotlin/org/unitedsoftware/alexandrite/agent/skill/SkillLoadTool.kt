@@ -63,21 +63,23 @@ internal class SkillLoadTool(private val skills: Skills) :
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
         val skill = when (val found = find(arguments, context.turn)) {
-            is Found.Missing -> return CallReview(problem = found.why)
+            is Found.Missing -> return CallReview.builder().problem(found.why).build()
             is Found.Known -> found.skill
         }
-        if (skills.trusted(skill)) return CallReview()
+        if (skills.trusted(skill)) return CallReview.builder().build()
         val file = checkNotNull(skill.file)
-        val text = skills.text(file) ?: return CallReview(problem = "The file of skill ${skill.name} cannot be read.")
+        val text = skills.text(file) ?: return CallReview.builder()
+            .problem("The file of skill ${skill.name} cannot be read.")
+            .build()
         val preview = "Load the untrusted skill ${skill.name} of ${skill.folder}, a folder no one trusts\n" +
             "File: $file\nSHA-256: ${text.sha256}\n\n${text.body}"
-        return CallReview(
-            risk = ToolRisk.EXEC,
-            preview = ReviewPreview.Text(preview),
-            snapshot = text.sha256,
-            rule = RuleSubject(NAME, listOf(skill.name, text.sha256), "skill ${skill.name} as it reads now"),
-            untrusted = true,
-        )
+        return CallReview.builder()
+            .risk(ToolRisk.EXEC)
+            .preview(ReviewPreview.Text(preview))
+            .snapshot(text.sha256)
+            .rule(RuleSubject(NAME, listOf(skill.name, text.sha256), "skill ${skill.name} as it reads now"))
+            .untrusted(true)
+            .build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {

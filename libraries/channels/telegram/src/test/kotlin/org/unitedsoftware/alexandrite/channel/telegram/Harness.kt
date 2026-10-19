@@ -15,7 +15,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnSubmitter
 import kotlin.time.Duration.Companion.seconds
 
@@ -30,7 +30,7 @@ val WORK = ChannelInstanceId(ChannelType("telegram"), "work")
 class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : AutoCloseable {
     val fake = FakeBotApi()
     val submitter = RecordingTurnSubmitter(outcome)
-    val control = RecordingAgentControl()
+    val control = RecordingAgent()
     val ada = FakeUser(ADA, "Ada", "Lovelace", "ada_test")
     val bob = FakeUser(BOB, "Bob", username = "bob_test")
     val adaChat = fake.direct(ada)
@@ -47,7 +47,7 @@ class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : Aut
         PluginHarness.builder(AlexandriteChannelTelegramIndex())
             .config("""{"instances": {${instances.joinToString { (name, config) -> "\"$name\": $config" }}}}""")
             .turnSubmitter(submitter)
-            .agentControl(control)
+            .agent(control)
             .commandHandler(ClaimedCommands(*DEFAULT_COMMANDS))
 
     fun run(builder: PluginHarness.Builder = builder(), block: suspend PluginHarness.Running.() -> Unit): Termination =

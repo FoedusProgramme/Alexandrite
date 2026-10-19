@@ -21,7 +21,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.TEST_INSTANCE
 import org.unitedsoftware.alexandrite.testkit.testCommand
@@ -45,7 +45,8 @@ class HelpCommandsTest {
 
     private fun help(texts: Texts = commandTexts()): HelpCommands {
         lateinit var help: HelpCommands
-        val others = listOf(ConversationCommands(RecordingAgentControl(), texts), NotesCommands())
+        val agent = RecordingAgent()
+        val others = listOf(ConversationCommands(agent.turns, agent.conversations, agent.links, texts), NotesCommands())
         help = HelpCommands(lazy { Handlers(others + help) }, channels, texts)
         return help
     }

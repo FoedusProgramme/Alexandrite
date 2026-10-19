@@ -42,14 +42,6 @@ public class ToolDefinition(
     /** The arguments that title a call: every one present, in order, joined with a space, an array with spaces too. */
     public val titleArguments: List<String> = emptyList(),
 ) {
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(name: String, description: String, parameters: JsonObject, risk: ToolRisk) :
-        this(name, description, parameters, risk, null, ToolActivity.OTHER, emptyList())
-
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(name: String, description: String, parameters: JsonObject, risk: ToolRisk, timeout: Duration?) :
-        this(name, description, parameters, risk, timeout, ToolActivity.OTHER, emptyList())
-
     init {
         require(ToolNames.PATTERN.matches(name)) {
             "Malformed tool name '$name': it must be lowercase words of letters, digits and '_', each starting with " +

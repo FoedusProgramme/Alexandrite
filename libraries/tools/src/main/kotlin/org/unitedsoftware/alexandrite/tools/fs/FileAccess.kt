@@ -123,9 +123,9 @@ internal suspend fun HardFloor.readReview(argument: String?, context: ToolContex
         }?.normalize()
     } catch (e: InvalidPathException) {
         null
-    } ?: return CallReview()
+    } ?: return CallReview.builder().build()
     val check = blocking { checkRead(path, context.turn.agent, context.turn.rootConversation) }
-    return CallReview(person = (check as? FloorCheck.Ask)?.let { askedPlace(path, it) })
+    return CallReview.builder().person((check as? FloorCheck.Ask)?.let { askedPlace(path, it) }).build()
 }
 
 /** The attributes of [path] itself, a link not followed. */

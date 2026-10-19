@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.hook.Hooks
@@ -37,7 +38,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
@@ -188,8 +188,8 @@ class ChainRulesTest {
             chain(cd(), step("git", "status"), step("./gradlew", "test")),
             chain(step("git", "log"), step("ls", readOnly = true, untrusted = false)),
             chain(step("git", "log"), step("make")),
-            CallReview(preview = command("git", "log"), untrusted = true),
-            CallReview(preview = command("make"), untrusted = true),
+            CallReview.builder().preview(command("git", "log")).untrusted(true).build(),
+            CallReview.builder().preview(command("make")).untrusted(true).build(),
         ).map { setup.trusts.trust(setup.checked(it)) }
 
         assertEquals(
@@ -205,9 +205,9 @@ class ChainRulesTest {
         runTest {
             val setup = Setup()
             setMode(PermissionMode.AUTO)
-            val opaque = CallReview(
-                preview = ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), CWD, null, opaque = true),
-            )
+            val opaque = CallReview.builder()
+                .preview(ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), CWD, null, opaque = true))
+                .build()
 
             assertEquals("ask", setup.decide(chain(cd(), step("git", "status"), step("make")), tainted = true))
             assertEquals(1, setup.judge.calls.size)
@@ -231,10 +231,10 @@ class ChainRulesTest {
             )
         }
         val script = joined.joinToString(" && ") { it.argv.joinToString(" ") }
-        return CallReview(
-            preview = ReviewPreview.Command(listOf("sh", "-c", script), CWD, null, false, joined),
-            untrusted = joined.any { it.untrusted },
-        )
+        return CallReview.builder()
+            .preview(ReviewPreview.Command(listOf("sh", "-c", script), CWD, null, false, joined))
+            .untrusted(joined.any { it.untrusted })
+            .build()
     }
 
     private fun cd(): CommandSegment =
@@ -265,7 +265,7 @@ class ChainRulesTest {
 
     /** command.exec, whose calls are reviewed as [review] says. */
     private class ScriptedExec : ReviewedTool {
-        var review: CallReview = CallReview()
+        var review: CallReview = CallReview.builder().build()
 
         override val definition: ToolDefinition = testToolDefinition("command.exec", ToolRisk.EXEC)
 

@@ -194,9 +194,6 @@ class SubclassOptInTest {
             override fun remove(path: String) = TODO()
         }
 
-        class Settings : org.unitedsoftware.alexandrite.sdk.chat.ChatSettings {
-            override suspend fun language(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
-        }
 
         class Instance : org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance {
             override val id get() = TODO()
@@ -278,7 +275,7 @@ class SubclassOptInTest {
             ) = TODO()
         }
 
-        class Agent : org.unitedsoftware.alexandrite.sdk.turn.AgentControl {
+        class Turns : org.unitedsoftware.alexandrite.sdk.turn.TurnControl {
             override suspend fun turns(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress?) = TODO()
             override fun cancel(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
@@ -299,6 +296,9 @@ class SubclassOptInTest {
                 job: org.unitedsoftware.alexandrite.sdk.chat.RunId,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+        }
+
+        class Conversations : org.unitedsoftware.alexandrite.sdk.turn.ConversationControl {
             override suspend fun newConversation(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
@@ -313,13 +313,20 @@ class SubclassOptInTest {
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
-            override fun agents(instance: org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
-            override suspend fun settings(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
-            override suspend fun updateSettings(
+        }
+
+        class Settings : org.unitedsoftware.alexandrite.sdk.chat.ChatSettings {
+            override suspend fun snapshot(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun update(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
-                update: org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate,
+                update: org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun language(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun zone(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+        }
+
+        class Links : org.unitedsoftware.alexandrite.sdk.turn.ChatLinks {
             override suspend fun link(
                 agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId,
                 anchor: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
@@ -331,24 +338,49 @@ class SubclassOptInTest {
                 member: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
-            override fun links(agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?) = TODO()
-            override suspend fun trustFolder(
+            override fun groups(agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?) = TODO()
+        }
+
+        class Folders : org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders {
+            override fun list() = TODO()
+            override suspend fun trust(folder: java.nio.file.Path, by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?) =
+                TODO()
+            override suspend fun untrust(
                 folder: java.nio.file.Path,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
-            override suspend fun untrustFolder(
-                folder: java.nio.file.Path,
-                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
-            ) = TODO()
-            override fun trustedFolders() = TODO()
+        }
+
+        class Rules : org.unitedsoftware.alexandrite.sdk.turn.PermissionRules {
             override suspend fun allowRules(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun revokeAllowRule(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 number: Int,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun trustRules(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun trust(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                rule: String,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun untrust(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                rule: String,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+        }
+
+        class Catalog : org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog {
+            override fun agents(instance: org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId) = TODO()
+            override suspend fun profiles() = TODO()
             override fun endpoints() = TODO()
             override suspend fun models(endpoint: org.unitedsoftware.alexandrite.sdk.transcript.EndpointId) = TODO()
+        }
+
+        class Usage : org.unitedsoftware.alexandrite.sdk.turn.UsageReports {
+            override suspend fun report(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress, everyAgent: Boolean) =
+                TODO()
         }
     """.trimIndent()
 
@@ -484,10 +516,10 @@ class SubclassOptInTest {
             ELSE
         }
 
-        fun source(source: org.unitedsoftware.alexandrite.sdk.turn.AgentSource): Int = when (source) {
-            org.unitedsoftware.alexandrite.sdk.turn.AgentSource.SELECTED -> 0
-            org.unitedsoftware.alexandrite.sdk.turn.AgentSource.HOME -> 1
-            org.unitedsoftware.alexandrite.sdk.turn.AgentSource.DEFAULT -> 2
+        fun source(source: org.unitedsoftware.alexandrite.sdk.chat.AgentSource): Int = when (source) {
+            org.unitedsoftware.alexandrite.sdk.chat.AgentSource.SELECTED -> 0
+            org.unitedsoftware.alexandrite.sdk.chat.AgentSource.HOME -> 1
+            org.unitedsoftware.alexandrite.sdk.chat.AgentSource.DEFAULT -> 2
             ELSE
         }
 
@@ -757,6 +789,9 @@ class SubclassOptInTest {
     /** A command plugin, a hook and a channel's submission as a third-party plugin writes them. */
     private val turns = """
         import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
+        import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
+        import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+        import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
         import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
         import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
         import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
@@ -766,7 +801,10 @@ class SubclassOptInTest {
         import org.unitedsoftware.alexandrite.sdk.turn.*
 
         class Commands(
-            private val control: AgentControl,
+            private val conversations: ConversationControl,
+            private val settings: ChatSettings,
+            private val catalog: AgentCatalog,
+            private val links: ChatLinks,
             private val initiator: TurnInitiator,
             private val texts: Texts,
         ) : CommandHandler {
@@ -777,7 +815,7 @@ class SubclassOptInTest {
                     context.reply(texts.text("new.operators_only", context.turn.language, "command" to invocation.name))
                     return
                 }
-                val conversation = control.newConversation(invocation.chat, invocation.issuer)
+                val conversation = conversations.newConversation(invocation.chat, invocation.issuer)
                 context.reply("Started ${'$'}conversation.")
                 val greeting = InitiatedTurn.builder(invocation.chat, TurnKind.HEARTBEAT, "Greet the chat.")
                     .route(ReplyRoute.ToChat(invocation.chat))
@@ -788,27 +826,27 @@ class SubclassOptInTest {
                 }
                 val home = ChatSettingsUpdate.builder().home().build()
                 val homed = try {
-                    control.updateSettings(invocation.chat, home, invocation.issuer).home
+                    settings.update(invocation.chat, home, invocation.issuer).home
                 } catch (e: ControlRefusedException) {
                     context.reply(e.message ?: "Refused.")
                     false
                 }
                 if (!homed) return
-                val settings = control.settings(invocation.chat)
-                val agent = settings.agent
-                val described: AgentSummary? = control.agents(invocation.chat.instance).firstOrNull { it.id == agent }
-                val model = settings.model ?: settings.defaultModel
-                val models = control.endpoints().flatMap { control.models(it) }.map { it.id }
-                if (settings.effectiveLanguage == null && models.isEmpty()) return
-                val chosenDefault = settings.agentSource == AgentSource.SELECTED && described?.default == true
+                val snapshot = settings.snapshot(invocation.chat)
+                val agent = snapshot.agent
+                val described: AgentSummary? = catalog.agents(invocation.chat.instance).firstOrNull { it.id == agent }
+                val model = snapshot.model ?: snapshot.defaultModel
+                val models = catalog.endpoints().flatMap { catalog.models(it) }.map { it.id }
+                if (snapshot.effectiveLanguage == null && models.isEmpty()) return
+                val chosenDefault = snapshot.agentSource == AgentSource.SELECTED && described?.default == true
                 if (chosenDefault) context.reply("${'$'}model")
-                if (settings.effectiveMode == org.unitedsoftware.alexandrite.sdk.permission.PermissionMode.ASK) {
+                if (snapshot.effectiveMode == org.unitedsoftware.alexandrite.sdk.permission.PermissionMode.ASK) {
                     val bypass = org.unitedsoftware.alexandrite.sdk.permission.PermissionMode.BYPASS
                     val until = java.time.Instant.now().plusSeconds(600)
-                    control.updateSettings(invocation.chat, ChatSettingsUpdate.builder().mode(bypass, until).build(), null)
+                    settings.update(invocation.chat, ChatSettingsUpdate.builder().mode(bypass, until).build(), null)
                 }
-                val group: ChatLinkGroup = control.link(agent, invocation.chat, invocation.chat, invocation.issuer)
-                if (group in control.links(agent)) control.unlink(agent, group.members.first(), null)
+                val group: ChatLinkGroup = links.link(agent, invocation.chat, invocation.chat, invocation.issuer)
+                if (group in links.groups(agent)) links.unlink(agent, group.members.first(), null)
             }
         }
 
@@ -877,17 +915,19 @@ class SubclassOptInTest {
             override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
                 val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
                 val check = floor.checkWrite(path, context.turn.agent)
-                if (check is FloorCheck.Denied) return CallReview(refusal = "Refused: ${'$'}{check.reason}.")
+                if (check is FloorCheck.Denied) return CallReview.builder()
+                    .refusal("Refused: ${'$'}{check.reason}.")
+                    .build()
                 val person = (check as? FloorCheck.Ask)?.let { "${'$'}path needs a person (${'$'}{it.reason})" }
                 val risk = if (Files.exists(path)) ToolRisk.WORKSPACE_WRITE else ToolRisk.EXEC
                 val rule = RuleSubject("files.write", listOf("${'$'}path"), "writes to ${'$'}path")
-                return CallReview(
-                    risk,
-                    preview = ReviewPreview.Diff(path, "+text"),
-                    snapshot = "absent",
-                    rule = rule,
-                    person = person,
-                )
+                return CallReview.builder()
+                    .risk(risk)
+                    .preview(ReviewPreview.Diff(path, "+text"))
+                    .snapshot("absent")
+                    .rule(rule)
+                    .person(person)
+                    .build()
             }
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {

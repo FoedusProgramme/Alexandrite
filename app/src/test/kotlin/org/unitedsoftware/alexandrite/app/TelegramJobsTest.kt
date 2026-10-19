@@ -13,8 +13,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
@@ -52,7 +52,7 @@ class TelegramJobsTest {
             app.messages(app.adaChat, 1)
             app.send(app.ada, app.adaChat, "Run the slow check.")
             app.message(app.adaChat, STARTED)
-            running = get<AgentControl>().jobs(app.address(app.adaChat))
+            running = get<TurnControl>().jobs(app.address(app.adaChat))
             app.message(app.adaChat, FINISHED)
             idle()
             tainted = app.store.conversations.taint(app.store.conversations.current(app.key(app.adaChat)).id)?.reason

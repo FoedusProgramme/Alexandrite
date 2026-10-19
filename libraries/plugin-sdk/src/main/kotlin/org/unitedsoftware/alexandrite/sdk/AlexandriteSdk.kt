@@ -1,12 +1,10 @@
 package org.unitedsoftware.alexandrite.sdk
 
 /**
- * Constants of the plugin SDK.
+ * Constants of the plugin SDK, which follows semantic versioning from 1.0.
  *
  * How the SDK grows without breaking the plugins built against it:
  * - a type with a builder (`builder(…)`, `toBuilder()`, `rebuild { }`) gains optional properties;
- * - a value with a public constructor gains a property through a new constructor, and keeps the old one as
- *   `@Deprecated(level = DeprecationLevel.HIDDEN)`;
  * - an interface marked `@SubclassOptInRequired(InternalAlexandriteApi::class)` is implemented by Alexandrite alone
  *   and gains members and subtypes, so a `when` over its subtypes needs an `else` branch;
  * - an open enumeration, a value class with companion constants, gains constants, so a `when` over it needs an `else`
@@ -15,9 +13,13 @@ package org.unitedsoftware.alexandrite.sdk
  * - an interface that plugins implement gains members only with default bodies;
  * - the stored JSON of transcript entries gains types and fields, and a version reads a type it does not know as its
  *   `Unknown` form;
- * - every other change raises [API_VERSION], and a runtime loads only plugins built against its own.
+ * - every other change, a new parameter of a public constructor included, breaks plugins and raises [API_VERSION].
  */
 public object AlexandriteSdk {
-    /** Raised on every incompatible change of the plugin API. */
+    /**
+     * The SDK's major version, 1 for its first release and raised by every breaking change.
+     *
+     * A runtime loads only plugins built against its own.
+     */
     public const val API_VERSION: Int = 1
 }

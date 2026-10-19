@@ -261,15 +261,6 @@ class ChannelValuesTest {
         )
     }
 
-    @Test
-    fun `the reply request before its run is kept, hidden, for a plugin built against it`() {
-        val ctor = ReplyRequest::class.java.getDeclaredConstructor(TurnInfo::class.java, ChannelMessageRef::class.java)
-
-        val request = ctor.newInstance(testTurn, null)
-
-        assertEquals(ReplyRequest(testTurn, null, null), request)
-    }
-
     private val testTurn: TurnInfo
         get() = TurnInfo.builder(TurnId("t-1"), chat, ConversationId("c-1"), TurnKind.MESSAGE).actor(sender).build()
 

@@ -234,10 +234,10 @@ class PersonaEditToolTest {
         val result = blocking { tool.execute(arguments, cleared) }
 
         assertEquals(
-            CallReview(
-                preview = ReviewPreview.Diff(file, "--- $file\n+++ $file\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"),
-                snapshot = hash,
-            ),
+            CallReview.builder()
+                .preview(ReviewPreview.Diff(file, "--- $file\n+++ $file\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"))
+                .snapshot(hash)
+                .build(),
             review,
         )
         assertEquals(

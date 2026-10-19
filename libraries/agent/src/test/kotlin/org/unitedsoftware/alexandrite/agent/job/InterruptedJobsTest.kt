@@ -5,7 +5,7 @@ import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.TestRecords
@@ -55,7 +55,7 @@ class InterruptedJobsTest {
             val sealed = store.conversations.current(key).id
             jobs.add(sealed, job("j-1"))
 
-            get<AgentControl>().newConversation(key.chat, null)
+            get<ConversationControl>().newConversation(key.chat, null)
 
             assertEquals(null, jobs.pending(sealed))
         }

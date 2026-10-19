@@ -11,14 +11,16 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
 import org.unitedsoftware.alexandrite.sdk.turn.rebuild
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -29,8 +31,13 @@ import java.time.LocalDate
 /** `/trust`, `/untrust` and `/untaint`: of folders, and of the calls that trust rules cover. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class TrustCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
-    CommandHandler {
+internal class TrustCommands(
+    private val conversations: ConversationControl,
+    private val trustedFolders: TrustedFolders,
+    private val permissionRules: PermissionRules,
+    private val texts: Texts,
+    private val clock: Clock,
+) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(
         texts.spec(TRUST).rebuild { operatorsOnly(CommandForms.ALL) },
         texts.spec(UNTRUST).rebuild { operatorsOnly(CommandForms.ALL) },
@@ -64,7 +71,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
             context.reply(replies.usage(UNTAINT))
             return
         }
-        val cleared = context.refusing { control.untaint(invocation.chat, invocation.issuer) }
+        val cleared = context.refusing { conversations.untaint(invocation.chat, invocation.issuer) }
         val text = when {
             cleared == null -> replies.text(TextKeys.UNTAINT_CLEAN)
 
@@ -79,7 +86,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
 
     private suspend fun trust(text: String, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val folder = folder(TRUST, text, context, replies) ?: return
-        val trusted = context.refusing { control.trustFolder(folder, invocation.issuer) } ?: return
+        val trusted = context.refusing { trustedFolders.trust(folder, invocation.issuer) } ?: return
         context.reply(replies.text(TextKeys.TRUST_DONE, "folder" to trusted))
     }
 
@@ -89,7 +96,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
         context: CommandContext,
         replies: Replies,
     ) {
-        val trusted = context.refusing { control.trust(invocation.chat, rule, invocation.issuer) } ?: return
+        val trusted = context.refusing { permissionRules.trust(invocation.chat, rule, invocation.issuer) } ?: return
         val done = replies.text(TextKeys.TRUST_RULE_DONE, "rule" to trusted.rule)
         context.reply(if (trusted.anyCode) "$done ${replies.text(TextKeys.TRUST_RULE_ANY_CODE)}" else done)
     }
@@ -100,7 +107,8 @@ internal class TrustCommands(private val control: AgentControl, private val text
         context: CommandContext,
         replies: Replies,
     ) {
-        val revocation = context.refusing { control.untrust(invocation.chat, rule, invocation.issuer) } ?: return
+        val revocation =
+            context.refusing { permissionRules.untrust(invocation.chat, rule, invocation.issuer) } ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.UNTRUST_RULE_DECLARED_REMOVED
             revocation.declared -> TextKeys.UNTRUST_RULE_DECLARED
@@ -117,7 +125,7 @@ internal class TrustCommands(private val control: AgentControl, private val text
         replies: Replies,
     ) {
         val folder = folder(UNTRUST, text, context, replies) ?: return
-        val revocation = context.refusing { control.untrustFolder(folder, invocation.issuer) } ?: return
+        val revocation = context.refusing { trustedFolders.untrust(folder, invocation.issuer) } ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.UNTRUST_DECLARED_REMOVED
             revocation.declared -> TextKeys.UNTRUST_DECLARED
@@ -128,8 +136,8 @@ internal class TrustCommands(private val control: AgentControl, private val text
     }
 
     private suspend fun trusted(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val folders = control.trustedFolders()
-        val rules = context.refusing { control.trustRules(invocation.chat) } ?: return
+        val folders = trustedFolders.list()
+        val rules = context.refusing { permissionRules.trustRules(invocation.chat) } ?: return
         val text = if (folders.isEmpty()) {
             replies.text(TextKeys.TRUST_NONE)
         } else {

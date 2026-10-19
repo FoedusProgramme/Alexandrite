@@ -8,7 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import org.unitedsoftware.alexandrite.testkit.testUser
 import java.time.Instant
@@ -17,8 +17,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ProfileCommandsTest {
-    private val control = RecordingAgentControl()
-    private val commands = ProfileCommands(control, commandTexts())
+    private val control = RecordingAgent()
+    private val commands = ProfileCommands(control.catalog, commandTexts())
 
     @Test
     fun `without a profile it says so`() = runTest {

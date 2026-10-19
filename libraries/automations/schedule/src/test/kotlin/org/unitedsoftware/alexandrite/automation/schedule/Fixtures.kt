@@ -28,6 +28,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnInitiator
 import org.unitedsoftware.alexandrite.testkit.TEST_INSTANCE
@@ -105,11 +106,9 @@ internal class Schedule(
 
         override fun channel(instance: ChannelInstanceId): Channel? = channel.takeIf { instance == TEST_INSTANCE }
     }
-    private val settings = object : ChatSettings {
-        override suspend fun language(chat: ChatAddress): LanguageTag? = language
-
-        override suspend fun zone(chat: ChatAddress): ZoneId = SHANGHAI
-    }
+    private val settings = RecordingAgent().apply {
+        scriptAgent(AgentId.MAIN, language = language, zone = SHANGHAI)
+    }.settings
     private val clock = Clock.fixed(origin, ZoneOffset.UTC)
     val texts = testTexts(PLUGIN)
     val tasks = TaskRecords(wrap(records.of(PLUGIN)), initiator)

@@ -85,16 +85,22 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
         val request = requested(arguments, context)
         val file = checked(request.path, context)
         val sha256 = runInterruptible(Dispatchers.IO) { hashed(file.path) }
-        CallReview(
-            preview = ReviewPreview.OutgoingFile(file.path, file.size, sha256, context.turn.chat, request.caption),
-            snapshot = "$SHA256$sha256",
-            person = file.person,
-        )
+        CallReview.builder()
+            .preview(ReviewPreview.OutgoingFile(file.path, file.size, sha256, context.turn.chat, request.caption))
+            .snapshot("$SHA256$sha256")
+            .person(file.person)
+            .build()
     } catch (e: ToolRefusal) {
-        if (e.blocked) CallReview(refusal = e.message) else CallReview(problem = e.message)
+        if (e.blocked) {
+            CallReview.builder().refusal(
+                e.message,
+            ).build()
+        } else {
+            CallReview.builder().problem(e.message).build()
+        }
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
-        CallReview(problem = unreadable(e))
+        CallReview.builder().problem(unreadable(e)).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {

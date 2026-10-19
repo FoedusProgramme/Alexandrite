@@ -23,7 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
@@ -216,7 +216,7 @@ class OfferedToolsTest {
         harness(read, notes).execute { ask() }
         val sealed = blocking { conversation() }
         harness(changedRead, edit).execute {
-            get<AgentControl>().newConversation(channel().chat(), null)
+            get<ConversationControl>().newConversation(channel().chat(), null)
             ask()
         }
 

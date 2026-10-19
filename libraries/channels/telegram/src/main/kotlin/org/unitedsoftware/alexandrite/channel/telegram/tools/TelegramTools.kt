@@ -40,9 +40,9 @@ internal abstract class TelegramTool(private val desks: TelegramDesks) : Reviewe
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val planned = planned(arguments, context.turn)
-        CallReview(preview = ReviewPreview.Text(planned.shown), rule = planned.rule)
+        CallReview.builder().preview(ReviewPreview.Text(planned.shown)).rule(planned.rule).build()
     } catch (e: ToolProblem) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {

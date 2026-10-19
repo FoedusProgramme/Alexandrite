@@ -54,10 +54,10 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.ReplyRoute
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
@@ -380,7 +380,7 @@ class InitiatedTurnsTest {
     }
 
     @Test
-    fun `a turn held while the router reads its chat's agent is cancelled by the control port, and ends at a drain`() {
+    fun `a turn held while the router reads its chat's agent is cancelled by its id, and ends at a drain`() {
         val reads = GatedReads(store.chatStates)
         val gate = CompletableDeferred<Unit>()
         model.reply { pause { gate.await() }.text("One.") }
@@ -399,7 +399,7 @@ class InitiatedTurnsTest {
             drained = initiate(InitiatedTurn.builder(ChatAddress(main, "held"), TurnKind.REMINDER, "Two.").build())
                 as Admission.Accepted
 
-            assertTrue(get<AgentControl>().cancelTurn(cancelled.turn, null))
+            assertTrue(get<TurnControl>().cancelTurn(cancelled.turn, null))
             assertEquals(TurnOutcome.Cancelled, cancelled.outcome())
             watcher.launch {
                 drained.ticket.outcome()

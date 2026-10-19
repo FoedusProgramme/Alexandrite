@@ -13,8 +13,9 @@ class RuleEntryTest {
     private fun parse(text: String): RuleEntry = RuleEntry.parse(text, "/home/ada")
 
     /** A review of a run of [argv] whose program's real path is [executable]. */
-    private fun run(vararg argv: String, executable: String? = null): CallReview =
-        CallReview(preview = ReviewPreview.Command(argv.toList(), Path.of("/srv"), executable?.let(Path::of), false))
+    private fun run(vararg argv: String, executable: String? = null): CallReview = CallReview.builder()
+        .preview(ReviewPreview.Command(argv.toList(), Path.of("/srv"), executable?.let(Path::of), false))
+        .build()
 
     // Parsing.
 
@@ -146,11 +147,11 @@ class RuleEntryTest {
         assertEquals(
             listOf(true, false, false, true, false),
             listOf(
-                tool.allows("deploy.run", CallReview()),
-                tool.denies("deploy.runs", CallReview()),
+                tool.allows("deploy.run", CallReview.builder().build()),
+                tool.denies("deploy.runs", CallReview.builder().build()),
                 prefix.denies("fs.write", run("make")),
-                prefix.denies("command.exec", CallReview()),
-                prefix.allows("command.exec", CallReview(preview = ReviewPreview.Text("make"))),
+                prefix.denies("command.exec", CallReview.builder().build()),
+                prefix.allows("command.exec", CallReview.builder().preview(ReviewPreview.Text("make")).build()),
             ),
         )
     }

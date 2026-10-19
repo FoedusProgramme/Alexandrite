@@ -106,10 +106,7 @@ public class ReplyRequest(
     public val trigger: ChannelMessageRef?,
     /** The background run of [turn] whose activity alone this reply shows, null for the turn's own reply. */
     public val run: DelegatedRun? = null,
-) {
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(turn: TurnInfo, trigger: ChannelMessageRef?) : this(turn, trigger, null)
-}
+)
 
 /** Why a reply ended without a final message. */
 @JvmInline

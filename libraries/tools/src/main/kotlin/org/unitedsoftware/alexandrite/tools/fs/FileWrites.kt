@@ -44,12 +44,12 @@ internal const val MAX_WRITE_BYTES: Long = 16L * MIB
 internal suspend fun reviewing(block: suspend () -> CallReview): CallReview = try {
     block()
 } catch (e: Blocked) {
-    CallReview(refusal = e.message)
+    CallReview.builder().refusal(e.message).build()
 } catch (e: Refusal) {
-    CallReview(problem = e.message)
+    CallReview.builder().problem(e.message).build()
 } catch (e: IOException) {
     currentCoroutineContext().ensureActive()
-    CallReview(problem = failure(e))
+    CallReview.builder().problem(failure(e)).build()
 }
 
 /** The file that [argument] names for a write by the call of [context], once the floor allows it. */
@@ -114,12 +114,12 @@ internal fun ReadLedger.checkRead(target: Target, context: ToolContext) {
 }
 
 /** What an approver sees of a call that makes [target] hold [text]. */
-internal fun Target.review(text: String): CallReview = CallReview(
-    preview = ReviewPreview.Diff(file, diff(text).text),
-    snapshot = snapshot,
-    exempt = exempt,
-    person = person,
-)
+internal fun Target.review(text: String): CallReview = CallReview.builder()
+    .preview(ReviewPreview.Diff(file, diff(text).text))
+    .snapshot(snapshot)
+    .exempt(exempt)
+    .person(person)
+    .build()
 
 /** The diff from the file's text to [text], ignoring carriage returns unless only they change. */
 internal fun Target.diff(text: String): UnifiedDiff {

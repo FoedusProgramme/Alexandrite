@@ -10,13 +10,13 @@ import org.unitedsoftware.alexandrite.commands.support.replies
 import org.unitedsoftware.alexandrite.commands.support.spec
 import org.unitedsoftware.alexandrite.commands.support.updateSettings
 import org.unitedsoftware.alexandrite.commands.support.words
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -28,7 +28,7 @@ import java.util.Locale
 /** `/mode`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class ModeCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
+internal class ModeCommands(private val settings: ChatSettings, private val texts: Texts, private val clock: Clock) :
     CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(MODE))
 
@@ -46,7 +46,7 @@ internal class ModeCommands(private val control: AgentControl, private val texts
     }
 
     private suspend fun current(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val mode = replies.mode(snapshot)
         val left = replies.bypassLeft(snapshot, clock.instant())
         val text = if (left == null) {
@@ -86,7 +86,7 @@ internal class ModeCommands(private val control: AgentControl, private val texts
         }
         val now = clock.instant()
         val until = requested?.let { now + minOf(it, MAX_BYPASS) }
-        val snapshot = context.updateSettings(control, invocation) { mode(mode, until) } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { mode(mode, until) } ?: return
         val set = texts.replies(snapshot.effectiveLanguage)
         val left = set.bypassLeft(snapshot, now)
         if (left == null) {
@@ -102,7 +102,7 @@ internal class ModeCommands(private val control: AgentControl, private val texts
     }
 
     private suspend fun reset(invocation: CommandInvocation, context: CommandContext) {
-        val snapshot = context.updateSettings(control, invocation) { resetMode() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetMode() } ?: return
         val replies = texts.replies(snapshot.effectiveLanguage)
         val mode = replies.mode(snapshot)
         context.reply(replies.text(TextKeys.MODE_RESET, "mode" to mode.value, "source" to mode.source))

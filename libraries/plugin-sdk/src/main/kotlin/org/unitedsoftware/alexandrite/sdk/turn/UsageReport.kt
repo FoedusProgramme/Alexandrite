@@ -2,11 +2,21 @@ package org.unitedsoftware.alexandrite.sdk.turn
 
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.math.BigDecimal
 import java.time.ZoneId
+
+/** The model usage of the agents. */
+@HostApi
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface UsageReports {
+    /** The usage of the agent that serves [chat], there and in all, and of every other agent when [everyAgent]. */
+    public suspend fun report(chat: ChatAddress, everyAgent: Boolean = false): UsageReport
+}
 
 /** The model usage shown at [chat]: that of the chat's agent first, then of the other agents asked for. */
 @Poko

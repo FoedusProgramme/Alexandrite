@@ -19,14 +19,14 @@ import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.TEST_INSTANCE
 import org.unitedsoftware.alexandrite.testkit.testChat
@@ -39,7 +39,7 @@ import kotlin.test.assertTrue
 
 class LinkCommandsTest {
     private val clock = TestClock()
-    private val control = RecordingAgentControl()
+    private val control = RecordingAgent()
     private val channel = RecordingChannel()
     private val channels = object : ChannelDirectory {
         override val instances: Set<ChannelInstanceId> = setOf(TEST_INSTANCE)
@@ -78,7 +78,7 @@ class LinkCommandsTest {
 
     @Test
     fun `the notice to the first chat is in that chat's language and a failed notice changes nothing`() = runTest {
-        control.updateSettings(first, ChatSettingsUpdate.builder().language(CHINESE).build(), OPERATOR)
+        control.settings.update(first, ChatSettingsUpdate.builder().language(CHINESE).build(), OPERATOR)
         val catalog = TextCatalog.builder()
             .text(PLUGIN, CHINESE, "link.anchor_notice", "{chat} 现在和这个聊天共享 {agent} 的对话。")
             .build()
@@ -107,7 +107,7 @@ class LinkCommandsTest {
 
     @Test
     fun `an offer in a linked chat names the chats it shares the conversation with`() = runTest {
-        control.link(AgentId.MAIN, first, testChat("x_y"), OPERATOR)
+        control.links.link(AgentId.MAIN, first, testChat("x_y"), OPERATOR)
 
         val reply = commands.answer(link(first))
 
@@ -116,7 +116,7 @@ class LinkCommandsTest {
 
     @Test
     fun `a code is spent once redeemed, also when the link is refused`() = runTest {
-        control.link(AgentId.MAIN, testChat("elsewhere"), second, OPERATOR)
+        control.links.link(AgentId.MAIN, testChat("elsewhere"), second, OPERATOR)
         val code = offer(first)
 
         assertEquals("test:main:second is linked already.", commands.answer(link(second, code, other)))
@@ -188,7 +188,7 @@ class LinkCommandsTest {
 
     @Test
     fun `unlink takes this chat out of its linked chats`() = runTest {
-        control.link(AgentId.MAIN, first, second, OPERATOR)
+        control.links.link(AgentId.MAIN, first, second, OPERATOR)
 
         assertEquals("test:main:second no longer shares the conversation of main.", commands.answer(unlink(second)))
         assertEquals("This chat shares no conversation of main.", commands.answer(unlink(second)))
@@ -197,8 +197,8 @@ class LinkCommandsTest {
 
     @Test
     fun `unlink with a chat takes that chat out of this chat's linked chats`() = runTest {
-        control.link(AgentId.MAIN, first, second, OPERATOR)
-        control.link(AgentId.MAIN, first, testChat("third"), OPERATOR)
+        control.links.link(AgentId.MAIN, first, second, OPERATOR)
+        control.links.link(AgentId.MAIN, first, testChat("third"), OPERATOR)
 
         assertEquals(
             "test:main:third no longer shares the conversation of main.",
@@ -220,7 +220,7 @@ class LinkCommandsTest {
     fun `unlink of a chat that the config file links says to edit the file, also once its runtime link is gone`() =
         runTest {
             control.declareLink(AgentId.MAIN, first, listOf(second))
-            val dropping = object : AgentControl by control {
+            val dropping = object : ChatLinks by control.links {
                 override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation =
                     Revocation(removed = true, declared = true)
             }
@@ -232,14 +232,14 @@ class LinkCommandsTest {
             assertEquals(
                 "The link of test:main:second made at runtime is removed, but the config file still links it to the " +
                     "conversation of main: edit the file to unlink it.",
-                LinkCommands(dropping, control, channels, LinkCodes(clock), commandTexts(), clock)
+                LinkCommands(dropping, control.settings, channels, LinkCodes(clock), commandTexts(), clock)
                     .answer(unlink(second)),
             )
         }
 
     @Test
     fun `a refused unlink replies with the agent's message`() = runTest {
-        control.link(AgentId.MAIN, first, second, OPERATOR)
+        control.links.link(AgentId.MAIN, first, second, OPERATOR)
 
         assertEquals("test:main:first anchors its group.", commands.answer(unlink(first)))
     }
@@ -255,7 +255,7 @@ class LinkCommandsTest {
     }
 
     private fun commands(texts: Texts = commandTexts()) =
-        LinkCommands(control, control, channels, LinkCodes(clock), texts, clock)
+        LinkCommands(control.links, control.settings, channels, LinkCodes(clock), texts, clock)
 
     private fun link(chat: ChatAddress, code: String = "", issuer: ChatUser = OPERATOR): CommandInvocation =
         testCommand("link", code, chat, issuer)

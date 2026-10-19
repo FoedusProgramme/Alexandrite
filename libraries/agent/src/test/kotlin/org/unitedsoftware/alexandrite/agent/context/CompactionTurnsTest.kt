@@ -33,8 +33,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
@@ -428,7 +428,7 @@ class CompactionTurnsTest {
         model.reply(summarizer) { text("The user counted to one.") }
 
         harness("{}").execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val operator = channel().user("operator")
             for (text in listOf("First.", "Second.")) ask(text).ticket.outcome()
             val early = channel().receiveCommand("compact", issuer = operator) as Admission.Accepted
@@ -456,7 +456,7 @@ class CompactionTurnsTest {
             val summary = stored().filterIsInstance<SummaryEntry>().single()
             val turn = store.conversations.turn(summary.record!!.turn)!!
             assertEquals(listOf(summary), stored().filter { it.record?.turn == turn.id })
-            val status = get<AgentControl>().context(channel().chat())
+            val status = get<ConversationControl>().context(channel().chat())
             assertEquals(listOf(summary.record!!.createdAt, 2), listOf(status.compactedAt, status.summarized))
         }
     }
@@ -470,9 +470,9 @@ class CompactionTurnsTest {
         }
 
         harness("""{"target": 15000}""").execute {
-            val before = get<AgentControl>().context(channel().chat())
+            val before = get<ConversationControl>().context(channel().chat())
             ask("First.").ticket.outcome()
-            val after = get<AgentControl>().context(channel().chat())
+            val after = get<ConversationControl>().context(channel().chat())
 
             assertEquals(listOf(null, null, WINDOW, 95_000L, 15_000L, null, 0), before.fields())
             assertEquals(12_345L, after.promptTokens)

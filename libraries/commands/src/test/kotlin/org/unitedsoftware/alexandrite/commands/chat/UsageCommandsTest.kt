@@ -12,7 +12,6 @@ import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.AgentUsage
 import org.unitedsoftware.alexandrite.sdk.turn.BudgetStatus
 import org.unitedsoftware.alexandrite.sdk.turn.BudgetUnit
@@ -21,7 +20,8 @@ import org.unitedsoftware.alexandrite.sdk.turn.ModelUsage
 import org.unitedsoftware.alexandrite.sdk.turn.PeriodUsage
 import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
 import org.unitedsoftware.alexandrite.sdk.turn.UsageReport
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import java.math.BigDecimal
@@ -30,8 +30,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class UsageCommandsTest {
-    private val control = RecordingAgentControl()
-    private val commands = UsageCommands(control, commandTexts())
+    private val control = RecordingAgent()
+    private val commands = UsageCommands(control.catalog, control.usage, commandTexts())
     private val chat = testChat()
     private val priced = ModelRef.parse("router/fast")
     private val unpriced = ModelRef.parse("local/big")
@@ -98,15 +98,19 @@ class UsageCommandsTest {
         val asked = mutableListOf<Pair<ChatAddress, Boolean>>()
         val other =
             AgentUsage(helper, ZoneOffset.UTC, emptyList(), periods(emptyList(), emptyList(), emptyList()), emptyList())
-        val recording = object : AgentControl by control {
-            override suspend fun usage(chat: ChatAddress, everyAgent: Boolean): UsageReport {
+        val recording = object : UsageReports by control.usage {
+            override suspend fun report(chat: ChatAddress, everyAgent: Boolean): UsageReport {
                 asked += chat to everyAgent
                 return report(main, other)
             }
         }
         control.scriptAgent(helper, name = "Helper")
 
-        val reply = UsageCommands(recording, commandTexts()).answer(testCommand("usage", " ALL ", issuer = OPERATOR))
+        val reply = UsageCommands(
+            control.catalog,
+            recording,
+            commandTexts(),
+        ).answer(testCommand("usage", " ALL ", issuer = OPERATOR))
 
         assertEquals(listOf(chat to true), asked)
         assertEquals(
@@ -134,7 +138,7 @@ class UsageCommandsTest {
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "used.none", "{period}：没有模型调用。")
             .text(PLUGIN, CHINESE, "used.today", "今天")
             .build()
-        val chinese = UsageCommands(control, commandTexts(catalog))
+        val chinese = UsageCommands(control.catalog, control.usage, commandTexts(catalog))
         val invocation = testCommand("usage", issuer = GUEST)
 
         val reply = chinese.answer(invocation, commandContext(invocation, language = CHINESE))

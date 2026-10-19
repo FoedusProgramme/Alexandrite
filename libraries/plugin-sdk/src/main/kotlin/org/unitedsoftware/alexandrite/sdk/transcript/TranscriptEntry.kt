@@ -93,9 +93,6 @@ public class SummaryEntry(
     /** The entries before [through] that the summary does not cover, which requests read right after it. */
     public val kept: List<EntryId> = emptyList(),
 ) : TranscriptEntry {
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(record: EntryRecord?, text: String, through: EntryId) : this(record, text, through, emptyList())
-
     init {
         require(kept.all { it.value < through.value } && kept.toSet().size == kept.size) {
             "A summary keeps distinct entries before the last one it covers, was $kept through $through."

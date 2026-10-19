@@ -164,7 +164,7 @@ class PublicApiTest {
             context.scriptDeliveries(Delivery.Delivered(emptyList()))
             context.reply("Done.")
             val invoked = testCommandContext(testCommand("new"))
-            val control = RecordingAgentControl(AgentId.MAIN)
+            val control = RecordingAgent(AgentId.MAIN)
             control.statuses = emptyList()
             control.jobStatuses = emptyList()
             control.compaction = CompactionReport(1, 2, 1)
@@ -174,43 +174,43 @@ class PublicApiTest {
             control.scriptModels(EndpointId("scripted"), listOf(ScriptedModel.modelInfo()))
             control.scriptProfile(AgentProfile(AgentId("reviewer"), "Reviewer", "Reviews code.", "Be strict."))
             control.refuseNext("No agent serves the chat.")
-            control.cancel(testChat(), null)
-            control.cancelTurn(TurnId("t"), null)
-            control.cancelRun(RunId("r"), true, null)
-            control.stopJob(testChat(), RunId("j"), null)
-            control.newConversation(testChat(), null)
-            control.compact(testChat(), "the tests", null)
+            control.turns.cancel(testChat(), null)
+            control.turns.cancelTurn(TurnId("t"), null)
+            control.turns.cancelRun(RunId("r"), true, null)
+            control.turns.stopJob(testChat(), RunId("j"), null)
+            control.conversations.newConversation(testChat(), null)
+            control.conversations.compact(testChat(), "the tests", null)
             control.taints[testChat()] =
                 org.unitedsoftware.alexandrite.sdk.store.ConversationTaint(java.time.Instant.EPOCH, "a quote")
-            control.untaint(testChat(), null)
-            control.updateSettings(testChat(), ChatSettingsUpdate.builder().build(), null)
-            control.link(AgentId.MAIN, testChat(), testChat("other"), null)
-            control.unlink(AgentId.MAIN, testChat("other"), null)
-            control.trustFolder(Path.of("/srv/repo"), null)
-            control.untrustFolder(Path.of("/srv/repo"), null)
+            control.conversations.untaint(testChat(), null)
+            control.settings.update(testChat(), ChatSettingsUpdate.builder().build(), null)
+            control.links.link(AgentId.MAIN, testChat(), testChat("other"), null)
+            control.links.unlink(AgentId.MAIN, testChat("other"), null)
+            control.folders.trust(Path.of("/srv/repo"), null)
+            control.folders.untrust(Path.of("/srv/repo"), null)
             control.declareAllowRule(RuleSubject("notes.add", emptyList(), "notes.add"))
             control.grantAllowRule(testChat(), RuleSubject("command.exec", listOf("make"), "make"), null)
-            control.revokeAllowRule(testChat(), 2, null)
+            control.rules.revokeAllowRule(testChat(), 2, null)
             control.declareTrust("web.fetch")
-            control.trust(testChat(), "command.exec(git)", null)
-            control.untrust(testChat(), "command.exec(git)", null)
+            control.rules.trust(testChat(), "command.exec(git)", null)
+            control.rules.untrust(testChat(), "command.exec(git)", null)
             val call = when (val recorded = control.calls.first()) {
-                is RecordingAgentControl.Call.Cancel -> listOf(recorded.chat, recorded.by)
-                is RecordingAgentControl.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
-                is RecordingAgentControl.Call.CancelRun -> listOf(recorded.run, recorded.tree, recorded.by)
-                is RecordingAgentControl.Call.StopJob -> listOf(recorded.chat, recorded.job, recorded.by)
-                is RecordingAgentControl.Call.NewConversation ->
+                is RecordingAgent.Call.Cancel -> listOf(recorded.chat, recorded.by)
+                is RecordingAgent.Call.CancelTurn -> listOf(recorded.turn, recorded.by)
+                is RecordingAgent.Call.CancelRun -> listOf(recorded.run, recorded.tree, recorded.by)
+                is RecordingAgent.Call.StopJob -> listOf(recorded.chat, recorded.job, recorded.by)
+                is RecordingAgent.Call.NewConversation ->
                     listOf(recorded.chat, recorded.by, recorded.conversation)
-                is RecordingAgentControl.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
-                is RecordingAgentControl.Call.Untaint -> listOf(recorded.chat, recorded.by)
-                is RecordingAgentControl.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
-                is RecordingAgentControl.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
-                is RecordingAgentControl.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
-                is RecordingAgentControl.Call.TrustFolder -> listOf(recorded.folder, recorded.by)
-                is RecordingAgentControl.Call.UntrustFolder -> listOf(recorded.folder, recorded.by)
-                is RecordingAgentControl.Call.RevokeAllowRule -> listOf(recorded.chat, recorded.number, recorded.by)
-                is RecordingAgentControl.Call.Trust -> listOf(recorded.chat, recorded.rule, recorded.by)
-                is RecordingAgentControl.Call.Untrust -> listOf(recorded.chat, recorded.rule, recorded.by)
+                is RecordingAgent.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
+                is RecordingAgent.Call.Untaint -> listOf(recorded.chat, recorded.by)
+                is RecordingAgent.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
+                is RecordingAgent.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
+                is RecordingAgent.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
+                is RecordingAgent.Call.TrustFolder -> listOf(recorded.folder, recorded.by)
+                is RecordingAgent.Call.UntrustFolder -> listOf(recorded.folder, recorded.by)
+                is RecordingAgent.Call.RevokeAllowRule -> listOf(recorded.chat, recorded.number, recorded.by)
+                is RecordingAgent.Call.Trust -> listOf(recorded.chat, recorded.rule, recorded.by)
+                is RecordingAgent.Call.Untrust -> listOf(recorded.chat, recorded.rule, recorded.by)
                 else -> emptyList()
             }
             val states = TestChatStates()
@@ -219,20 +219,22 @@ class PublicApiTest {
                 initiator.initiated, initiator.results, initiator.tickets, first.plugin, first.turn, ticket.turn,
                 ticket.cancelled, ticket.ended, ticket.outcome(), context.turn, context.replies,
                 context.repliesForModel, invoked, call,
-                control.turns(null), control.jobs(testChat()), control.settings(testChat()), control.links(),
-                control.context(testChat()), control.compaction,
-                control.trustedFolders(),
-                control.allowRules(testChat()),
-                control.trustRules(testChat()),
-                control.agents(TEST_INSTANCE), control.profiles(), control.language(testChat()), control.endpoints(),
-                control.models(EndpointId("scripted")),
+                control.turns.turns(null), control.turns.jobs(testChat()), control.settings.snapshot(testChat()),
+                control.links.groups(), control.settings.zone(testChat()), control.usage.report(testChat()),
+                control.conversations.context(testChat()), control.compaction,
+                control.folders.list(),
+                control.rules.allowRules(testChat()),
+                control.rules.trustRules(testChat()),
+                control.catalog.agents(TEST_INSTANCE), control.catalog.profiles(), control.settings.language(testChat()),
+                control.catalog.endpoints(),
+                control.catalog.models(EndpointId("scripted")),
                 states.of("probe"),
                 testChatStates("probe"),
                 TestRecords(MemoryStore().records).of("probe"),
                 TestRecords(MemoryStore()).store,
                 TestChatStates(MemoryStore().chatStates).store,
                 testRecords("probe").collection<String>("notes").list(),
-                control.trustedFolders().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
+                control.folders.list().map { listOf(it.path, it.declared, it.trustedAt, it.trustedBy) },
                 control.declareFolder(Path.of("/srv/config")),
                 control.declareHome(AgentId.MAIN, testChat("home")),
                 control.declareLink(AgentId.MAIN, testChat("anchor"), listOf(testChat("member"))),
@@ -352,7 +354,7 @@ class PublicApiTest {
                 .channel("main", "test", setOf("ada"), 100)
                 .turnSubmitter(RecordingTurnSubmitter())
                 .turnInitiator(RecordingTurnInitiator())
-                .agentControl(RecordingAgentControl())
+                .agent(RecordingAgent())
                 .store(store)
                 .chatStates(TestChatStates(store))
                 .records(TestRecords(store))

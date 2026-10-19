@@ -10,7 +10,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -20,7 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
 /** `/profiles`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class ProfileCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+internal class ProfileCommands(private val catalog: AgentCatalog, private val texts: Texts) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(PROFILES))
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
@@ -31,7 +31,7 @@ internal class ProfileCommands(private val control: AgentControl, private val te
             context.reply(replies.usage(PROFILES))
             return
         }
-        val profiles = control.profiles()
+        val profiles = catalog.profiles()
         if (profiles.isEmpty()) {
             context.reply(replies.text(TextKeys.PROFILES_NONE))
             return

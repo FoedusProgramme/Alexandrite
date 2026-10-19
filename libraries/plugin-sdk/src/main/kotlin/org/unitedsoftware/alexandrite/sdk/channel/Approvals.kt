@@ -32,19 +32,6 @@ public class ApprovalRequest(
     /** Whether the call's output would taint the conversation, so that an approver may trust it. */
     public val taints: Boolean = false,
 ) {
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        id: String,
-        turn: TurnInfo,
-        tool: String,
-        risk: ToolRisk,
-        arguments: String,
-        preview: ReviewPreview?,
-        reason: String,
-        always: RuleSubject?,
-        chain: List<AgentId> = emptyList(),
-    ) : this(id, turn, tool, risk, arguments, preview, reason, always, chain, listOfNotNull(always), false)
-
     init {
         require(ID.matches(id)) { "Malformed approval request id '$id'." }
         require(ToolNames.PATTERN.matches(tool)) { "Malformed tool name '$tool'." }
@@ -69,10 +56,7 @@ public interface ApprovalAnswer {
         public val by: ChatUser,
         public val always: Boolean = false,
         public val trust: Boolean = false,
-    ) : ApprovalAnswer {
-        @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-        public constructor(by: ChatUser, always: Boolean = false) : this(by, always, false)
-    }
+    ) : ApprovalAnswer
 
     @OptIn(InternalAlexandriteApi::class)
     @Poko

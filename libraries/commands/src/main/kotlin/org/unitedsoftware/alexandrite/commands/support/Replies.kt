@@ -1,12 +1,12 @@
 package org.unitedsoftware.alexandrite.commands.support
 
+import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
-import org.unitedsoftware.alexandrite.sdk.turn.AgentSource
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import java.time.Duration
 import java.time.Instant

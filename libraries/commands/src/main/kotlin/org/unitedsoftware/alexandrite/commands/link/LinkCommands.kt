@@ -23,7 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -36,7 +36,7 @@ import java.time.Instant
 @Singleton
 @Contribute(CommandHandler::class)
 internal class LinkCommands(
-    private val control: AgentControl,
+    private val links: ChatLinks,
     private val settings: ChatSettings,
     private val channels: ChannelDirectory,
     private val codes: LinkCodes,
@@ -78,7 +78,7 @@ internal class LinkCommands(
             "code" to code.text,
             "minutes" to minutesUntil(code.expiresAt),
         )
-        val current = control.groupOf(agent, chat)?.let { group ->
+        val current = links.groupOf(agent, chat)?.let { group ->
             val others = (listOf(group.anchor) + group.members).filter { it != chat }
             replies.text(TextKeys.LINK_CURRENT, "chats" to others.joinToString(", ") { markdownLiteral("$it") })
         }
@@ -113,7 +113,7 @@ internal class LinkCommands(
         replies: Replies,
     ) {
         val chat = invocation.chat
-        context.refusing { control.link(offer.agent, offer.anchor, chat, invocation.issuer) } ?: return
+        context.refusing { links.link(offer.agent, offer.anchor, chat, invocation.issuer) } ?: return
         logger.info(
             "{} is linked to {} at agent '{}' with a code that {} offered",
             chat,
@@ -166,7 +166,7 @@ internal class LinkCommands(
         val chat = invocation.chat
         val agent = context.turn.agent
         if (target != null) {
-            val group = control.groupOf(agent, chat)
+            val group = links.groupOf(agent, chat)
             if (group == null) {
                 context.reply(replies.text(TextKeys.UNLINK_NOT_LINKED, "agent" to agent))
                 return
@@ -177,7 +177,7 @@ internal class LinkCommands(
             }
         }
         val member = target ?: chat
-        val revocation = context.refusing { control.unlink(agent, member, invocation.issuer) } ?: return
+        val revocation = context.refusing { links.unlink(agent, member, invocation.issuer) } ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.UNLINK_DECLARED_REMOVED
             revocation.declared -> TextKeys.UNLINK_DECLARED
