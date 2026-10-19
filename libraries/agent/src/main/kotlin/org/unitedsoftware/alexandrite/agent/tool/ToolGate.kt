@@ -42,6 +42,8 @@ internal sealed interface GateResult {
         val background: Boolean = false,
         /** How far the call's output is trusted. */
         val trust: CallTrust = CallTrust.NONE,
+        /** Why the call's output is untrusted content whatever the tool reports, null when only the tool says. */
+        val untrusted: String? = null,
     ) : GateResult
 
     /** The model reads [text] as the result of the call, which does not run, and the chat is told [notice]. */

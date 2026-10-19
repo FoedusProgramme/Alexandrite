@@ -1,8 +1,11 @@
 package org.unitedsoftware.alexandrite.agent.permission
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.prompt.INITIATED_SOURCE
+import org.unitedsoftware.alexandrite.agent.startingInBackground
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -55,6 +58,9 @@ class MandatesTest {
         ToolResult("A page.")
     }
 
+    /** Starts as a background job, held until a test releases it. */
+    private val later = recordingTool("tasks.later").hold()
+
     private fun harness(operators: Set<String> = setOf("operator")): PluginHarness = agentHarness(
         """
         {
@@ -69,7 +75,9 @@ class MandatesTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(operators = operators).model(model).tool(make).tool(who).tool(fetch) }
+    ) {
+        channel(operators = operators).model(model).tool(make).tool(who).tool(fetch).tool(startingInBackground(later))
+    }
 
     private suspend fun PluginHarness.Running.ask(user: String = "operator") {
         val admission = channel().receive("Set it up.", sender = channel().user(user))
@@ -142,6 +150,34 @@ class MandatesTest {
 
             assertEquals(listOf<ChatUser?>(null, null, null), actors)
             assertEquals(false, "On behalf of" in elsewhere)
+        }
+    }
+
+    @Test
+    fun `a reminder under a mandate acts as nobody from the call that taints it, and so do the jobs it started`() {
+        model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
+
+        harness().execute {
+            ask()
+            val mandate = assertNotNull(granted.single())
+            model.reply { toolCall("tasks.later", "{}") }
+                .reply { toolCall("tasks.who", "{}") }
+                .reply { toolCall("web.fetch", "{}") }
+                .reply { toolCall("tasks.who", "{}") }
+                .reply { text("Done.") }
+                .reply { toolCall("tasks.who", "{}") }
+                .reply { text("Reported.") }
+            val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Check the feed.")
+                .trust(Trust.TRUSTED)
+                .mandate(mandate)
+                .build()
+            val admission = get<TurnInitiation>().initiate(plugin(make), turn)
+            assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
+            later.release()
+            withTimeout(5_000) { while (actors.size < 3) delay(5) }
+
+            val operator = assertNotNull(actors.first())
+            assertEquals(listOf(operator, null, null), actors.toList())
         }
     }
 

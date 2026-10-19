@@ -41,8 +41,11 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
 
             else -> texts.text(TextKeys.USAGE, language)
         }
-        context.reply(reply)
+        context.reply(reply, forModel = words.isNotEmpty() || !showsServerText())
     }
+
+    /** Whether the list shows the error text of a server whose output is not trusted, kept from the model. */
+    private fun showsServerText(): Boolean = hub.servers.any { !it.spec.trusted && it.status.value.lastError != null }
 
     /** `/mcp login <server> [address]` and `/mcp logout <server>`, whose links and addresses are credentials. */
     private suspend fun account(

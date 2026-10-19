@@ -209,12 +209,20 @@ internal class ChatSendTool(
             if (count >= MAX_SENDS) throw ToolRefusal("This turn sent $MAX_SENDS messages already, the most it may.")
             counts[root] = count + 1
         }
-        send(turn, chat, request.text)
+        send(turn, chat, request.text, taintOf(context))
     } catch (e: ToolRefusal) {
         ToolResult(e.message, isError = true)
     }
 
-    private suspend fun send(turn: TurnInfo, chat: ChatAddress, text: String): ToolResult {
+    /** Why a message that [context]'s call sends taints the conversation it reaches, null when it does not. */
+    private fun taintOf(context: ToolContext): String? {
+        val taint = (context as? AgentToolContext)?.taint ?: return null
+        if (!taint.tainted) return null
+        val why = taint.known?.reason ?: "its mark could not be read"
+        return "a message sent here from tainted conversation ${context.turn.conversation} ($why)"
+    }
+
+    private suspend fun send(turn: TurnInfo, chat: ChatAddress, text: String, taint: String?): ToolResult {
         val channel = channels.channel(chat.instance)
             ?: return ToolResult("The channel of $chat is not open, so nothing was sent.", isError = true)
         val delivery = delivered {
@@ -231,7 +239,7 @@ internal class ChatSendTool(
                 val key = topology.key(turn.agent, chat)
                 if (key != turn.key) {
                     val at = clock.instant().toString()
-                    sent.add(conversations.current(key).id, SentMessage(at, origin(turn), text))
+                    sent.add(conversations.current(key).id, SentMessage(at, origin(turn), text, taint))
                 }
                 val ids = delivery.messages.joinToString { it.id }
                 ToolResult("Sent to $chat${if (ids.isEmpty()) "" else " as message $ids"}.")

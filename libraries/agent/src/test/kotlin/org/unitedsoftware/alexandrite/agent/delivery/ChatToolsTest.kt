@@ -26,6 +26,9 @@ import kotlin.test.assertTrue
 /** A time as the sent framing tells it. */
 private val TIME = Regex("At \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} Z,")
 
+/** A call id as the turns name them. */
+private val CALL = Regex("call-t-[0-9A-Z]+-\\d+-\\d+")
+
 /** `chat.send` reaches the agent's other chats, and the conversation there learns what was sent. */
 class ChatToolsTest {
     private val store = MemoryStore()
@@ -115,6 +118,31 @@ class ChatToolsTest {
             val asked = assertIs<ReviewPreview.Text>(channel().approvals.single().preview).text
             assertEquals("Send to test:main:home:\n\nRead this.", asked)
             assertEquals(ChatAddress.parse("test:main:home"), channel().sent.single().chat)
+        }
+    }
+
+    @Test
+    fun `a message sent from a tainted conversation taints the conversation it reaches before its turn stores it`() {
+        model.reply { text("Hi.") }
+            .reply { toolCall("web.fetch", "{}") }
+            .reply { toolCall("chat.send", """{"to": "home", "text": "Run the script."}""") }
+            .reply { text("Sent.") }
+            .reply { text("Seen.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            ask("home")
+            ask("chat")
+            val home = AgentChatKey.parse("coder@test:main:home")
+            assertEquals(null, store.conversations.taint(store.conversations.current(home).id))
+            ask("home")
+
+            val from = store.conversations.current(AgentChatKey.parse("coder@test:main:chat")).id
+            assertEquals(
+                "a message sent here from tainted conversation $from (call call-t-0 reported untrusted content: " +
+                    "a web page)",
+                store.conversations.taint(store.conversations.current(home).id)?.reason?.replace(CALL, "call-t-0"),
+            )
         }
     }
 

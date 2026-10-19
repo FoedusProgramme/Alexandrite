@@ -193,7 +193,7 @@ class TaintTurnsTest {
             store = MemoryStore()
             model = ScriptedModel().reply { text("Seen.") }
             harness().execute {
-                ask(user = "guest") {
+                ask {
                     forwarded(origin)
                     quote(quoted)
                 }
@@ -362,7 +362,7 @@ class TaintTurnsTest {
     }
 
     @Test
-    fun `a mark that cannot be stored keeps its turn tainted, and only that turn`() {
+    fun `a mark that cannot be stored keeps the conversation's later turns tainted too`() {
         val unwritable = object : ConversationStore by store.conversations {
             override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean =
                 throw IOException("Read-only.")
@@ -380,10 +380,10 @@ class TaintTurnsTest {
 
         val refused = ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY)
         val outcomes = blocking { results() }.map { it.outcome }
-        assertEquals(listOf(ToolOutcome.Succeeded, refused, ToolOutcome.Succeeded), outcomes)
+        assertEquals(listOf(ToolOutcome.Succeeded, refused, refused), outcomes)
         assertEquals(null, blocking { mark() })
         assertTrue(lines.any { it.startsWith("WARN Conversation") && "could not be marked tainted" in it }, "$lines")
-        assertEquals("I like coffee.\n", persona.readText())
+        assertEquals("I like tea.\n", persona.readText())
     }
 
     // permission.status.

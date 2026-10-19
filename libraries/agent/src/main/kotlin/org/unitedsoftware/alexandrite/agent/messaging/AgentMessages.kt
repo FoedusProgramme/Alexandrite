@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.delivery.visibleText
 import org.unitedsoftware.alexandrite.agent.job.JobCarried
+import org.unitedsoftware.alexandrite.agent.permission.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
@@ -101,6 +102,7 @@ internal class AgentMessages(
     private val clock: Clock,
     private val records: MessageRecords,
     private val conversations: ConversationStore,
+    private val taints: ConversationTaints,
 ) {
     suspend fun send(agent: AgentId, text: String, context: AgentToolContext): InTurnResult {
         val turn = context.turn
@@ -194,7 +196,7 @@ internal class AgentMessages(
     private suspend fun replyTaint(agent: AgentId, target: TurnId): String? {
         val why = try {
             val conversation = conversations.turn(target)?.conversation ?: return null
-            conversations.taint(conversation)?.reason ?: return null
+            taints.mark(conversation)?.reason ?: return null
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             logger.warn("The taint of agent {}'s turn {} could not be read: {}", agent, target, e.toString())

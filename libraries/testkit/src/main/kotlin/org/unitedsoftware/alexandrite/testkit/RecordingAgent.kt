@@ -110,6 +110,12 @@ public class RecordingAgent(
     /** The taint of the conversation at each chat, which [ConversationControl.untaint] clears and returns. */
     public val taints: MutableMap<ChatAddress, ConversationTaint> = mutableMapOf()
 
+    /**
+     * The taint of the heartbeat conversation of the agent at each chat, which [ConversationControl.untaintHeartbeat]
+     * clears and returns.
+     */
+    public val heartbeatTaints: MutableMap<ChatAddress, ConversationTaint> = mutableMapOf()
+
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
 
     public val turns: TurnControl = Turns()
@@ -159,9 +165,10 @@ public class RecordingAgent(
 
     /**
      * Makes the next call that changes something, of [ConversationControl.newConversation], [ConversationControl.compact],
-     * [ConversationControl.untaint], [ChatSettings.update], [ChatLinks.link], [ChatLinks.unlink], [TrustedFolders.trust],
-     * [TrustedFolders.untrust], [PermissionRules.revokeAllowRule], [PermissionRules.trust] or [PermissionRules.untrust],
-     * record itself and throw [ControlRefusedException] with [message].
+     * [ConversationControl.untaint], [ConversationControl.untaintHeartbeat], [ChatSettings.update], [ChatLinks.link],
+     * [ChatLinks.unlink], [TrustedFolders.trust], [TrustedFolders.untrust], [PermissionRules.revokeAllowRule],
+     * [PermissionRules.trust] or [PermissionRules.untrust], record itself and throw [ControlRefusedException] with
+     * [message].
      */
     public fun refuseNext(message: String) {
         synchronized(lock) { refusals.addLast(message) }
@@ -280,6 +287,13 @@ public class RecordingAgent(
             refuseQueued()
             taints.remove(chat)
         }
+
+        override suspend fun untaintHeartbeat(chat: ChatAddress, by: ChatUser?): ConversationTaint? =
+            synchronized(lock) {
+                recorded += Call.UntaintHeartbeat(chat, by)
+                refuseQueued()
+                heartbeatTaints.remove(chat)
+            }
     }
 
     private inner class Settings : ChatSettings {
@@ -623,6 +637,9 @@ public class RecordingAgent(
 
         @Poko
         public class Untaint(public val chat: ChatAddress, public val by: ChatUser?) : Call
+
+        @Poko
+        public class UntaintHeartbeat(public val chat: ChatAddress, public val by: ChatUser?) : Call
 
         @Poko
         public class UpdateSettings(

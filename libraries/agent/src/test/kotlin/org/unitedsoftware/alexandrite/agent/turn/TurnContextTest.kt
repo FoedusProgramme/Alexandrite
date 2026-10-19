@@ -95,8 +95,8 @@ class TurnContextTest {
             lateinit var admission: Admission.Accepted
 
             val lines = logged {
-                agentHarness(config, store) { channel().model(model).hook(hook) }.execute {
-                    admission = channel().receive("Hi") as Admission.Accepted
+                agentHarness(config, store) { channel(operators = setOf("operator")).model(model).hook(hook) }.execute {
+                    admission = channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted
                     admission.ticket.outcome()
                 }
             }

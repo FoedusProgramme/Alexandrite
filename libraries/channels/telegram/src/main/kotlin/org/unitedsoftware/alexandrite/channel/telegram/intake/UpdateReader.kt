@@ -119,7 +119,7 @@ internal class UpdateReader(
             user(from, message.senderChat),
             ChatInfo(kindOf(message.chat), message.chat.title, message.chat.username),
             Instant.ofEpochSecond(message.date),
-            forwarded(message.forwardOrigin),
+            forwarded(message.forwardOrigin) ?: viaBot(message.viaBot),
         )
             .quote(quote)
             .facts(facts)
@@ -282,6 +282,12 @@ internal class UpdateReader(
             else -> ForwardKind.UNKNOWN
         }
         return ForwardOrigin(kind, author.name, author.address, chat = null)
+    }
+
+    /** A message that the inline bot [bot] wrote for its sender, which counts as forwarded from it. */
+    private fun viaBot(bot: User?): ForwardOrigin? = bot?.let {
+        val name = it.username?.let { username -> "@$username" } ?: nameOf(it)
+        ForwardOrigin(ForwardKind.BOT, name, UserAddress(instance, "${it.id}"), chat = null)
     }
 
     private fun authorOf(origin: MessageOrigin): Author = when (origin.type) {

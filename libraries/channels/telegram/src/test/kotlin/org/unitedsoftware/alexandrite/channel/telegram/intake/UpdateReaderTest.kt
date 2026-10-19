@@ -133,6 +133,22 @@ class UpdateReaderTest {
     }
 
     @Test
+    fun `a message an inline bot wrote for its sender counts as forwarded from the bot`() {
+        val bot = buildJsonObject {
+            put("id", 4242)
+            put("is_bot", true)
+            put("first_name", "Gif Search")
+            put("username", "gif_test_bot")
+        }
+
+        val message = assertIs<Inbound.Message>(reader.read(with("private_text", "via_bot" to bot))).message
+
+        val origin = ForwardOrigin(ForwardKind.BOT, "@gif_test_bot", UserAddress(work, "4242"), null)
+        assertEquals(origin, message.forwarded)
+        assertEquals(ada, message.sender)
+    }
+
+    @Test
     fun `a reply quotes the part the user picked, else the whole message, its author known and its content not`() {
         val expected = Quote.builder("reads the config")
             .senderName("Alexandrite Test Bot")

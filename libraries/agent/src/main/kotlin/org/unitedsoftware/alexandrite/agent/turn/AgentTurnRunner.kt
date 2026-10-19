@@ -265,6 +265,14 @@ internal class AgentTurnRunner(
         private var images = false
         private var recorded = false
         private lateinit var taint: TurnTaint
+
+        /** Whether the turn's operator acts under a plugin's mandate, its own or that of the turn above it. */
+        @Volatile
+        private var mandated = false
+
+        /** The turn as its calls see it once its mandate ended, null before. */
+        @Volatile
+        private var demoted: TurnInfo? = null
         private val tracked = Calls()
         private val delegation: Delegation? = (plan.input as? TurnSource.FromDelegation)?.delegation
         private var maxRounds: Int? = null
@@ -346,6 +354,8 @@ internal class AgentTurnRunner(
             val commands = if (shared) pendingCommands.pending(turn.conversation) else null
             val interrupted = if (shared) interruptedJobs.pending(turn.conversation) else null
             val sent = if (shared) sentMessages.pending(turn.conversation, turn.zone ?: clock.zone) else null
+            sent?.taint?.let { taint.mark(it) }
+            if (commands?.commands?.any { !it.operator } == true) taint.mark("a command of someone who is no operator")
             val view = contextView(inherited + history.entries(turn.conversation))
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
@@ -446,8 +456,23 @@ internal class AgentTurnRunner(
             }
             resolved(conversation.id)
             taint = taints.open(plan.id, key, conversation.id)
+            delegation?.opened(taint)
+            mandated = when (input) {
+                is TurnSource.FromJob -> input.job.job.mandated
+                is TurnSource.FromDelegation -> input.delegation.parent.mandated
+                else -> false
+            }
+            val actor = when {
+                plan.actor == null -> mandated(input, key)?.also { mandated = true }
+
+                mandated && taint.tainted -> null.also {
+                    logger.info("Turn {} of {} runs as nobody: its conversation is tainted", plan.id, key)
+                }
+
+                else -> plan.actor
+            }
             val turn = TurnInfo.builder(plan.id, plan.origin, conversation.id, plan.kind)
-                .actor(plan.actor ?: mandated(input, key))
+                .actor(actor)
                 .language(language)
                 .zone(zone)
                 .agent(key.agent)
@@ -478,6 +503,14 @@ internal class AgentTurnRunner(
                 return null
             }
             return actor
+        }
+
+        /** [turn] as its next call acts: under a mandate, as nobody once its conversation is tainted. */
+        private fun acting(turn: TurnInfo): TurnInfo {
+            if (!mandated || !taint.tainted || turn.actor == null) return turn
+            demoted?.let { return it }
+            logger.info("Turn {} of {} acts as nobody from now: its conversation is tainted", turn.id, turn.key)
+            return turn.toBuilder().actor(null).build().also { demoted = it }
         }
 
         /** The entries of the conversations that [conversation] forks, up to each fork point. */
@@ -715,11 +748,15 @@ internal class AgentTurnRunner(
             )
         }
 
-        /** Marks the turn tainted where [message] was forwarded or quotes what its channel does not vouch for. */
+        /**
+         * Marks the turn tainted where [message] was forwarded, quotes what its channel does not vouch for or comes
+         * from someone who is no operator, whose words, files and quotes the conversation then holds.
+         */
         private suspend fun markUntrusted(message: IncomingMessage) {
             when {
                 message.forwarded != null -> taint.mark("a forwarded message")
                 message.quote?.trust?.content == false -> taint.mark("a quote that its channel does not vouch for")
+                !message.sender.isOperator -> taint.mark("a message from someone who is no operator")
             }
         }
 
@@ -918,8 +955,9 @@ internal class AgentTurnRunner(
             val names = parts.tools.mapTo(HashSet()) { it.name }
             val definitions = toolset.offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
                 .filter { it.name in names }
-            val kept = turnContextPlan(contextItems) { selected.endpoint.turnContextMode(next.model, options, it) }.kept
-            val context = TurnContextPlan(parts.context.baked, kept, parts.context.tainted)
+            val plan = turnContextPlan(contextItems) { selected.endpoint.turnContextMode(next.model, options, it) }
+            if (plan.tainted && !parts.context.tainted) taint.mark("untrusted turn context")
+            val context = TurnContextPlan(parts.context.baked, plan.kept, parts.context.tainted || plan.tainted)
             parts.window.moveTo(selected.info.contextWindow, agent.summaryModel ?: next)
             val tools = TurnTools((toolset.offered + toolset.unoffered).associateBy { it.definition.name }, callable)
             return RequestParts(selected, options, parts.window, parts.sections, definitions, context) to tools
@@ -980,8 +1018,9 @@ internal class AgentTurnRunner(
                     for (call in calls) {
                         launch {
                             slots.withPermit {
-                                val end =
-                                    executor.execute(turn, call, tools.offered, timeout, tools.callable, taint, tracked)
+                                val acting = acting(turn)
+                                val (offered, callable) = tools.offered to tools.callable
+                                val end = executor.execute(acting, call, offered, timeout, callable, taint, tracked)
                                 reads.reason(turn, call.name, end.tainting)?.let { taint.mark(it) }
                                 taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)
@@ -1424,6 +1463,8 @@ internal class AgentTurnRunner(
             private val denials: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
             override val turn: TurnInfo get() = checkNotNull(this@Run.turn)
+
+            override val mandated: Boolean get() = this@Run.mandated
 
             override val model: ModelRef get() = this@Run.model
 

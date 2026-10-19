@@ -181,7 +181,7 @@ class ChainRulesTest {
     // Trust.
 
     @Test
-    fun `trust rules on every step trust the whole chain, on every unvetted step only its programs`() = runTest {
+    fun `trust rules on every unvetted step trust a chain's programs, never the paths it reaches`() = runTest {
         val setup = Setup("""{"trust": ["command.exec(git)", "command.exec(./gradlew)"]}""")
 
         val trusts = listOf(
@@ -193,7 +193,7 @@ class ChainRulesTest {
         ).map { setup.trusts.trust(setup.checked(it)) }
 
         assertEquals(
-            listOf(CallTrust.WHOLE, CallTrust.PROGRAMS, CallTrust.NONE, CallTrust.WHOLE, CallTrust.NONE),
+            listOf(CallTrust.PROGRAMS, CallTrust.PROGRAMS, CallTrust.NONE, CallTrust.PROGRAMS, CallTrust.NONE),
             trusts,
         )
     }

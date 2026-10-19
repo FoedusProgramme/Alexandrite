@@ -147,6 +147,8 @@ internal object TextKeys {
     const val UNTRUST_NOT_TRUSTED: String = "untrust.not_trusted"
     const val UNTAINT_DONE: String = "untaint.done"
     const val UNTAINT_CLEAN: String = "untaint.clean"
+    const val UNTAINT_HEARTBEAT_DONE: String = "untaint.heartbeat_done"
+    const val UNTAINT_HEARTBEAT_CLEAN: String = "untaint.heartbeat_clean"
     const val UNTRUST_DECLARED: String = "untrust.declared"
     const val UNTRUST_DECLARED_REMOVED: String = "untrust.declared_removed"
     const val TRUST_RULES: String = "trust.rules"

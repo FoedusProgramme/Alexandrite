@@ -63,6 +63,9 @@ internal interface DelegatingTurn : TurnCalls {
     /** The names of the tools that the turn may call. */
     val callable: Set<String>
 
+    /** Whether the turn's operator acts under a plugin's mandate, which ends once its conversation is tainted. */
+    val mandated: Boolean get() = false
+
     /** The kind of the chat that the root turn's message came from, null when it came from none. */
     val chatKind: ChatKind? get() = null
 

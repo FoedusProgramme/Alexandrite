@@ -16,6 +16,9 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -35,7 +38,7 @@ internal class CreateTool(
     private val config: ScheduleConfig,
     control: Lazy<ScheduleControl>,
     private val clock: Clock,
-) : Tool {
+) : ReviewedTool {
     private val control by control
 
     override val definition = ToolDefinition(
@@ -60,6 +63,17 @@ internal class CreateTool(
         risk = ToolRisk.AGENT_STATE,
         titleArguments = listOf("at", "in", "every", "cron"),
     )
+
+    /** Has a person see the prompt and the time of a task that a tainted conversation asks for. */
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
+        if (!context.tainted || refusal(context.turn, "schedule") != null) return CallReview.builder().build()
+        val time = FORMS.firstNotNullOfOrNull { form -> arguments.text(form)?.let { "$form $it" } } ?: "no time"
+        val prompt = arguments.text("prompt")?.trim().orEmpty()
+        return CallReview.builder()
+            .preview(ReviewPreview.Text("Schedule in this chat, $time:\n\n$prompt"))
+            .person(TAINTED)
+            .build()
+    }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn
@@ -151,6 +165,9 @@ internal class ListTool(control: Lazy<ScheduleControl>, private val clock: Clock
             return problem("The schedule cannot be read now: $e")
         }
         if (tasks.isEmpty()) return ToolResult("No task is scheduled in this chat.")
+        tasks.firstOrNull { it.mandate == null }?.let { task ->
+            context.untrusted("schedule.list shows the prompt of task ${task.id}, which runs untrusted")
+        }
         val lines = tasks.map { task ->
             val repeat = when (val schedule = task.schedule) {
                 is When.Once -> "once"
@@ -169,7 +186,7 @@ internal class ListTool(control: Lazy<ScheduleControl>, private val clock: Clock
 
 @Singleton
 @Contribute(Tool::class)
-internal class CancelTool(control: Lazy<ScheduleControl>) : Tool {
+internal class CancelTool(control: Lazy<ScheduleControl>) : ReviewedTool {
     private val control by control
 
     override val definition = ToolDefinition(
@@ -180,6 +197,16 @@ internal class CancelTool(control: Lazy<ScheduleControl>) : Tool {
         risk = ToolRisk.AGENT_STATE,
         titleArguments = listOf("id"),
     )
+
+    /** Has a person see which task a tainted conversation asks to cancel. */
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
+        if (!context.tainted || refusal(context.turn, "cancel") != null) return CallReview.builder().build()
+        val id = arguments.text("id")?.trim()?.lowercase().orEmpty()
+        return CallReview.builder()
+            .preview(ReviewPreview.Text("Cancel task $id of this chat."))
+            .person(TAINTED)
+            .build()
+    }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn
@@ -208,6 +235,9 @@ internal fun refusal(turn: TurnInfo, act: String): String? = when {
 
     else -> null
 }
+
+/** Why a person decides a change of the schedule from a tainted conversation. */
+private const val TAINTED = "the conversation took in untrusted content, and a scheduled task outlasts it"
 
 private fun problem(text: String): ToolResult = ToolResult(text, isError = true)
 

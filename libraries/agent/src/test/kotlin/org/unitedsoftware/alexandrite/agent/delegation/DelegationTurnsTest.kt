@@ -486,7 +486,7 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `a background run that takes in untrusted content taints its parent's conversation when its report arrives`() {
+    fun `a background run that takes in untrusted content taints its parent's conversation before its report`() {
         readGate = CompletableDeferred()
         model.reply(ROOT) {
             toolCall(DELEGATE_TOOL, """{"profile":"reader","task":"Read the page.","background":true}""")
@@ -502,15 +502,14 @@ class DelegationTurnsTest {
             assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
             val conversation = store.conversations.current(key).id
             withTimeout(5_000) { while (runs(READER).size < 2) delay(5) }
-            assertEquals(null, store.conversations.taint(conversation))
-            readGate?.complete(Unit)
             withTimeout(5_000) { while (store.conversations.taint(conversation) == null) delay(5) }
             val reader = runs(READER).first()
-            assertEquals(
-                "sub-agent run ${lineage(reader).run} (reader) took in untrusted content: a call of web.fetch, " +
-                    "which reads the network",
-                store.conversations.taint(conversation)?.reason,
-            )
+            val reason = "sub-agent run ${lineage(reader).run} (reader) took in untrusted content: a call of " +
+                "web.fetch, which reads the network"
+            assertEquals(reason, store.conversations.taint(conversation)?.reason)
+            readGate?.complete(Unit)
+            withTimeout(5_000) { while (jobResultCount() < 1) delay(5) }
+            assertEquals(reason, store.conversations.taint(conversation)?.reason)
         }
     }
 

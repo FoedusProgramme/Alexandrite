@@ -105,13 +105,15 @@ class McpHubTest {
     }
 
     @Test
-    fun `a server that cannot start is down, and a call to it names that`() =
+    fun `a server that cannot start is down, and a call to it names that, its last error tainting the turn`() =
         withHub("broken" to ServerConfigBuilder(command = "/nonexistent/mcp-server").build()) {
             until("down") { server("broken").status.value.state == ServerState.DOWN }
-            val result = server("broken").call("echo", JsonObject(emptyMap()), testToolContext())
+            val context = testToolContext()
+            val result = server("broken").call("echo", JsonObject(emptyMap()), context)
 
             assertTrue(result.isError)
             assertContains(result.text, "MCP server broken is down (last error: Cannot start /nonexistent/mcp-server")
+            assertEquals(listOf("output of MCP server broken"), context.untrustedReasons)
             assertEquals(emptyList(), names)
         }
 

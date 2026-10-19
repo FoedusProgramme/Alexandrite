@@ -21,11 +21,15 @@ class McpCommandTest {
     private val guest = testUser("bob")
     private val operator = testUser("ada", isOperator = true)
 
+    /** Whether the model was told each reply. */
+    private val told = mutableListOf<Boolean>()
+
     /** What `/mcp [arguments]` from [issuer] replies. */
     private suspend fun Hub.run(arguments: String, issuer: ChatUser = guest): String {
         val chat = testChat()
         val context = TestCommandContext(testTurn(TurnKind.COMMAND, chat) { actor(issuer) })
         McpCommand(hub, testTexts(PLUGIN)).handle(testCommand("mcp", arguments, chat, issuer), context)
+        told += context.repliesForModel
         return context.replies.single().text
     }
 
@@ -44,6 +48,7 @@ class McpCommandTest {
         assertEquals("files: connected, protocol 2026-07-28, 8 tools", lines[1])
         assertTrue(lines[2].startsWith("broken: down; last error: Cannot start /nonexistent/mcp-server: "), lines[2])
         assertEquals("off: disabled", lines[3])
+        assertEquals(listOf(false), told)
     }
 
     @Test

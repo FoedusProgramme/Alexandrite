@@ -45,22 +45,26 @@ class TrustTurnsTest {
     private var model = ScriptedModel()
     private val key = AgentChatKey.parse("coder@test:main:chat")
     private val outside: Path get() = directory.toRealPath().resolve("outside").createDirectories()
+    private val trusted: Path get() = directory.toRealPath().resolve("trusted").createDirectories()
 
-    /** command.exec as its review shows it: each program untrusted, reaching [outside] when it runs. */
+    /** The folder that a call of [arguments] runs in: its `cwd`, else [trusted]. */
+    private fun cwd(arguments: JsonObject): Path = arguments["cwd"]?.jsonPrimitive?.content?.let(Path::of) ?: trusted
+
+    /** command.exec as its review shows it: each program untrusted, reaching its working directory when it runs. */
     private val exec = object : ReviewedTool {
         override val definition: ToolDefinition = testToolDefinition("command.exec", ToolRisk.EXEC)
 
         override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
             val argv = arguments.getValue("argv").jsonArray.map { it.jsonPrimitive.content }
             return CallReview.builder()
-                .preview(ReviewPreview.Command(argv, outside, null, opaque = false))
+                .preview(ReviewPreview.Command(argv, cwd(arguments), null, opaque = false))
                 .rule(RuleSubject("command.exec", argv.take(2), argv.take(2).joinToString(" ")))
                 .untrusted(true)
                 .build()
         }
 
         override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-            context.touched(outside)
+            context.touched(cwd(arguments))
             context.untrusted("command.exec ran ${arguments.getValue("argv").jsonArray.first().jsonPrimitive.content}")
             return ToolResult("Ran.")
         }
@@ -81,6 +85,7 @@ class TrustTurnsTest {
         val config = """
             {
               "previewIntervalMillis": 0,
+              "trustedFolders": ["$trusted"],
               "agents": {
                 "coder": {
                   "model": "scripted/test-model",
@@ -96,8 +101,10 @@ class TrustTurnsTest {
         }
     }
 
-    private fun running(vararg argv: String): String =
-        JsonObject(mapOf("argv" to JsonArray(argv.map(::JsonPrimitive)))).toString()
+    private fun running(vararg argv: String, cwd: Path? = null): String {
+        val place = listOfNotNull(cwd?.let { "cwd" to JsonPrimitive("$it") })
+        return JsonObject(mapOf("argv" to JsonArray(argv.map(::JsonPrimitive))) + place).toString()
+    }
 
     private suspend fun PluginHarness.Running.ask(): TurnOutcome =
         (channel().receive("Go on.", sender = channel().user("operator")) as Admission.Accepted).ticket.outcome()
@@ -115,7 +122,7 @@ class TrustTurnsTest {
     // Trust rules.
 
     @Test
-    fun `a declared trust rule keeps a matching exec call and a matching MCP call from tainting, others still taint`() {
+    fun `a declared trust rule keeps a matching exec call in a trusted folder and an MCP call from tainting`() {
         model.reply { toolCall("command.exec", running("git", "log")) }
             .reply { toolCall("mcp.files.read") }
             .reply { text("Done.") }
@@ -137,10 +144,18 @@ class TrustTurnsTest {
             ask()
         }
         val make = blocking { reported() }
+        fresh()
+        model.reply { toolCall("command.exec", running("git", "log", cwd = outside)) }.reply { text("Done.") }
+        harness(trust).execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            ask()
+        }
+        val elsewhere = blocking { mark() }?.reason
 
         assertNull(trusted)
         assertEquals("output of MCP server web", web)
         assertEquals("command.exec ran make", make)
+        assertEquals("command.exec reached $outside, a folder that is not trusted", elsewhere)
     }
 
     @Test

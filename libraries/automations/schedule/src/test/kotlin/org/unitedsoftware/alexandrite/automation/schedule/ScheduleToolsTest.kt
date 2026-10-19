@@ -2,14 +2,20 @@ package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.automation.common.When
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testDelegatedTurn
+import org.unitedsoftware.alexandrite.testkit.testToolContext
 import java.time.Instant
 import java.time.LocalDateTime
 import kotlin.test.Test
@@ -156,6 +162,49 @@ class ScheduleToolsTest {
                 "+08:00, set by Ada: Check the build.",
             listed.text,
         )
+    }
+
+    @Test
+    fun `listing a task whose prompt runs untrusted taints the turn, and listing trusted ones does not`() = test {
+        val schedule = opened()
+        schedule.make(mapOf("in" to "1h"))
+        val trusted = testToolContext(turn())
+        schedule.list.execute(JsonObject(emptyMap()), trusted)
+        val id = schedule.make(mapOf("in" to "2h"), mandate = null)
+        val untrusted = testToolContext(turn())
+        val listed = schedule.list.execute(JsonObject(emptyMap()), untrusted)
+
+        assertEquals(emptyList(), trusted.untrustedReasons)
+        assertEquals(
+            listOf("schedule.list shows the prompt of task $id, which runs untrusted"),
+            untrusted.untrustedReasons,
+        )
+        assertContains(listed.text, "$id: once")
+    }
+
+    // Under taint.
+
+    @Test
+    fun `under taint a person sees the prompt and time of a new task and the id of a cancelled one`() = test {
+        val schedule = opened()
+        val tainted = testToolContext(turn()).apply { this.tainted = true }
+        val arguments = JsonObject(mapOf("prompt" to JsonPrimitive("Post the feed."), "every" to JsonPrimitive("1d")))
+
+        val guestContext = testToolContext(turn(GUEST)).apply { this.tainted = true }
+
+        val created = (schedule.create as ReviewedTool).review(arguments, tainted)
+        val cancelled =
+            (schedule.cancel as ReviewedTool).review(JsonObject(mapOf("id" to JsonPrimitive("t-4K2P"))), tainted)
+        val clean = (schedule.create as ReviewedTool).review(arguments, testToolContext(turn()))
+        val guest = (schedule.create as ReviewedTool).review(arguments, guestContext)
+
+        val why = "the conversation took in untrusted content, and a scheduled task outlasts it"
+        val shown = ReviewPreview.Text("Schedule in this chat, every 1d:\n\nPost the feed.")
+        assertEquals(why to shown, created.person to created.preview)
+        val cancelling = ReviewPreview.Text("Cancel task t-4k2p of this chat.")
+        assertEquals(why to cancelling, cancelled.person to cancelled.preview)
+        assertEquals(CallReview.builder().build(), clean)
+        assertEquals(CallReview.builder().build(), guest)
     }
 
     // Mandates.

@@ -130,6 +130,7 @@ internal class ToolExecutor(
                     trust = admission.trust,
                     sandboxes = sandboxes,
                 )
+                admission.untrusted?.let(context::report)
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {

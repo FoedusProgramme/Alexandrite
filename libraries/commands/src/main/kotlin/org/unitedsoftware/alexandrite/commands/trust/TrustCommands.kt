@@ -41,7 +41,7 @@ internal class TrustCommands(
     override val commands: List<CommandSpec> = listOf(
         texts.spec(TRUST).rebuild { operatorsOnly(CommandForms.ALL) },
         texts.spec(UNTRUST).rebuild { operatorsOnly(CommandForms.ALL) },
-        texts.spec(UNTAINT),
+        texts.spec(UNTAINT).rebuild { operatorsOnly(CommandForms.WITH_ARGUMENTS) },
     )
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
@@ -66,17 +66,30 @@ internal class TrustCommands(
         }
     }
 
+    /** `/untaint` clears the chat's conversation, `/untaint heartbeat` the heartbeat conversation of its agent. */
     private suspend fun untaint(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        if (invocation.arguments.isNotBlank()) {
-            context.reply(replies.usage(UNTAINT))
-            return
+        val heartbeat = when (invocation.arguments.trim().lowercase()) {
+            "" -> false
+
+            HEARTBEAT -> true
+
+            else -> {
+                context.reply(replies.usage(UNTAINT))
+                return
+            }
         }
-        val cleared = context.refusing { conversations.untaint(invocation.chat, invocation.issuer) }
+        val cleared = context.refusing {
+            if (heartbeat) {
+                conversations.untaintHeartbeat(invocation.chat, invocation.issuer)
+            } else {
+                conversations.untaint(invocation.chat, invocation.issuer)
+            }
+        }
         val text = when {
-            cleared == null -> replies.text(TextKeys.UNTAINT_CLEAN)
+            cleared == null -> replies.text(if (heartbeat) TextKeys.UNTAINT_HEARTBEAT_CLEAN else TextKeys.UNTAINT_CLEAN)
 
             else -> replies.text(
-                TextKeys.UNTAINT_DONE,
+                if (heartbeat) TextKeys.UNTAINT_HEARTBEAT_DONE else TextKeys.UNTAINT_DONE,
                 "reason" to cleared.reason,
                 "date" to dateOf(cleared.at, replies),
             )
@@ -218,6 +231,7 @@ internal class TrustCommands(
         const val TRUST = "trust"
         const val UNTRUST = "untrust"
         const val UNTAINT = "untaint"
+        const val HEARTBEAT = "heartbeat"
     }
 }
 

@@ -79,7 +79,7 @@ internal fun strictest(modes: List<PermissionMode>): PermissionMode =
 
 /**
  * The kinds of turn whose operator actor makes them an operator's. A sub-agent run carries an operator actor only under
- * an operator's root turn, a reminder only under its operator's mandate.
+ * an operator's root turn, a reminder and its jobs and runs only under its operator's mandate while untainted.
  */
 private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED, TurnKind.REMINDER)
 

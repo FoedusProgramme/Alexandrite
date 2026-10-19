@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 
 /** The context of the call [call] in [turn], cleared by [clearance], which holds only until [close]. */
 internal class AgentToolContext(
@@ -52,8 +53,12 @@ internal class AgentToolContext(
         return job.await().also { checkOpen() }
     }
 
-    /** Sets up the call's background job, whose updates go to [updates]. */
-    fun attachBackground(updates: suspend (ToolResult) -> Boolean) {
+    /**
+     * Sets up the call's background job, whose updates go to [updates] and whose untrusted content goes to [untrusted]
+     * as the call reports it from then on.
+     */
+    fun attachBackground(updates: suspend (ToolResult) -> Boolean, untrusted: (String) -> Unit = {}) {
+        detached = untrusted
         job.complete(
             object : BackgroundCall {
                 override suspend fun update(result: ToolResult): Boolean {
@@ -123,7 +128,24 @@ internal class AgentToolContext(
     override fun untrusted(reason: String) {
         checkOpen()
         if (trust != CallTrust.NONE) return
-        taint.note("call $call reported untrusted content: $reason")
+        report("call $call reported untrusted content: $reason")
+    }
+
+    override val tainted: Boolean
+        get() = taint.tainted.also { checkOpen() }
+
+    private val own = AtomicReference<String?>(null)
+
+    @Volatile
+    private var detached: ((String) -> Unit)? = null
+
+    /** The first untrusted content that the call took in itself, null when it took in none. */
+    val reportedUntrusted: String? get() = own.get()
+
+    /** Counts [reason] as untrusted content that the call took in, whatever its trust. */
+    fun report(reason: String) {
+        taint.note(reason)
+        if (own.compareAndSet(null, reason)) detached?.invoke(reason)
     }
 
     override suspend fun mandate(): Mandate? {

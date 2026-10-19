@@ -138,10 +138,28 @@ class TrustCommandsTest {
         )
         assertEquals("This conversation is not tainted.", commands.answer(untaint))
         assertEquals(
-            "Send /untaint alone to clear the taint of this conversation.",
+            "Send /untaint alone to clear the taint of this conversation, or /untaint heartbeat to clear that of the " +
+                "agent's heartbeat conversation.",
             commands.answer(testCommand("untaint", "now", issuer = OPERATOR)),
         )
         assertEquals(List(2) { Call.Untaint(untaint.chat, OPERATOR) }, control.calls)
+    }
+
+    @Test
+    fun `untaint heartbeat clears the taint of the agent's heartbeat conversation, for operators only`() = runTest {
+        val untaint = testCommand("untaint", "heartbeat", issuer = OPERATOR)
+        control.heartbeatTaints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
+
+        assertEquals(
+            "The agent's heartbeat conversation is no longer tainted (it was since 2026-01-01: a web page). Its next " +
+                "beats run as in a clean conversation until something taints it again; what it took in is still in " +
+                "its history.",
+            commands.answer(untaint),
+        )
+        assertEquals("The agent's heartbeat conversation is not tainted.", commands.answer(untaint))
+        assertEquals(List(2) { Call.UntaintHeartbeat(untaint.chat, OPERATOR) }, control.calls)
+        val spec = commands.commands.single { it.name == "untaint" }
+        assertEquals(CommandForms.WITH_ARGUMENTS, spec.operatorsOnly)
     }
 
     // Trust rules.
@@ -149,8 +167,8 @@ class TrustCommandsTest {
     @Test
     fun `a rule trusts the output of the calls it covers in the conversation, and untrust stops it`() = runTest {
         assertEquals(
-            "The output of the calls that command.exec(git) covers no longer taints this conversation; a taint it " +
-                "has already stays.",
+            "The output of the calls that command.exec(git) covers no longer taints this conversation, though a " +
+                "command still taints where it reaches a folder that is not trusted; a taint it has already stays.",
             commands.answer(trust("command.exec(git)")),
         )
         commands.answer(trust("mcp.files.*"))
@@ -190,9 +208,10 @@ class TrustCommandsTest {
     @Test
     fun `trusting a shell whole says that it trusts the output of any script`() = runTest {
         assertEquals(
-            "The output of the calls that command.exec(sh) covers no longer taints this conversation; a taint it " +
-                "has already stays. This rule trusts a program that runs whatever code it is given, such as a " +
-                "shell: the output of any script it runs is trusted.",
+            "The output of the calls that command.exec(sh) covers no longer taints this conversation, though a " +
+                "command still taints where it reaches a folder that is not trusted; a taint it has already stays. " +
+                "This rule trusts a program that runs whatever code it is given, such as a shell: the output of any " +
+                "script it runs is trusted.",
             commands.answer(trust("command.exec(sh)")),
         )
     }

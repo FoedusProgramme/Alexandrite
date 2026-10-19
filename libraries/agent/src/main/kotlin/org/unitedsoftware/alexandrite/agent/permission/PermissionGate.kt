@@ -179,8 +179,10 @@ internal class PermissionGate(
         val gate = call.call
         val trust = if (result.trust == CallTrust.WHOLE) CallTrust.WHOLE else trusts.trust(call)
         val network = ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk)
-        if (network && !tools.isBuiltIn(gate.tool) && trust != CallTrust.WHOLE) {
-            gate.taint.mark("a call of ${gate.tool.definition.name}, which reads the network")
+        val untrusted = if (network && !tools.isBuiltIn(gate.tool) && trust != CallTrust.WHOLE) {
+            "a call of ${gate.tool.definition.name}, which reads the network".also { gate.taint.mark(it) }
+        } else {
+            null
         }
         if (trust != CallTrust.NONE) logged(gate, "is trusted (${trust.name.lowercase()})")
         return GateResult.Admitted(
@@ -189,6 +191,7 @@ internal class PermissionGate(
             result.scratch,
             background = call.review.background,
             trust = trust,
+            untrusted = untrusted,
         )
     }
 

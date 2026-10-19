@@ -183,6 +183,9 @@ class PublicApiTest {
             control.taints[testChat()] =
                 org.unitedsoftware.alexandrite.sdk.store.ConversationTaint(java.time.Instant.EPOCH, "a quote")
             control.conversations.untaint(testChat(), null)
+            control.heartbeatTaints[testChat()] =
+                org.unitedsoftware.alexandrite.sdk.store.ConversationTaint(java.time.Instant.EPOCH, "a web page")
+            control.conversations.untaintHeartbeat(testChat(), null)
             control.settings.update(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.links.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.links.unlink(AgentId.MAIN, testChat("other"), null)
@@ -203,6 +206,7 @@ class PublicApiTest {
                     listOf(recorded.chat, recorded.by, recorded.conversation)
                 is RecordingAgent.Call.Compact -> listOf(recorded.chat, recorded.focus, recorded.by)
                 is RecordingAgent.Call.Untaint -> listOf(recorded.chat, recorded.by)
+                is RecordingAgent.Call.UntaintHeartbeat -> listOf(recorded.chat, recorded.by)
                 is RecordingAgent.Call.UpdateSettings -> listOf(recorded.chat, recorded.update, recorded.by)
                 is RecordingAgent.Call.Link -> listOf(recorded.agent, recorded.anchor, recorded.member)
                 is RecordingAgent.Call.Unlink -> listOf(recorded.agent, recorded.member, recorded.by)
@@ -303,7 +307,7 @@ class PublicApiTest {
                 mandate,
                 result, tool.definition, tool.calls, tool.cancelled, call.arguments, call.turn, call.call, checked,
                 context.turn, context.call, context.model, context.workspace, context.touchedPaths, context.openWorkspace(), defined,
-                context.clearance, context.untrustedReasons, context.conversationDirectory,
+                context.clearance, context.untrustedReasons, context.tainted, context.conversationDirectory,
                 context.openConversationDirectory(), quotaRefusal, background.toString(),
             )
         }

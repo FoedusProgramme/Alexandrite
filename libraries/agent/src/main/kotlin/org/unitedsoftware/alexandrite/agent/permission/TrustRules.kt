@@ -44,7 +44,7 @@ internal enum class CallTrust {
 
 /** The rules whose calls' output does not taint the conversation. */
 internal interface TrustRules {
-    /** How far the output of [call] is trusted. */
+    /** How far the output of [call] is trusted, a command's never past its programs, so its paths still taint. */
     fun trust(call: CheckedCall): CallTrust
 
     /** The trust rules in force for [agent] in [conversation], the declared ones first. */
@@ -110,11 +110,7 @@ internal class AgentTrustRules(
             command.segments.filterNot { it.changesDirectory }.map { it.argv to it.untrusted }
         }
         val trusted = programs.map { (argv, _) -> rules.any { it.trusts(name, argv) } }
-        return when {
-            trusted.all { it } -> CallTrust.WHOLE
-            programs.indices.all { trusted[it] || !programs[it].second } -> CallTrust.PROGRAMS
-            else -> CallTrust.NONE
-        }
+        return if (programs.indices.all { trusted[it] || !programs[it].second }) CallTrust.PROGRAMS else CallTrust.NONE
     }
 
     override fun inForce(agent: AgentId, conversation: ConversationId): List<TrustRule> =

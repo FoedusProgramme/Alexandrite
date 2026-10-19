@@ -75,6 +75,8 @@ internal class BackgroundJob(
     val resultReplyTarget: ReplyTarget = turn.replyTarget,
     /** The conversation of the sub-agent run that the job is. */
     val delegated: ConversationId? = null,
+    /** Whether [turn]'s operator acts under a plugin's mandate, which the turns that take the job's results keep. */
+    val mandated: Boolean = false,
 ) {
     /** The conversation of the turn that started the job, which takes its result: a run's own, inside a run. */
     val resultConversation get() = turn.conversation
@@ -87,7 +89,7 @@ internal class EndedJob(
     val result: ToolResultEntry,
     /** The paths that the call reported as touched, those of a call trusted whole left out. */
     val touched: List<Path>,
-    /** Why the turn that takes the result counts as tainted, null when it need not. */
+    /** The untrusted content that the call took in itself, which taints the turn that takes the result. */
     val untrusted: String?,
     val final: Boolean = true,
     val cancelled: () -> Boolean = { false },
@@ -179,6 +181,7 @@ internal class Jobs(
                     ancestors,
                     if (detaching.context.delegating?.activityVisible == true) ReplyTarget.CHAT else turn.replyTarget,
                     detaching.delegated,
+                    detaching.context.delegating?.mandated == true,
                 )
             val job = Active(background, detaching.running, detaching.context, detaching.cleanup)
             val running = active[background.id]
@@ -192,7 +195,9 @@ internal class Jobs(
                 records.put(job.job)
                 hooks.fire(TurnPoints.JOB_STARTED, payload(job.job))
                 if (detaching.ran.isPositive()) hooks.fire(TurnPoints.TOOL_BACKGROUNDED, payload(job.job))
-                job.context.attachBackground { update -> update(job, update) }
+                job.context.attachBackground({ update -> update(job, update) }) { reason ->
+                    scope.launch { job.context.taint.recordLate(reason) }
+                }
             }
         } finally {
             job.recorded.complete(Unit)
@@ -372,13 +377,11 @@ internal class Jobs(
         if (!admit) return false
         val outcome = if (update.isError) ToolOutcome.Failed else ToolOutcome.Succeeded
         val result = ToolResultEntry(null, job.job.call.id, job.job.call.name, shaped(update.content), outcome)
-        val taint = job.context.taint
-        val reason = if (taint.tainted) taint.known?.reason ?: "untrusted monitor output" else null
         val ended = EndedJob(
             job.job,
             result,
             job.context.taintingPaths,
-            reason,
+            job.context.reportedUntrusted,
             final = false,
             cancelled = { synchronized(lock) { job.cause != null } },
             consumed = { synchronized(lock) { job.pendingUpdate = false } },
@@ -389,18 +392,11 @@ internal class Jobs(
     }
 
     private suspend fun ended(job: Active, result: ToolResultEntry) {
-        val taint = job.context.taint
-        taint.record()
-        val untrusted = if (taint.tainted) {
-            taint.known?.reason ?: "job ${job.job.id} ran for a turn that counted as tainted"
-        } else {
-            null
-        }
         val ended = EndedJob(
             job.job,
             result,
             job.context.taintingPaths,
-            untrusted,
+            job.context.reportedUntrusted,
             cancelled = { synchronized(lock) { job.cause != null } },
         )
         logger.info("Job {} ({}) of {} ended: {}", job.job.id, described(job.job), job.job.turn.chat, result.outcome)
