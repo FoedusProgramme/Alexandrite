@@ -127,6 +127,9 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     }
     require(agent.permission.judgeTimeoutSeconds > 0) { "$path.permission.judgeTimeoutSeconds must be positive" }
     require(agent.permission.judgeMaxChars > 0) { "$path.permission.judgeMaxChars must be positive" }
+    require(agent.permission.taintedNetworkReads in NETWORK_READS) {
+        "$path.permission.taintedNetworkReads must be one of ${NETWORK_READS.joinToString()}"
+    }
     require(agent.maxOutputTokens == null || agent.maxOutputTokens > 0) { "$path.maxOutputTokens must be positive" }
     require(agent.temperature == null || (agent.temperature.isFinite() && agent.temperature >= 0)) {
         "$path.temperature must be a number of at least 0"
@@ -301,3 +304,5 @@ private fun checkHomes(agents: Map<String, AgentConfig>) {
         }
     }
 }
+
+private val NETWORK_READS = listOf(PermissionConfig.NETWORK_READS_RUN, PermissionConfig.NETWORK_READS_GATE)

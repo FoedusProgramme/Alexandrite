@@ -28,6 +28,7 @@ import org.unitedsoftware.alexandrite.agent.hostPaths
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.logged
+import org.unitedsoftware.alexandrite.agent.permission.NoTaintLedger
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.pluginScope
 import org.unitedsoftware.alexandrite.agent.settings
@@ -96,7 +97,9 @@ class ToolExecutorTest {
             Jobs(settings, JobRecords(testRecords()), {
                 true
             }, Clock.systemUTC(), QuietHooks, pluginScope(GlobalJobs))
-        return ToolExecutor(gate, settings, workspaces, directories, jobs, { _, _ -> null }) { _, _ -> null }
+        return ToolExecutor(gate, settings, workspaces, directories, jobs, { _, _ ->
+            null
+        }, { _, _ -> null }, NoTaintLedger)
     }
 
     private fun abandoned(after: String) =

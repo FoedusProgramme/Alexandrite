@@ -14,6 +14,7 @@ import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.tool.BackgroundCall
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.tools.monitor.MonitorOptions
@@ -192,6 +193,8 @@ class MonitorTest {
         assertEquals(false, tool.review(arguments("command" to "echo hello"), fs.context()).background)
         val monitor = tool.review(monitored("echo hello"), fs.context())
         assertEquals(null to true, monitor.problem to monitor.background)
+        assertEquals("MATCH", (monitor.preview as ReviewPreview.Command).monitor)
+        assertEquals(null, (background.preview as ReviewPreview.Command).monitor)
     }
 
     @Test

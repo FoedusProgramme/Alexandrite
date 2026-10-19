@@ -39,11 +39,14 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -139,54 +142,88 @@ internal class ApprovalDesk(
         val requester = turn.actor?.let(::named) ?: text(TextKeys.APPROVAL_NOBODY, language)
         val chat = named(turn.chat)
         val agents = request.chain.ifEmpty { listOf(turn.agent) }.joinToString(" → ")
-        val lines = mutableListOf(
-            text(TextKeys.APPROVAL_AGENT, language, "agent" to agents),
-            text(TextKeys.APPROVAL_CHAT, language, "chat" to chat),
-            text(TextKeys.APPROVAL_REQUESTER, language, "requester" to requester),
-            text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason),
-            text(TextKeys.APPROVAL_TOOL, language, "tool" to request.tool, "risk" to request.risk.name.lowercase()),
-        )
+        val lines = mutableListOf<Line>()
+        request.taint?.let { taint ->
+            val time = DateTimeFormatter.ofPattern(TIME_PATTERN, Locale.ROOT)
+                .format(taint.at.atZone(turn.zone ?: ZoneOffset.UTC))
+            lines += Line(text(TextKeys.APPROVAL_TAINTED, language, "time" to time), taint.reason)
+        }
+        lines += Line(text(TextKeys.APPROVAL_AGENT, language, "agent" to agents))
+        lines += Line(text(TextKeys.APPROVAL_CHAT, language, "chat" to chat))
+        lines += Line(text(TextKeys.APPROVAL_REQUESTER, language, "requester" to requester))
+        startedBy(turn.kind)?.let { kind ->
+            lines += Line(text(TextKeys.APPROVAL_STARTED_BY, language, "kind" to text(kind, language)))
+        }
+        lines += Line(text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason))
+        request.note?.let { lines += Line(text(TextKeys.APPROVAL_NOTE, language), it) }
+        val risk = request.risk.name.lowercase()
+        lines += Line(text(TextKeys.APPROVAL_TOOL, language, "tool" to request.tool, "risk" to risk))
         val (introduction, body) = preview(request, language)
         lines += introduction
         if (request.alwaysRules.size > 1) {
-            lines += text(TextKeys.APPROVAL_ALWAYS_RULES, language, "rules" to rules(request))
+            lines += Line(text(TextKeys.APPROVAL_ALWAYS_RULES, language, "rules" to rules(request)))
         }
-        val head = "$title\n${lines.joinToString("\n")}" + if (body.isBlank()) "" else "\n\n"
-        return split(head, title.length, body)
+        val count = body.trimEnd().lines().size
+        if (count > MAX_CODE_LINES) lines += Line(text(TextKeys.APPROVAL_LINES, language, "count" to count))
+        val head = StringBuilder(title)
+        val spans = mutableListOf(Span("bold", 0, title.length))
+        for (line in lines) {
+            head.append('\n').append(line.text)
+            val code = line.code ?: continue
+            head.append(' ')
+            spans += Span("code", head.length, code.length)
+            head.append(code)
+        }
+        if (body.isNotBlank()) head.append("\n\n")
+        return split("$head", spans, body)
     }
 
     /** The lines that introduce what [request] shows as code, and that code: its preview, else its arguments. */
-    private fun preview(request: ApprovalRequest, language: LanguageTag?): Pair<List<String>, String> {
+    private fun preview(request: ApprovalRequest, language: LanguageTag?): Pair<List<Line>, String> {
         val shown = when (val preview = request.preview) {
-            is ReviewPreview.Diff -> listOf(text(TextKeys.APPROVAL_FILE, language, "path" to preview.path)) to
-                preview.unified
+            is ReviewPreview.Diff -> listOfNotNull(
+                text(TextKeys.APPROVAL_FILE, language, "path" to preview.path),
+                text(TextKeys.APPROVAL_NOT_ASCII, language).takeIf { ReviewText.beyondAscii("${preview.path}") },
+            ).map(::Line) to preview.unified
 
             is ReviewPreview.Command -> {
                 val program = preview.executable ?: text(TextKeys.APPROVAL_PROGRAM_UNKNOWN, language)
                 val segments = preview.segments
+                val names = listOf("${preview.cwd}", "$program") + preview.argv +
+                    segments.flatMap { listOf("${it.cwd}") + it.argv }
+                val contained = request.contained
                 listOfNotNull(
                     text(TextKeys.APPROVAL_DIRECTORY, language, "directory" to preview.cwd),
                     text(TextKeys.APPROVAL_PROGRAM, language, "program" to program).takeIf { segments.isEmpty() },
+                    text(TextKeys.APPROVAL_NOT_ASCII, language).takeIf { names.any(ReviewText::beyondAscii) },
+                    contained?.let { text(TextKeys.APPROVAL_SANDBOX, language, "sandbox" to it.environment) }
+                        ?: text(TextKeys.APPROVAL_HOST, language),
+                    contained?.hosts?.takeIf { it.isNotEmpty() }
+                        ?.let { text(TextKeys.APPROVAL_NETWORK, language, "hosts" to it.joinToString()) },
+                    text(TextKeys.APPROVAL_BACKGROUND, language).takeIf { request.background },
                     text(TextKeys.APPROVAL_OPAQUE, language).takeIf { preview.opaque },
                     text(TextKeys.APPROVAL_STEPS, language, "count" to segments.size).takeIf { segments.isNotEmpty() },
                     text(TextKeys.APPROVAL_TRUST_OPAQUE, language).takeIf { preview.opaque && request.taints },
+                ).map(::Line) + listOfNotNull(
+                    preview.monitor?.let { Line(text(TextKeys.APPROVAL_MONITOR, language), it) },
                 ) to commandLine(preview.argv) + steps(segments)
             }
 
-            is ReviewPreview.Text -> emptyList<String>() to preview.text
+            is ReviewPreview.Text -> emptyList<Line>() to preview.text
 
             is ReviewPreview.OutgoingFile -> return listOfNotNull(
                 text(TextKeys.APPROVAL_FILE, language, "path" to preview.path),
+                text(TextKeys.APPROVAL_NOT_ASCII, language).takeIf { ReviewText.beyondAscii("${preview.path}") },
                 text(TextKeys.APPROVAL_SIZE, language, "bytes" to preview.size, "readable" to readable(preview.size)),
                 text(TextKeys.APPROVAL_SHA256, language, "sha256" to preview.sha256),
                 text(TextKeys.APPROVAL_DESTINATION, language, "chat" to named(preview.destination)),
                 text(TextKeys.APPROVAL_CAPTION, language).takeIf { preview.caption != null },
-            ) to preview.caption.orEmpty()
+            ).map(::Line) to preview.caption.orEmpty()
 
             else -> null
         }
         if (shown != null && shown.second.isNotBlank()) return shown
-        return listOf(text(TextKeys.APPROVAL_ARGUMENTS, language)) to request.arguments
+        return listOf(Line(text(TextKeys.APPROVAL_ARGUMENTS, language))) to request.arguments
     }
 
     /** [chat] as an approver sees it: its title where the channel knows one, and its address. */
@@ -343,6 +380,9 @@ internal class ApprovalDesk(
     private fun text(key: String, language: LanguageTag?, vararg args: Pair<String, Any?>): String =
         texts.text(key, language, *args)
 
+    /** A line of a request's head, ending in [code] set apart as text that a model or untrusted content wrote. */
+    private class Line(val text: String, val code: String? = null)
+
     /** One request on its way, with the messages that carry its buttons. */
     private class Pending(val request: ApprovalRequest) {
         val ending = CompletableDeferred<Ending>()
@@ -457,15 +497,24 @@ private fun commandLine(argv: List<String>): String = argv.joinToString(" ") { w
     if (plain) word else "'${word.replace("'", "'\\''")}'"
 }
 
+/** The text key of what started a turn of [kind] that its requester did not send now, null for a message. */
+private fun startedBy(kind: TurnKind): String? = when (kind) {
+    TurnKind.MESSAGE, TurnKind.COMMAND, TurnKind.APPROVAL -> null
+    TurnKind.REMINDER -> TextKeys.APPROVAL_KIND_REMINDER
+    TurnKind.JOB -> TextKeys.APPROVAL_KIND_JOB
+    TurnKind.DELEGATED -> TextKeys.APPROVAL_KIND_DELEGATED
+    TurnKind.HEARTBEAT -> TextKeys.APPROVAL_KIND_HEARTBEAT
+    TurnKind.AGENT_MESSAGE -> TextKeys.APPROVAL_KIND_AGENT_MESSAGE
+    else -> TextKeys.APPROVAL_KIND_OTHER
+}
+
 /**
- * [head], whose first [bold] characters are bold, and [body] as code, folded when longer than [MAX_CODE_LINES], in
- * messages that leave room for an outcome and number every message after the first; null when they take more than
- * [MAX_PARTS].
+ * [head] with its [spans] and [body] as code, in messages that leave room for an outcome and number every message after
+ * the first; null when they take more than [MAX_PARTS].
  */
-private fun split(head: String, bold: Int, body: String): List<FormattedText>? {
+private fun split(head: String, spans: List<Span>, body: String): List<FormattedText>? {
     val chunks = mutableListOf<String>()
     var rest = body.trimEnd()
-    val entity = if (rest.lines().size > MAX_CODE_LINES) "expandable_blockquote" else "pre"
     var room = MAX_MESSAGE_LENGTH - OUTCOME_ROOM - head.length
     if (room <= 0) return null
     while (true) {
@@ -478,11 +527,9 @@ private fun split(head: String, bold: Int, body: String): List<FormattedText>? {
     }
     return chunks.mapIndexed { index, chunk ->
         val prefix = if (index == 0) head else "(${index + 1}/${chunks.size})\n"
-        val spans = listOfNotNull(
-            Span("bold", 0, bold).takeIf { index == 0 && bold > 0 },
-            Span(entity, prefix.length, chunk.length).takeIf { chunk.isNotEmpty() },
-        )
-        FormattedText(prefix + chunk, spans)
+        val shown = (if (index == 0) spans.filter { it.length > 0 } else emptyList()) +
+            listOfNotNull(Span("pre", prefix.length, chunk.length).takeIf { chunk.isNotEmpty() })
+        FormattedText(prefix + chunk, shown)
     }
 }
 
@@ -499,8 +546,10 @@ private const val MAX_PARTS = 4
 
 private const val UNIT = 1024.0
 
-/** The most lines a preview shows unfolded. */
+/** The most lines of a preview that a request shows without counting them in its head. */
 private const val MAX_CODE_LINES = 12
+
+private const val TIME_PATTERN = "yyyy-MM-dd HH:mm xxx"
 
 /** The characters a request's last message keeps free for the line that tells how it ended. */
 private const val OUTCOME_ROOM = 512

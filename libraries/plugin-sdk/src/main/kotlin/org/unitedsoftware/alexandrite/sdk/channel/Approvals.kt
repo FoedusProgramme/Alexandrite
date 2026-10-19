@@ -5,6 +5,8 @@ import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
@@ -21,7 +23,7 @@ public class ApprovalRequest private constructor(
     /** The call's arguments as canonical JSON. */
     public val arguments: String,
     public val preview: ReviewPreview?,
-    /** Why a person is asked, in lower case without a closing full stop. */
+    /** Why a person is asked, in lower case without a closing full stop, in Alexandrite's own words. */
     public val reason: String,
     /** The agents from the root turn's down to the sub-agent that made the call, empty for a top-level turn's call. */
     public val chain: List<AgentId>,
@@ -29,6 +31,14 @@ public class ApprovalRequest private constructor(
     public val alwaysRules: List<RuleSubject>,
     /** Whether the call's output would taint the conversation, so that an approver may trust it. */
     public val taints: Boolean,
+    /** When and why the call's conversation first took in untrusted content, null while it took in none. */
+    public val taint: ConversationTaint?,
+    /** What a model or untrusted content wrote about [reason], such as the judge's doubt, null for nothing. */
+    public val note: String?,
+    /** The sandbox the call runs in, null when it runs on the host. */
+    public val contained: Contained?,
+    /** Whether the call starts as a background job. */
+    public val background: Boolean,
 ) {
     init {
         require(ID.matches(id)) { "Malformed approval request id '$id'." }
@@ -52,6 +62,10 @@ public class ApprovalRequest private constructor(
             chain: List<AgentId> = emptyList(),
             alwaysRules: List<RuleSubject> = emptyList(),
             taints: Boolean = false,
+            taint: ConversationTaint? = null,
+            note: String? = null,
+            contained: Contained? = null,
+            background: Boolean = false,
         ): ApprovalRequest = ApprovalRequest(
             id,
             turn,
@@ -63,6 +77,10 @@ public class ApprovalRequest private constructor(
             chain.toList(),
             alwaysRules.toList(),
             taints,
+            taint,
+            note,
+            contained,
+            background,
         )
     }
 }

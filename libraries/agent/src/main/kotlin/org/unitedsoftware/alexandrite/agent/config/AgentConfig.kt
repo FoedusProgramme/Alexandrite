@@ -97,7 +97,17 @@ internal class PermissionConfig(
     val judgeTimeoutSeconds: Int = 20,
     /** The most escaped characters that the judge is shown of a call, and of the operator's words. */
     val judgeMaxChars: Int = 32_000,
-)
+    /** What the network reads of a tainted conversation do: [NETWORK_READS_RUN] or [NETWORK_READS_GATE]. */
+    val taintedNetworkReads: String = NETWORK_READS_RUN,
+) {
+    companion object {
+        /** They run unasked. */
+        const val NETWORK_READS_RUN: String = "run"
+
+        /** They go to the permission mode's gate. */
+        const val NETWORK_READS_GATE: String = "gate"
+    }
+}
 
 /** A persona file, written as its path or as `{"file": …, "when": […]}`. */
 @Serializable(with = InstructionFileSerializer::class)

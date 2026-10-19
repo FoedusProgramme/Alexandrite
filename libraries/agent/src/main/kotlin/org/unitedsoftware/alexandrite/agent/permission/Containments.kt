@@ -9,6 +9,10 @@ internal class Containment(
     val clearable: Boolean,
     /** The hosts that the call asks for and no allowed host covers yet. */
     val hosts: List<String>,
+    /** Whether the call may reach a host: the agent or its session allows one, or the call asks for one. */
+    val network: Boolean = hosts.isNotEmpty(),
+    /** Whether every directory that the call works in lies in a trusted folder. */
+    val trustedFolder: Boolean = false,
 )
 
 /** What the agents' sandboxes make of calls. */

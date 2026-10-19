@@ -42,6 +42,7 @@ class ReadTaintTest {
             Workspaces(paths, ConventionalAgentPlaces(paths), settings("{}")),
             ConventionalAgentPlaces(paths),
             ConversationDirectories(ConventionalAgentPlaces(paths), settings("{}")),
+            NoTaintLedger,
         )
     }
 

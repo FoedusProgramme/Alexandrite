@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.agent.QuietHooks
 import org.unitedsoftware.alexandrite.agent.TestClock
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.hostPaths
+import org.unitedsoftware.alexandrite.agent.permission.NoTaintLedger
 import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.pluginScope
 import org.unitedsoftware.alexandrite.agent.settings
@@ -97,6 +98,7 @@ class JobsTest {
             this,
             { _, _ -> null },
             { _, _ -> null },
+            NoTaintLedger,
         )
         val name = tool.definition.name
         return executor.execute(turn, call, mapOf(name to tool), timeout, setOf(name), taint, DirectCalls)

@@ -16,6 +16,6 @@ internal sealed interface Verdict {
 
     class Deny(val reason: String) : Verdict
 
-    /** A person decides, told [reason]. */
-    class Ask(val reason: String) : Verdict
+    /** A person decides, told [reason] and the judge's model's [note], null when it wrote none. */
+    class Ask(val reason: String, val note: String? = null) : Verdict
 }

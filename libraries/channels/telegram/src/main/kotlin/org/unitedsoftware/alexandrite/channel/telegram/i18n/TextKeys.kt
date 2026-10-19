@@ -44,6 +44,37 @@ internal object TextKeys {
 
     const val APPROVAL_NOBODY: String = "approval.nobody"
 
+    /** Takes `{kind}`, what started the turn. */
+    const val APPROVAL_STARTED_BY: String = "approval.started_by"
+
+    const val APPROVAL_KIND_REMINDER: String = "approval.kind.reminder"
+    const val APPROVAL_KIND_JOB: String = "approval.kind.job"
+    const val APPROVAL_KIND_DELEGATED: String = "approval.kind.delegated"
+    const val APPROVAL_KIND_HEARTBEAT: String = "approval.kind.heartbeat"
+    const val APPROVAL_KIND_AGENT_MESSAGE: String = "approval.kind.agent_message"
+    const val APPROVAL_KIND_OTHER: String = "approval.kind.other"
+
+    /** Takes `{time}`, when the conversation first took in untrusted content; its source follows as code. */
+    const val APPROVAL_TAINTED: String = "approval.tainted"
+
+    /** The judge's doubt follows as code. */
+    const val APPROVAL_NOTE: String = "approval.note"
+
+    /** Takes `{sandbox}`. */
+    const val APPROVAL_SANDBOX: String = "approval.sandbox"
+    const val APPROVAL_HOST: String = "approval.host"
+
+    /** Takes `{hosts}`. */
+    const val APPROVAL_NETWORK: String = "approval.network"
+    const val APPROVAL_BACKGROUND: String = "approval.background"
+
+    /** The monitor's filter follows as code. */
+    const val APPROVAL_MONITOR: String = "approval.monitor"
+
+    /** Takes `{count}`, the lines of the preview. */
+    const val APPROVAL_LINES: String = "approval.lines"
+    const val APPROVAL_NOT_ASCII: String = "approval.not_ascii"
+
     /** Takes `{reason}`. */
     const val APPROVAL_REASON: String = "approval.reason"
 

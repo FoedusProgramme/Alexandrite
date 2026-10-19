@@ -5,6 +5,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.config.PermissionConfig
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.hook.Hooked
 import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
@@ -37,6 +38,8 @@ internal class CheckedCall(
     val requiredApproval: String?,
     /** How the call stands in its agent's sandbox, null when it runs on the host. */
     val containment: Containment? = null,
+    /** The kind of instruction-bearing place that the call writes, null when it writes none. */
+    val instruction: String? = null,
 )
 
 /**
@@ -56,6 +59,7 @@ internal class PermissionGate(
     private val directory: AgentDirectory,
     private val clock: Clock,
     private val containments: Containments,
+    private val instructions: InstructionPlaces,
 ) : ToolGate {
     override suspend fun admit(call: GateCall): GateResult {
         val review = when (val reviewed = review(call)) {
@@ -81,11 +85,14 @@ internal class PermissionGate(
             )
         }
         val containment = if (tools.isBuiltIn(call.tool)) containments.containment(call.turn, review) else null
-        val checked = CheckedCall(call, review, risk, required, containment)
+        val instruction = instructions.written(call.turn.agent, review)
+        val checked = CheckedCall(call, review, risk, required, containment, instruction)
         rules.denied(checked)?.let { return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(it)) }
         val principal = Principal.of(call.turn)
-        val person = review.person
-        if (required == null && person == null && !isGated(risk, principal, call.taint.tainted)) {
+        val tainted = call.taint.tainted
+        val person =
+            review.person ?: instruction?.takeIf { tainted }?.let { "the call writes $it, and ${tainted(call.taint)}" }
+        if (required == null && person == null && !isGated(risk, principal, tainted, gatesNetwork(call))) {
             val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
             return running(checked, GateResult.Admitted(clearance, review.preview, review.exempt))
         }
@@ -101,21 +108,23 @@ internal class PermissionGate(
                 cleared(checked, mode)?.let { return admitted(checked, it) }
             }
             if (mode == PermissionMode.AUTO) {
-                if (call.taint.tainted && checked.opaque) {
-                    return ask(checked, "an opaque program, and ${tainted(call.taint)}")
-                }
+                if (tainted && checked.opaque) return ask(checked, "an opaque program, and ${tainted(call.taint)}")
                 when (val verdict = judge.judge(checked)) {
                     Verdict.Allow -> return admitted(checked, ClearanceKind.JUDGE)
 
                     is Verdict.Deny ->
                         return refused(call, NotRunReason.DENIED_BY_POLICY, Refusals.deniedByPolicy(verdict.reason))
 
-                    is Verdict.Ask -> return ask(checked, verdict.reason)
+                    is Verdict.Ask -> return ask(checked, verdict.reason, verdict.note)
                 }
             }
         }
         return ask(checked, reason(checked, principal, mode, tightened))
     }
+
+    /** Whether the agent of [call] sends the network reads of a tainted conversation to the gate. */
+    private fun gatesNetwork(call: GateCall): Boolean =
+        directory.agent(call.turn.agent)?.config?.permission?.taintedNetworkReads == PermissionConfig.NETWORK_READS_GATE
 
     /** [review] without its exemption, which only a built-in tool may claim. */
     private fun unexempted(review: CallReview): CallReview = review.rebuild { exempt(false) }
@@ -136,17 +145,25 @@ internal class PermissionGate(
         return Reviewed.Failed(Refusals.deniedByPolicy("the tool could not check this call ($why)"))
     }
 
-    /** What lets the gated [call] of an operator's turn run in [mode] without asking anyone, null when nothing does. */
+    /**
+     * What lets the gated [call] of an operator's turn run in [mode] without asking anyone, null when nothing does.
+     * Only `bypass` clears a write of an instruction-bearing place.
+     */
     private suspend fun cleared(call: CheckedCall, mode: PermissionMode): ClearanceKind? = when {
         mode == PermissionMode.BYPASS -> ClearanceKind.MODE
+        call.instruction != null -> null
         mode == PermissionMode.ALLOW_EDIT && call.risk == ToolRisk.WORKSPACE_WRITE && !call.opaque -> ClearanceKind.MODE
         mode != PermissionMode.MANUAL && rules.allowed(call) -> ClearanceKind.RULE
         else -> null
     }
 
-    /** Whether the sandbox lets the gated [call] of an operator's turn run in [mode] without asking anyone. */
+    /**
+     * Whether the sandbox lets the gated [call] of an operator's turn run in [mode] without asking anyone, which in a
+     * tainted conversation it does only for a call that reaches no host.
+     */
     private fun contained(call: CheckedCall, mode: PermissionMode): Boolean {
         val containment = call.containment ?: return false
+        if (call.call.taint.tainted && containment.network) return false
         return containment.clearable && containment.hosts.isEmpty() && mode in CONTAINED_MODES
     }
 
@@ -154,8 +171,8 @@ internal class PermissionGate(
     private suspend fun mode(call: GateCall): Pair<PermissionMode, Boolean> =
         settings.callMode(call, directory, clock, unread = PermissionMode.ASK)
 
-    private suspend fun ask(call: CheckedCall, reason: String): GateResult {
-        val result = running(call, approvals.ask(call, reason))
+    private suspend fun ask(call: CheckedCall, reason: String, note: String? = null): GateResult {
+        val result = running(call, approvals.ask(call, reason, note))
         val gate = call.call
         when (result) {
             is GateResult.Admitted -> logged(gate, "runs, cleared by ${result.clearance.kind}")
@@ -177,7 +194,7 @@ internal class PermissionGate(
     private suspend fun running(call: CheckedCall, result: GateResult): GateResult {
         if (result !is GateResult.Admitted) return result
         val gate = call.call
-        val trust = if (result.trust == CallTrust.WHOLE) CallTrust.WHOLE else trusts.trust(call)
+        val trust = listOf(result.trust, trusts.trust(call), sandboxTrust(call)).maxBy { it.ordinal }
         val network = ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk)
         val untrusted = if (network && !tools.isBuiltIn(gate.tool) && trust != CallTrust.WHOLE) {
             "a call of ${gate.tool.definition.name}, which reads the network".also { gate.taint.mark(it) }
@@ -231,7 +248,11 @@ private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode
 
     principal == Principal.AUTOMATION -> "a call of a turn that nobody sent"
 
+    call.instruction != null -> "the call writes ${call.instruction}"
+
     call.risk == ToolRisk.PERSISTENT_STATE -> tainted(call.call.taint)
+
+    call.risk == ToolRisk.NETWORK_READ -> "the call reads the network, and ${tainted(call.call.taint)}"
 
     tightened -> "the sub-agent's profile sets $mode mode"
 
@@ -248,10 +269,21 @@ private val CONTAINED_MODES = setOf(PermissionMode.ASK, PermissionMode.ALLOW_EDI
 /** Whether the call runs a program whose code no safeguard inspects. */
 private val CheckedCall.opaque: Boolean get() = (review.preview as? ReviewPreview.Command)?.opaque == true
 
-/** Why [taint] gates an operator's call that a clean conversation would run. */
-private fun tainted(taint: TurnTaint): String =
-    taint.known?.let { "the conversation took in untrusted content (${it.reason})" }
-        ?: "the conversation counts as tainted, as its mark could not be read"
+/**
+ * How far the sandbox makes the output of [call] trusted: its programs' own reports when it runs contained, reaches no
+ * host and works in trusted folders only.
+ */
+internal fun sandboxTrust(call: CheckedCall): CallTrust {
+    val containment = call.containment ?: return CallTrust.NONE
+    return if (!containment.network && containment.trustedFolder) CallTrust.PROGRAMS else CallTrust.NONE
+}
+
+/** Why [taint] gates an operator's call that a clean conversation would run, in Alexandrite's own words. */
+private fun tainted(taint: TurnTaint): String = if (taint.known != null) {
+    "the conversation took in untrusted content"
+} else {
+    "the conversation counts as tainted, as its mark could not be read"
+}
 
 private const val HOOK_DENIED_RESULT = "A hook denied the call."
 

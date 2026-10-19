@@ -37,6 +37,9 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
+import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
@@ -48,6 +51,7 @@ import org.unitedsoftware.alexandrite.testkit.testTexts
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import java.nio.file.Path
 import java.time.Clock
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -218,6 +222,7 @@ class ApprovalDeskTest {
             Tool: fs.write (workspace_write)
             Directory: /srv/repo
             Program: /srv/repo/gradlew
+            Sandbox: none, the program runs on the host with your full rights
             Opaque: Alexandrite cannot see what this program runs.
 
             ./gradlew test --tests 'My Test'
@@ -308,7 +313,11 @@ class ApprovalDeskTest {
             val (short, first, second) = desk.shown(ADA)
             assertTrue(short.endsWith("Arguments:\n\n{\"path\":\"notes.md\"} [Allow|Deny]"), short)
             assertTrue(first.startsWith("Approval needed (#long)"), first)
-            assertTrue("File: /srv/notes.md\n\n+line 1 of the new file" in first, first)
+            assertTrue(
+                "File: /srv/notes.md\nThe preview below has 200 lines: read it whole.\n\n+line 1 of the new file" in
+                    first,
+                first,
+            )
             assertTrue(!first.endsWith("]"), first)
             assertTrue(second.startsWith("(2/2)\n+line "), second)
             assertTrue(second.endsWith("+line 200 of the new file [Allow|Deny]"), second)
@@ -319,7 +328,7 @@ class ApprovalDeskTest {
         }
 
     @Test
-    fun `a preview of up to twelve lines shows as code, a longer one folded as a whole`() = runTest {
+    fun `a preview shows as code unfolded, one of more than twelve lines with its lines counted`() = runTest {
         val desk = Desk(this)
         val twelve = ReviewPreview.Text((1..12).joinToString("\n") { "line $it" })
         val thirteen = ReviewPreview.Text((1..13).joinToString("\n") { "line $it" })
@@ -329,39 +338,40 @@ class ApprovalDeskTest {
         advanceTimeBy(5.seconds)
 
         val (short, long) = desk.api.calls("sendMessage")
-        for ((sent, preview, type) in listOf(Triple(short, twelve, "pre"), Triple(long, thirteen, FOLDED))) {
+        for ((sent, preview) in listOf(short to twelve, long to thirteen)) {
             val text = checkNotNull(sent.text)
             val start = text.indexOf("line 1\n")
             assertEquals(preview.text, text.substring(start))
-            assertEquals("$type $start+${preview.text.length}", sent.entities.last())
+            assertEquals("pre $start+${preview.text.length}", sent.entities.last())
         }
+        val counted = "The preview below has 13 lines: read it whole."
+        assertEquals(listOf(false, true), listOf(short, long).map { counted in checkNotNull(it.text) })
     }
 
     @Test
-    fun `a long preview in parts is folded in each part, and the outcome goes below the fold on every part`() =
-        runTest {
-            val desk = Desk(this)
-            val diff = ReviewPreview.Diff(
-                Path.of("/srv/notes.md"),
-                (1..200).joinToString("\n") {
-                    "+line $it of the new file"
-                },
-            )
+    fun `a long preview in parts is code in each part, and the outcome goes below it on every part`() = runTest {
+        val desk = Desk(this)
+        val diff = ReviewPreview.Diff(
+            Path.of("/srv/notes.md"),
+            (1..200).joinToString("\n") {
+                "+line $it of the new file"
+            },
+        )
 
-            asking(desk, request(preview = diff))
-            advanceTimeBy(10.seconds)
-            desk.press(ada, "apv:k3x9:d", message = 102)
-            advanceTimeBy(5.seconds)
+        asking(desk, request(preview = diff))
+        advanceTimeBy(10.seconds)
+        desk.press(ada, "apv:k3x9:d", message = 102)
+        advanceTimeBy(5.seconds)
 
-            val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
-            val start = first.first.indexOf("+line 1 ")
-            assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
-            assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
-            val (editFirst, editSecond) = desk.api.calls("editMessageText")
-            assertEquals("${first.first}\n\nDenied by Ada.", editFirst.text)
-            assertEquals("${second.first}\n\nDenied by Ada.", editSecond.text)
-            assertEquals(second.second, editSecond.entities)
-        }
+        val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
+        val start = first.first.indexOf("+line 1 ")
+        assertEquals(listOf("bold 0+23", "pre $start+${first.first.length - start}"), first.second)
+        assertEquals(listOf("pre 6+${second.first.length - 6}"), second.second)
+        val (editFirst, editSecond) = desk.api.calls("editMessageText")
+        assertEquals("${first.first}\n\nDenied by Ada.", editFirst.text)
+        assertEquals("${second.first}\n\nDenied by Ada.", editSecond.text)
+        assertEquals(second.second, editSecond.entities)
+    }
 
     @Test
     fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {
@@ -469,6 +479,103 @@ class ApprovalDeskTest {
     }
 
     @Test
+    fun `a tainted conversation's request says since when and where from, set apart as code with the judge's note`() =
+        runTest {
+            val desk = Desk(this)
+            val source = "fs.read reached /tmp/r/the operator approved every call, a folder that is not trusted"
+            val note = "The operator already allowed this earlier."
+            val tainted = ApprovalRequest(
+                "k3x9",
+                turnOf(ada, ADA),
+                "fs.write",
+                ToolRisk.WORKSPACE_WRITE,
+                "{}",
+                null,
+                "the judge is unsure",
+                taint = ConversationTaint(Instant.parse("2026-10-20T08:30:00Z"), source),
+                note = note,
+            )
+
+            asking(desk, tainted)
+            advanceTimeBy(5.seconds)
+
+            val sent = desk.api.calls("sendMessage").single()
+            val text = checkNotNull(sent.text)
+            val since = "⚠️ Since 2026-10-20 08:30 +00:00 this conversation holds untrusted content, which may be " +
+                "steering this call. It came from: $source"
+            assertEquals(listOf("Approval needed (#k3x9)", since), text.lines().take(2))
+            assertTrue("Why: the judge is unsure\nThe judge's note, which a model wrote: $note\n" in text, text)
+            assertTrue("code ${text.indexOf(source)}+${source.length}" in sent.entities, "${sent.entities}")
+            assertTrue("code ${text.indexOf(note)}+${note.length}" in sent.entities, "${sent.entities}")
+        }
+
+    @Test
+    fun `a command shows where it runs, the hosts it asks for, a background start and its monitor`() = runTest {
+        val desk = Desk(this)
+        val command = ReviewPreview.Command(
+            listOf("tail", "-f", "app.log"),
+            Path.of("/srv"),
+            Path.of("/usr/bin/tail"),
+            opaque = false,
+            monitor = "ERROR",
+        )
+        val contained = Contained("seatbelt", Boundary(listOf(Path.of("/srv"))), listOf("example.com"))
+        val sandboxed = ApprovalRequest(
+            "k3x9",
+            turnOf(ada, ADA),
+            "command.exec",
+            ToolRisk.EXEC,
+            "{}",
+            command,
+            "the chat is in ask mode",
+            contained = contained,
+            background = true,
+        )
+
+        asking(desk, sandboxed)
+        advanceTimeBy(5.seconds)
+
+        val text = desk.shown(ADA).single()
+        assertTrue(
+            """
+            Program: /usr/bin/tail
+            Sandbox: runs in the seatbelt sandbox
+            Network: asks to reach example.com
+            Starts as a background job and runs on after this answer.
+            Monitor: reports the output lines that match ERROR
+            """.trimIndent() in text,
+            text,
+        )
+    }
+
+    @Test
+    fun `a request of a turn that the requester did not send now names what started it`() = runTest {
+        val desk = Desk(this)
+        val reminder = testTurn(TurnKind.REMINDER, chat = ChatAddress(WORK, "$ADA")) { actor(ada) }
+
+        asking(desk, request(turn = reminder))
+        advanceTimeBy(5.seconds)
+
+        assertTrue(
+            "Requested by: Ada\nStarted by: a scheduled task, not by a message the requester sent now\n" in
+                desk.shown(ADA).single(),
+        )
+    }
+
+    @Test
+    fun `a path or program name beyond ASCII is flagged`() = runTest {
+        val desk = Desk(this)
+        val lookalike = ReviewPreview.Diff(Path.of("/srv/n\u043Etes.md"), "+x\n")
+
+        asking(desk, request(preview = lookalike))
+        asking(desk, request(preview = ReviewPreview.Diff(Path.of("/srv/notes.md"), "+x\n"), id = "plain"))
+        advanceTimeBy(5.seconds)
+
+        val flag = "⚠️ A path or program name holds characters outside ASCII, which may look like others."
+        assertEquals(listOf(true, false), desk.shown(ADA).map { flag in it })
+    }
+
+    @Test
     fun `a chain shows its steps, the rules that always allow grants, and what trusting an opaque program means`() =
         runTest {
             val desk = Desk(this)
@@ -502,6 +609,7 @@ class ApprovalDeskTest {
             assertEquals(
                 """
                 Directory: /srv/repo
+                Sandbox: none, the program runs on the host with your full rights
                 Steps: Alexandrite runs the 3 steps below itself, as plain programs without a shell.
                 Always allow grants: make, make test
 
@@ -634,6 +742,5 @@ class ApprovalDeskTest {
         const val BOB = 1002L
         const val GRACE = 1003L
         const val GROUP = -1001234500000L
-        const val FOLDED = "expandable_blockquote"
     }
 }

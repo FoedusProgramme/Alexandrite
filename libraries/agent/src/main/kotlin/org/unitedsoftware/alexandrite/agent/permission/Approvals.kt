@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
@@ -24,11 +25,12 @@ import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import java.nio.file.Path
 import java.security.SecureRandom
+import java.time.Instant
 
 /** Asks a person about the gated calls that nothing else lets run. */
 internal interface Approvals {
-    /** What the person asked about [call] for [reason] decided. */
-    suspend fun ask(call: CheckedCall, reason: String): GateResult
+    /** What a person asked about [call] for [reason], with a [note] that a model or untrusted content wrote, decided. */
+    suspend fun ask(call: CheckedCall, reason: String, note: String? = null): GateResult
 }
 
 /** Asks through the channel of the call's chat, and takes an answer from an operator only. */
@@ -44,7 +46,7 @@ internal class ChannelApprovals(
 ) : Approvals {
     private val random = SecureRandom()
 
-    override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+    override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
         val gate = call.call
         val turn = gate.turn
         if (gate.calls.followedUp()) {
@@ -75,6 +77,10 @@ internal class ChannelApprovals(
             gate.calls.chain?.agents.orEmpty(),
             shown,
             taints(call),
+            taint = taint(gate.taint)?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) },
+            note = note?.let { ReviewText.escape(it, keepNewlines = true) },
+            contained = call.review.contained,
+            background = call.review.background,
         )
         if (turn.chat.instance == ChatAddress.AGENTS) {
             return unavailable(request, "the turn belongs to no chat, so nobody can be asked")
@@ -111,7 +117,9 @@ internal class ChannelApprovals(
     /** Whether the output of [call] would taint a conversation that it has not tainted yet. */
     private fun taints(call: CheckedCall): Boolean {
         val gate = call.call
-        if (gate.taint.tainted || trusts.trust(call) == CallTrust.WHOLE) return false
+        if (gate.taint.tainted || trusts.trust(call) == CallTrust.WHOLE || sandboxTrust(call) != CallTrust.NONE) {
+            return false
+        }
         val network =
             ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk) && !tools.isBuiltIn(gate.tool)
         return call.review.untrusted || network
@@ -208,13 +216,13 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
         ReviewPreview.Diff(escaped(preview.path), ReviewText.escape(preview.unified, keepNewlines = true))
 
     is ReviewPreview.Command -> ReviewPreview.Command(
-        preview.argv.map { ReviewText.escape(it) },
+        preview.argv.map { ReviewText.escapeName(it) },
         escaped(preview.cwd),
         preview.executable?.let { escaped(it) },
         preview.opaque,
         preview.segments.map { segment ->
             CommandSegment(
-                segment.argv.map { ReviewText.escape(it) },
+                segment.argv.map { ReviewText.escapeName(it) },
                 escaped(segment.cwd),
                 segment.executable?.let { escaped(it) },
                 segment.joint,
@@ -228,6 +236,7 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
                 segment.rule?.let { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) },
             )
         },
+        preview.monitor?.let { ReviewText.escape(it) },
     )
 
     is ReviewPreview.Text -> ReviewPreview.Text(ReviewText.escape(preview.text, keepNewlines = true))
@@ -243,6 +252,12 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
     else -> null
 }
 
-private fun escaped(path: Path): Path = Path.of(ReviewText.escape(path.toString()))
+private fun escaped(path: Path): Path = Path.of(ReviewText.escapeName(path.toString()))
+
+/** The mark of the conversation that [taint] stands for, one of the time asked when its mark could not be read. */
+private fun taint(taint: TurnTaint): ConversationTaint? =
+    if (taint.tainted) taint.known ?: ConversationTaint(Instant.now(), UNREAD_MARK) else null
+
+private const val UNREAD_MARK = "the conversation's mark could not be read, so it counts as tainted"
 
 private val logger = LoggerFactory.getLogger(ChannelApprovals::class.java)

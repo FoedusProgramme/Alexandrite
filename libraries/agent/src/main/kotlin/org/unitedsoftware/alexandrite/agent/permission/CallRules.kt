@@ -48,7 +48,7 @@ internal interface CallRules {
     /** Whether an allow rule lets [call] run. */
     suspend fun allowed(call: CheckedCall): Boolean
 
-    /** What an approver of [call] may allow for good, empty when nothing. */
+    /** What an approver of [call] may allow for good, empty when nothing, as in a tainted conversation. */
     suspend fun grantable(call: CheckedCall): List<RuleSubject>
 
     /** Lets the calls that [subjects] cover run in the session of [call], as [by] allowed. */
@@ -123,10 +123,11 @@ internal class AgentCallRules(
         return entry?.let { "the operator's rule $it denies it" }
     }
 
-    override suspend fun allowed(call: CheckedCall): Boolean =
+    override suspend fun allowed(call: CheckedCall): Boolean = call.instruction == null &&
         call.containment?.hosts.isNullOrEmpty() && uncovered(call, offered = false)?.isEmpty() == true
 
     override suspend fun grantable(call: CheckedCall): List<RuleSubject> {
+        if (call.call.taint.tainted || call.instruction != null) return emptyList()
         if (mode(call.call) == PermissionMode.MANUAL) return emptyList()
         val containment = call.containment
         val hosts = containment?.hosts.orEmpty().takeIf { Principal.of(call.call.turn) == Principal.OPERATOR }

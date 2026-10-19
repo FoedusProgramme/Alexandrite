@@ -106,6 +106,7 @@ class PermissionGateTest {
             directory,
             clock,
             NotContained,
+            NoInstructionPlaces,
         )
     }
 
@@ -275,11 +276,11 @@ class PermissionGateTest {
                 "the chat is in ask mode",
                 "a guest's call",
                 "a call of a turn that nobody sent",
-                "the conversation took in untrusted content (a test)",
+                "the conversation took in untrusted content",
                 "a guest's call",
                 "the chat is in manual mode",
                 "the chat is in manual mode",
-                "the conversation took in untrusted content (a test)",
+                "the conversation took in untrusted content",
             ),
             approvals.reasons,
         )
@@ -519,7 +520,7 @@ class PermissionGateTest {
         assertEquals(listOf("ask", "judge", "judge"), outcomes)
         assertEquals(listOf("command.make", "command.exec"), judge.calls.map { it.call.tool.definition.name })
         assertEquals(
-            listOf("an opaque program, and the conversation took in untrusted content (a test)"),
+            listOf("an opaque program, and the conversation took in untrusted content"),
             approvals.reasons,
         )
     }
@@ -731,6 +732,7 @@ class PermissionGateTest {
             directory,
             clock,
             NotContained,
+            NoInstructionPlaces,
         )
         lateinit var result: GateResult
 
@@ -867,7 +869,7 @@ private class RecordingJudge : Judge {
 private class RecordingApprovals : Approvals {
     val reasons = CopyOnWriteArrayList<String>()
 
-    override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+    override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
         reasons += reason
         return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
     }

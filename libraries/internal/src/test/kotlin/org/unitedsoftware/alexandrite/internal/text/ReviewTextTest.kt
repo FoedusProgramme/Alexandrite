@@ -52,4 +52,13 @@ class ReviewTextTest {
 
         assertEquals(text, ReviewText.escape(text))
     }
+
+    @Test
+    fun `a name also has its other spaces and its combining marks escaped, and text beyond ASCII is told`() {
+        val name = "/srv/cafe\u0301\u00A0notes.md"
+
+        assertEquals("/srv/cafe\\u0301\\u00A0notes.md", ReviewText.escapeName(name))
+        assertEquals(name, ReviewText.escape(name))
+        assertEquals(listOf(true, false), listOf("/srv/n\u043Etes.md", "/srv/notes.md").map(ReviewText::beyondAscii))
+    }
 }

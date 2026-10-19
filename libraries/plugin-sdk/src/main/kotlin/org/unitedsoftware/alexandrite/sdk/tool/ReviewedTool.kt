@@ -132,6 +132,8 @@ public interface ReviewPreview {
         public val opaque: Boolean,
         /** The steps that the call runs in turn in place of [argv], empty when it runs [argv] itself. */
         public val segments: List<CommandSegment>,
+        /** The filter of the monitor that the call starts over its output lines, null when it starts none. */
+        public val monitor: String?,
     ) : ReviewPreview {
         init {
             require(argv.isNotEmpty()) { "A command names its program." }
@@ -144,7 +146,8 @@ public interface ReviewPreview {
                 executable: Path?,
                 opaque: Boolean,
                 segments: List<CommandSegment> = emptyList(),
-            ): Command = Command(argv.toList(), cwd, executable, opaque, segments.toList())
+                monitor: String? = null,
+            ): Command = Command(argv.toList(), cwd, executable, opaque, segments.toList(), monitor)
         }
     }
 

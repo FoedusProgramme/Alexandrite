@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.sandbox
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.DirectCalls
 import org.unitedsoftware.alexandrite.agent.agentHarness
@@ -10,7 +11,9 @@ import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
 import org.unitedsoftware.alexandrite.agent.permission.Approvals
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
+import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
+import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.Judge
 import org.unitedsoftware.alexandrite.agent.permission.PermissionGate
 import org.unitedsoftware.alexandrite.agent.permission.TrustRules
@@ -39,6 +42,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.tool.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
@@ -53,8 +57,10 @@ import java.time.Clock
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.io.path.createDirectories
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
 
 /** How the gate decides calls of command.exec that run in their agent's sandbox. */
@@ -65,13 +71,17 @@ class SandboxGateTest {
     private val operator = testUser("operator", isOperator = true)
     private val turn: TurnInfo = testTurn { agent(CODER).actor(operator) }
 
-    private fun harness(sandbox: String = """{"type": "seatbelt"}""", permission: String = "{}"): PluginHarness =
-        agentHarness(
-            """{"agents": {"coder": {"description": "Codes.", "permission": $permission, "sandbox": $sandbox}}}""",
-        ) {
-            dataRoot(directory.resolve("data"))
-            executionEnvironment(RecordingEnvironment("seatbelt"))
-        }
+    private fun harness(
+        sandbox: String = """{"type": "seatbelt"}""",
+        permission: String = "{}",
+        trusted: Path? = null,
+    ): PluginHarness = agentHarness(
+        """{"trustedFolders": [${trusted?.let { JsonPrimitive("$it") } ?: ""}], """ +
+            """"agents": {"coder": {"description": "Codes.", "permission": $permission, "sandbox": $sandbox}}}""",
+    ) {
+        dataRoot(directory.resolve("data"))
+        executionEnvironment(RecordingEnvironment("seatbelt"))
+    }
 
     /** The gate of the running agent over [exec], a built-in tool unless [thirdParty]. */
     private inner class Gate(running: PluginHarness.Running, thirdParty: Boolean = false) {
@@ -95,6 +105,7 @@ class SandboxGateTest {
             running.get<AgentDirectory>(),
             clock,
             running.get<Sandboxes>(),
+            running.get<InstructionPlaces>(),
         )
 
         suspend fun mode(mode: PermissionMode, of: TurnInfo = turn) {
@@ -102,17 +113,18 @@ class SandboxGateTest {
             states.changeMode(of.key, SettingChange.SetTo(mode), until)
         }
 
-        /** How the gate decided [review] in [of]: run, sandbox, mode, rule, judge, ask, plan or refused. */
-        suspend fun decide(review: CallReview, of: TurnInfo = turn, tainted: Boolean = false): String {
+        /** What the gate decided of [review] in [of]. */
+        suspend fun admit(review: CallReview, of: TurnInfo = turn, tainted: Boolean = false): GateResult {
             exec.review = review
             val taint = TurnTaint(of.id, of.key).apply { if (tainted) mark("a test") }
             val call = ToolCallPart(ToolCallId("call-1"), "command.exec", "{}")
             val context = testToolContext(of)
-            return when (
-                val admitted = gate.admit(
-                    GateCall(of, call, exec, ARGUMENTS, 5.seconds, taint, context, DirectCalls),
-                )
-            ) {
+            return gate.admit(GateCall(of, call, exec, ARGUMENTS, 5.seconds, taint, context, DirectCalls))
+        }
+
+        /** How the gate decided [review] in [of]: run, sandbox, mode, rule, judge, ask, plan or refused. */
+        suspend fun decide(review: CallReview, of: TurnInfo = turn, tainted: Boolean = false): String =
+            when (val admitted = admit(review, of, tainted)) {
                 is GateResult.Admitted ->
                     if (admitted.clearance.kind == ClearanceKind.NONE) "run" else "${admitted.clearance.kind}"
 
@@ -122,7 +134,6 @@ class SandboxGateTest {
                     else -> "refused"
                 }
             }
-        }
     }
 
     @Test
@@ -175,9 +186,48 @@ class SandboxGateTest {
     }
 
     @Test
-    fun `taint does not change a contained call's clearance`() {
+    fun `taint does not change the clearance of a contained call that reaches no host`() {
         harness().execute {
             assertEquals("sandbox", Gate(this).decide(contained(), tainted = true))
+        }
+    }
+
+    @Test
+    fun `under taint a contained call that may reach a host goes the mode's way, offering nothing for good`() {
+        harness("""{"type": "seatbelt", "network": {"allowedDomains": ["pypi.org"]}}""").execute {
+            val gate = Gate(this)
+
+            assertEquals("sandbox", gate.decide(contained()))
+            assertEquals("ask", gate.decide(contained(), tainted = true))
+            gate.mode(PermissionMode.AUTO)
+            assertEquals("ask", gate.decide(contained(), tainted = true))
+            assertEquals(emptyList(), gate.judge.calls)
+            val make = CommandSegment(listOf("make"), CWD, Path.of("/usr/bin/make"), null)
+            assertEquals("ask", gate.decide(contained(segments = listOf(make)), tainted = true))
+            assertEquals(1, gate.judge.calls.size)
+        }
+        harness().execute {
+            val gate = Gate(this)
+
+            assertEquals("ask", gate.decide(contained(hosts = listOf("example.com")), tainted = true))
+            assertEquals(emptyList(), gate.approvals.offered)
+        }
+    }
+
+    @Test
+    fun `a contained call that reaches no host from a trusted folder keeps its programs' output trusted`() {
+        val project = directory.resolve("project").createDirectories().toRealPath()
+        val inProject = { review: CallReview ->
+            review.rebuild { preview(ReviewPreview.Command(listOf("make"), project, Path.of("/usr/bin/make"), false)) }
+        }
+        harness(trusted = project).execute {
+            val trust = assertIs<GateResult.Admitted>(Gate(this).admit(inProject(contained()))).trust
+            val elsewhere = assertIs<GateResult.Admitted>(Gate(this).admit(contained())).trust
+
+            assertEquals(CallTrust.PROGRAMS to CallTrust.NONE, trust to elsewhere)
+        }
+        harness("""{"type": "seatbelt", "network": {"allowedDomains": ["pypi.org"]}}""", trusted = project).execute {
+            assertEquals(CallTrust.NONE, assertIs<GateResult.Admitted>(Gate(this).admit(inProject(contained()))).trust)
         }
     }
 
@@ -262,7 +312,7 @@ class SandboxGateTest {
     private class Offering(private val rules: CallRules) : Approvals {
         val offered = CopyOnWriteArrayList<List<String>>()
 
-        override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
             rules.grantable(call).takeIf { it.isNotEmpty() }?.let { subjects -> offered += subjects.map { it.display } }
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

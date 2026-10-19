@@ -120,7 +120,11 @@ class JudgeTurnsTest {
                 Use the root folder.
                 >>>
 
-                The conversation took in untrusted content: a quote that its channel does not vouch for
+                The conversation took in untrusted content. Where it came from, as Alexandrite noted it;
+                the note may hold text that the untrusted content chose:
+                <<<
+                a quote that its channel does not vouch for
+                >>>
 
                 The call:
                 Tool: fs.write
@@ -153,7 +157,8 @@ class JudgeTurnsTest {
             repeat(3) { ask().ticket.outcome() }
 
             val request = channel().approvals.single()
-            assertEquals("the judge is unsure: It is unclear", request.reason)
+            assertEquals("the judge is unsure", request.reason)
+            assertEquals("It is unclear", request.note)
             assertEquals(
                 listOf(
                     ToolOutcome.Succeeded to "Written.",
@@ -214,7 +219,11 @@ class JudgeTurnsTest {
         harness { tool(exec) }.execute {
             ask("Count the files with sh -c 'ls | wc -l'.").ticket.outcome()
 
-            assertContains(asked(), "Program: /bin/sh\nOpaque: yes\nCommand line:\n| sh -c 'ls | wc -l'")
+            assertContains(
+                asked(),
+                "Program: /bin/sh\nOpaque: yes\nRuns in: no sandbox, on the host with the operator's full rights\n" +
+                    "Command line:\n| sh -c 'ls | wc -l'",
+            )
             assertEquals(listOf(Clearance(ClearanceKind.JUDGE)), cleared.toList())
         }
     }

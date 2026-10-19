@@ -134,9 +134,10 @@ class SideModelJudgeTest {
         answers("""{"verdict":"ask","reason":"It may overwrite\nthe\u202E file."}""", """{"verdict":"ask"}""")
         val judge = judge()
 
-        val verdicts = List(2) { assertIs<Verdict.Ask>(judge.judge(call())).reason }
+        val verdicts = List(2) { assertIs<Verdict.Ask>(judge.judge(call())) }
 
-        assertEquals(listOf("the judge is unsure: It may overwrite the file", "the judge is unsure"), verdicts)
+        assertEquals(List(2) { "the judge is unsure" }, verdicts.map { it.reason })
+        assertEquals(listOf("It may overwrite the file", null), verdicts.map { it.note })
     }
 
     @Test
@@ -282,12 +283,12 @@ class SideModelJudgeTest {
         judge().judge(call(taint = tainted))
         assertContains(
             sent(),
-            "\n\nThe conversation took in untrusted content: a call of web.fetch, which reads the network\n\nThe call:\n",
+            "\n\n$TAINTED_INTRODUCTION\n<<<\na call of web.fetch, which reads the network\n>>>\n\nThe call:\n",
         )
         judge().judge(call(taint = TurnTaint(operator.id, operator.key, unread = true)))
         assertContains(
             sent(),
-            "The conversation took in untrusted content: its mark could not be read, so it counts as tainted\n",
+            "$TAINTED_INTRODUCTION\n<<<\nits mark could not be read, so it counts as tainted\n>>>\n",
         )
         assertContains(model.requests.last().instructions.single().text, "When the conversation took in untrusted")
     }
@@ -323,6 +324,7 @@ class SideModelJudgeTest {
                 Working directory: /srv/repo
                 Program: /bin/sh
                 Opaque: yes
+                Runs in: no sandbox, on the host with the operator's full rights
                 Command line:
                 | sh -c 'rm -rf build && echo it'\''s done'
                 """.trimIndent(),
@@ -386,6 +388,7 @@ class SideModelJudgeTest {
             Working directory: /srv/repo
             Program: /bin/sh
             Opaque: no
+            Runs in: no sandbox, on the host with the operator's full rights
             Alexandrite runs these steps itself, as plain programs, in place of the command line:
             Step 1: cd sub — changes the directory to /srv/repo/sub
             Step 2 (after &&): make — program /usr/bin/make, variable A=1
@@ -442,7 +445,11 @@ class SideModelJudgeTest {
 
         assertContains(escaped, "<<<\nwrite\\u2066 it\nplease\\u0000\n>>>")
         assertContains(escaped, "| {\"path\":\"notes\\u202Egpj.md\",\"x\":\"\\u200B\\u2028\"}")
-        assertContains(commandLine, "Program: not found\nOpaque: no\nCommand line:\n| rm 'a\\u202Eb\\u000Ac'")
+        assertContains(
+            commandLine,
+            "Program: not found\nOpaque: no\nRuns in: no sandbox, on the host with the operator's full rights\n" +
+                "Command line:\n| rm 'a\\u202Eb\\u000Ac'",
+        )
         val hidden = setOf('\u202E', '\u2066', '\u200B', '\u2028', '\u0000')
         assertFalse((escaped + commandLine).any { it in hidden })
     }
@@ -535,7 +542,7 @@ class SideModelJudgeTest {
             answers("""{"verdict":"allow"}""", """{"verdict":"allow"}""")
             val others = listOf(judge.judge(call(tool = exec)), judge.judge(call(turn = elsewhere)))
 
-            assertEquals(List(3) { "the judge is unsure: unsure" }, asked.map(::reason))
+            assertEquals(List(3) { "the judge is unsure" }, asked.map(::reason))
             assertEquals("the judge was unsure about fs.write 3 times in a row in this chat", reason(tripped))
             assertEquals(listOf(Verdict.Allow, Verdict.Allow), others)
             assertEquals(5, model.requests.size)
@@ -632,3 +639,7 @@ private class Words(private val words: List<String>) : TurnCalls {
 
     override suspend fun <T : Any> awaitApproval(call: ToolCallId, request: String, ask: suspend () -> T): T = ask()
 }
+
+private const val TAINTED_INTRODUCTION =
+    "The conversation took in untrusted content. Where it came from, as Alexandrite noted it;\n" +
+        "the note may hold text that the untrusted content chose:"

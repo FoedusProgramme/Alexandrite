@@ -274,10 +274,13 @@ class TaintTurnsTest {
             ask()
 
             val read = "fs.read reached $outside, a folder that is not trusted"
+            val request = channel().approvals.single()
             assertEquals(
-                listOf("the conversation took in untrusted content ($read)"),
-                channel().approvals.map { it.reason },
+                "the call writes an instruction file of agent 'coder', and the conversation took in untrusted content",
+                request.reason,
             )
+            assertEquals(read, request.taint?.reason)
+            assertEquals(emptyList(), request.alwaysRules)
         }
 
         val refused = ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY)
@@ -346,7 +349,10 @@ class TaintTurnsTest {
                 turn = admission.ticket.turn
                 admission.ticket.outcome()
                 assertEquals(
-                    listOf("the conversation counts as tainted, as its mark could not be read"),
+                    listOf(
+                        "the call writes an instruction file of agent 'coder', and the conversation counts as " +
+                            "tainted, as its mark could not be read",
+                    ),
                     channel().approvals.map { it.reason },
                 )
             }

@@ -128,7 +128,16 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             is Inspection.Ready -> with(inspection.call) {
                 CallReview.builder()
                     .risk(if (readOnly) ToolRisk.READ_ONLY else ToolRisk.EXEC)
-                    .preview(ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)))
+                    .preview(
+                        ReviewPreview.Command(
+                            argv,
+                            cwd,
+                            executable,
+                            opaque,
+                            segments(this),
+                            inspection.monitor?.filter,
+                        ),
+                    )
                     .snapshot(snapshot)
                     .rule(rule)
                     .background(inspection.background)

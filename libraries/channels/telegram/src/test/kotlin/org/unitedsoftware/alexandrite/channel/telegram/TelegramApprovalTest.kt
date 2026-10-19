@@ -21,6 +21,7 @@ import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
@@ -57,7 +58,7 @@ class TelegramApprovalTest {
     }
 
     @Test
-    fun `a preview longer than twelve lines reaches Telegram folded in an expandable blockquote`() {
+    fun `a preview longer than twelve lines reaches Telegram whole as code, its lines counted`() {
         val preview = ReviewPreview.Text((1..30).joinToString("\n") { "line $it" })
 
         telegram.run {
@@ -69,7 +70,8 @@ class TelegramApprovalTest {
                 }
             }
 
-            val folded = asked.entities.map { it.jsonObject }.single { it["type"]?.jsonPrimitive?.content == FOLDED }
+            assertContains(asked.text, "The preview below has 30 lines: read it whole.")
+            val folded = asked.entities.map { it.jsonObject }.single { it["type"]?.jsonPrimitive?.content == CODE }
             val start = folded.getValue("offset").jsonPrimitive.int
             val end = start + folded.getValue("length").jsonPrimitive.int
             assertEquals(preview.text, asked.text.substring(start, end))
@@ -110,6 +112,6 @@ class TelegramApprovalTest {
         fake.await { botMessages(ADA).singleOrNull()?.takeIf { it.buttons.isNotEmpty() } }
 
     private companion object {
-        const val FOLDED = "expandable_blockquote"
+        const val CODE = "pre"
     }
 }

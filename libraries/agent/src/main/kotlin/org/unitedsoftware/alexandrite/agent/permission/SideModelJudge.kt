@@ -156,6 +156,14 @@ private fun shown(call: CheckedCall): ShownCall {
             lines += "Working directory: ${field(preview.cwd.toString())}"
             lines += "Program: ${preview.executable?.let { field(it.toString()) } ?: "not found"}"
             lines += if (preview.opaque) "Opaque: yes" else "Opaque: no"
+            val contained = call.review.contained
+            lines += contained?.let { "Runs in: the ${field(it.environment)} sandbox" }
+                ?: "Runs in: no sandbox, on the host with the operator's full rights"
+            if (!contained?.hosts.isNullOrEmpty()) {
+                lines += "Asks to reach: ${contained.hosts.joinToString { field(it) }}"
+            }
+            if (call.review.background) lines += "Starts as a background job"
+            preview.monitor?.let { lines += "Monitors its output lines matching: ${field(it)}" }
             if (preview.segments.isNotEmpty()) {
                 lines += "Alexandrite runs these steps itself, as plain programs, in place of the command line:"
                 for ((index, segment) in preview.segments.withIndex()) lines += step(index, segment, ::field)
@@ -216,7 +224,10 @@ private fun prompt(words: List<String>, tasks: List<Pair<String, String>>, taint
             append("which agents wrote, not the operator:\n")
             for ((label, task) in tasks) append(label).append(":\n<<<\n").append(task).append("\n>>>\n")
         }
-        if (taint != null) append("\nThe conversation took in untrusted content: ").append(taint).append('\n')
+        if (taint != null) {
+            append("\nThe conversation took in untrusted content. Where it came from, as Alexandrite noted it;\n")
+            append("the note may hold text that the untrusted content chose:\n<<<\n").append(taint).append("\n>>>\n")
+        }
         append("\nThe call:\n")
         for (line in shown.lines) append(line).append('\n')
         append(shown.body.trimEnd('\n').split('\n').joinToString("\n") { "| $it" })
@@ -243,10 +254,7 @@ private fun read(reply: String): Ruling {
             Ruling(Verdict.Deny(why), why)
         }
 
-        "ask" -> {
-            val why = reason?.let { "the judge is unsure: $it" } ?: "the judge is unsure"
-            Ruling(Verdict.Ask(why), why, modelAsked = true)
-        }
+        "ask" -> Ruling(Verdict.Ask(UNSURE, reason), reason?.let { "$UNSURE: $it" } ?: UNSURE, modelAsked = true)
 
         else -> Ruling.own("the judge gave no known verdict")
     }
@@ -277,6 +285,8 @@ private fun sentence(reason: String): String? {
 }
 
 private const val SOURCE = "permission-judge"
+
+private const val UNSURE = "the judge is unsure"
 
 private const val UNREAD_TAINT = "its mark could not be read, so it counts as tainted"
 

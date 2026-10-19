@@ -82,6 +82,7 @@ class ChainRulesTest {
             directory,
             clock,
             NotContained,
+            NoInstructionPlaces,
         )
 
         /** How the gate decided [review] on an operator's turn, tainted when [tainted]: run, rule, judge, ask or refused. */
@@ -278,7 +279,7 @@ class ChainRulesTest {
     private class Offering(private val rules: CallRules) : Approvals {
         val offered = CopyOnWriteArrayList<List<String>>()
 
-        override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
             rules.grantable(call).takeIf { it.isNotEmpty() }?.let { subjects -> offered += subjects.map { it.display } }
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

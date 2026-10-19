@@ -86,6 +86,7 @@ class CallRulesTest {
                     Proceeding,
                 ),
                 registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock, NotContained,
+                NoInstructionPlaces,
             )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */
@@ -133,22 +134,29 @@ class CallRulesTest {
     }
 
     /** [tool]'s call in [turn], reviewed as [review], as the gate checks it. */
-    private fun checked(turn: TurnInfo, tool: ScriptedTool, review: CallReview, risk: ToolRisk = tool.risk) =
-        CheckedCall(
-            GateCall(
-                turn,
-                ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}"),
-                tool,
-                JsonObject(emptyMap()),
-                5.seconds,
-                TurnTaint(turn.id, turn.key),
-                testToolContext(turn),
-                DirectCalls,
-            ),
-            review,
-            risk,
-            null,
-        )
+    private fun checked(
+        turn: TurnInfo,
+        tool: ScriptedTool,
+        review: CallReview,
+        risk: ToolRisk = tool.risk,
+        tainted: Boolean = false,
+        instruction: String? = null,
+    ) = CheckedCall(
+        GateCall(
+            turn,
+            ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}"),
+            tool,
+            JsonObject(emptyMap()),
+            5.seconds,
+            TurnTaint(turn.id, turn.key).apply { if (tainted) note("a pasted page") },
+            testToolContext(turn),
+            DirectCalls,
+        ),
+        review,
+        risk,
+        null,
+        instruction = instruction,
+    )
 
     // Deny rules.
 
@@ -292,6 +300,23 @@ class CallRulesTest {
         ).also { setMode(PermissionMode.MANUAL) } + listOf(rules.grantable(checked(operator(), exec, review)))
 
         assertEquals(listOf(listOf(subject)) + List(5) { emptyList() }, offered)
+    }
+
+    @Test
+    fun `nothing is offered for good in a tainted conversation or for a write of an instruction place`() = runTest {
+        val rules = Setup("""{"allow": ["command.exec(make)"]}""").rules
+        val review = run("make", "test")
+
+        val offered = listOf(
+            rules.grantable(checked(operator(), exec, review, tainted = true)),
+            rules.grantable(checked(operator(), exec, review, instruction = "a trusted folder's instruction file")),
+        )
+
+        assertEquals(List(2) { emptyList() }, offered)
+        val allowed = listOf(null, "a skill directory").map {
+            rules.allowed(checked(operator(), exec, review, instruction = it))
+        }
+        assertEquals(listOf(true, false), allowed)
     }
 
     // Session rules.
@@ -488,7 +513,7 @@ class CallRulesTest {
     private class OfferingApprovals(private val rules: CallRules) : Approvals {
         val offered = mutableListOf<RuleSubject?>()
 
-        override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?): GateResult {
             offered += rules.grantable(call).firstOrNull()
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

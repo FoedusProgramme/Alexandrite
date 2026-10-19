@@ -81,7 +81,8 @@ class TelegramCodingTest {
         val diff = "--- $greeter\n+++ $greeter\n$HUNK"
         assertTrue(edit.text.endsWith("Tool: fs.edit (workspace_write)\nFile: $greeter\n\n$diff"), edit.text)
         assertEquals(listOf(listOf("Allow", "Deny")), edit.buttons.map { row -> row.map { it.text } })
-        val command = "Tool: command.exec (exec)\nDirectory: $repository\nProgram: $check\n\n./check.sh"
+        val command = "Tool: command.exec (exec)\nDirectory: $repository\nProgram: $check\n" +
+            "Sandbox: none, the program runs on the host with your full rights\n\n./check.sh"
         assertTrue(exec.text.endsWith(command), exec.text)
         assertEquals(listOf("Allow", "Deny"), exec.buttons.first().map { it.text })
         assertEquals(

@@ -11,6 +11,8 @@ import org.unitedsoftware.alexandrite.agent.permission.AgentFloor
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
 import org.unitedsoftware.alexandrite.agent.permission.Containment
 import org.unitedsoftware.alexandrite.agent.permission.Containments
+import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_NAMES
+import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.alexandritePlaces
 import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.project.FolderTrust
@@ -67,6 +69,7 @@ internal class Sandboxes(
     private val trust: FolderTrust,
     private val floor: AgentFloor,
     private val rules: CallRules,
+    private val instructions: InstructionPlaces,
 ) : Containments,
     CallSandboxes {
     private val canonicalizer = PathCanonicalizer()
@@ -89,7 +92,14 @@ internal class Sandboxes(
         val variables = command?.segments.orEmpty().any { it.environment.isNotEmpty() }
         val allowed = allowed(turn, configured)
         val hosts = contained.hosts.mapNotNull(HostPattern::parse).filter { host -> allowed.none { it.covers(host) } }
-        return Containment(configured.config.autoAllow && !variables, hosts.map { it.toString() }.distinct())
+        val directories = listOfNotNull(command?.cwd) + command?.segments.orEmpty().map { it.cwd }
+        val trusted = directories.isNotEmpty() && directories.all { trust.covering(real(it)) != null }
+        return Containment(
+            configured.config.autoAllow && !variables,
+            hosts.map { it.toString() }.distinct(),
+            network = allowed.isNotEmpty() || contained.hosts.isNotEmpty(),
+            trustedFolder = trusted,
+        )
     }
 
     /** The hosts that commands of [turn] may reach: the configured ones and those its session allows. */
@@ -137,11 +147,13 @@ internal class Sandboxes(
             val trusted = directories.mapNotNull { trust.covering(real(it))?.path }
             val (denied, asked) = floor.sandboxPlaces()
             val closed = if (allowed) emptyList() else asked
+            val steering = if (allowed) emptyList() else instructions.sandboxPaths()
+            val names = if (allowed) emptyList() else INSTRUCTION_NAMES
             return Boundary(
                 writable = (listOfNotNull(workspace, conversation) + trusted + temporary() + configured.allowWrite)
                     .map(::real).distinct(),
-                writeDenied = (configured.protectedPaths + closed).map(::real).distinct(),
-                protectedNames = configured.protectedNames,
+                writeDenied = (configured.protectedPaths + closed + steering).map(::real).distinct(),
+                protectedNames = (configured.protectedNames + names).distinct(),
                 readDenied = (denied + closed + configured.denyRead).map(::real).distinct(),
                 readable = (listOfNotNull(workspace, conversation) + places.skillDirectories(agent)).map(::real)
                     .distinct(),

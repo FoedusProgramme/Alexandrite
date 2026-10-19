@@ -21,7 +21,7 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Finds the paths a tool call reached outside the trusted folders, the agent's workspace, its persona directory and
- * the turn's own conversation directory.
+ * the turn's own conversation directory, and those that a tainted conversation wrote.
  */
 @Singleton
 internal class ReadTaint(
@@ -30,6 +30,7 @@ internal class ReadTaint(
     private val workspaces: Workspaces,
     private val places: AgentPlaces,
     private val directories: ConversationDirectories,
+    private val ledger: TaintLedger,
 ) {
     /** Why the paths that a call of [tool] in [turn] [touched] taint its conversation, null when each lies in a trusted place. */
     suspend fun reason(turn: TurnInfo, tool: String, touched: List<Path>): String? {
@@ -63,10 +64,12 @@ internal class ReadTaint(
             is FloorCheck.Ask -> check.canonical
             is FloorCheck.Denied -> return "a protected place (${check.reason})"
         }
-        if (own.any(canonical::startsWith)) return null
         val folder = if (Files.isDirectory(canonical)) canonical else canonical.parent ?: canonical
-        if (trust.covering(folder) != null) return null
-        return "$folder, a folder that is not trusted"
+        val trusted = own.any(canonical::startsWith) || trust.covering(folder) != null
+        if (!trusted) return "$folder, a folder that is not trusted"
+        return ledger.reason(canonical)?.let {
+            "$canonical, written by a conversation that had taken in untrusted content"
+        }
     }
 }
 
