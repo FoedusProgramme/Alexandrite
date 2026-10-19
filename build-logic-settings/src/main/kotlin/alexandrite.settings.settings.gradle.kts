@@ -2,8 +2,8 @@
 // (AlexandriteLayout.kt).
 // Fails when a build file sits at no location or a slot holds none.
 
-import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
-import org.foedusprogramme.alexandrite.buildlogic.BuildFileScan
+import org.unitedsoftware.alexandrite.buildlogic.AlexandriteLayout
+import org.unitedsoftware.alexandrite.buildlogic.BuildFileScan
 
 val buildFileDirectories = providers.of(BuildFileScan::class.java) {
     parameters.rootDirectory.set(settingsDir)

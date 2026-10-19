@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
     implementation(project(":libraries:plugin-sdk"))
+    implementation(project(":libraries:internal"))
     implementation(project(":libraries:automation-common"))
 
     testImplementation(project(":libraries:testkit"))
@@ -14,6 +15,6 @@ dependencies {
 
 kotlin {
     compilerOptions {
-        optIn.add("org.foedusprogramme.alexandrite.automation.common.InternalAutomationApi")
+        optIn.add("org.unitedsoftware.alexandrite.automation.common.InternalAutomationApi")
     }
 }

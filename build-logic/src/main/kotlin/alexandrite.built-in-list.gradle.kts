@@ -1,8 +1,8 @@
-import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
-import org.foedusprogramme.alexandrite.buildlogic.BuildFileScan
-import org.foedusprogramme.alexandrite.buildlogic.BuiltInList
-import org.foedusprogramme.alexandrite.buildlogic.GenerateBuiltInList
-import org.foedusprogramme.alexandrite.buildlogic.Layer
+import org.unitedsoftware.alexandrite.buildlogic.AlexandriteLayout
+import org.unitedsoftware.alexandrite.buildlogic.BuildFileScan
+import org.unitedsoftware.alexandrite.buildlogic.BuiltInList
+import org.unitedsoftware.alexandrite.buildlogic.GenerateBuiltInList
+import org.unitedsoftware.alexandrite.buildlogic.Layer
 
 plugins {
     kotlin("jvm")

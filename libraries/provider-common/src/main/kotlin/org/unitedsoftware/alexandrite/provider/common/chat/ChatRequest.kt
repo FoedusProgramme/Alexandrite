@@ -1,0 +1,294 @@
+package org.unitedsoftware.alexandrite.provider.common.chat
+
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.provider.common.callText
+import org.unitedsoftware.alexandrite.provider.common.resultHeading
+import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
+import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
+import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
+import org.unitedsoftware.alexandrite.sdk.transcript.Part
+import org.unitedsoftware.alexandrite.sdk.transcript.ReasoningPart
+import org.unitedsoftware.alexandrite.sdk.transcript.SummaryEntry
+import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
+import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
+import java.util.Base64
+
+/**
+ * The Chat Completions body of [request] to [info]'s model, whose turn context goes after every persisted message: into
+ * the last user message, or into a user message of its own.
+ */
+internal class ChatRequest(
+    private val request: ModelRequest,
+    private val info: ModelInfo,
+    private val flavor: ChatFlavor,
+    private val sendCacheKey: Boolean,
+) {
+    /** What the request asks for that the body leaves out. */
+    val warnings: MutableList<Warning> = mutableListOf()
+
+    private val messages = mutableListOf<Message>()
+
+    private val offersTools = request.tools.isNotEmpty()
+
+    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
+
+    private val called = request.history.filterIsInstance<AssistantEntry>()
+        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+
+    val body: JsonObject = build()
+
+    private fun build(): JsonObject {
+        val system = request.instructions.joinToString(SEPARATOR) { it.text }
+        if (system.isNotEmpty()) {
+            messages += Message.Plain(
+                buildJsonObject {
+                    put("role", "system")
+                    put("content", system)
+                },
+            )
+        }
+        for (entry in request.history) {
+            when (entry) {
+                is UserEntry -> user(entry.parts.flatMap(::content))
+
+                is SummaryEntry -> user(listOf(Content.Text(entry.text)))
+
+                is AssistantEntry -> messages += Message.Plain(assistant(entry))
+
+                is ToolResultEntry -> if (offersTools && entry.callId in called) {
+                    messages += Message.Plain(tool(entry))
+                } else {
+                    user(resultText(entry))
+                }
+            }
+        }
+        if (request.turnContext.isNotEmpty()) {
+            user(listOf(Content.Text(request.turnContext.joinToString(SEPARATOR) { it.text })))
+        }
+        return buildJsonObject {
+            put("model", request.model.model)
+            put("messages", JsonArray(messages.map(Message::json)))
+            tools()
+            options()
+            put("stream", true)
+            putJsonObject("stream_options") { put("include_usage", true) }
+            request.cacheKey?.takeIf { sendCacheKey }?.let { flavor.caching.key(it, this) }
+        }
+    }
+
+    private fun JsonObjectBuilder.tools() {
+        if (request.tools.isEmpty()) return
+        putJsonArray("tools") {
+            for (tool in request.tools) {
+                addJsonObject {
+                    put("type", "function")
+                    putJsonObject("function") {
+                        put("name", flavor.tools.wireName(tool.name))
+                        put("description", tool.description)
+                        put("parameters", tool.parameters)
+                    }
+                }
+            }
+        }
+        flavor.tools.toolChoice(request, this)?.let(warnings::add)
+        val parallel = request.options.parallelToolCalls ?: return
+        when {
+            parallel && !info.parallelToolCalls ->
+                warnings += Warning("unsupported_option", "Model '${info.id}' calls no tools in parallel.")
+
+            flavor.tools.acceptsParallelToolCalls -> put("parallel_tool_calls", parallel)
+
+            !parallel -> warnings += Warning(
+                "unsupported_option",
+                "The backend of model '${info.id}' cannot keep it from calling tools in parallel.",
+            )
+        }
+    }
+
+    private fun JsonObjectBuilder.options() {
+        val options = request.options
+        options.maxOutputTokens?.let { put("max_tokens", it) }
+        options.temperature?.let { put("temperature", it) }
+        options.topP?.let { put("top_p", it) }
+        if (options.stopSequences.isNotEmpty()) {
+            putJsonArray("stop") { options.stopSequences.forEach { add(JsonPrimitive(it)) } }
+        }
+        val effort = options.reasoning
+        if (effort == null) {
+            flavor.reasoning.requestNoEffort(info, this)
+        } else {
+            flavor.reasoning.request(effort, info, this)?.let(warnings::add)
+        }
+    }
+
+    private fun user(contents: List<Content>) {
+        if (contents.isEmpty()) return
+        val last = messages.lastOrNull()
+        if (last is Message.User) last.contents += contents else messages += Message.User(contents.toMutableList())
+    }
+
+    private fun content(part: Part): List<Content> = when (part) {
+        is TextPart -> listOf(Content.Text(part.text))
+        is ContextPart -> listOf(Content.Text(part.text))
+        is MediaPart -> listOf(media(part))
+        else -> emptyList()
+    }
+
+    private fun media(part: MediaPart): Content {
+        val source = part.source
+        if (part.kind == MediaKind.IMAGE && MediaKind.IMAGE in info.inputMedia && source is InlineMedia) {
+            val bytes = source.bytes()
+            val type = imageType(part.mediaType, bytes)
+            if (type != null) {
+                return Content.Image("data:$type;base64," + Base64.getEncoder().encodeToString(bytes))
+            }
+            // A channel that can only name the kind of what it holds leaves the format to the bytes. Sending the kind
+            // as the type is refused for the whole request rather than for this part, which fails every turn that
+            // carries it, so what no format is read as is left out and said to be.
+            warnings += Warning(
+                "unsupported_media",
+                "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}: no image of a known format.",
+            )
+            return Content.Text(placeholder(part, "it is in no format the model takes"))
+        }
+        warnings += Warning("unsupported_media", "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
+        return Content.Text(placeholder(part, "the model cannot take it"))
+    }
+
+    // The type to send the bytes as: what the channel declared where it names a format, and where it names only the
+    // kind, the format the bytes themselves are, or null when they are no image the models take.
+    private fun imageType(declared: String, bytes: ByteArray): String? {
+        if (!declared.endsWith("/*")) return declared
+        return when {
+            bytes.startsWith(PNG) -> "image/png"
+            bytes.startsWith(JPEG) -> "image/jpeg"
+            bytes.startsWith(GIF) -> "image/gif"
+            bytes.startsWith(RIFF) && bytes.size > 12 && bytes.copyOfRange(8, 12).contentEquals(WEBP) -> "image/webp"
+            else -> null
+        }
+    }
+
+    // Whether these bytes begin with those, which is how a format is read from an image.
+    private fun ByteArray.startsWith(prefix: ByteArray): Boolean =
+        size >= prefix.size && prefix.indices.all { this[it] == prefix[it] }
+
+    private fun assistant(entry: AssistantEntry): JsonObject = buildJsonObject {
+        put("role", "assistant")
+        val parts = entry.parts
+        val (calls, unsent) = parts.filterIsInstance<ToolCallPart>().partition { offersTools && it.id in answered }
+        val texts = parts.filterIsInstance<TextPart>().map { it.text }
+        put("content", (texts + unsent.map { callText(it, flavor.tools.wireName(it.name)) }).joinToString(SEPARATOR))
+        flavor.reasoning.replay(parts.filterIsInstance<ReasoningPart>(), request, this)
+        if (calls.isEmpty()) return@buildJsonObject
+        putJsonArray("tool_calls") {
+            for (call in calls) {
+                addJsonObject {
+                    put("id", flavor.tools.wireCallId(call.id))
+                    put("type", "function")
+                    putJsonObject("function") {
+                        put("name", flavor.tools.wireName(call.name))
+                        put("arguments", call.arguments.ifEmpty { "{}" })
+                    }
+                    call.providerData.entries[flavor.dialect]?.let { flavor.tools.writeCall(call, it, this) }
+                }
+            }
+        }
+    }
+
+    private fun tool(entry: ToolResultEntry): JsonObject = buildJsonObject {
+        put("role", "tool")
+        put("tool_call_id", flavor.tools.wireCallId(entry.callId))
+        put("content", resultContent(entry))
+    }
+
+    /** What stands for the result [entry] in a request that offers no tools. */
+    private fun resultText(entry: ToolResultEntry): List<Content> {
+        val heading = resultHeading(flavor.tools.wireName(entry.toolName), entry.outcome.isError)
+        val content = resultContent(entry)
+        return listOf(Content.Text(if (content.isEmpty()) heading else "$heading\n$content"))
+    }
+
+    private fun resultContent(entry: ToolResultEntry): String = entry.content.mapNotNull { part ->
+        when (part) {
+            is TextPart -> part.text
+            is MediaPart -> placeholder(part, "a tool result carries text only")
+            else -> null
+        }
+    }.joinToString(SEPARATOR)
+
+    private fun placeholder(part: MediaPart, why: String): String =
+        "[${part.kind} ${part.name ?: part.mediaType} not shown: $why]"
+
+    private sealed interface Content {
+        class Text(val text: String) : Content
+
+        class Image(val url: String) : Content
+    }
+
+    private sealed interface Message {
+        fun json(): JsonElement
+
+        class Plain(val json: JsonObject) : Message {
+            override fun json(): JsonElement = json
+        }
+
+        /** A user message, which takes the contents of every user entry that follows it directly. */
+        class User(val contents: MutableList<Content>) : Message {
+            override fun json(): JsonElement = buildJsonObject {
+                put("role", "user")
+                if (contents.all { it is Content.Text }) {
+                    put("content", contents.joinToString(SEPARATOR) { (it as Content.Text).text })
+                } else {
+                    put(
+                        "content",
+                        buildJsonArray {
+                            for (content in contents) {
+                                addJsonObject {
+                                    when (content) {
+                                        is Content.Text -> {
+                                            put("type", "text")
+                                            put("text", content.text)
+                                        }
+
+                                        is Content.Image -> {
+                                            put("type", "image_url")
+                                            putJsonObject("image_url") { put("url", content.url) }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    private companion object {
+        const val SEPARATOR = "\n\n"
+
+        // The bytes an image of each format begins with, which say what a channel that named only the kind holds.
+        val PNG: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val JPEG: ByteArray = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
+        val GIF: ByteArray = "GIF8".toByteArray()
+        val RIFF: ByteArray = "RIFF".toByteArray()
+        val WEBP: ByteArray = "WEBP".toByteArray()
+    }
+}

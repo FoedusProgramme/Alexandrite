@@ -1,4 +1,4 @@
-import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
+import org.unitedsoftware.alexandrite.buildlogic.AlexandriteLayout
 
 plugins {
     id("com.google.devtools.ksp")

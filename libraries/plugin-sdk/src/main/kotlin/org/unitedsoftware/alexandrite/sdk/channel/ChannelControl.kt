@@ -1,0 +1,42 @@
+package org.unitedsoftware.alexandrite.sdk.channel
+
+import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
+import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
+
+/** Stops channel instances while the runtime runs on. */
+@HostApi
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface ChannelControl {
+    /** The state of [instance], null when it is not configured. */
+    public fun state(instance: ChannelInstanceId): InstanceState?
+
+    /** Closes, drains, stops and destroys [instance] alone, on behalf of [by], and returns whether it was open. */
+    public suspend fun stop(instance: ChannelInstanceId, by: ChatUser?): Boolean
+}
+
+/** Where a channel instance is in its life. */
+@JvmInline
+@Serializable
+public value class InstanceState internal constructor(public val id: String) {
+    override fun toString(): String = id
+
+    public companion object {
+        /** Created but not open yet. */
+        public val STARTING: InstanceState = InstanceState("starting")
+
+        public val OPEN: InstanceState = InstanceState("open")
+
+        public val STOPPING: InstanceState = InstanceState("stopping")
+
+        public val STOPPED: InstanceState = InstanceState("stopped")
+
+        /** The values this version knows. */
+        public val entries: List<InstanceState> = listOf(STARTING, OPEN, STOPPING, STOPPED)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): InstanceState = InstanceState(id)
+    }
+}

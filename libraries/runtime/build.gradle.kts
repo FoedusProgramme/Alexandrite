@@ -7,6 +7,7 @@ plugins {
 
 dependencies {
     api(project(":libraries:plugin-sdk"))
+    implementation(project(":libraries:internal"))
 
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.logback.classic)

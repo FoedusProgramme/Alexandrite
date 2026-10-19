@@ -1,5 +1,5 @@
-import org.foedusprogramme.alexandrite.buildlogic.AlexandriteLayout
-import org.foedusprogramme.alexandrite.buildlogic.Layer
+import org.unitedsoftware.alexandrite.buildlogic.AlexandriteLayout
+import org.unitedsoftware.alexandrite.buildlogic.Layer
 
 plugins {
     `java-library`
@@ -10,7 +10,7 @@ plugins {
 val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
 
 group = module.group
-version = "0.1.0-SNAPSHOT"
+version = providers.gradleProperty("alexandrite.version").getOrElse("0.1.0-SNAPSHOT")
 
 val libs = the<VersionCatalogsExtension>().named("libs")
 
@@ -43,7 +43,7 @@ if (module.layer !in AlexandriteLayout.THIRD_PARTY_LAYERS) {
     kotlin.target.compilations.configureEach {
         if (if (name == "test") testOptsIn else mainOptsIn) {
             compileTaskProvider.configure {
-                compilerOptions.optIn.add("org.foedusprogramme.alexandrite.sdk.InternalAlexandriteApi")
+                compilerOptions.optIn.add("org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi")
             }
         }
     }

@@ -1,0 +1,512 @@
+package org.unitedsoftware.alexandrite.agent.control
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
+import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.context.ContextControl
+import org.unitedsoftware.alexandrite.agent.delegation.DelegatedRuns
+import org.unitedsoftware.alexandrite.agent.delivery.Notices
+import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
+import org.unitedsoftware.alexandrite.agent.i18n.Refused
+import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
+import org.unitedsoftware.alexandrite.agent.job.Jobs
+import org.unitedsoftware.alexandrite.agent.model.Endpoints
+import org.unitedsoftware.alexandrite.agent.permission.CallRules
+import org.unitedsoftware.alexandrite.agent.permission.TrustRules
+import org.unitedsoftware.alexandrite.agent.profile.Profiles
+import org.unitedsoftware.alexandrite.agent.project.FolderTrust
+import org.unitedsoftware.alexandrite.agent.routing.ChatRouter
+import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
+import org.unitedsoftware.alexandrite.agent.routing.LinkGroup
+import org.unitedsoftware.alexandrite.agent.routing.Resolution
+import org.unitedsoftware.alexandrite.agent.usage.UsageSums
+import org.unitedsoftware.alexandrite.agent.who
+import org.unitedsoftware.alexandrite.agent.worker.AgentTurnInitiation
+import org.unitedsoftware.alexandrite.agent.worker.ChatIntakes
+import org.unitedsoftware.alexandrite.agent.worker.RunningControl
+import org.unitedsoftware.alexandrite.agent.worker.RunningTurn
+import org.unitedsoftware.alexandrite.agent.worker.TurnWorkers
+import org.unitedsoftware.alexandrite.agent.worker.WorkerJob
+import org.unitedsoftware.alexandrite.agent.worker.newTurnId
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.RunId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.di.Binds
+import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
+import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
+import org.unitedsoftware.alexandrite.sdk.store.Rotation
+import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
+import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentSummary
+import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLink
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinkGroup
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.unitedsoftware.alexandrite.sdk.turn.CompactionReport
+import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
+import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
+import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
+import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
+import org.unitedsoftware.alexandrite.sdk.turn.Revocation
+import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
+import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
+import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReport
+import java.nio.file.Path
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+
+/** The agent's control port and the chat settings it shows other plugins. */
+@Singleton
+@Binds(AgentControl::class, ChatSettings::class)
+internal class AgentControlImpl(
+    private val directory: AgentDirectory,
+    private val router: ChatRouter,
+    private val topology: ChatTopology,
+    private val states: SettingsStates,
+    private val workers: TurnWorkers,
+    private val background: Jobs,
+    private val intakes: ChatIntakes,
+    private val initiation: AgentTurnInitiation,
+    private val lanes: CommandLanes,
+    private val conversations: ConversationStore,
+    private val endpoints: Endpoints,
+    private val trust: FolderTrust,
+    private val rules: CallRules,
+    private val trusts: TrustRules,
+    private val seals: List<ConversationSeals>,
+    private val contexts: ContextControl,
+    private val hooks: TurnHooks,
+    private val notices: Notices,
+    private val profileCatalog: Profiles,
+    private val runs: DelegatedRuns,
+    private val clock: Clock,
+    private val usageSums: UsageSums,
+) : AgentControl,
+    ChatSettings {
+    override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
+        (workers.statuses(chat) + runs.statuses(chat) + lanes.statuses(chat)).sortedBy { it.queuedAt }
+
+    override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
+        val cancelled = workers.cancelRunning(chat, TurnCancelled(by))
+        if (cancelled) logger.info("The running turns from {} are cancelled by {}", chat, who(by))
+        val stopped = background.stopAll(chat, by)
+        return cancelled || stopped > 0
+    }
+
+    override fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean {
+        val cause = TurnCancelled(by)
+        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause) ||
+            runs.cancelTurn(turn, cause)
+        if (found) logger.info("Turn {} is cancelled by {}", turn, who(by))
+        return found
+    }
+
+    override fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean {
+        val backgroundStopped = background.stop(run, null, by, tree)
+        val runStopped = runs.cancel(run, tree, TurnCancelled(by))
+        if (!backgroundStopped && !runStopped) return false
+        logger.info("Run {}{} is cancelled by {}", run, if (tree) " and the runs below it" else "", who(by))
+        return true
+    }
+
+    override fun jobs(chat: ChatAddress): List<JobStatus> = background.list(chat)
+
+    override fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean = background.stop(job, chat, by)
+
+    override suspend fun newConversation(chat: ChatAddress, by: ChatUser?): ConversationId {
+        val key = refusing(null) { served(chat).key }
+        val command = currentCoroutineContext()[RunningCommand]?.turn
+        val rotation = onWorker(key, after = { sealed(key, chat, command, by, it) }) {
+            conversations.newConversation(key)
+        }
+        val successor = rotation.successor.id
+        logger.info("The conversation of {} is sealed by {}: {} follows", key, who(by), successor)
+        return successor
+    }
+
+    override suspend fun compact(chat: ChatAddress, focus: String?, by: ChatUser?): CompactionReport {
+        val key = refusing(null) { served(chat).key }
+        val report = refusing(key) { onWorker(key) { contexts.compact(key, chat, by, focus) } }
+        logger.info(
+            "The conversation of {} is compacted by {}: {} entries folded, about {} -> {} tokens",
+            key,
+            who(by),
+            report.folded,
+            report.tokensBefore,
+            report.tokensAfter,
+        )
+        return report
+    }
+
+    override suspend fun usage(chat: ChatAddress, everyAgent: Boolean): UsageReport =
+        usageSums.report(refusing(null) { served(chat).key.agent }, chat, everyAgent)
+
+    override suspend fun context(chat: ChatAddress): ContextStatus =
+        contexts.status(refusing(null) { served(chat).key })
+
+    override suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint? {
+        val key = refusing(null) { served(chat).key }
+        val cleared = onWorker(key) { conversations.clearTaint(conversations.current(key).id) }
+        if (cleared != null) {
+            logger.info(
+                "The taint of the conversation of {} (since {}: {}) is cleared by {}",
+                key,
+                cleared.at,
+                cleared.reason,
+                who(by),
+            )
+        }
+        return cleared
+    }
+
+    override fun agents(instance: ChannelInstanceId): List<AgentSummary> {
+        val default = directory.default(instance)?.id
+        return directory.attached(instance).map { agent ->
+            val grant = topology.homeGrant(agent.id, instance)
+            AgentSummary(
+                agent.id,
+                agent.name,
+                agent.config.description,
+                agent.id == default,
+                topology.home(agent.id, instance),
+                topology.configuredHome(agent.id, instance),
+                grant?.at,
+                grant?.by,
+            )
+        }
+    }
+
+    override suspend fun settings(chat: ChatAddress): ChatSettingsSnapshot = snapshot(refusing(null) { served(chat) })
+
+    override suspend fun profiles(): List<ProfileSummary> = profileCatalog.all()
+
+    override suspend fun updateSettings(
+        chat: ChatAddress,
+        update: ChatSettingsUpdate,
+        by: ChatUser?,
+    ): ChatSettingsSnapshot {
+        val current = refusing(null) { served(chat).key }
+        val changes = settingChanges(update)
+        val (agent, until) = refusing(current) {
+            val agent = agentAfter(chat, current.agent, update.agent)
+            checkModel(update.model)
+            checkReasoning(update.reasoning)
+            val until = bypassEnd(update, clock.instant())
+            if (changes.isNotEmpty()) checkWaiting(topology.key(agent, chat))
+            topology.changeHome(agent, chat, update.home, by)
+            agent to until
+        }
+        if (update.agent != SettingChange.Keep) {
+            states.selectAgent(chat, update.agent)
+            logger.info("Chat {} is switched to agent '{}' by {}", chat, agent, who(by))
+        }
+        if (update.mode != SettingChange.Keep) {
+            val key = topology.key(agent, chat)
+            states.changeMode(key, update.mode, until)
+            val set = (update.mode as? SettingChange.SetTo)?.value
+            val mode = when {
+                set == null -> "reset"
+                until == null -> "$set"
+                else -> "$set until $until"
+            }
+            logger.info("The permission mode of {} is changed by {}: {}", key, who(by), mode)
+        }
+        if (changes.isNotEmpty()) {
+            val key = topology.key(agent, chat)
+            onWorker(key) { states.update(key, update) }
+            logger.info("The settings of {} are changed by {}: {}", key, who(by), changes)
+        }
+        return settings(chat)
+    }
+
+    override suspend fun link(agent: AgentId, anchor: ChatAddress, member: ChatAddress, by: ChatUser?): ChatLinkGroup {
+        val group = refusing(topology.key(agent, member)) { topology.link(agent, anchor, member, by) }
+        logger.info("Agent '{}' links {} into the group of {} by {}", agent, member, group.anchor, who(by))
+        seal(AgentChatKey(agent, member), currentCoroutineContext()[RunningCommand]?.turn, by)
+        return view(agent, group)
+    }
+
+    override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation {
+        val revocation = refusing(topology.key(agent, member)) { topology.unlink(agent, member) }
+        when {
+            revocation.declared && revocation.removed ->
+                logger.info("Agent '{}' drops the link of {} by {}: the config still links it", agent, member, who(by))
+
+            revocation.removed -> logger.info("Agent '{}' unlinks {} by {}", agent, member, who(by))
+        }
+        return revocation
+    }
+
+    override fun links(agent: AgentId?): List<ChatLinkGroup> {
+        val agents = if (agent == null) directory.agents.map { it.id } else listOf(agent)
+        return agents.flatMap { id -> topology.groups(id).map { view(id, it) } }
+    }
+
+    override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = refusing(null) { trust.trust(folder, by) }
+
+    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation =
+        refusing(null) { trust.untrust(folder, by) }
+
+    override fun trustedFolders(): List<TrustedFolder> = trust.folders()
+
+    override suspend fun allowRules(chat: ChatAddress): List<AllowRule> {
+        val key = refusing(null) { served(chat).key }
+        return rules.inForce(key.agent, conversations.current(key).id)
+    }
+
+    override suspend fun revokeAllowRule(chat: ChatAddress, number: Int, by: ChatUser?): Revocation {
+        val key = refusing(null) { served(chat).key }
+        return rules.revoke(key.agent, conversations.current(key).id, number, by)
+    }
+
+    override suspend fun trustRules(chat: ChatAddress): List<TrustRule> {
+        val key = refusing(null) { served(chat).key }
+        return trusts.inForce(key.agent, conversations.current(key).id)
+    }
+
+    override suspend fun trust(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule {
+        val key = refusing(null) { served(chat).key }
+        return refusing(key) { trusts.grant(key.agent, conversations.current(key).id, rule, by) }
+    }
+
+    override suspend fun untrust(chat: ChatAddress, rule: String, by: ChatUser?): Revocation {
+        val key = refusing(null) { served(chat).key }
+        return trusts.revoke(key.agent, conversations.current(key).id, rule, by)
+    }
+
+    override fun endpoints(): List<EndpointId> = endpoints.ids.toList()
+
+    override suspend fun models(endpoint: EndpointId): List<ModelInfo> = refusing(null) {
+        if (endpoints.endpoint(endpoint) == null) throw Refused(TextKeys.UNKNOWN_ENDPOINT, "endpoint" to endpoint)
+        endpoints.models(endpoint)
+    }
+
+    override suspend fun language(chat: ChatAddress): LanguageTag? {
+        val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
+        return states.language(key) ?: directory.agent(key.agent)?.language
+    }
+
+    override suspend fun zone(chat: ChatAddress): ZoneId? {
+        val key = (router.resolve(chat) as? Resolution.Served)?.key ?: return null
+        return states.zone(key) ?: directory.agent(key.agent)?.zone
+    }
+
+    private suspend fun served(chat: ChatAddress): Resolution.Served =
+        router.resolve(chat) as? Resolution.Served ?: throw Refused(TextKeys.NO_AGENT, "chat" to chat)
+
+    /**
+     * What [block] returns, where a [Refused] change becomes a [ControlRefusedException] in the language of the chat at
+     * [key], or in the host's language when it is null.
+     */
+    private suspend fun <T> refusing(key: AgentChatKey?, block: suspend () -> T): T = try {
+        block()
+    } catch (e: Refused) {
+        val text = if (key == null) notices.text(e.key, *e.args) else notices.text(key, e.key, *e.args)
+        throw ControlRefusedException(text, e)
+    }
+
+    private suspend fun snapshot(served: Resolution.Served): ChatSettingsSnapshot {
+        val key = served.key
+        val chat = served.origin
+        val agent = directory.agent(key.agent)
+        val mode = states.mode(key, clock.instant())
+        return ChatSettingsSnapshot.builder(key.agent)
+            .model(states.model(key))
+            .reasoning(states.reasoning(key))
+            .language(states.language(key))
+            .home(topology.homeAgent(chat) == key.agent)
+            .agentSource(served.source)
+            .defaultModel(agent?.model)
+            .models(agent?.models.orEmpty())
+            .defaultReasoning(agent?.reasoning)
+            .defaultLanguage(agent?.language)
+            .mode(mode?.mode, mode?.until)
+            .defaultMode(agent?.mode)
+            .zone(states.zone(key))
+            .defaultZone(agent?.zone)
+            .build()
+    }
+
+    /** The agent that serves [chat], served by [current] now, once [change] is made. */
+    private suspend fun agentAfter(chat: ChatAddress, current: AgentId, change: SettingChange<AgentId>): AgentId =
+        when (change) {
+            is SettingChange.SetTo -> change.value.also { agent ->
+                if (directory.attached(chat.instance).none { it.id == agent }) {
+                    throw Refused(TextKeys.AGENT_NOT_ATTACHED, "agent" to agent, "instance" to chat.instance)
+                }
+            }
+
+            SettingChange.Reset -> {
+                val inherited = if (chat.thread == null) null else states.loadAgent(chat.parent).value
+                (router.resolveAs(chat, inherited) as? Resolution.Served)?.key?.agent
+                    ?: throw Refused(TextKeys.NO_AGENT, "chat" to chat)
+            }
+
+            else -> current
+        }
+
+    private suspend fun checkModel(change: SettingChange<ModelRef>) {
+        val model = (change as? SettingChange.SetTo)?.value ?: return
+        if (endpoints.endpoint(model.endpoint) == null) {
+            throw Refused(TextKeys.UNKNOWN_ENDPOINT, "endpoint" to model.endpoint)
+        }
+        val listed = listing(model, fresh = false)
+        if (listed == null || listed.any { it.id == model.model }) return
+        val relisted = listing(model, fresh = true)
+        if (relisted != null && relisted.none { it.id == model.model }) {
+            throw Refused(TextKeys.UNKNOWN_MODEL, "endpoint" to model.endpoint, "model" to model.model)
+        }
+    }
+
+    /** The models of the endpoint of [model], listed anew when [fresh], null when they cannot be listed in time. */
+    private suspend fun listing(model: ModelRef, fresh: Boolean): List<ModelInfo>? =
+        endpoints.modelsWithin(model.endpoint, "to check $model", fresh)
+
+    private fun checkReasoning(change: SettingChange<ReasoningEffort>) {
+        val effort = (change as? SettingChange.SetTo)?.value ?: return
+        if (effort !in ReasoningEffort.entries) {
+            val efforts = ReasoningEffort.entries.joinToString()
+            throw Refused(TextKeys.UNKNOWN_REASONING, "effort" to effort, "efforts" to efforts)
+        }
+    }
+
+    /** When the bypass that [update] sets at [now] ends, null when it sets none. */
+    private fun bypassEnd(update: ChatSettingsUpdate, now: Instant): Instant? {
+        val mode = (update.mode as? SettingChange.SetTo)?.value ?: return null
+        if (mode !in PermissionMode.entries) {
+            throw Refused(TextKeys.UNKNOWN_MODE, "mode" to mode, "modes" to PermissionMode.entries.joinToString())
+        }
+        if (mode != PermissionMode.BYPASS) return null
+        val until = update.modeUntil ?: return now + DEFAULT_BYPASS
+        if (!until.isAfter(now)) throw Refused(TextKeys.BYPASS_OVER, "until" to until)
+        return minOf(until, now + MAX_BYPASS)
+    }
+
+    /** [group] of [agent] as the control port shows it. */
+    private fun view(agent: AgentId, group: LinkGroup): ChatLinkGroup {
+        val links = group.members.mapNotNull { member ->
+            topology.linkGrant(agent, group, member)?.let { member to ChatLink(it.at, it.by) }
+        }
+        return ChatLinkGroup(agent, group.anchor, group.members, group.declared, links.toMap())
+    }
+
+    /** Seals the conversation at [key] once the turns queued there have ended. */
+    private fun seal(key: AgentChatKey, command: TurnInfo?, by: ChatUser?) {
+        val job = WorkerJob.Control { sealed(key, key.chat, command, by, conversations.newConversation(key)) }
+        try {
+            workers.control(key, job)
+        } catch (e: IllegalStateException) {
+            logger.warn("The conversation of {} is not sealed: {}", key, e.message)
+            return
+        }
+        job.done.invokeOnCompletion { error ->
+            if (error != null) logger.warn("The conversation of {} is not sealed: {}", key, error.toString())
+        }
+    }
+
+    /**
+     * Fires `conversation.sealed` for [rotation] at [key] with the turn of [command] when it ran at [key], else with a
+     * COMMAND turn of [by] in [chat].
+     */
+    private suspend fun sealed(
+        key: AgentChatKey,
+        chat: ChatAddress,
+        command: TurnInfo?,
+        by: ChatUser?,
+        rotation: Rotation,
+    ) {
+        val sealed = rotation.sealed?.id ?: return
+        for (seal in seals) seal.sealed(sealed)
+        val turn = command?.takeIf { it.key == key }
+            ?: TurnInfo.builder(newTurnId(clock.instant()), chat, sealed, TurnKind.COMMAND)
+                .actor(by)
+                .language(states.language(key) ?: directory.agent(key.agent)?.language)
+                .zone(states.effectiveZone(key, directory.agent(key.agent), clock))
+                .agent(key.agent)
+                .key(key)
+                .build()
+        hooks.conversationSealed(turn, sealed, rotation.successor.id)
+    }
+
+    /**
+     * Throws [IllegalStateException] where a change cannot wait for the worker of [key]: in a turn, in a change of
+     * [key] or a hook it fires, or once the agent stops.
+     */
+    private suspend fun checkWaiting(key: AgentChatKey) {
+        val context = currentCoroutineContext()
+        check(context[RunningTurn] == null) {
+            "A turn cannot wait for a change of a chat, which runs after the turns queued at the chat: make it " +
+                "outside the turn."
+        }
+        check(context[RunningControl]?.workerKey != key) {
+            "A change of a chat, or a hook it fires, cannot wait for another change of the chat, which runs after it."
+        }
+        check(workers.accepting) { "The agent is not running." }
+    }
+
+    /**
+     * What [effect] returns, run at [key] once the turns queued there before it have ended, before [after] runs with
+     * it there.
+     */
+    private suspend fun <T> onWorker(key: AgentChatKey, after: suspend (T) -> Unit = {}, effect: suspend () -> T): T {
+        checkWaiting(key)
+        val result = CompletableDeferred<T>()
+        val job = WorkerJob.Control {
+            val value = effect()
+            result.complete(value)
+            after(value)
+        }
+        workers.control(key, job)
+        val command = currentCoroutineContext()[RunningCommand]
+        try {
+            if (command == null) job.done.await() else command.waitingOnWorker { job.done.await() }
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            if (!result.isCompleted) throw IllegalStateException("The agent stopped before the change was made.", e)
+        } catch (e: Exception) {
+            if (!result.isCompleted) throw e
+            logger.warn("A change of {} is made, but what follows it failed: {}", key, e.toString())
+        }
+        return result.await()
+    }
+
+    private companion object {
+        val DEFAULT_BYPASS: Duration = Duration.ofHours(1)
+        val MAX_BYPASS: Duration = Duration.ofHours(24)
+    }
+}
+
+/** The changes of [update] to the settings kept per agent and chat, as a log shows them. */
+private fun settingChanges(update: ChatSettingsUpdate): String = listOf(
+    "model" to update.model,
+    "reasoning" to update.reasoning,
+    "language" to update.language,
+    "zone" to update.zone,
+)
+    .filter { it.second != SettingChange.Keep }
+    .joinToString { (name, change) -> "$name ${(change as? SettingChange.SetTo)?.value ?: "reset"}" }
+
+private val logger = LoggerFactory.getLogger(AgentControlImpl::class.java)

@@ -11,6 +11,6 @@ dependencies {
 
 kotlin {
     compilerOptions {
-        optIn.add("org.foedusprogramme.alexandrite.automation.common.InternalAutomationApi")
+        optIn.add("org.unitedsoftware.alexandrite.automation.common.InternalAutomationApi")
     }
 }

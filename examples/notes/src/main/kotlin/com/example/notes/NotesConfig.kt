@@ -1,7 +1,7 @@
 package com.example.notes
 
 import kotlinx.serialization.Serializable
-import org.foedusprogramme.alexandrite.sdk.config.ConfigSection
+import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 
 @ConfigSection
 @Serializable

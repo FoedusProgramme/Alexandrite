@@ -1,0 +1,85 @@
+package org.unitedsoftware.alexandrite.runtime.i18n
+
+import org.unitedsoftware.alexandrite.runtime.TextCatalog
+import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.i18n.Texts
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+
+/** Told about the text problems of plugins. */
+internal fun interface TextProblemListener {
+    fun onProblem(plugin: String, problem: String)
+}
+
+/**
+ * The [Texts] of [plugin]: for each language of the fallback, the [catalog]'s text, else the plugin's own resource
+ * read through [classLoader].
+ */
+internal class PluginTexts(
+    private val plugin: String,
+    private val classLoader: ClassLoader,
+    private val hostLanguage: LanguageTag,
+    private val listener: TextProblemListener,
+    private val catalog: () -> TextCatalog,
+) : Texts {
+    private val files = ConcurrentHashMap<String, Map<String, String>>()
+    private val reported = ConcurrentHashMap.newKeySet<List<String>>()
+
+    override fun text(key: String, language: LanguageTag?, vararg args: Pair<String, Any?>): String {
+        val catalog = catalog()
+        val tags = fallbacks(language, hostLanguage, catalog.languages(plugin).map { it.value })
+        val arguments = args.toMap()
+        for (tag in tags) {
+            val text = catalog.text(plugin, tag, key) ?: own(tag)[key] ?: continue
+            return PLACEHOLDER.replace(text) { match ->
+                val name = match.groupValues[1]
+                if (name in arguments) return@replace arguments[name].toString()
+                report(
+                    listOf(key, name),
+                    "got no argument {$name} for its text '$key' ($tag), which shows it as written",
+                )
+                match.value
+            }
+        }
+        report(listOf(key), "has no text '$key' in ${tags.joinToString()}; the key is shown instead")
+        return key
+    }
+
+    /** The plugin's own non-blank texts in [tag], empty when it has no file of it or the file cannot be read. */
+    fun own(tag: String): Map<String, String> = files.computeIfAbsent(tag) {
+        val path = textsPath(plugin, tag)
+        val url = classLoader.getResource(path) ?: return@computeIfAbsent emptyMap()
+        val texts = try {
+            readTexts(url)
+        } catch (e: IOException) {
+            report(listOf(path), "cannot read $path, whose texts count as absent: $e")
+            return@computeIfAbsent emptyMap()
+        }
+        val blank = texts.filterValues { it.isBlank() }.keys
+        blank.sorted().forEach { report(listOf(path, it), "has a blank text '$it' in $path, which counts as absent") }
+        texts - blank
+    }
+
+    private fun report(subject: List<String>, problem: String) {
+        if (reported.add(subject)) listener.onProblem(plugin, problem)
+    }
+}
+
+/**
+ * The tags of the files a text is looked up in, in order: [language] and its shorter tags, then, for a bare language
+ * such as `zh`, the tags of it among [regional] (the catalog's, such as `zh-CN`), then [host] and its shorter tags,
+ * then `en`.
+ */
+internal fun fallbacks(
+    language: LanguageTag?,
+    host: LanguageTag,
+    regional: Collection<String> = emptyList(),
+): List<String> {
+    val bare = language?.value?.takeUnless { '-' in it }
+    val regions = bare?.let { base -> regional.filter { it.startsWith("$base-") }.sorted() }.orEmpty()
+    return (language?.let(::withShorterTags).orEmpty() + regions + withShorterTags(host) + ENGLISH).distinct()
+}
+
+/** [tag], then the tags left by dropping its last subtag one at a time. */
+private fun withShorterTags(tag: LanguageTag): List<String> =
+    generateSequence(tag.value) { it.substringBeforeLast('-', "").ifEmpty { null } }.toList()
