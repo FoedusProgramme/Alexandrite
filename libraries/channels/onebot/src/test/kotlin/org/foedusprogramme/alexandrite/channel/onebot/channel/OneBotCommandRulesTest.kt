@@ -103,6 +103,11 @@ class OneBotCommandRulesTest {
         assertFalse(rules.mayRun(group, admin = false, "agent", withArguments = true))
         assertTrue(rules.mayRun(group, admin = true, "trust", withArguments = false))
         assertTrue(rules.mayRun(group, admin = false, "not_a_command", withArguments = true))
+        assertTrue(rules.mayRun(group, admin = false, "heartbeat", withArguments = false))
+        assertFalse(rules.mayRun(direct, admin = false, "schedule", withArguments = true))
+        assertTrue(rules.mayRun(direct, admin = false, "timezone", withArguments = true))
+        assertFalse(rules.mayRun(group, admin = false, "timezone", withArguments = true))
+        assertFalse(rules.mayRun(direct, admin = false, "home", withArguments = false))
     }
 
     /** The key of the refusal of [name] for a member, null when the member may run it. */
@@ -141,6 +146,13 @@ class OneBotCommandRulesTest {
             "new",
             "compact",
             "cancel",
+            "schedule",
+            "heartbeat",
+            "timezone",
+            "home",
+            "link",
+            "unlink",
+            "untaint",
         )
     }
 }

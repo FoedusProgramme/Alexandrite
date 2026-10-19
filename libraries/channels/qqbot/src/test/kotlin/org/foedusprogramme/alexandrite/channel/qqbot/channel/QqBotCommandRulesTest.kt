@@ -28,6 +28,11 @@ class QqBotCommandRulesTest {
         assertFalse(rules.mayRun(group, admin = false, "trust", withArguments = false))
         assertTrue(rules.mayRun(group, admin = true, "trust", withArguments = false))
         assertTrue(rules.mayRun(group, admin = false, "not_a_command", withArguments = true))
+        assertTrue(rules.mayRun(group, admin = false, "heartbeat", withArguments = false))
+        assertFalse(rules.mayRun(direct, admin = false, "schedule", withArguments = true))
+        assertTrue(rules.mayRun(direct, admin = false, "timezone", withArguments = true))
+        assertFalse(rules.mayRun(group, admin = false, "timezone", withArguments = true))
+        assertFalse(rules.mayRun(direct, admin = false, "home", withArguments = false))
     }
 
     private object Commands : CommandHandler {
@@ -38,6 +43,13 @@ class QqBotCommandRulesTest {
             "agent",
             "model",
             "trust",
+            "schedule",
+            "heartbeat",
+            "timezone",
+            "home",
+            "link",
+            "unlink",
+            "untaint",
         ).map { CommandSpec.builder(it, "a test command").build() }
 
         override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit

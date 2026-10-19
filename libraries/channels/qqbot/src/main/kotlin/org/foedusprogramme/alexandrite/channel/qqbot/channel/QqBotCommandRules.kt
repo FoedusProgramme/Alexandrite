@@ -89,6 +89,13 @@ internal class QqBotCommandRules(handlers: List<CommandHandler>, private val con
             "untrust" to QqBotCommandRule(QqBotWho.ADMIN),
             "allow" to QqBotCommandRule(QqBotWho.ADMIN),
             "streaming" to QqBotCommandRule(QqBotWho.ANYONE, QqBotWho.DIRECT),
+            "heartbeat" to QqBotCommandRule(QqBotWho.ANYONE),
+            "schedule" to QqBotCommandRule(QqBotWho.ANYONE, QqBotWho.ADMIN),
+            "timezone" to QqBotCommandRule(QqBotWho.ANYONE, QqBotWho.UNLINKED_DIRECT),
+            "home" to QqBotCommandRule(QqBotWho.ADMIN),
+            "link" to QqBotCommandRule(QqBotWho.ADMIN),
+            "unlink" to QqBotCommandRule(QqBotWho.ADMIN),
+            "untaint" to QqBotCommandRule(QqBotWho.ADMIN),
         )
 
         private val ADMIN_ONLY = QqBotCommandRule(QqBotWho.ADMIN)

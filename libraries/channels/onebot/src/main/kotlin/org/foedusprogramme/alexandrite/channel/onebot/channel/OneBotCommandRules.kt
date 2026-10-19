@@ -92,6 +92,13 @@ internal class OneBotCommandRules(handlers: List<CommandHandler>, private val co
             "untrust" to CommandRule(Who.ADMIN),
             "allow" to CommandRule(Who.ADMIN),
             "streaming" to CommandRule(Who.ANYONE, Who.DIRECT),
+            "heartbeat" to CommandRule(Who.ANYONE),
+            "schedule" to CommandRule(Who.ANYONE, Who.ADMIN),
+            "timezone" to CommandRule(Who.ANYONE, Who.UNLINKED_DIRECT),
+            "home" to CommandRule(Who.ADMIN),
+            "link" to CommandRule(Who.ADMIN),
+            "unlink" to CommandRule(Who.ADMIN),
+            "untaint" to CommandRule(Who.ADMIN),
         )
 
         private val ADMIN_ONLY = CommandRule(Who.ADMIN)
