@@ -13,6 +13,7 @@ import org.foedusprogramme.alexandrite.channel.qqbot.testing.testConfig
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -53,6 +54,17 @@ class QqBotGatewayTest {
             http.close()
             api.close()
         }
+    }
+
+    @Test
+    fun `a close code that ends the session is not resumed`() {
+        assertTrue(dropsSession(4006))
+        assertTrue(dropsSession(4007))
+        assertTrue(dropsSession(4900))
+        assertTrue(dropsSession(4913))
+        assertFalse(dropsSession(4008))
+        assertFalse(dropsSession(4009))
+        assertFalse(dropsSession(4914))
     }
 
     private companion object {

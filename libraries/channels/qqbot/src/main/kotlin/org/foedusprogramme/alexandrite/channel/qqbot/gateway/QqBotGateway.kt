@@ -57,6 +57,7 @@ internal class QqBotGateway(
     /** The frames the platform pushed, which the channel reads. */
     val frames: Flow<QqBotFrame> = incoming.receiveAsFlow()
 
+    @Volatile
     private var scope: CoroutineScope? = null
     private var loop: Job? = null
 
@@ -85,9 +86,13 @@ internal class QqBotGateway(
         val failure = try {
             withTimeout(config.connectTimeoutMillis * START_ATTEMPTS) { opened.await() }
         } catch (e: TimeoutCancellationException) {
+            onStop()
             IllegalStateException("The gateway did not become ready in time.", e)
         }
-        if (failure != null) throw failure
+        if (failure != null) {
+            onStop()
+            throw failure
+        }
     }
 
     override fun onStop() {
@@ -103,14 +108,24 @@ internal class QqBotGateway(
         while (scope != null) {
             val url = gatewayUrl()
             if (url == null) {
-                if (!opened.isCompleted) opened.complete(IllegalStateException("The platform named no gateway."))
-                return
+                if (!opened.isCompleted) {
+                    opened.complete(IllegalStateException("The platform named no gateway."))
+                    return
+                }
+                logger.warn("{}: the platform named no gateway; trying again", PLUGIN)
+                delay(config.reconnectIntervalMillis)
+                continue
             }
             val token = try {
                 tokens.token()
             } catch (e: Exception) {
-                if (!opened.isCompleted) opened.complete(e)
-                return
+                if (!opened.isCompleted) {
+                    opened.complete(e)
+                    return
+                }
+                logger.warn("{}: no token for the gateway: {}; trying again", PLUGIN, e.toString())
+                delay(config.reconnectIntervalMillis)
+                continue
             }
             val ended = CompletableDeferred<Unit>()
             val ready = CompletableDeferred<Throwable?>()
@@ -123,9 +138,11 @@ internal class QqBotGateway(
                     opened.complete(e)
                     return
                 }
+                logger.warn("{}: the gateway connection failed: {}; trying again", PLUGIN, e.toString())
                 null
             }
             if (connected != true) {
+                socket.close()
                 if (!opened.isCompleted) {
                     opened.complete(IllegalStateException("The gateway at $url did not answer."))
                     return
@@ -136,13 +153,17 @@ internal class QqBotGateway(
                 } catch (e: TimeoutCancellationException) {
                     IllegalStateException("The gateway at $url did not become ready in time.", e)
                 }
-                if (failure != null && !opened.isCompleted) {
-                    opened.complete(failure)
+                if (failure != null) {
                     socket.close()
-                    return
+                    if (!opened.isCompleted) {
+                        opened.complete(failure)
+                        return
+                    }
+                    logger.warn("{}: the gateway did not become ready: {}; trying again", PLUGIN, failure.message)
+                } else {
+                    if (!opened.isCompleted) opened.complete(null)
+                    ended.await()
                 }
-                if (!opened.isCompleted) opened.complete(null)
-                ended.await()
             }
             client = null
             if (scope == null) return
@@ -219,6 +240,7 @@ internal class QqBotGateway(
                 return false
             }
             val run = scope ?: return false
+            heartbeat?.cancel()
             heartbeat = run.launch {
                 while (true) {
                     delay(interval)
@@ -305,6 +327,10 @@ internal class QqBotGateway(
         override fun onClose(code: Int, reason: String, remote: Boolean) {
             heartbeat?.cancel()
             heartbeat = null
+            if (dropsSession(code)) {
+                sessionId = null
+                lastSeq = null
+            }
             if (!stopping.get()) logger.warn("{}: the gateway closed: {} {}", PLUGIN, code, reason)
             if (!ready.isCompleted) {
                 ready.complete(IllegalStateException("The gateway closed while starting: $code $reason"))
@@ -354,3 +380,6 @@ internal class QqBotGateway(
         val logger = LoggerFactory.getLogger(QqBotGateway::class.java)
     }
 }
+
+/** Whether the close code [code] means the session a reconnect would resume is gone. */
+internal fun dropsSession(code: Int): Boolean = code == 4006 || code == 4007 || code in 4900..4913
