@@ -9,6 +9,7 @@ import org.foedusprogramme.alexandrite.sdk.chat.RunId
 import org.foedusprogramme.alexandrite.sdk.chat.ToolCallId
 import org.foedusprogramme.alexandrite.sdk.i18n.Texts
 import org.foedusprogramme.alexandrite.sdk.tool.ToolActivity
+import kotlin.jvm.Synchronized
 
 /** The statuses a call has ended with, after which it is spoken of in the past tense. */
 internal val ENDED: Set<ToolCallStatus> =
@@ -88,6 +89,7 @@ internal class OneBotProgress(
      *
      * The call is returned when it is the first of its conversation, which is the one told at once, and null after.
      */
+    @Synchronized
     fun started(
         id: ToolCallId,
         activity: ToolActivity,
@@ -105,6 +107,7 @@ internal class OneBotProgress(
     }
 
     /** Notes that the call [id] ended with [status] and [content], and keeps it to be told. */
+    @Synchronized
     fun ended(
         id: ToolCallId,
         status: ToolCallStatus = ToolCallStatus.COMPLETED,
@@ -124,6 +127,7 @@ internal class OneBotProgress(
      * Nothing waits once the reply is over, so its last steps are told rather than kept for a window that will not
      * come.
      */
+    @Synchronized
     fun flush(): ProgressTally? {
         if (ended.isEmpty()) return null
         toldAt = now()
@@ -131,6 +135,7 @@ internal class OneBotProgress(
     }
 
     /** What waits to be told, when it is worth telling: null while nothing waits or the interval has not passed. */
+    @Synchronized
     fun take(): ProgressTally? {
         if (ended.isEmpty()) return null
         val told = toldAt
@@ -149,6 +154,7 @@ internal class OneBotProgress(
     }
 
     /** How many calls ended and wait to be told. */
+    @Synchronized
     fun counted(): Int = ended.size
 
     /**
@@ -157,6 +163,7 @@ internal class OneBotProgress(
      * Only the pacing of what is told is kept besides, so a conversation that holds nothing may be forgotten rather
      * than kept for as long as the channel runs.
      */
+    @Synchronized
     fun idle(): Boolean = calls.isEmpty() && ended.isEmpty()
 
     internal companion object {

@@ -131,6 +131,9 @@ internal class OneBotChannel(
         /** The sender working beside the turn, null until something waits to be said. */
         private var sender: Job? = null
 
+        /** Whether the reply has ended, after which no more activity is launched for it. */
+        private var closed = false
+
         override suspend fun preview(segment: Int, text: String) {
             if (!channel.config.streaming) return
             // The previews of a growing segment are frequent and are never sent, so only a reader of the debug log
@@ -196,24 +199,27 @@ internal class OneBotChannel(
          * turn does waits on a message about it.
          */
         private fun post(said: String) {
-            synchronized(lock) { waiting = said }
-            if (sender == null) {
-                sender = channel.instance.scope.launch(CoroutineName("onebot activity of ${request.turn.id}")) {
-                    while (true) {
-                        wake.receive()
+            synchronized(lock) {
+                if (closed) return
+                waiting = said
+                if (sender == null) {
+                    sender = channel.instance.scope.launch(CoroutineName("onebot activity of ${request.turn.id}")) {
                         while (true) {
-                            val next = synchronized(lock) { waiting?.also { waiting = null } } ?: break
-                            try {
-                                say(next)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                logger.warn(
-                                    "An activity of {} did not reach {}: {}",
-                                    request.turn.id,
-                                    request.turn.chat,
-                                    e.toString(),
-                                )
+                            wake.receive()
+                            while (true) {
+                                val next = synchronized(lock) { waiting?.also { waiting = null } } ?: break
+                                try {
+                                    say(next)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    logger.warn(
+                                        "An activity of {} did not reach {}: {}",
+                                        request.turn.id,
+                                        request.turn.chat,
+                                        e.toString(),
+                                    )
+                                }
                             }
                         }
                     }
@@ -224,12 +230,14 @@ internal class OneBotChannel(
 
         /** Sends what the sender holds, and stops it, so that nothing of it is still on its way. */
         private suspend fun settle() {
+            synchronized(lock) { closed = true }
             val last = synchronized(lock) { waiting?.also { waiting = null } }
-            sender?.let {
+            val current = synchronized(lock) { sender }
+            current?.let {
                 it.cancel()
                 it.join()
             }
-            sender = null
+            synchronized(lock) { sender = null }
             if (last != null) say(last)
         }
 
@@ -245,11 +253,14 @@ internal class OneBotChannel(
                 request.turn.chat,
                 progress.counted(),
             )
-            settle()
-            progress.flush()?.let { say(summaryMessage(it, channel.texts, request.turn.language)) }
-            channel.replies.close(request.turn.id)
-            channel.activities.forget(request.turn.chat)
-            return channel.sender.send(request.turn.chat, withTrigger(message))
+            try {
+                settle()
+                progress.flush()?.let { say(summaryMessage(it, channel.texts, request.turn.language)) }
+                return channel.sender.send(request.turn.chat, withTrigger(message))
+            } finally {
+                channel.replies.close(request.turn.id)
+                channel.activities.forget(request.turn.chat)
+            }
         }
 
         /** [message] as the answer to the message this turn answers, so the chat shows it as a quote reply. */
@@ -265,10 +276,13 @@ internal class OneBotChannel(
                 request.turn.chat,
                 progress.counted(),
             )
-            settle()
-            progress.flush()?.let { say(summaryMessage(it, channel.texts, request.turn.language)) }
-            channel.replies.close(request.turn.id)
-            channel.activities.forget(request.turn.chat)
+            try {
+                settle()
+                progress.flush()?.let { say(summaryMessage(it, channel.texts, request.turn.language)) }
+            } finally {
+                channel.replies.close(request.turn.id)
+                channel.activities.forget(request.turn.chat)
+            }
         }
     }
 }
