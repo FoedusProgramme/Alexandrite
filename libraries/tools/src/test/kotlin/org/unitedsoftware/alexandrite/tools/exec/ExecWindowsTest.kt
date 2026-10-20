@@ -11,11 +11,13 @@ import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -99,6 +101,20 @@ class ExecWindowsTest {
             review.refusal,
             "$review",
         )
+    }
+
+    @Test
+    fun `a script string passed to a Windows shell is no path to refuse, and the shell is opaque`() {
+        for (argv in listOf(
+            listOf("powershell", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
+            listOf("PowerShell", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
+            listOf("cmd", "/c", "dir C:\\work\\*.md"),
+        )) {
+            val review = review(*argv.toTypedArray())
+            assertNull(review.refusal, "$argv: ${review.refusal}")
+            assertNull(review.problem, "$argv: ${review.problem}")
+            assertTrue(assertIs<ReviewPreview.Command>(review.preview).opaque, "$argv")
+        }
     }
 
     @Test

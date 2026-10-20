@@ -112,11 +112,17 @@ private fun programNames(name: String): List<String> =
     if (POSIX_HOST) listOf(name) else listOf(name) + PROGRAM_EXTENSIONS.map { "$name$it" }
 
 /** Whether [program] (a base name) given [arguments] runs code that the floor cannot see. */
-internal fun isOpaque(program: String, arguments: List<String>): Boolean = when {
-    program in LAUNCHERS || program in AWKS -> true
-    program == "find" -> arguments.any { it in FIND_EXEC }
-    program == "deno" -> arguments.firstOrNull { !it.startsWith("-") } == "eval" || arguments.any(::isDenoEval)
-    else -> INTERPRETERS.firstOrNull { it.names.matches(program) }?.givesCode(arguments) == true
+internal fun isOpaque(program: String, arguments: List<String>): Boolean {
+    val names = if (POSIX_HOST) listOf(program) else listOf(program, program.lowercase(Locale.ROOT))
+    return names.any { name -> isOpaqueName(name, arguments) }
+}
+
+/** Whether the program called [name] runs code that the floor cannot see. */
+private fun isOpaqueName(name: String, arguments: List<String>): Boolean = when {
+    name in LAUNCHERS || name in WINDOWS_LAUNCHERS || name in AWKS -> true
+    name == "find" -> arguments.any { it in FIND_EXEC }
+    name == "deno" -> arguments.firstOrNull { !it.startsWith("-") } == "eval" || arguments.any(::isDenoEval)
+    else -> INTERPRETERS.firstOrNull { it.names.matches(name) }?.givesCode(arguments) == true
 }
 
 /** Whether [name] is a binary that acts as the program its argv[0] names. */
@@ -143,6 +149,11 @@ private val LAUNCHERS = setOf(
 )
 
 private val AWKS = setOf("awk", "gawk", "mawk", "nawk")
+
+/** The programs of a Windows host whose purpose is to run code given in their arguments. */
+private val WINDOWS_LAUNCHERS = setOf(
+    "cmd", "powershell", "pwsh", "cscript", "wscript", "mshta", "rundll32", "regsvr32", "wsl",
+)
 
 private val FIND_EXEC = setOf("-exec", "-execdir", "-ok", "-okdir")
 

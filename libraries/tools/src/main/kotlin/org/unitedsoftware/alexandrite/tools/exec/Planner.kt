@@ -218,7 +218,7 @@ internal class Planner(
         val executable = allowed(floor.checkRead(resolved, agent, conversation)) { "The program $name lies in $it" }
         val program = baseName(name)
         val arguments = argv.drop(1)
-        val real = executable.fileName.toString()
+        val real = baseName(executable.fileName.toString())
         val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
         val vetted = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
@@ -238,10 +238,10 @@ internal class Planner(
             }
         } else {
             for (candidate in parsed.operands) {
-                checkUnparsed(candidate, directory, glued = false)
-                for (piece in pathPieces(candidate)) checkUnparsed(piece, directory, glued = true)
+                checkUnparsed(candidate, directory, glued = false, opaque = opaque)
+                for (piece in pathPieces(candidate)) checkUnparsed(piece, directory, glued = true, opaque = opaque)
             }
-            for (candidate in gluedValues(argv)) checkUnparsed(candidate, directory, glued = true)
+            for (candidate in gluedValues(argv)) checkUnparsed(candidate, directory, glued = true, opaque = opaque)
         }
         return PlannedRun(
             argv = argv,
@@ -299,9 +299,12 @@ internal class Planner(
         return canonical
     }
 
-    /** Checks [candidate] as a tree, or as a plain write when it is a [glued] value naming the root. */
-    private fun checkUnparsed(candidate: String, directory: Path, glued: Boolean) {
-        val path = candidatePath(candidate, directory) ?: return
+    /**
+     * Checks [candidate] as a tree, or as a plain write when it is a [glued] value naming the root, where an [opaque]
+     * program runs, whose arguments are code that the floor cannot check anyway.
+     */
+    private fun checkUnparsed(candidate: String, directory: Path, glued: Boolean, opaque: Boolean) {
+        val path = candidatePath(candidate, directory, refuseUnnameable = !opaque) ?: return
         val root = glued && candidate.all { it == '/' }
         val check = if (root) {
             floor.checkWrite(
@@ -401,14 +404,15 @@ private val SCP_ADDRESS = Regex("^[^/\\\\:]+@[^/\\\\:]+:.+")
  * host at all, such as an address or a word that holds a character no file name of the host may hold.
  *
  * A word that names no place has nothing in it that the floor could check, as a shell script has not. A word that
- * does look like a path, and that the host cannot name, is refused instead: the floor cannot see through it.
+ * does look like a path, and that the host cannot name, is refused instead, unless [refuseUnnameable] is false: an
+ * opaque program runs code that the floor cannot see anyway, so its script text is no path to refuse.
  */
-private fun candidatePath(candidate: String, directory: Path): Path? {
+private fun candidatePath(candidate: String, directory: Path, refuseUnnameable: Boolean = true): Path? {
     if (isAddress(candidate)) return null
     return try {
         directory.resolve(expandHome(candidate)).normalize()
     } catch (e: InvalidPathException) {
-        if (!looksLikePath(candidate)) return null
+        if (!refuseUnnameable || !looksLikePath(candidate)) return null
         throw FloorRefusal(
             "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
         )
