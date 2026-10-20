@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class QqBotMenuSyncTest {
@@ -95,6 +96,78 @@ class QqBotMenuSyncTest {
         } finally {
             platform.close()
         }
+    }
+
+    @Test
+    fun `a menu the platform refuses as too long is published with the count it names`() = runBlocking {
+        val platform = Platform()
+        try {
+            var menus = 0
+            platform.server.on("/v2/menu") { _ ->
+                menus++
+                if (menus == 1) {
+                    PlatformAnswer(400, """{"code":40030013,"message":"超出数量限制","limit":5}""")
+                } else {
+                    PlatformAnswer(200, """{"version":1}""")
+                }
+            }
+            platform.server.on("/v2/panels") { request ->
+                if (request.method == "GET") {
+                    PlatformAnswer(200, """{"records":[],"next_cursor":"","is_end":true}""")
+                } else {
+                    PlatformAnswer(200, """{"panel_id":"p1"}""")
+                }
+            }
+            QqBotMenuSync(platform.api, platform.config, listOf(ManyCommands)).onOpen()
+
+            val calls = platform.server.calls("/v2/menu")
+            assertEquals(2, calls.size)
+            assertEquals(5, "\"type\":\"send_message\"".toRegex().findAll(calls[1].body).count(), calls[1].body)
+        } finally {
+            platform.close()
+        }
+    }
+
+    @Test
+    fun `a command panel the platform refuses as too long is published with the count it names`() = runBlocking {
+        val platform = Platform()
+        try {
+            val posts = mutableListOf<String>()
+            platform.server.on("/v2/panels") { request ->
+                if (request.method == "GET") {
+                    PlatformAnswer(200, """{"records":[],"next_cursor":"","is_end":true}""")
+                } else {
+                    posts += request.body
+                    if (posts.size % 2 == 1) {
+                        PlatformAnswer(400, """{"code":40030013,"message":"超出数量限制","limit":1}""")
+                    } else {
+                        PlatformAnswer(200, """{"panel_id":"p1"}""")
+                    }
+                }
+            }
+            platform.server.on("/v2/menu", """{"version":1}""")
+            QqBotMenuSync(platform.api, platform.config, listOf(Commands)).onOpen()
+
+            assertEquals(4, posts.size, posts.joinToString("\n"))
+            assertTrue("\"/model\"" in posts[0], posts[0])
+            assertTrue("\"/whoami\"" in posts[0], posts[0])
+            assertFalse("\"/whoami\"" in posts[1], posts[1])
+        } finally {
+            platform.close()
+        }
+    }
+
+    /** Twelve commands, so that the menu takes fewer than there are. */
+    private object ManyCommands : CommandHandler {
+        override val commands: List<CommandSpec> = (1..12).map { CommandSpec.builder("c$it", "Command $it").build() }
+
+        override fun description(
+            command: String,
+            language: org.unitedsoftware.alexandrite.sdk.chat.LanguageTag?,
+        ): String = commands.first { it.name == command }.description
+
+        override suspend fun handle(invocation: CommandInvocation, context: CommandContext) =
+            throw UnsupportedOperationException("not used")
     }
 
     private object Commands : CommandHandler {

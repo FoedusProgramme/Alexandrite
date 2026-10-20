@@ -144,6 +144,8 @@ internal class QqBotFailure(
     val message: String,
     /** The platform's id of the request, which it asks for in a support request. */
     val traceId: String?,
+    /** How many items the platform takes where it refused their number, null when it named none. */
+    val limit: Int? = null,
 )
 
 /** What a failed answer says, as the fields both kinds of answer use. */
@@ -152,7 +154,8 @@ internal fun failureOf(body: JsonElement?): QqBotFailure {
     val code = objectBody?.get("err_code")?.asIntOrNull() ?: objectBody?.get("code")?.asIntOrNull()
     val message = objectBody?.get("message")?.asTextOrNull().orEmpty()
     val trace = objectBody?.get("trace_id")?.asTextOrNull()
-    return QqBotFailure(code, message, trace)
+    val limit = objectBody?.get("limit")?.asIntOrNull()
+    return QqBotFailure(code, message, trace, limit)
 }
 
 /** The int value of the field, null when it is no number. */
