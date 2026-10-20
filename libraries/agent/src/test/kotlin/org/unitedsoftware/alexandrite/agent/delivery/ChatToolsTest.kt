@@ -8,7 +8,9 @@ import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
@@ -18,6 +20,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
+import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
+import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -131,6 +135,18 @@ class ChatToolsTest {
             assertEquals("Send to test:main:home:\n\nRead this.", asked)
             val sent = channel().sent.single()
             assertEquals(ChatAddress.parse("test:main:home") to false, sent.chat to sent.message.vouched)
+        }
+    }
+
+    @Test
+    fun `a heartbeat's message is vouched for when its prompt is trusted and its conversation clean`() {
+        model.reply { toolCall("chat.send", """{"to": "home", "text": "Meow."}""") }.reply { text("") }
+
+        harness().execute {
+            val turn = InitiatedTurn.heartbeat(AgentId("coder"), "Check in.").trust(Trust.TRUSTED).build()
+            assertIs<Admission.Accepted>(get<TurnInitiation>().initiate("beat", turn)).ticket.outcome()
+
+            assertTrue(channel().sent.single().message.vouched)
         }
     }
 

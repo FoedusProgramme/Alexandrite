@@ -526,13 +526,17 @@ internal class AgentTurnRunner(
         }
 
         /**
-         * Whether the agent vouches for [turn]'s reply: its actor is trusted, its conversation clean, and its message
+         * Whether the agent vouches for [turn]'s reply: its conversation is clean, and either a plugin started it with a
+         * trusted prompt, such as a heartbeat or an operator's scheduled task, or its actor is trusted and its message
          * brings in nothing that [markUntrusted] would mark.
          */
         private fun vouched(turn: TurnInfo): Boolean {
-            val message = plan.input.message
+            if (taint.tainted) return false
+            val input = plan.input
+            if (input is TurnSource.FromInitiated) return input.trust == Trust.TRUSTED
+            val message = input.message
             val actor = turn.actor ?: return false
-            return trust.isTrusted(turn.agent, actor) && !taint.tainted && message?.forwarded == null &&
+            return trust.isTrusted(turn.agent, actor) && message?.forwarded == null &&
                 message?.quote?.trust?.content != false
         }
 
