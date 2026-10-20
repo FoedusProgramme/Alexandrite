@@ -19,7 +19,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
@@ -57,7 +56,6 @@ internal class Budgets(
     private val unpriced = ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun onStart() {
-        for (agent in directory.agents) checkPrices(agent)
         val oldest = LocalDate.now(clock).minusDays(2)
         for (record in noticed.list()) {
             if (LocalDate.parse(record.value.ends) < oldest) noticed.remove(record.key)
@@ -198,27 +196,6 @@ internal class Budgets(
             notices.text(key, TextKeys.AMOUNT_TOKENS, "count" to value.toPlainString())
         }
 
-    /** Throws when [agent] has a budget in money and one of its models is listed without a price. */
-    private suspend fun checkPrices(agent: Agent) {
-        if (!agent.hasMoneyBudget()) return
-        val models = listOfNotNull(agent.model, agent.judgeModel, agent.summaryModel).distinct()
-        for (model in models) {
-            val listed = endpoints.modelsWithin(model.endpoint, "to check the prices of agent '${agent.id}'")
-            val info = listed?.firstOrNull { it.id == model.model }
-            if (info == null) {
-                logger.warn("Agent '{}' has a budget in money, but its model {} cannot be priced now", agent.id, model)
-                continue
-            }
-            if (info.price == null) {
-                throw ConfigException(
-                    "agent.agents.${agent.id}.budget",
-                    "a budget in money needs a price for every model, and $model has none: set " +
-                        "models.\"${model.model}\".price in the config of endpoint '${model.endpoint}', or budget tokens",
-                )
-            }
-        }
-    }
-
     private companion object {
         const val NOTICES = "usage.notices"
         const val FULL = 100
@@ -237,6 +214,7 @@ internal fun money(value: BigDecimal): String {
     return value.setScale(scale, RoundingMode.HALF_UP).toPlainString()
 }
 
-private fun Agent.hasMoneyBudget(): Boolean = config.budget.daily?.money != null || config.budget.monthly?.money != null
+internal fun Agent.hasMoneyBudget(): Boolean =
+    config.budget.daily?.money != null || config.budget.monthly?.money != null
 
 private val logger = LoggerFactory.getLogger(Budgets::class.java)

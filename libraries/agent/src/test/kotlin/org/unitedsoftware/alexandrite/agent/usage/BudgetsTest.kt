@@ -4,13 +4,12 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import org.unitedsoftware.alexandrite.agent.agentHarness
-import org.unitedsoftware.alexandrite.agent.assertStartFails
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.delegation.BUDGET_SPENT_RESULT
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
+import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.agent.startingInBackground
-import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -295,12 +294,20 @@ class BudgetsTest {
     // Money.
 
     @Test
-    fun `a budget in money fails the start when a model of the agent has no price`() {
-        harness(config("""{"monthly": {"money": 5}}""")).assertStartFails(
-            StartStage.START,
-            "Invalid config at 'agent.agents.coder.budget': a budget in money needs a price for every model, and " +
-                "scripted/test-model has none: set models.\"test-model\".price in the config of endpoint 'scripted', " +
-                "or budget tokens",
+    fun `a budget in money with a model that has no price starts with a warning`() {
+        val lines = logged { logs ->
+            harness(config("""{"monthly": {"money": 5}}""")).execute {
+                withTimeout(5_000) { while (logs.none { "no price" in it }) delay(5) }
+            }
+        }
+
+        assertEquals(
+            listOf(
+                "WARN Agent 'coder' has a budget in money, but its model scripted/test-model has no price, so its " +
+                    "calls count as nothing: set models.\"test-model\".price in the config of endpoint 'scripted', " +
+                    "or budget tokens",
+            ),
+            lines.filter { "no price" in it },
         )
     }
 

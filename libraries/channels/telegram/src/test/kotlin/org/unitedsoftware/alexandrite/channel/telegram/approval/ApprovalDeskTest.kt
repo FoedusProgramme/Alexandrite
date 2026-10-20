@@ -68,7 +68,7 @@ class ApprovalDeskTest {
     private val grace = user(GRACE, "Grace", admin = true)
     private val bob = user(BOB, "Bob", admin = false)
 
-    /** The desk of a bot whose admins are Ada, whose direct chat is paired, and Grace, whose is not. */
+    /** The desk of a bot whose admins are Ada and Grace, whose direct chats count as paired by that alone. */
     private inner class Desk(
         test: TestScope,
         admins: List<Long> = listOf(ADA, GRACE),
@@ -163,14 +163,15 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `a member's or a heartbeat's turn is asked about in each admin's paired direct chat`() = runTest {
+    fun `a member's or a heartbeat's turn is asked about in each admin's direct chat, paired or not`() = runTest {
         val desk = Desk(this)
 
         asking(desk, request(turnOf(bob, GROUP), id = "member"))
         asking(desk, request(testTurn(TurnKind.HEARTBEAT, ChatAddress(WORK, "$GROUP")), id = "beat"))
         advanceTimeBy(5.seconds)
 
-        assertEquals(listOf(ADA), desk.api.messages.keys.map { it.first }.distinct())
+        assertEquals(setOf(ADA, GRACE), desk.api.messages.keys.map { it.first }.toSet())
+        assertEquals(listOf("apv:member:a", "apv:beat:a"), callbacks(desk, GRACE).map { it.first() })
         assertEquals(listOf("apv:member:a", "apv:beat:a"), callbacks(desk, ADA).map { it.first() })
         val member = desk.shown(ADA).first()
         assertTrue("Requested by: Bob" in member, member)
@@ -192,8 +193,8 @@ class ApprovalDeskTest {
         }
 
     @Test
-    fun `a request that no admin can see is answered that no administrator can be reached`() = runTest {
-        val desk = Desk(this, admins = listOf(GRACE))
+    fun `a request of a bot without admins is answered that no administrator can be reached`() = runTest {
+        val desk = Desk(this, admins = emptyList())
 
         val answer = desk.desk.ask(request(turnOf(bob, BOB)))
 

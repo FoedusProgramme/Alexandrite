@@ -164,53 +164,14 @@ private suspend fun reviewed(
 }
 
 /** Why only a person may change [path] to [value] (null to remove it) in a [tainted] conversation, null if anyone may. */
-private suspend fun person(config: HostConfig, path: String, value: JsonElement?, tainted: Boolean): String? {
-    if (touchesFloor(config, path, value)) return FLOOR_CHANGE
-    if (!tainted) return null
-    val leaves = mutableListOf<List<String>>()
-    changedLeaves(path.split('.'), config.get(path), value, leaves)
-    val guarded = leaves.firstOrNull(::guards) ?: return null
-    return "the change reaches ${guarded.joinToString(".")}, a guardrail, which only a person may change in a " +
-        "conversation that took in untrusted content"
+private suspend fun person(config: HostConfig, path: String, value: JsonElement?, tainted: Boolean): String? = when {
+    touchesFloor(config, path, value) -> FLOOR_CHANGE
+    tainted -> TAINTED_CHANGE
+    else -> null
 }
 
 /** Whether a call of [context] counts as made in a tainted conversation, as one whose mark it cannot tell does. */
 private fun tainted(context: ToolContext): Boolean = (context as? AgentToolContext)?.taint?.tainted != false
-
-/** Adds to [into] the keys below [keys] whose values differ from [old] to [new], each object followed down. */
-private fun changedLeaves(keys: List<String>, old: JsonElement?, new: JsonElement?, into: MutableList<List<String>>) {
-    if (old == new) return
-    val before = old as? JsonObject
-    val after = new as? JsonObject
-    if (before == null && after == null) {
-        into += keys
-        return
-    }
-    if ((before == null && old != null && old != JsonNull) || (after == null && new != null && new != JsonNull)) {
-        into += keys
-    }
-    for (key in before?.keys.orEmpty() + after?.keys.orEmpty()) {
-        changedLeaves(keys + key, before?.get(key), after?.get(key), into)
-    }
-}
-
-/**
- * Whether the config key [keys] holds a guardrail: who operates, what calls run or are trusted unasked, the judge, the
- * sandbox, what steers an agent, and which plugins run.
- */
-private fun guards(keys: List<String>): Boolean {
-    val root = keys.getOrNull(0)
-    val section = keys.getOrNull(1)
-    return when {
-        keys.lastOrNull() == "enabled" -> true
-        root == "agent" && section in AGENT_GUARDS -> true
-        root == "agent" && section == "agents" && keys.getOrNull(3) in AGENTS_GUARDS -> true
-        root == "mcp" && section == "servers" -> true
-        root == "tools" && (section to keys.getOrNull(2)) in TOOLS_GUARDS -> true
-        root == "channels" && keys.getOrNull(2) == "instances" && keys.getOrNull(4) in CHANNEL_GUARDS -> true
-        else -> false
-    }
-}
 
 /**
  * What [change] of [path] to [value] (null to remove it) wrote, refused when the value changed since the call's review
@@ -314,17 +275,11 @@ private val FLOOR = listOf("agent", "floor")
 private const val FLOOR_CHANGE =
     "the change reaches agent.floor, the places of the hard floor, which only a person may change"
 
+private const val TAINTED_CHANGE =
+    "the conversation took in untrusted content, and in such a conversation only a person may change the config"
+
 /** The characters of a change that a person reviews at most. */
 private const val MAX_SHOWN_CHARS = 12_000
-
-private val AGENT_GUARDS = setOf("floor", "trustedFolders")
-
-private val AGENTS_GUARDS = setOf("permission", "sandbox", "tools", "instructions", "instructionFiles", "channels")
-
-private val TOOLS_GUARDS = setOf("exec" to "environment", "web" to "allowedPrivateHosts")
-
-private val CHANNEL_GUARDS =
-    setOf("adminUserIds", "trustedUserIds", "allowedChats", "commands", "apiBaseUrl", "botToken")
 
 private val PRETTY = Json { prettyPrint = true }
 

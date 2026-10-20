@@ -226,41 +226,38 @@ class ConfigToolsTest {
     }
 
     @Test
-    fun `under taint a change of a guardrail asks a person in every mode, while other keys follow the mode`() {
+    fun `under taint every change asks a person in every mode`() {
         model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
             .reply { toolCall("config.set", set("agent.agents.coder.permission.judgeMaxChars", "1000")) }
             .reply { text("Ok.") }
             .reply { toolCall("config.set", set("agent.maxConcurrentTurns", "2")) }.reply { text("Ok.") }
             .reply { toolCall("config.unset", """{"path": "agent.agents.coder.permission"}""") }.reply { text("Ok.") }
-        judge.reply { text("""{"verdict":"allow","reason":"asked for"}""") }
 
         harness().execute {
             val operator = channel().user("operator")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(operator), ApprovalAnswer.Denied(operator))
+            channel().scriptApprovals(
+                ApprovalAnswer.Allowed(operator),
+                ApprovalAnswer.Allowed(operator),
+                ApprovalAnswer.Denied(operator),
+            )
             setMode(PermissionMode.AUTO)
             repeat(3) { ask() }
             setMode(PermissionMode.BYPASS)
             ask()
 
-            val guardrail = ", a guardrail, which only a person may change in a conversation that took in untrusted " +
-                "content"
-            assertEquals(
-                listOf(
-                    "the change reaches agent.agents.coder.permission.judgeMaxChars$guardrail",
-                    "the change reaches agent.agents.coder.permission.judge$guardrail",
-                ),
-                channel().approvals.map { it.reason },
-            )
+            val tainted = "the conversation took in untrusted content, and in such a conversation only a person may " +
+                "change the config"
+            assertEquals(List(3) { tainted }, channel().approvals.map { it.reason })
             assertEquals(
                 listOf(
                     ToolOutcome.Succeeded,
                     ToolOutcome.Succeeded,
                     ToolOutcome.Succeeded,
-                    ToolOutcome.NotRun(NotRunReason.DENIED, channel().approvals[1].id),
+                    ToolOutcome.NotRun(NotRunReason.DENIED, channel().approvals[2].id),
                 ),
                 results().map { it.outcome },
             )
-            assertEquals(1, judge.requests.size)
+            assertEquals(0, judge.requests.size)
             assertContains(checkNotNull(channel().approvals[0].taint).reason, "a pasted page")
         }
     }

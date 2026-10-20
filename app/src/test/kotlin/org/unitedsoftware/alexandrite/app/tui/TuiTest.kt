@@ -93,16 +93,15 @@ class TuiTest {
     }
 
     @Test
-    fun `Enter without a pick takes the highlighted item, and a filter that matches nothing says so`() {
-        val console = ScriptedConsole(typed("zzz") + Key.Enter + Key.Clear + Key.Down + Key.Enter)
+    fun `Enter without a pick takes the highlighted item, or the filter as typed when it matches nothing`() {
+        val console = ScriptedConsole(typed("zzz") + Key.Enter)
 
-        val picked = tui(console).pick("Models", listOf("alpha", "beta"))
+        val typed = tui(console).pick("Models", listOf("alpha", "beta"))
+        val highlighted = tui(ScriptedConsole(listOf(Key.Down, Key.Enter))).pick("Models", listOf("alpha", "beta"))
 
-        assertEquals(listOf("beta"), picked)
-        assertEquals(
-            listOf("▲  Models", "│  Filter: zzz_", "│  Nothing matches the filter.", "└  Nothing matches the filter."),
-            console.frames[4],
-        )
+        assertEquals(listOf("zzz"), typed)
+        assertEquals(listOf("beta"), highlighted)
+        assertContains(console.frames[3], "│  Nothing in the list matches: Enter takes the name as typed.")
     }
 
     @Test

@@ -5,9 +5,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -21,6 +23,7 @@ import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.channel.pluginChannel
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
@@ -134,20 +137,67 @@ internal fun checkSecrets(
     throw refused(
         ConfigEditRefusal.SECRET,
         "The change would write a secret at '$root.${leaked.first}' into the config file. Secrets stay out of " +
-            "the file: write an \${env:NAME} reference instead.",
+            "the file: write an \${env:NAME} reference instead, whose value `alexandrite secret set NAME` keeps.",
     )
 }
 
 /** [written] with each [Secret] of the sections of [members] that is no reference shown as hidden. */
-internal fun maskedSecrets(members: List<PluginSet.Member>, written: JsonObject): JsonObject {
-    var masked = written
+internal fun maskedSecrets(members: List<PluginSet.Member>, written: JsonObject): JsonObject =
+    replacedSecrets(members, written) { _, value ->
+        if (isReference(value)) value else JsonPrimitive(HostConfig.HIDDEN_SECRET)
+    }
+
+/**
+ * [text], a config file of [plugins], with each secret it writes as a value that [previous] does not hold replaced by a
+ * `${env:NAME}` reference, every other character kept; [name] keeps a secret's value and names its variable.
+ */
+@InternalAlexandriteApi
+public fun referencedSecrets(
+    plugins: PluginSet,
+    previous: String,
+    text: String,
+    name: (path: String, value: String) -> String,
+): String {
+    val written = jsonObject(text) ?: return text
+    val kept = HashMap<String, JsonElement>()
+    replacedSecrets(plugins.members, jsonObject(previous) ?: JsonObject(emptyMap())) { path, value ->
+        value.also { kept[path] = it }
+    }
+    val moved = mutableSetOf<String>()
+    val referenced = replacedSecrets(plugins.members, written) { path, value ->
+        if (value !is JsonPrimitive || isReference(value) || kept[path] == value) {
+            value
+        } else {
+            moved += path.substringBefore('[')
+            JsonPrimitive("\${env:${name(path, value.content)}}")
+        }
+    }
+    return moved.fold(text) { spliced, path ->
+        val keys = path.split('.')
+        splicedConfig(spliced, keys, checkNotNull(referenced.at(keys)))
+    }
+}
+
+private fun jsonObject(text: String): JsonObject? = try {
+    Json.parseToJsonElement(text.removePrefix(BYTE_ORDER_MARK)) as? JsonObject
+} catch (e: SerializationException) {
+    null
+}
+
+/** [written] with each [Secret] of the sections of [members] replaced by what [secret] makes of it at its path. */
+private fun replacedSecrets(
+    members: List<PluginSet.Member>,
+    written: JsonObject,
+    secret: (path: String, value: JsonElement) -> JsonElement,
+): JsonObject {
+    var replaced = written
     for (member in members) {
         val index = member.index
         val root = index.configRoot.split('.')
         val instances = if (pluginChannel(member.id, index.bindings()).type == null) {
             emptyList()
         } else {
-            (masked.at(root + PluginIds.INSTANCES_KEY) as? JsonObject)?.keys.orEmpty()
+            (replaced.at(root + PluginIds.INSTANCES_KEY) as? JsonObject)?.keys.orEmpty()
                 .map { listOf(PluginIds.INSTANCES_KEY, it) }
         }
         for (section in index.configSections()) {
@@ -155,15 +205,16 @@ internal fun maskedSecrets(members: List<PluginSet.Member>, written: JsonObject)
             val path = section.path.split('.').filter(String::isNotEmpty)
             for (base in bases) {
                 val keys = root + base + path
-                val tree = masked.at(keys) ?: continue
-                val hidden = withSecrets(section.deserializer.descriptor, tree, "") { _, value ->
-                    if (isReference(value)) value else JsonPrimitive(HostConfig.HIDDEN_SECRET)
-                }
-                masked = masked.with(keys, hidden)
+                val tree = replaced.at(keys) ?: continue
+                replaced =
+                    replaced.with(
+                        keys,
+                        withSecrets(section.deserializer.descriptor, tree, keys.joinToString("."), secret),
+                    )
             }
         }
     }
-    return masked
+    return replaced
 }
 
 /** [element] as [descriptor] decodes it at [path], each [Secret] in it replaced by what [secret] makes of it. */

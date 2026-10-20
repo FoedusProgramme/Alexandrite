@@ -416,6 +416,30 @@ class HostConfigFileTest {
     }
 
     @Test
+    fun `referenced secrets swaps each new secret value for a reference and keeps the ones the file held`() {
+        val previous = """{"plugins": {"notes": {"token": "held"}, "keys": {"keys": ["held-key"]}}}"""
+        val text = """
+            {"plugins": {
+              "notes": {"token": "held", "home": "1"},
+              "keys": {"keys": ["held-key", "new-key"], "token": "new-token", "pools": {"a": ["${'$'}{env:OTHER}"]}}
+            }}
+        """.trimIndent()
+        val named = mutableListOf<Pair<String, String>>()
+
+        val referenced = referencedSecrets(plugins, previous, text) { path, value ->
+            named += path to value
+            "V${named.size}"
+        }
+
+        assertEquals(listOf("plugins.keys.keys[1]" to "new-key", "plugins.keys.token" to "new-token"), named)
+        assertEquals(
+            text.replace("\"new-key\"", "\"${'$'}{env:V1}\"").replace("\"new-token\"", "\"${'$'}{env:V2}\""),
+            referenced,
+        )
+        assertEquals("no json", referencedSecrets(plugins, previous, "no json") { _, _ -> "X" })
+    }
+
+    @Test
     fun `get reads a value as the file writes it`() {
         write()
 

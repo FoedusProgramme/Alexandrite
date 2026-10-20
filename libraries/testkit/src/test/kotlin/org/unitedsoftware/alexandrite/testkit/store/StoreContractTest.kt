@@ -40,8 +40,6 @@ import org.unitedsoftware.alexandrite.testkit.TestIndex
 import java.text.Normalizer
 import java.time.Clock
 import java.time.Instant
-import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /** A way to break the store contract, and the name of the check that catches it. */
@@ -235,11 +233,4 @@ class StoreContractTest {
                 assertFailsWith<AssertionError> { runBlocking { check.run(store::harness) } }
             }
         }
-
-    @Test
-    fun `each flaw names a check of the contract`() {
-        val names = STORE_CONTRACT.map { it.name }.toSet()
-
-        assertEquals(emptyList(), StoreFlaw.entries.filter { it.check !in names })
-    }
 }

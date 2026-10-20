@@ -24,7 +24,10 @@ internal enum class Who {
 /** Who may run a command: [bare] without arguments, [withArguments] with them. */
 internal class CommandRule(val bare: Who, val withArguments: Who = bare)
 
-/** The rules of the default commands. */
+/**
+ * The rules of the default commands beyond what their specs keep for operators. A claimed command that keeps some forms
+ * for operators leaves the others to anyone; one that keeps none is for admins alone.
+ */
 internal val DEFAULT_COMMAND_RULES: Map<String, CommandRule> = mapOf(
     "help" to CommandRule(Who.ANYONE),
     "settings" to CommandRule(Who.ANYONE),
@@ -37,19 +40,12 @@ internal val DEFAULT_COMMAND_RULES: Map<String, CommandRule> = mapOf(
     "model" to CommandRule(Who.ANYONE, Who.ADMIN),
     "mode" to CommandRule(Who.ANYONE, Who.ADMIN),
     "jobs" to CommandRule(Who.ANYONE, Who.ADMIN),
-    "usage" to CommandRule(Who.ANYONE, Who.ADMIN),
     "new" to CommandRule(Who.UNLINKED_DIRECT),
     "compact" to CommandRule(Who.UNLINKED_DIRECT),
     "cancel" to CommandRule(Who.DIRECT),
     "home" to CommandRule(Who.ADMIN),
     "link" to CommandRule(Who.ADMIN),
     "unlink" to CommandRule(Who.ADMIN),
-    "trust" to CommandRule(Who.ADMIN),
-    "untrust" to CommandRule(Who.ADMIN),
-    "untaint" to CommandRule(Who.ADMIN),
-    "allow" to CommandRule(Who.ADMIN),
     "streaming" to CommandRule(Who.ANYONE, Who.DIRECT),
     "heartbeat" to CommandRule(Who.ANYONE),
-    "schedule" to CommandRule(Who.ANYONE, Who.ADMIN),
-    "mcp" to CommandRule(Who.ANYONE, Who.ADMIN),
 )

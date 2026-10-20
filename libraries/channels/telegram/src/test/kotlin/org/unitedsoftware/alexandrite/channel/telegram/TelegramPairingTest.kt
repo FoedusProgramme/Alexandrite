@@ -71,8 +71,13 @@ class TelegramPairingTest {
     }
 
     /** The harness of the instance `work` over [store], whose config file declares the chats [allowed] paired. */
-    private fun builder(allowed: String = "[$ADA]", harness: TelegramHarness = telegram): PluginHarness.Builder =
-        harness.builder("work" to harness.instance(allowed = allowed)).keptConfigFile(file).store(store)
+    private fun builder(
+        allowed: String = "[$ADA]",
+        harness: TelegramHarness = telegram,
+        admins: String = "[$ADA]",
+    ): PluginHarness.Builder = harness.builder(
+        "work" to harness.instance(allowed = allowed, admins = admins),
+    ).keptConfigFile(file).store(store)
 
     private fun PluginHarness.Running.desk(): PairingDesk = getAll<PairingDesk>().single()
 
@@ -96,6 +101,18 @@ class TelegramPairingTest {
     /** The approvals kept as `<chat> by <who>`. */
     private suspend fun approvals(): List<String> =
         store.records.list(PLUGIN, "pairings").map { "${it.key} by ${it.createdBy}" }
+
+    @Test
+    fun `an admin's direct chat passes without a code, as if the config allowed it`() {
+        telegram.run(builder(allowed = "[]")) {
+            fake.send(telegram.ada, telegram.adaChat, "Hello?")
+
+            val message = assertIs<Submission.Message>(telegram.submitted(1).single()).message
+            assertEquals("Hello?", message.text)
+            assertEquals(emptyList(), desk().pending())
+            assertEquals(listOf(PairedChat(telegram.address(ADA), true, null)), desk().paired())
+        }
+    }
 
     @Test
     fun `a direct chat that is not paired gets its code once, and is paired at once when the code is approved`() {
@@ -122,7 +139,7 @@ class TelegramPairingTest {
                     fake.send(telegram.bob, telegram.bobChat, "Now?")
                     val message = assertIs<Submission.Message>(telegram.submitted(1).single()).message
                     assertEquals("Now?", message.text)
-                    val paired = desk().paired().single()
+                    val paired = desk().paired().single { !it.declared }
                     val approval = checkNotNull(paired.approval)
                     assertEquals(
                         listOf(telegram.address(BOB), false, ChatKind.DIRECT, null, request.requester, null),
@@ -175,15 +192,18 @@ class TelegramPairingTest {
     }
 
     @Test
-    fun `no paired chat is warned of at start, a chat paired only by an approval counts as paired`() {
+    fun `no paired chat is warned of at start, a chat paired by an approval or an admin's counts as paired`() {
         val none = "WARN telegram:work: no chat is paired yet: the first message of a chat gets a pairing code"
 
-        val first =
-            runBlocking { logged { telegram.run(builder(allowed = "[]")) { pair(telegram.bob, telegram.bobChat) } } }
-        val second = runBlocking { logged { telegram.run(builder(allowed = "[]")) {} } }
+        val first = runBlocking {
+            logged { telegram.run(builder(allowed = "[]", admins = "[]")) { pair(telegram.bob, telegram.bobChat) } }
+        }
+        val second = runBlocking { logged { telegram.run(builder(allowed = "[]", admins = "[]")) {} } }
+        val admin = runBlocking { logged { telegram.run(builder(allowed = "[]")) {} } }
 
         assertContains(first, none)
         assertFalse(none in second, second.joinToString("\n"))
+        assertFalse(none in admin, admin.joinToString("\n"))
     }
 
     @Test

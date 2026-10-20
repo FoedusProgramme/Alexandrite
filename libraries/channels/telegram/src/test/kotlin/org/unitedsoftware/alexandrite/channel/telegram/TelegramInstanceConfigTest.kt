@@ -91,14 +91,13 @@ class TelegramInstanceConfigTest {
     }
 
     @Test
-    fun `a malformed command name and a default command are refused in the commands`() {
+    fun `a malformed command name is refused in the commands, a default command's rule taken`() {
         for (name in listOf("Notes", "my-notes", "", "a".repeat(33))) {
             val message = refusal(withToken(""""commands": {"$name": "anyone"}"""))
             assertTrue("commands.$name must name a command" in message, message)
         }
-        for (name in listOf("new", "model", "home", "trust", "help")) {
-            val message = refusal(withToken(""""commands": {"$name": "anyone"}"""))
-            assertTrue("/$name keeps the rule of the default commands" in message, message)
+        for (name in listOf("new", "model", "home", "help")) {
+            assertEquals(mapOf(name to Who.ANYONE), decode(withToken(""""commands": {"$name": "anyone"}""")).commands)
         }
     }
 
