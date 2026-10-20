@@ -66,12 +66,12 @@ import java.time.ZoneOffset
  * the [compaction] and contexts it is scripted with, mints conversations `conversation-<n>` and keeps chat settings per
  * agent and chat, home chats per agent and instance, linked groups, trusted folders, people per agent, trust rules
  * and allow rules, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
- * A bypass ends as the agent's does: an hour after [clock]'s time by default, a day after it at most.
+ * A bypass set without an end ends an hour after [clock]'s time.
  *
  * Homes, groups, folders and allow rules that the test declares stand for the config file's, and those changed at
  * runtime over them are set at [TEST_TIME]. A chat's granted allow and trust rules and its taint end with its
- * conversation. It refuses with a [ControlRefusedException] what the agent refuses for the reasons it knows, and the
- * calls that [refuseNext] queues refusals for.
+ * conversation. It refuses nothing on its own: the calls that [refuseNext] queues refusals for throw a
+ * [ControlRefusedException].
  */
 public class RecordingAgent(
     private val defaultAgent: AgentId = AgentId.MAIN,
@@ -118,6 +118,9 @@ public class RecordingAgent(
      * clears and returns.
      */
     public val heartbeatTaints: MutableMap<ChatAddress, ConversationTaint> = mutableMapOf()
+
+    /** The trust rules that trust a program that runs whatever code it is given, as the agent tells them. */
+    public val anyCodeRules: MutableSet<String> = mutableSetOf()
 
     public val calls: List<Call> get() = synchronized(lock) { recorded.toList() }
 
@@ -304,9 +307,7 @@ public class RecordingAgent(
         override suspend fun snapshot(chat: ChatAddress): ChatSettingsSnapshot = synchronized(lock) { settingsAt(chat) }
 
         /**
-         * Refuses an agent that is not listed, a model that an endpoint listed with [scriptModels] lacks, a home chat of
-         * another agent, a permission mode this version does not know and a bypass that ends before [clock]'s time, and
-         * changes homes as the agent does: true while [chat] is not the home, false while it is, and a reset from any chat
+         * Changes homes as the agent does: true while [chat] is not the home, false while it is, and a reset from any chat
          * of the instance.
          */
         override suspend fun update(
@@ -321,30 +322,12 @@ public class RecordingAgent(
                 SettingChange.Reset -> null
                 else -> selected[chat]
             }
-            refuseIf(choice != null && choice !in agents) { "Agent '$choice' does not serve ${chat.instance}." }
-            (update.model as? SettingChange.SetTo)?.value?.let { model ->
-                val listed = endpointModels[model.endpoint]
-                refuseIf(listed != null && listed.none { it.id == model.model }) {
-                    "Model endpoint '${model.endpoint}' has no model '${model.model}'."
-                }
-            }
             val agent = choice ?: homeAgent(chat) ?: defaultAgent
             val instance = agent to chat.instance
             val home = homeAgent(chat) == agent
             val set = (update.home as? SettingChange.SetTo)?.value
-            val target = when {
-                set == true && !home -> chat
-                update.home == SettingChange.Reset && instance in runtimeHomes -> configuredHomes[instance]
-                else -> null
-            }
-            val owner = target?.let(::homeOf)
-            refuseIf(owner != null && owner != agent) { "$target is the home chat of agent '$owner'." }
-            val now = clock.instant()
             val mode = (update.mode as? SettingChange.SetTo)?.value
-            refuseIf(mode != null && mode !in PermissionMode.entries) { "'$mode' is no permission mode." }
-            val given = update.modeUntil
-            refuseIf(given != null && !given.isAfter(now)) { "A bypass cannot end at $given, which has passed." }
-            val until = if (mode == PermissionMode.BYPASS) minOf(given ?: (now + BYPASS), now + MAX_BYPASS) else null
+            val until = if (mode == PermissionMode.BYPASS) update.modeUntil ?: (clock.instant() + BYPASS) else null
             if (choice == null) selected.remove(chat) else selected[chat] = choice
             when {
                 update.home == SettingChange.Reset -> runtimeHomes.remove(instance)
@@ -366,10 +349,7 @@ public class RecordingAgent(
     }
 
     private inner class Links : ChatLinks {
-        /**
-         * Links [member] into the group that holds [anchor], else into a new one, and refuses [anchor] itself, a member
-         * linked already and a declared group.
-         */
+        /** Links [member] into the group that holds [anchor], else into a new one. */
         override suspend fun link(
             agent: AgentId,
             anchor: ChatAddress,
@@ -379,10 +359,7 @@ public class RecordingAgent(
             recorded += Call.Link(agent, anchor, member, by)
             val groups = linked[agent].orEmpty()
             refuseQueued()
-            refuseIf(member == anchor) { "$member cannot be linked to itself." }
-            refuseIf(groups.any { member == it.anchor || member in it.members }) { "$member is linked already." }
             val group = groups.firstOrNull { anchor == it.anchor || anchor in it.members }
-            refuseIf(group?.declared == true) { "$anchor is in a group that the config file declares." }
             val grown = ChatLinkGroup(
                 agent,
                 group?.anchor ?: anchor,
@@ -393,7 +370,7 @@ public class RecordingAgent(
             grown
         }
 
-        /** Takes [member] out of its group unless the group is declared, and refuses the anchor of a runtime group. */
+        /** Takes [member] out of its group unless the group is declared. */
         override suspend fun unlink(agent: AgentId, member: ChatAddress, by: ChatUser?): Revocation =
             synchronized(lock) {
                 recorded += Call.Unlink(agent, member, by)
@@ -402,7 +379,6 @@ public class RecordingAgent(
                 val group = groups.firstOrNull { member == it.anchor || member in it.members }
                     ?: return@synchronized Revocation(removed = false, declared = false)
                 if (group.declared) return@synchronized Revocation(removed = false, declared = true)
-                refuseIf(group.anchor == member) { "$member anchors its group." }
                 val members = group.members - member
                 linked[agent] = groups.mapNotNull {
                     when {
@@ -422,23 +398,19 @@ public class RecordingAgent(
     private inner class Trust : TrustControl {
         override fun folders(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
 
-        /**
-         * Trusts [folder], normalized, at [TEST_TIME] unless a trusted folder covers it, and refuses a relative path.
-         */
+        /** Trusts [folder], normalized, at [TEST_TIME] unless a trusted folder covers it. */
         override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = synchronized(lock) {
             recorded += Call.TrustFolder(folder, by)
             refuseQueued()
-            refuseIf(!folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
             val normalized = folder.normalize()
             trusted.firstOrNull { normalized.startsWith(it.path) }?.path
                 ?: normalized.also { trusted += TrustedFolder(it, false, TEST_TIME, by) }
         }
 
-        /** Stops trusting [folder] unless the config file declares it, and refuses a relative path. */
+        /** Stops trusting [folder] unless the config file declares it. */
         override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation = synchronized(lock) {
             recorded += Call.UntrustFolder(folder, by)
             refuseQueued()
-            refuseIf(!folder.isAbsolute) { "Give the folder as an absolute path, was $folder." }
             val found = trusted.firstOrNull { it.path == folder.normalize() }
             if (found != null && !found.declared) trusted.remove(found)
             Revocation(removed = found?.declared == false, declared = found?.declared == true)
@@ -446,16 +418,15 @@ public class RecordingAgent(
 
         /** The declared trust rules, then those granted at [chat]. */
         override suspend fun rules(chat: ChatAddress): List<TrustRule> = synchronized(lock) {
-            declaredTrust.map { TrustRule(it, true, null, null, anyCode(it)) } + grantedTrust[chat].orEmpty()
+            declaredTrust.map { TrustRule(it, true, null, null, it in anyCodeRules) } + grantedTrust[chat].orEmpty()
         }
 
-        /** Trusts [rule] at [chat] at [TEST_TIME], refusing one without a tool name. */
+        /** Trusts [rule] at [chat] at [TEST_TIME]. */
         override suspend fun trustRule(chat: ChatAddress, rule: String, by: ChatUser?): TrustRule = synchronized(lock) {
             recorded += Call.Trust(chat, rule, by)
             refuseQueued()
             val written = rule.trim()
-            refuseIf(!TRUST_RULE.matches(written)) { "'$written' is no rule." }
-            TrustRule(written, false, TEST_TIME, by, anyCode(written)).also { trusted ->
+            TrustRule(written, false, TEST_TIME, by, written in anyCodeRules).also { trusted ->
                 grantedTrust[chat] = grantedTrust[chat].orEmpty().filterNot { it.rule == written } + trusted
             }
         }
@@ -477,12 +448,11 @@ public class RecordingAgent(
             trustedPeople.filterKeys { it.first == agent }.values.toList()
         }
 
-        /** Trusts [person] at [TEST_TIME], refusing an operator, whom the agent trusts already. */
+        /** Trusts [person] at [TEST_TIME]. */
         override suspend fun trustPerson(chat: ChatAddress, person: ChatUser, by: ChatUser?): TrustedPerson =
             synchronized(lock) {
                 recorded += Call.TrustPerson(chat, person, by)
                 refuseQueued()
-                refuseIf(person.isOperator) { "${person.displayName} is an operator, whom the agent trusts already." }
                 TrustedPerson(person, TEST_TIME, by).also {
                     trustedPeople[settingsAt(chat).agent to person.address] = it
                 }
@@ -549,10 +519,9 @@ public class RecordingAgent(
         /** The endpoints that [scriptModels] listed, in order. */
         override fun endpoints(): List<EndpointId> = synchronized(lock) { endpointModels.keys.toList() }
 
-        /** The models scripted for [endpoint], and refuses an endpoint that is not listed. */
-        override suspend fun models(endpoint: EndpointId): List<ModelInfo> = synchronized(lock) {
-            endpointModels[endpoint] ?: throw ControlRefusedException("No model endpoint '$endpoint'.")
-        }
+        /** The models scripted for [endpoint], none for an endpoint that is not listed. */
+        override suspend fun models(endpoint: EndpointId): List<ModelInfo> =
+            synchronized(lock) { endpointModels[endpoint].orEmpty() }
     }
 
     private inner class Usage : UsageReports {
@@ -723,33 +692,6 @@ public class RecordingAgent(
 }
 
 private val BYPASS: Duration = Duration.ofHours(1)
-
-private val TRUST_RULE = Regex("[a-z*][a-z0-9_.*]*(\\(.+\\))?")
-
-/** Whether [rule] trusts a program that runs any code it is given, or every program, as the agent tells it. */
-private fun anyCode(rule: String): Boolean {
-    val tool = rule.substringBefore('(')
-    val glob = Regex(tool.split('*').joinToString(".*") { Regex.escape(it) })
-    if (!glob.matches(EXEC)) return false
-    val prefix = rule.substringAfter('(', "").removeSuffix(")").trim()
-    if (prefix.isEmpty()) return true
-    val program = prefix.split(' ').first().removeSurrounding("'")
-    return program.substringAfterLast('/') in RUNS_ANY_CODE
-}
-
-private const val EXEC = "command.exec"
-
-private val RUNS_ANY_CODE = setOf(
-    "sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox", "env", "xargs", "sudo", "doas",
-    "su", "eval", "exec", "python", "python3", "node", "ruby", "perl", "php", "lua", "osascript", "ssh",
-)
-
-private val MAX_BYPASS: Duration = Duration.ofHours(24)
-
-/** Throws [ControlRefusedException] with [message] when [refused]. */
-private inline fun refuseIf(refused: Boolean, message: () -> String) {
-    if (refused) throw ControlRefusedException(message())
-}
 
 private fun <T : Any> SettingChange<T>.applyTo(current: T?): T? = when (this) {
     is SettingChange.SetTo -> value

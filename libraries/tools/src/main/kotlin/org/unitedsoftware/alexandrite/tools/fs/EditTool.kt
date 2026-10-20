@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -66,7 +67,7 @@ internal class EditTool(private val floor: HardFloor, private val ledger: ReadLe
 
     /** The text of [target] once [edits] are applied, refused unless the call's conversation read it as it is. */
     private fun edited(target: Target, edits: List<Edit>, context: ToolContext): String {
-        val current = target.current ?: throw Refusal("Nothing exists at ${target.shown}: create it with fs.write.")
+        val current = target.current ?: throw ToolRefusal("Nothing exists at ${target.shown}: create it with fs.write.")
         ledger.checkRead(target, context)
         var text = current.text
         edits.forEachIndexed { index, edit ->
@@ -76,20 +77,20 @@ internal class EditTool(private val floor: HardFloor, private val ledger: ReadLe
             val count = occurrences(text, old)
             if (count == 0) {
                 val after = if (index > 0) " once the edits before it are applied" else ""
-                throw Refusal(
+                throw ToolRefusal(
                     "$name is not in ${target.shown}$after: read the file again with fs.read if you are unsure of " +
                         "its text.",
                 )
             }
             if (count > 1 && !edit.all) {
-                throw Refusal(
+                throw ToolRefusal(
                     "$name occurs $count times in ${target.shown}: give more of the text around it so that it " +
                         "occurs once, or set 'all' to replace every occurrence.",
                 )
             }
             text = if (edit.all) text.replace(old, new) else text.replaceFirst(old, new)
         }
-        if (text == current.text) throw Refusal("The edits leave ${target.shown} as it is.")
+        if (text == current.text) throw ToolRefusal("The edits leave ${target.shown} as it is.")
         return text
     }
 }
@@ -98,15 +99,17 @@ private class Edit(val old: String, val new: String, val all: Boolean)
 
 private fun edits(arguments: JsonObject): List<Edit> {
     val edits = arguments["edits"] as? JsonArray
-    if (edits.isNullOrEmpty()) throw Refusal("Give 'edits' as a list of {\"old\": …, \"new\": …} objects.")
+    if (edits.isNullOrEmpty()) throw ToolRefusal("Give 'edits' as a list of {\"old\": …, \"new\": …} objects.")
     return edits.mapIndexed { index, element ->
         val edit = element as? JsonObject
-            ?: throw Refusal("Edit ${index + 1} is no {\"old\": …, \"new\": …} object.")
-        val old = edit.string("old") ?: throw Refusal("Edit ${index + 1} gives no 'old' text.")
+            ?: throw ToolRefusal("Edit ${index + 1} is no {\"old\": …, \"new\": …} object.")
+        val old = edit.string("old") ?: throw ToolRefusal("Edit ${index + 1} gives no 'old' text.")
         if (old.isEmpty()) {
-            throw Refusal("The 'old' text of edit ${index + 1} is empty: give the text to replace, or use fs.write.")
+            throw ToolRefusal(
+                "The 'old' text of edit ${index + 1} is empty: give the text to replace, or use fs.write.",
+            )
         }
-        val new = edit.string("new") ?: throw Refusal("Edit ${index + 1} gives no 'new' text.")
+        val new = edit.string("new") ?: throw ToolRefusal("Edit ${index + 1} gives no 'new' text.")
         Edit(old, new, edit.boolean("all"))
     }
 }

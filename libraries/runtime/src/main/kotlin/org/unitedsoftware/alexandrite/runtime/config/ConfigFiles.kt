@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.channel.pluginChannel
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
+import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
@@ -38,6 +39,18 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermission
+
+/** [value] set at [path] of the config, or that member removed when [value] is null. */
+internal class ConfigChange(val path: List<String>, val value: JsonElement?)
+
+/** The config file as an edit found it. */
+internal class OpenFile(val target: Path, val bytes: ByteArray, val text: String)
+
+/** Where the writer keeps the previous text of the config file [target]. */
+internal fun configBackup(target: Path): Path = target.resolveSibling("${target.fileName}.bak")
+
+internal fun refused(refusal: ConfigEditRefusal, message: String, cause: Throwable? = null): ConfigEditException =
+    ConfigEditException(refusal, message, cause)
 
 /** Serializes every config change of the process. */
 private val LOCK = Mutex()

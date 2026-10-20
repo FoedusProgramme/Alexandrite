@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.tools.fs
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -50,7 +51,7 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.string("path"), context)
-    } catch (e: Refusal) {
+    } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
 
@@ -77,10 +78,10 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
         }
         checkReadable(root, path, attributes)
         if (attributes.size() > MAX_GREP_FILE_BYTES) {
-            throw Refusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
+            throw ToolRefusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
         }
         context.touched(root)
-        if (!search.file(root)) throw Refusal("$path is no UTF-8 text (it looks binary): fs.grep searches text.")
+        if (!search.file(root)) throw ToolRefusal("$path is no UTF-8 text (it looks binary): fs.grep searches text.")
         return ToolResult(search.result(path, emptyList()))
     }
 
@@ -91,7 +92,7 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
         return try {
             Regex(pattern, options)
         } catch (e: PatternSyntaxException) {
-            throw Refusal("'pattern' is no valid regular expression: ${e.description} near index ${e.index}.")
+            throw ToolRefusal("'pattern' is no valid regular expression: ${e.description} near index ${e.index}.")
         }
     }
 

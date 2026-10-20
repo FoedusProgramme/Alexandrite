@@ -3,8 +3,6 @@ package org.unitedsoftware.alexandrite.tools.exec
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.permission.Clearance
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.testkit.testHardFloor
 import java.nio.file.Path
 import kotlin.test.Test
@@ -24,22 +22,13 @@ class ExecFloorAskTest {
         "'$candidate' reaches a place the floor asks a person about (a place the test asks about)"
 
     @Test
-    fun `a program given a path in a place the floor asks about runs only once a person allowed it`() {
+    fun `a program given a path in a place the floor asks about goes to a person`() {
         val notes = fs.write("asked/notes.txt", "hello")
         val turn = operatorTurn()
 
         val review = tool.check(fs.context(turn = turn), "argv" to listOf("cat", "$notes"))
-        val unasked = tool.run(
-            fs.context(turn = turn, clearance = Clearance(ClearanceKind.MODE, snapshot = review.snapshot)),
-            "argv" to listOf("cat", "$notes"),
-        )
 
         assertEquals(reaches(notes), review.person)
-        assertEquals(
-            true to "${reaches(notes).replaceFirstChar(Char::uppercaseChar)}, and no person allowed this call, so " +
-                "it is not run.",
-            unasked.isError to unasked.text,
-        )
         val allowed = tool.run(fs.allowed(review.snapshot), "argv" to listOf("cat", "$notes"))
         assertEquals("Exit code: 0\nhello", allowed.text)
         assertNull(tool.check(fs.context(turn = turn), "argv" to listOf("ls", "${fs.workspace}")).person)

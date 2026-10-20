@@ -28,7 +28,7 @@ class FloorAskTest {
         fs.context(clearance = Clearance(ClearanceKind.HUMAN, testUser("operator", isOperator = true), snapshot))
 
     @Test
-    fun `a read of a place the floor asks about names it for a person, and runs only once a person allowed it`() {
+    fun `a read of a place the floor asks about names it for a person`() {
         val notes = fs.write("asked/notes.txt", "hello\n")
         val read = ReadTool(floor, ReadLedger())
 
@@ -36,10 +36,6 @@ class FloorAskTest {
 
         assertEquals(person(notes), review.person)
         assertEquals(listOf(notes), review.reads)
-        assertRefused(
-            "${person(notes)}, and no person allowed this call.",
-            read.call(fs.context(clearance = Clearance(ClearanceKind.MODE)), "path" to notes),
-        )
         assertEquals("1\thello\n", read.call(approved(), "path" to notes).text)
         assertNull(runBlocking { read.review(arguments("path" to fs.workspace.resolve("a.txt")), fs.context()) }.person)
     }
@@ -83,7 +79,7 @@ class FloorAskTest {
     }
 
     @Test
-    fun `a write into a place the floor asks about shows its diff to a person and needs a person's allow`() {
+    fun `a write into a place the floor asks about shows its diff to a person`() {
         val file = asked.resolve("new.txt")
         Files.createDirectories(asked)
         val write = WriteTool(floor, ReadLedger())
@@ -92,11 +88,6 @@ class FloorAskTest {
 
         assertEquals(person(file), review.person)
         assertIs<ReviewPreview.Diff>(review.preview)
-        val cleared = Clearance(ClearanceKind.MODE, snapshot = review.snapshot)
-        assertRefused(
-            "${person(file)}, and no person allowed this call.",
-            write.call(fs.context(clearance = cleared), "path" to file, "content" to "hi\n"),
-        )
         assertEquals(
             "Created $file: +1 -0 lines.",
             write.call(approved(review.snapshot), "path" to file, "content" to "hi\n").text,

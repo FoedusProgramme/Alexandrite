@@ -573,6 +573,36 @@ class DelegationTurnsTest {
     }
 
     @Test
+    fun `a run resumed in the background without its profile named names the profile and is titled by it`() {
+        model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("reviewer", "Review notes.md.")) }
+            .reply(profile(REVIEWER)) { text("Notes look fine.") }
+            .reply(ROOT) { text("Reviewed.") }
+
+        harness().execute {
+            ask().ticket.outcome()
+            val earlier = rootResults().single { it.toolName == DELEGATE_TOOL }.run()
+            readGate = CompletableDeferred()
+            model.reply(ROOT) {
+                toolCall(DELEGATE_TOOL, """{"resume":"$earlier","task":"Check the tests.","background":true}""")
+            }.reply(ROOT) { text("Started.") }
+                .reply(profile(REVIEWER)) { toolCall("test.read", "{}") }
+                .reply(profile(REVIEWER)) { text("Tests look fine.") }
+                .reply(ROOT) { text("Report received.") }
+            ask().ticket.outcome()
+
+            val started = rootResults().filter { it.toolName == DELEGATE_TOOL }.last()
+            val run = (started.outcome as ToolOutcome.Detached).job
+            assertEquals(
+                "[alexandrite:background] Run $run of profile reviewer started; its report will arrive later.",
+                started.text(),
+            )
+            assertEquals(listOf("reviewer"), get<TurnControl>().jobs(channel().chat()).map { it.title })
+            readGate?.complete(Unit)
+            withTimeout(5_000) { while (jobResultCount() < 1) delay(5) }
+        }
+    }
+
+    @Test
     fun `a resume names a run of this conversation, by its id and with its own profile and history`() {
         model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("reviewer", "Review.")) }
             .reply(profile(REVIEWER)) { text("Fine.") }

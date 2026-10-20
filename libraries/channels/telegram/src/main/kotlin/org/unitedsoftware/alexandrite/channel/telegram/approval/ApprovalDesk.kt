@@ -35,6 +35,7 @@ import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
+import org.unitedsoftware.alexandrite.sdk.channel.OutboundFile
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
@@ -143,14 +144,19 @@ internal class ApprovalDesk(
         return chats.filter(gate::isPaired)
     }
 
-    /** [question] as the messages that show it in [language], null when it takes more than [MAX_PARTS]. */
-    private fun render(question: Question, language: LanguageTag?): List<FormattedText>? = when (question) {
+    /** [question] as the messages that show it in [language], null when its head alone takes more than one. */
+    private fun render(question: Question, language: LanguageTag?): Rendered? = when (question) {
         is Question.Approval -> render(question.request, language)
-        is Question.Offer -> render(question.offer, language)
+
+        is Question.Offer -> render(question.offer, language).let { (title, lines) -> message(title, lines, "") }
+            ?.let(::Rendered)
     }
 
-    /** [request] as the messages that show it in [language], null when it takes more than [MAX_PARTS]. */
-    private fun render(request: ApprovalRequest, language: LanguageTag?): List<FormattedText>? {
+    /**
+     * [request] as the messages that show it in [language], with its preview's start and the whole preview as a file
+     * when the preview takes more than [MAX_PARTS]; null when its head alone takes more than one.
+     */
+    private fun render(request: ApprovalRequest, language: LanguageTag?): Rendered? {
         val turn = request.turn
         val title = text(TextKeys.APPROVAL_TITLE, language, "id" to request.id)
         val requester = turn.actor?.let(::named) ?: text(TextKeys.APPROVAL_NOBODY, language)
@@ -182,32 +188,33 @@ internal class ApprovalDesk(
             lines += Line(text(TextKeys.APPROVAL_ALWAYS_RULES, language, "rules" to rules(request)))
         }
         val count = body.trimEnd().lines().size
-        if (count > MAX_CODE_LINES) lines += Line(text(TextKeys.APPROVAL_LINES, language, "count" to count))
-        return message(title, lines, body)
+        val counted = Line(text(TextKeys.APPROVAL_LINES, language, "count" to count)).takeIf { count > MAX_CODE_LINES }
+        message(title, lines + listOfNotNull(counted), body)?.let { return Rendered(it) }
+        val name = "approval-${request.id}.${if (request.preview is ReviewPreview.Diff) "diff" else "txt"}"
+        val attached = Line(text(TextKeys.APPROVAL_ATTACHED, language, "count" to count, "file" to name))
+        val (head, spans) = head(title, lines + attached, body)
+        val room = MAX_MESSAGE_LENGTH - OUTCOME_ROOM - head.length
+        if (room <= 0) return null
+        val whole = body.trimEnd()
+        val parts = split(head, spans, whole.substring(0, cut(whole, room)).trimEnd()) ?: return null
+        return Rendered(parts, OutboundFile.builder(name, "text/plain", whole.toByteArray()).asFile(true).build())
     }
 
-    /** [offer] as the messages that show it in [language], null when it takes more than [MAX_PARTS]. */
-    private fun render(offer: TrustOffer, language: LanguageTag?): List<FormattedText>? {
+    /** [offer] as the title and lines that show it in [language]. */
+    private fun render(offer: TrustOffer, language: LanguageTag?): Pair<String, List<Line>> {
         val turn = offer.turn
         val chat = named(turn.chat)
-        val lines = mutableListOf<Line>()
-        val title = if (offer.marked) {
-            lines += Line(text(TextKeys.OFFER_MARKED, language, "chat" to chat))
-            text(TextKeys.OFFER_TITLE_MARKED, language, "id" to offer.id)
-        } else {
-            val person = offer.roots.firstOrNull { it.kind == TrustRootKind.PERSON }?.name
-                ?: turn.actor?.let(::named)
-                ?: text(TextKeys.APPROVAL_NOBODY, language)
-            lines += Line(text(TextKeys.OFFER_WAITING, language, "person" to person, "chat" to chat))
-            text(TextKeys.OFFER_TITLE_WAITING, language, "id" to offer.id)
-        }
-        lines += Line(text(TextKeys.OFFER_SOURCE, language), offer.untrusted)
-        lines += Line(text(TextKeys.APPROVAL_AGENT, language, "agent" to turn.agent))
+        val title = text(TextKeys.OFFER_TITLE_MARKED, language, "id" to offer.id)
+        val lines = mutableListOf(
+            Line(text(TextKeys.OFFER_MARKED, language, "chat" to chat)),
+            Line(text(TextKeys.OFFER_SOURCE, language), offer.untrusted),
+            Line(text(TextKeys.APPROVAL_AGENT, language, "agent" to turn.agent)),
+        )
         startedBy(turn.kind)?.let { kind ->
             lines += Line(text(TextKeys.APPROVAL_STARTED_BY, language, "kind" to text(kind, language)))
         }
         lines += roots(offer.roots, language)
-        return message(title, lines, "")
+        return title to lines
     }
 
     /** What trusting [roots] covers, a line each, and the warnings that go with their kinds. */
@@ -221,6 +228,12 @@ internal class ApprovalDesk(
 
     /** The messages of a question headed [title] in bold and [lines], with [body] as code below them. */
     private fun message(title: String, lines: List<Line>, body: String): List<FormattedText>? {
+        val (head, spans) = head(title, lines, body)
+        return split(head, spans, body)
+    }
+
+    /** The head of a question's first message, [title] in bold and [lines], and its spans. */
+    private fun head(title: String, lines: List<Line>, body: String): Pair<String, List<Span>> {
         val head = StringBuilder(title)
         val spans = mutableListOf(Span("bold", 0, title.length))
         for (line in lines) {
@@ -231,7 +244,7 @@ internal class ApprovalDesk(
             head.append(code)
         }
         if (body.isNotBlank()) head.append("\n\n")
-        return split("$head", spans, body)
+        return "$head" to spans
     }
 
     /** The lines that introduce what [request] shows as code, and that code: its preview, else its arguments. */
@@ -294,7 +307,12 @@ internal class ApprovalDesk(
         val target = targetOf(shown.chat) ?: return
         val keyboard = keyboard(question, shown.language)
         val sent = mutableListOf<Posted>()
+        var attachment: Long? = null
         try {
+            shown.rendered.attachment?.let { file ->
+                attachment = outbox.paced(target) { outbox.sendDocument(target, file) }
+                    .also { messages.note(target.chat, it, waiting.noted) }
+            }
             for ((index, part) in shown.parts.withIndex()) {
                 val last = index == shown.parts.lastIndex
                 val id = outbox.paced(target) { outbox.sendText(target, part, null, keyboard.takeIf { last }) }
@@ -315,18 +333,19 @@ internal class ApprovalDesk(
             )
             sent.forEach {
                 waiting.posted.remove(it)
-                delete(it)
+                delete(it.chat, it.target, it.id)
             }
+            attachment?.let { delete(shown.chat, target, it) }
         }
     }
 
-    /** Deletes the message [posted] showed, so no part without buttons is left in the chat. */
-    private suspend fun delete(posted: Posted) {
+    /** Deletes the message [id] of a question, so no part without buttons is left in the chat. */
+    private suspend fun delete(chat: ChatAddress, target: Target, id: Long) {
         try {
-            outbox.paced(posted.target) { api.deleteMessage(posted.target.chat, posted.id) }
+            outbox.paced(target) { api.deleteMessage(target.chat, id) }
         } catch (e: BotApiException) {
             outbox.checkToken(e)
-            logger.warn("{} could not delete an approval message in chat {}: {}", instance.id, posted.chat, e.message)
+            logger.warn("{} could not delete an approval message in chat {}: {}", instance.id, chat, e.message)
         }
     }
 
@@ -355,22 +374,14 @@ internal class ApprovalDesk(
         return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), trust?.let(::listOf), always?.let(::listOf)))
     }
 
-    /** Keeping or marking first, then trusting. */
+    /** Keeping first, then trusting. */
     private fun keyboard(offer: TrustOffer, language: LanguageTag?): InlineKeyboardMarkup {
-        val keep = text(if (offer.marked) TextKeys.OFFER_KEEP else TextKeys.OFFER_MARK, language)
+        val keep = text(TextKeys.OFFER_KEEP, language)
         val roots = offer.roots
-        val trust = when {
-            roots.size > 1 -> text(
-                if (offer.marked) TextKeys.OFFER_TRUST_CLEAR_ALL else TextKeys.OFFER_TRUST_ALL,
-                language,
-                "count" to roots.size,
-            )
-
-            else -> text(
-                if (offer.marked) TextKeys.OFFER_TRUST_CLEAR else TextKeys.OFFER_TRUST,
-                language,
-                "root" to label(roots.single(), language),
-            )
+        val trust = if (roots.size > 1) {
+            text(TextKeys.OFFER_TRUST_CLEAR_ALL, language, "count" to roots.size)
+        } else {
+            text(TextKeys.OFFER_TRUST_CLEAR, language, "root" to label(roots.single(), language))
         }
         return InlineKeyboardMarkup(
             listOf(
@@ -532,7 +543,7 @@ internal class ApprovalDesk(
     }
 
     private fun outcome(offer: TrustOffer, ending: Ending, language: LanguageTag?): String? = when (ending) {
-        Ending.Expired -> text(if (offer.marked) TextKeys.OFFER_EXPIRED_MARKED else TextKeys.OFFER_EXPIRED, language)
+        Ending.Expired -> text(TextKeys.OFFER_EXPIRED_MARKED, language)
 
         Ending.Withdrawn -> text(TextKeys.OFFER_WITHDRAWN, language)
 
@@ -540,11 +551,7 @@ internal class ApprovalDesk(
             is ApprovalAnswer.Allowed ->
                 text(TextKeys.OFFER_TRUSTED, language, "name" to named(answer.by), "roots" to listed(offer.roots))
 
-            is ApprovalAnswer.Denied -> text(
-                if (offer.marked) TextKeys.OFFER_KEPT else TextKeys.OFFER_MARKED_BY,
-                language,
-                "name" to named(answer.by),
-            )
+            is ApprovalAnswer.Denied -> text(TextKeys.OFFER_KEPT, language, "name" to named(answer.by))
 
             else -> null
         }
@@ -592,8 +599,13 @@ internal class ApprovalDesk(
         }
     }
 
+    /** The messages of a question, and the file that holds a preview too long for them. */
+    private class Rendered(val parts: List<FormattedText>, val attachment: OutboundFile? = null)
+
     /** The messages of a request in [chat] in [language]. */
-    private class Shown(val chat: ChatAddress, val language: LanguageTag?, val parts: List<FormattedText>)
+    private class Shown(val chat: ChatAddress, val language: LanguageTag?, val rendered: Rendered) {
+        val parts: List<FormattedText> get() = rendered.parts
+    }
 
     /** The message [id] that carries the buttons of a request in [chat], reading [text]. */
     private class Posted(

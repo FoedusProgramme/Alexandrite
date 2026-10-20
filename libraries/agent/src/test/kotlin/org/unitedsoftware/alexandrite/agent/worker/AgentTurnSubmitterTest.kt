@@ -5,15 +5,13 @@ import org.unitedsoftware.alexandrite.agent.GatedConversations
 import org.unitedsoftware.alexandrite.agent.StoreIndex
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
-import org.unitedsoftware.alexandrite.agent.control.Choice
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.execute
-import org.unitedsoftware.alexandrite.runtime.chat.standaloneChatStates
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.state
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.Capacity
@@ -139,14 +137,12 @@ class AgentTurnSubmitterTest {
             "helper": {"model": "scripted/test-model", "channels": {"test:main": {"home": "1"}}},
             "reviewer": {"model": "scripted/test-model", "channels": {"test:main": {"home": "3"}}}
         """.trimIndent()
-        val selected = standaloneChatStates("alexandrite-agent", store.chatStates)
-            .state(SettingsStates.AGENT, Choice<AgentId>())
-        blocking { selected.set(ChatAddress.parse("test:main:1"), Choice(AgentId("coder"))) }
 
         agentHarness(config(agents), store = null) {
             channel().model(model(3)).plugin(StoreIndex(store, conversations))
         }.execute {
             val channel = channel()
+            get<SettingsStates>().selectAgent(channel.chat("1"), SettingChange.SetTo(AgentId("coder")))
             val switched = channel.receive("Hello", channel.chat("1"))
             val thread = channel.receive("Hello", channel.chat("1", "5"))
             val home = channel.receive("Hello", channel.chat("3"))

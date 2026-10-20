@@ -21,10 +21,11 @@ import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
 import org.unitedsoftware.alexandrite.internal.sandbox.NetworkProxy
+import org.unitedsoftware.alexandrite.internal.sandbox.Protect
 import org.unitedsoftware.alexandrite.internal.sandbox.ProxyLease
 import org.unitedsoftware.alexandrite.internal.sandbox.SYSTEM_RESOLVER
-import org.unitedsoftware.alexandrite.internal.sandbox.platformEnvironment
 import org.unitedsoftware.alexandrite.internal.sandbox.proxyVariables
+import org.unitedsoftware.alexandrite.internal.sandbox.selectEnvironment
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -110,19 +111,17 @@ internal class Sandboxes(
 
     private fun configured(agent: AgentId, config: SandboxConfig, environment: ExecutionEnvironment): Configured {
         val key = "agent.agents.$agent.sandbox"
-        val entries = config.protect ?: SandboxConfig.DEFAULT_PROTECT
-        val (names, absolute) = entries.filterNot { it == SandboxConfig.ALEXANDRITE }
-            .partition { !it.startsWith("/") && !it.startsWith("~") }
+        val protect = Protect.of(config.protect)
         val protectedPaths =
-            absolute.map { configuredPath(paths, "$key.protect", "the protected path", expandHome(it)) } +
-                if (SandboxConfig.ALEXANDRITE in entries) alexandritePlaces(paths) else emptyList()
+            protect.paths.map { configuredPath(paths, "$key.protect", "the protected path", expandHome(it)) } +
+                if (protect.alexandrite) alexandritePlaces(paths) else emptyList()
         logger.info("Agent '{}' runs its commands in the {} sandbox", agent, environment.name)
         return Configured(
             environment,
             config,
             config.allowWrite.map { configuredPath(paths, "$key.allowWrite", "the writable path", expandHome(it)) },
             protectedPaths,
-            names,
+            protect.names,
             config.denyRead.map { configuredPath(paths, "$key.denyRead", "the unreadable path", expandHome(it)) },
             config.network.allowedDomains.mapNotNull(HostPattern::parse),
         )
@@ -204,37 +203,14 @@ internal class Sandboxes(
  * The environment that [agent]'s sandbox [type] names, null for none; throws a [ConfigException] for a named one that
  * is missing or unavailable.
  */
-private fun environment(agent: AgentId, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? {
-    val key = "agent.agents.$agent.sandbox.type"
-    return when (type) {
-        SandboxConfig.HOST -> null
-
-        SandboxConfig.AUTO -> {
-            val name = platformEnvironment()
-            val found = environments.firstOrNull { it.name == name && it.available() }
-            if (found == null) {
-                logger.warn(
-                    "Agent '{}' asks for the platform's sandbox, but {}: its commands run on the host",
-                    agent,
-                    name?.let { "the $it sandbox is not available" } ?: "this platform has none",
-                )
-            }
-            found
+private fun environment(agent: AgentId, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
+    try {
+        selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
+            logger.warn("Agent '{}' asks for the platform's sandbox, but {}: its commands run on the host", agent, why)
         }
-
-        else -> {
-            val named = environments.firstOrNull { it.name == type } ?: throw ConfigException(
-                key,
-                "no plugin contributes the sandbox '$type'. Sandboxes: " +
-                    environments.joinToString { it.name }.ifEmpty { "none" } + ".",
-            )
-            if (!named.available()) {
-                throw ConfigException(key, "the sandbox '$type' is not available on this host")
-            }
-            named
-        }
+    } catch (e: IllegalArgumentException) {
+        throw ConfigException("agent.agents.$agent.sandbox.type", e.message.orEmpty(), e)
     }
-}
 
 /** The per-user temp directory. */
 private fun temporary(): List<Path> =

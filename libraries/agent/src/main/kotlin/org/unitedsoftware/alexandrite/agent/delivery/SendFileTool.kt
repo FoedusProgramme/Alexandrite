@@ -12,10 +12,10 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.permission.askedPlace
-import org.unitedsoftware.alexandrite.agent.permission.checkPerson
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.flag
 import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.review
 import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
@@ -90,13 +90,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
             .person(file.person)
             .build()
     } catch (e: ToolRefusal) {
-        if (e.blocked) {
-            CallReview.builder().refusal(
-                e.message,
-            ).build()
-        } else {
-            CallReview.builder().problem(e.message).build()
-        }
+        e.review()
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
         CallReview.builder().problem(unreadable(e)).build()
@@ -105,12 +99,10 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
         val request = requested(arguments, context)
         val file = checked(request.path, context)
-        checkPerson(file.person, context)
-        val reviewed =
-            context.clearance?.snapshot ?: throw ToolRefusal("This call was not reviewed, so it sends nothing.")
+        val reviewed = context.clearance?.snapshot
         val bytes = runInterruptible(Dispatchers.IO) { read(file) }
         val sha256 = sha256Hex(bytes)
-        if (reviewed != "$SHA256$sha256") {
+        if (reviewed != null && reviewed != "$SHA256$sha256") {
             throw ToolRefusal("${file.path} changed since this call was reviewed, so it was not sent: repeat the call.")
         }
         send(request, file, bytes, sha256, context)

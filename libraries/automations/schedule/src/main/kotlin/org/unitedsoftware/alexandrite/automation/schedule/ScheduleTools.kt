@@ -25,6 +25,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.tool.rebuild
 import java.time.Clock
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -66,13 +67,14 @@ internal class CreateTool(
 
     /** Has a person see the prompt and the time of a task that a tainted conversation asks for. */
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
-        if (!context.tainted || refusal(context.turn, "schedule") != null) return CallReview.builder().build()
+        if (refusal(context.turn, "schedule") != null) return CallReview.builder().build()
+        if (!context.tainted) return LASTING
         val time = FORMS.firstNotNullOfOrNull { form -> arguments.text(form)?.let { "$form $it" } } ?: "no time"
         val prompt = arguments.text("prompt")?.trim().orEmpty()
-        return CallReview.builder()
-            .preview(ReviewPreview.Text("Schedule in this chat, $time:\n\n$prompt"))
-            .person(TAINTED)
-            .build()
+        return LASTING.rebuild {
+            preview(ReviewPreview.Text("Schedule in this chat, $time:\n\n$prompt"))
+            person(TAINTED)
+        }
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
@@ -200,12 +202,13 @@ internal class CancelTool(control: Lazy<ScheduleControl>) : ReviewedTool {
 
     /** Has a person see which task a tainted conversation asks to cancel. */
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
-        if (!context.tainted || refusal(context.turn, "cancel") != null) return CallReview.builder().build()
+        if (refusal(context.turn, "cancel") != null) return CallReview.builder().build()
+        if (!context.tainted) return LASTING
         val id = arguments.text("id")?.trim()?.lowercase().orEmpty()
-        return CallReview.builder()
-            .preview(ReviewPreview.Text("Cancel task $id of this chat."))
-            .person(TAINTED)
-            .build()
+        return LASTING.rebuild {
+            preview(ReviewPreview.Text("Cancel task $id of this chat."))
+            person(TAINTED)
+        }
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
@@ -235,6 +238,9 @@ internal fun refusal(turn: TurnInfo, act: String): String? = when {
 
     else -> null
 }
+
+/** The review of an operator's change of the schedule, which outlasts the conversation. */
+private val LASTING = CallReview.builder().risk(ToolRisk.PERSISTENT_STATE).build()
 
 /** Why a person decides a change of the schedule from a tainted conversation. */
 private const val TAINTED = "the conversation took in untrusted content, and a scheduled task outlasts it"

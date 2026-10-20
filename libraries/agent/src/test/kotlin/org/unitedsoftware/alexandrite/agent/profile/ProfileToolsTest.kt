@@ -89,6 +89,22 @@ class ProfileToolsTest {
     // profile.list.
 
     @Test
+    fun `the writing tools say when a person reviews their change, which the gate decides by turn and taint`() {
+        val tools = listOf(ProfileCreateTool(catalog), ProfileEditTool(catalog), ProfileRemoveTool(catalog))
+
+        for (tool in tools) {
+            val description = tool.definition.description
+            assertTrue(
+                description.endsWith(
+                    "A person reviews the change first only when the turn is not an operator's own or the " +
+                        "conversation took in untrusted content; otherwise it applies at once.",
+                ),
+                description,
+            )
+        }
+    }
+
+    @Test
     fun `without a profile it says so, of activity list`() {
         val tool = ProfileListTool(catalog)
 

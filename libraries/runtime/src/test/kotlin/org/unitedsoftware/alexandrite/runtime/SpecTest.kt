@@ -27,7 +27,7 @@ class SpecTest {
 
     private val error = RuntimeStartException("failed", StartStage.START, emptyList(), null, null)
 
-    private val problem = Problem(RuntimeProblemKind.DRAIN_FAILED, "drain failed", "weather")
+    private val problem = Problem(RuntimeProblemKind.SHUTDOWN, "drain failed", "weather")
 
     private val values = listOf(
         RuntimeConfig.builder(dataDir).zone(ZONE).build(),
@@ -145,7 +145,7 @@ class SpecTest {
         val ids = (DiProblemKind.entries + RuntimeProblemKind.entries).map { it.id }
 
         assertEquals("di.wrong_kind", DiProblemKind.WRONG_KIND.id)
-        assertEquals("runtime.drain_failed", RuntimeProblemKind.DRAIN_FAILED.id)
+        assertEquals("runtime.shutdown", RuntimeProblemKind.SHUTDOWN.id)
         assertEquals(ids.size, ids.toSet().size)
     }
 }

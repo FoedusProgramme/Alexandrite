@@ -28,12 +28,10 @@ class PublicApiTest {
         import kotlinx.coroutines.flow.MutableStateFlow
         import kotlinx.coroutines.flow.toList
         import kotlinx.serialization.json.JsonObject
-        import kotlinx.serialization.json.JsonPrimitive
         import org.unitedsoftware.alexandrite.runtime.TextCatalog
         import org.unitedsoftware.alexandrite.sdk.agent.*
         import org.unitedsoftware.alexandrite.sdk.channel.*
         import org.unitedsoftware.alexandrite.sdk.chat.*
-        import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
         import org.unitedsoftware.alexandrite.sdk.di.key
         import org.unitedsoftware.alexandrite.sdk.hook.ObserverHook
         import org.unitedsoftware.alexandrite.sdk.model.*
@@ -123,7 +121,6 @@ class PublicApiTest {
                 testTurn(),
                 "a test",
                 listOf(org.unitedsoftware.alexandrite.sdk.channel.TrustRoot.person(channel.user())),
-                marked = false,
             )
             val offered: List<Any?> = listOf(channel.offerTrust(offer), channel.awaitOffers(1), channel.offers)
             channel.guestsMayRun = false
@@ -199,6 +196,7 @@ class PublicApiTest {
             control.heartbeatTaints[testChat()] =
                 org.unitedsoftware.alexandrite.sdk.store.ConversationTaint(java.time.Instant.EPOCH, "a web page")
             control.conversations.untaintHeartbeat(testChat(), null)
+            control.anyCodeRules += "command.exec(sh)"
             control.settings.update(testChat(), ChatSettingsUpdate.builder().build(), null)
             control.links.link(AgentId.MAIN, testChat(), testChat("other"), null)
             control.links.unlink(AgentId.MAIN, testChat("other"), null)
@@ -265,30 +263,6 @@ class PublicApiTest {
                 testMessage("hi", testChat(), testUser("ada", true, TEST_INSTANCE), "m1") { }, TEST_TIME,
             )
         }
-
-        fun payloads(): List<Any> = listOf(
-            testPromptSections(testTurn(), emptyList()),
-            testTurnStart(
-                testTurn(),
-                listOf(testToolDefinition("notes.add", ToolRisk.READ_ONLY)),
-                testMessageOf(testTurn(), "hi"),
-            ),
-            testTurnInput(testTurn(), "hi", false, null),
-            testContextLoaded(testTurn(), emptyList()),
-            testTurnContext(testTurn(), "hi", emptyList()),
-            testModelCall(testTurn(), 0, testModelRequest()),
-            testModelReply(testTurn(), 0, scriptedReply { text("Hi") }),
-            testModelReply(testTurn(), 0, testModelReply().response),
-            testToolCallCheck(testTurn(), testToolDefinition(), "{}"),
-            testToolCallDone(testTurn(), output = "done", outcome = ToolOutcome.Succeeded),
-            testReplyPreview(testTurn(), 0, "Hel"),
-            testReplyDraft(testTurn(), "Hi", MessageKind.REPLY, destination = testChat("other")),
-            testTurnCommitted(testTurn(), usage = null),
-            testConversationSealed(testTurn(), ConversationId("next")),
-            testContextCompaction(testTurn(), focus = "the tests"),
-            testContextCompacted(testTurn(), "Said hello.", EntryId(2), 900, 100),
-            testContextCleared(testTurn(), tokensFreed = 300),
-        )
 
         suspend fun tools(): List<Any?> {
             val tool: RecordingTool = recordingTool("notes.find", ToolRisk.READ_ONLY) { arguments, context ->
@@ -390,7 +364,6 @@ class PublicApiTest {
                 seen.addAll(listOf(dataDir, cacheDir, get<ChannelDirectory>(), getAll<ModelProvider>()))
                 seen.add(model("scripted"))
                 seen.add(readConfig())
-                get<ConfigEditor>("notes").edit { set("home", get("home") ?: JsonPrimitive("1")) }
                 seen.addAll(listOf(channel("main", "test"), channel(TEST_INSTANCE), get(key<ChannelDirectory>())))
                 seen.addAll(getAll(key<ModelProvider>()))
                 seen.add(testHardFloor(get<HostPaths>(), listOf(root.resolve("secret")), Path.of("/home/user")))

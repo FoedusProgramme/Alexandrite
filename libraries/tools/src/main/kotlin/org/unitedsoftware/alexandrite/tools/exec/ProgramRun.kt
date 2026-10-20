@@ -8,6 +8,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.unitedsoftware.alexandrite.internal.process.destroyTree
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import java.io.File
 import java.io.IOException
@@ -259,9 +260,7 @@ internal suspend fun runSteps(
 private fun recheck(call: PlannedCall, step: PlannedStep, planner: Planner, planned: () -> Path): Checked {
     val again = try {
         planned()
-    } catch (e: CallProblem) {
-        return Checked.Stopped(e.message)
-    } catch (e: FloorRefusal) {
+    } catch (e: ToolRefusal) {
         return Checked.Stopped(e.message)
     }
     val expected = step.run?.executable ?: step.cwd

@@ -117,6 +117,27 @@ class CommandRulesTest {
     }
 
     @Test
+    fun `anyone sees the usage of their chat, only admins the usage of all`() {
+        val usage = object : CommandHandler {
+            override val commands = listOf(
+                CommandSpec.builder("usage", "Usage.").operatorsOnly(CommandForms.WITH_ARGUMENTS).build(),
+            )
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
+        }
+        val rules = CommandRules(listOf(usage), control.links)
+        val member = testUser("bob")
+        val admin = testUser("ada", isOperator = true)
+
+        for (kind in kinds) {
+            assertEquals(null, rules.refusal(testCommand("usage", "", issuer = member), kind))
+            assertEquals(TextKeys.REFUSED_ADMIN, rules.refusal(testCommand("usage", "all", issuer = member), kind))
+            assertEquals(null, rules.refusal(testCommand("usage", "all", issuer = admin), kind))
+        }
+        assertEquals(true, rules.listed("usage", admin = false, direct = false))
+    }
+
+    @Test
     fun `anyone sees the MCP servers, only admins restart one`() {
         val rules = CommandRules(listOf(ClaimedCommands("mcp")), control.links)
         val member = testUser("bob")

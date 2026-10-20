@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -51,10 +52,10 @@ internal class WriteTool(private val floor: HardFloor, private val ledger: ReadL
         val current = target.current ?: return content
         ledger.checkRead(target, context)
         val text = current.withLineBreaks(content)
-        if (text == current.text) throw Refusal("${target.shown} holds this text already.")
+        if (text == current.text) throw ToolRefusal("${target.shown} holds this text already.")
         return text
     }
 }
 
 private fun content(arguments: JsonObject): String =
-    arguments.string("content") ?: throw Refusal("Give 'content' as a string, the whole text of the file.")
+    arguments.string("content") ?: throw ToolRefusal("Give 'content' as a string, the whole text of the file.")

@@ -208,6 +208,8 @@ class TrustCommandsTest {
 
     @Test
     fun `trusting a shell whole says that it trusts the output of any script`() = runTest {
+        control.anyCodeRules += "command.exec(sh)"
+
         assertEquals(
             "The output of the calls that command.exec(sh) covers no longer taints this conversation, though a " +
                 "command still taints where it reaches a folder that is not trusted; a taint it has already stays. " +
@@ -283,6 +285,7 @@ class TrustCommandsTest {
                 "Their channel's config trusts Cy: edit that config to stop trusting them.",
                 commands.answer(testCommand("untrust", "@cy", issuer = OPERATOR, mentions = listOf(configured))),
             )
+            control.refuseNext("Operator is an operator, whom the agent trusts already.")
             assertEquals(
                 "Operator is an operator, whom the agent trusts already.",
                 commands.answer(testCommand("trust", issuer = OPERATOR, replyTo = OPERATOR)),

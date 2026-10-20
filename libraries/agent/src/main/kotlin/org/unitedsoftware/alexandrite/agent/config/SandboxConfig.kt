@@ -2,7 +2,8 @@ package org.unitedsoftware.alexandrite.agent.config
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.internal.sandbox.ALEXANDRITE_PLACES
-import org.unitedsoftware.alexandrite.internal.sandbox.DEFAULT_PROTECT as PROTECTED_BY_DEFAULT
+import org.unitedsoftware.alexandrite.internal.sandbox.AUTO_SANDBOX
+import org.unitedsoftware.alexandrite.internal.sandbox.HOST_SANDBOX
 
 /** The sandbox that an agent's commands run in. */
 @Serializable
@@ -12,7 +13,7 @@ internal class SandboxConfig(
     /** Places the commands may write beside the workspace, the conversation's directory, trusted folders and temp. */
     val allowWrite: List<String> = emptyList(),
     /**
-     * What the commands may not write inside writable places, replacing [DEFAULT_PROTECT] when given: a path (absolute
+     * What the commands may not write inside writable places, replacing the default list when given: a path (absolute
      * or under `~/`), `alexandrite` for Alexandrite's config, data and install places, or a relative path such as
      * `.git/hooks` for that path at any depth.
      */
@@ -26,10 +27,9 @@ internal class SandboxConfig(
     val strict: Boolean = false,
 ) {
     companion object {
-        const val HOST: String = "host"
-        const val AUTO: String = "auto"
+        const val HOST: String = HOST_SANDBOX
+        const val AUTO: String = AUTO_SANDBOX
         const val ALEXANDRITE: String = ALEXANDRITE_PLACES
-        val DEFAULT_PROTECT: List<String> = PROTECTED_BY_DEFAULT
     }
 }
 

@@ -52,6 +52,7 @@ import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import org.unitedsoftware.alexandrite.testkit.testChat
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -66,7 +67,7 @@ class CallRulesTest {
     private val clock = TestClock()
     private val store = MemoryStore(clock)
     private val records = TestRecords(store.records).of(AGENT)
-    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT))
+    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT), testRecords())
     private val key = AgentChatKey(AgentId.MAIN, testChat())
     private val operator = testUser("operator", isOperator = true)
     private val exec = ScriptedTool("command.exec", ToolRisk.EXEC)
@@ -253,7 +254,7 @@ class CallRulesTest {
         }
 
     @Test
-    fun `a declared tool allows the calls that offer a subject, never an opaque program`() = runTest {
+    fun `a declared tool allows its calls, those that offer no subject too, never an opaque program`() = runTest {
         val setup = Setup("""{"allow": ["deploy.run", "command.exec"]}""")
         val subject = RuleSubject("deploy.run", listOf("staging"), "staging")
         val opaque = CallReview.builder()
@@ -269,7 +270,7 @@ class CallRulesTest {
             setup.decide(exec, opaque.withRule(RuleSubject("command.exec", listOf("sh"), "sh")), turn),
         )
 
-        assertEquals(listOf("rule", "ask", "rule", "ask", "ask"), decided)
+        assertEquals(listOf("rule", "rule", "rule", "ask", "ask"), decided)
         assertEquals(listOf(null, null), setup.approvals.offered.takeLast(2))
     }
 

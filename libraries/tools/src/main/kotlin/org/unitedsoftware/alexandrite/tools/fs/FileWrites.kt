@@ -7,8 +7,8 @@ import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
 import org.unitedsoftware.alexandrite.internal.text.Utf8Text
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
@@ -43,10 +43,8 @@ internal const val MAX_WRITE_BYTES: Long = 16L * MIB
 /** The review that [block] makes, a problem or a refusal for what it refuses. */
 internal suspend fun reviewing(block: suspend () -> CallReview): CallReview = try {
     block()
-} catch (e: Blocked) {
-    CallReview.builder().refusal(e.message).build()
-} catch (e: Refusal) {
-    CallReview.builder().problem(e.message).build()
+} catch (e: ToolRefusal) {
+    CallReview.builder().apply { if (e.blocked) refusal(e.message) else problem(e.message) }.build()
 } catch (e: IOException) {
     currentCoroutineContext().ensureActive()
     CallReview.builder().problem(failure(e)).build()
@@ -61,8 +59,11 @@ internal suspend fun HardFloor.target(argument: String, context: ToolContext): T
         val check = checkWrite(shown, agent, conversation)
         val file = when (check) {
             is FloorCheck.Allowed -> check.canonical
+
             is FloorCheck.Ask -> check.canonical
-            is FloorCheck.Denied -> throw Blocked("$shown is protected (${check.reason}): no file tool may write it.")
+
+            is FloorCheck.Denied ->
+                throw ToolRefusal.blocked("$shown is protected (${check.reason}): no file tool may write it.")
         }
         val directory = context.conversationDirectory
         val person = (check as? FloorCheck.Ask)?.let { askedPlace(shown, it) }
@@ -84,18 +85,20 @@ private fun load(file: Path, shown: Path, exempt: Boolean, person: String?): Tar
             false
         }
         if (!directory && !exempt) {
-            throw Refusal("${shown.parent} is no existing directory: files are written only in existing directories.")
+            throw ToolRefusal(
+                "${shown.parent} is no existing directory: files are written only in existing directories.",
+            )
         }
         return Target(file, shown, null, ABSENT, exempt, person)
     }
-    if (attributes.isDirectory) throw Refusal("$shown is a directory.")
+    if (attributes.isDirectory) throw ToolRefusal("$shown is a directory.")
     checkRegular(file, shown, attributes, "written")
     val bytes = openRegularFile(file).use { it.readNBytes(MAX_WRITE_BYTES.toInt() + 1) }
     if (bytes.size > MAX_WRITE_BYTES) {
-        throw Refusal("$shown is over ${MAX_WRITE_BYTES / MIB} MiB, more than the write tools change.")
+        throw ToolRefusal("$shown is over ${MAX_WRITE_BYTES / MIB} MiB, more than the write tools change.")
     }
     val text = Utf8Text.decode(bytes)
-        ?: throw Refusal("$shown is no UTF-8 text (it looks binary): the write tools change text files only.")
+        ?: throw ToolRefusal("$shown is no UTF-8 text (it looks binary): the write tools change text files only.")
     return Target(file, shown, text, HASH_PREFIX + sha256Hex(bytes), exempt, person)
 }
 
@@ -103,13 +106,13 @@ private fun load(file: Path, shown: Path, exempt: Boolean, person: String?): Tar
 internal fun ReadLedger.checkRead(target: Target, context: ToolContext) {
     if (target.current == null) return
     when (hash(context.turn.conversation, target.file)) {
-        null -> throw Refusal(
+        null -> throw ToolRefusal(
             "You have not read ${target.shown} in this conversation: read it with fs.read first, then write it.",
         )
 
         target.snapshot -> return
 
-        else -> throw Refusal("${target.shown} changed since you read it: read it again with fs.read first.")
+        else -> throw ToolRefusal("${target.shown} changed since you read it: read it again with fs.read first.")
     }
 }
 
@@ -130,14 +133,13 @@ internal fun Target.diff(text: String): UnifiedDiff {
     return if (plain.text.isEmpty()) UnifiedDiff.of(old, text, oldLabel, "$file") else plain
 }
 
-/** Refuses the call of [context] unless [target] is as its review found it and a person allowed it where needed. */
+/** Refuses the call of [context] unless [target] is as its review found it. */
 internal fun Target.checkReviewed(context: ToolContext) {
-    if (person != null && context.clearance?.kind != ClearanceKind.HUMAN) {
-        throw Blocked("$person, and no person allowed this call.")
-    }
-    val reviewed = context.clearance?.snapshot ?: throw Refusal("This call was not reviewed, so it writes nothing.")
-    if (reviewed != snapshot) {
-        throw Refusal("$shown changed since this call was reviewed: read it again with fs.read, then repeat the call.")
+    val reviewed = context.clearance?.snapshot
+    if (reviewed != null && reviewed != snapshot) {
+        throw ToolRefusal(
+            "$shown changed since this call was reviewed: read it again with fs.read, then repeat the call.",
+        )
     }
 }
 
@@ -145,7 +147,7 @@ internal fun Target.checkReviewed(context: ToolContext) {
 internal suspend fun Target.write(text: String, ledger: ReadLedger, context: ToolContext): UnifiedDiff {
     val bytes = current?.encode(text) ?: text.toByteArray(Charsets.UTF_8)
     if (exempt) {
-        context.conversationQuotaRefusal(file, bytes.size.toLong())?.let { throw Refusal(it) }
+        context.conversationQuotaRefusal(file, bytes.size.toLong())?.let { throw ToolRefusal(it) }
     }
     val conversation = context.turn.conversation
     if (exempt) context.openConversationDirectory()
@@ -155,7 +157,7 @@ internal suspend fun Target.write(text: String, ledger: ReadLedger, context: Too
             writeAtomically(file) { it.write(bytes) }
         } catch (e: IOException) {
             val why = if (e is AccessDeniedException) "access denied" else e.message ?: e.javaClass.simpleName
-            throw Refusal("$shown could not be written: $why.")
+            throw ToolRefusal("$shown could not be written: $why.")
         }
     }
     ledger.record(conversation, file, HASH_PREFIX + sha256Hex(bytes))

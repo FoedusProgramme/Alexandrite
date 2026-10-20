@@ -35,6 +35,7 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.recordingTool
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import org.unitedsoftware.alexandrite.testkit.testUser
@@ -46,7 +47,7 @@ import kotlin.time.Duration.Companion.seconds
 
 class PermissionStatusToolTest {
     private val clock = TestClock()
-    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"))
+    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"), testRecords())
     private val store = MemoryStore(clock)
     private val operatorUser = testUser("operator", isOperator = true)
     private val operator: TurnInfo = testTurn { actor(operatorUser) }

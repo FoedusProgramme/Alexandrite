@@ -111,6 +111,35 @@ internal fun isLocalAddress(address: InetAddress): Boolean {
     }
 }
 
+/**
+ * Whether [address] is no public unicast one: loopback, private, link-local, shared, unspecified, multicast, reserved
+ * for documentation or benchmarks, a relay, or IPv6 outside global unicast.
+ */
+public fun isNonPublicAddress(address: InetAddress): Boolean {
+    if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
+        address.isSiteLocalAddress || address.isMulticastAddress
+    ) {
+        return true
+    }
+    val b = address.address.map { it.toInt() and 255 }
+    if (address !is Inet4Address) {
+        val global = b[0] in 0x20..0x3f
+        val special = b[0] == 0x20 && b[1] == 0x01 && (b[2] < 2 || (b[2] == 0x0d && b[3] == 0xb8))
+        return !global || special || (b[0] == 0x20 && b[1] == 0x02)
+    }
+    val (first, second, third) = b
+    return when (first) {
+        0, 10, 127 -> true
+        100 -> second in 64..127
+        169 -> second == 254
+        172 -> second in 16..31
+        192 -> (second == 0 && third in setOf(0, 2)) || second == 168 || (second == 88 && third == 99)
+        198 -> second in 18..19 || (second == 51 && third == 100)
+        203 -> second == 0 && third == 113
+        else -> first >= 224
+    }
+}
+
 /** [host] as a request names it: lowercase, without brackets or a closing dot. */
 internal fun normalized(host: String): String = host.lowercase().removePrefix("[").removeSuffix("]").removeSuffix(".")
 

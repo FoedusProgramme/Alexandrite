@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.unitedsoftware.alexandrite.internal.sandbox.isNonPublicAddress
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
@@ -50,7 +51,7 @@ class WebTest {
             "100.64.0.1", "198.18.0.1", "224.0.0.1", "::", "::1", "fc00::1", "fe80::1", "2002::1",
             "::ffff:127.0.0.1", "2001:db8::1",
         ).forEach {
-            assertTrue(privateAddress(InetAddress.getByName(it)), it)
+            assertTrue(isNonPublicAddress(InetAddress.getByName(it)), it)
         }
         assertEquals("example.com", checkedHost(URI("https://example.com/page")))
     }
@@ -130,8 +131,8 @@ class WebTest {
 
     @Test
     fun `only the special blocks of 192_0 are private, the rest of it is public`() {
-        listOf("192.0.0.1", "192.0.2.1").forEach { assertTrue(privateAddress(InetAddress.getByName(it)), it) }
-        listOf("192.0.32.10", "192.0.1.1").forEach { assertFalse(privateAddress(InetAddress.getByName(it)), it) }
+        listOf("192.0.0.1", "192.0.2.1").forEach { assertTrue(isNonPublicAddress(InetAddress.getByName(it)), it) }
+        listOf("192.0.32.10", "192.0.1.1").forEach { assertFalse(isNonPublicAddress(InetAddress.getByName(it)), it) }
     }
 
     @Test
@@ -239,6 +240,18 @@ class WebTest {
         ).forEach { body -> assertFailsWith<IllegalArgumentException> { parse("HTTP/1.1 200 OK\r\n$body") } }
         assertFailsWith<IllegalStateException> {
             response(ByteArrayInputStream("HTTP/1.1 200 OK\r\n\r\na".toByteArray()), 20) { error("deadline exceeded") }
+        }
+    }
+
+    @Test
+    fun `repeated headers are joined, and only the framing and redirect headers must come once`() {
+        fun parse(text: String): WebResponse = response(ByteArrayInputStream(text.toByteArray()), 20)
+        val page = parse("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nVary: Accept\r\nset-cookie: b=2\r\n\r\nabc")
+
+        assertEquals("a=1, b=2", page.headers["set-cookie"])
+        assertEquals("abc", page.body.toString(Charsets.UTF_8))
+        for (header in listOf("Content-Length: 3", "Location: /a")) {
+            assertFailsWith<IllegalArgumentException> { parse("HTTP/1.1 200 OK\r\n$header\r\n$header\r\n\r\nabc") }
         }
     }
 

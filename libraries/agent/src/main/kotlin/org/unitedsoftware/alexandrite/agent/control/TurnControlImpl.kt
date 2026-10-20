@@ -5,7 +5,6 @@ import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.delegation.DelegatedRuns
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.who
-import org.unitedsoftware.alexandrite.agent.worker.AgentTurnInitiation
 import org.unitedsoftware.alexandrite.agent.worker.ChatIntakes
 import org.unitedsoftware.alexandrite.agent.worker.TurnWorkers
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -24,7 +23,6 @@ internal class TurnControlImpl(
     private val workers: TurnWorkers,
     private val background: Jobs,
     private val intakes: ChatIntakes,
-    private val initiation: AgentTurnInitiation,
     private val lanes: CommandLanes,
     private val runs: DelegatedRuns,
 ) : TurnControl {
@@ -40,8 +38,7 @@ internal class TurnControlImpl(
 
     override fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean {
         val cause = TurnCancelled(by)
-        val found = initiation.cancelHeld(turn, cause) || intakes.cancel(turn, cause) || lanes.cancel(turn, cause) ||
-            runs.cancelTurn(turn, cause)
+        val found = intakes.cancel(turn, cause) || lanes.cancel(turn, cause) || runs.cancelTurn(turn, cause)
         if (found) logger.info("Turn {} is cancelled by {}", turn, who(by))
         return found
     }

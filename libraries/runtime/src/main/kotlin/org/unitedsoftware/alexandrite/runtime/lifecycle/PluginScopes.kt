@@ -88,7 +88,7 @@ internal class PluginScopes(
     private fun notDone(owner: String, plugin: String, grace: Duration): Problem {
         val message = "Coroutines of $owner were still running: the shutdown grace of $grace ran out."
         logger.warn("{}: {}", name, message)
-        return Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, plugin)
+        return Problem(RuntimeProblemKind.SHUTDOWN, message, plugin)
     }
 
     private class Scope(val plugin: String, override val coroutineContext: CoroutineContext) : PluginScope

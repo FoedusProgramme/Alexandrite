@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
 import org.unitedsoftware.alexandrite.agent.tool.AgentScopedTool
 import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.review
 import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
@@ -89,13 +90,7 @@ internal class PersonaEditTool(
             .person(edit.person)
             .build()
     } catch (e: ToolRefusal) {
-        if (e.blocked) {
-            CallReview.builder().refusal(
-                e.message,
-            ).build()
-        } else {
-            CallReview.builder().problem(e.message).build()
-        }
+        e.review()
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
         CallReview.builder()
@@ -105,10 +100,8 @@ internal class PersonaEditTool(
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
         val edit = planned(arguments, context)
-        checkPerson(edit.person, context)
-        val reviewed =
-            context.clearance?.snapshot ?: throw ToolRefusal("This call was not reviewed, so it writes nothing.")
-        if (reviewed != edit.snapshot) {
+        val reviewed = context.clearance?.snapshot
+        if (reviewed != null && reviewed != edit.snapshot) {
             throw ToolRefusal(
                 "${edit.shown} changed since this call was reviewed: repeat the call if it still applies.",
             )

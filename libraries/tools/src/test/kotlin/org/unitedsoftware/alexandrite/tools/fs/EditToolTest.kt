@@ -295,7 +295,7 @@ class EditToolTest {
     }
 
     @Test
-    fun `a file that changed after the review is not written, nor is a call that was not reviewed`() {
+    fun `a file that changed after the review is not written`() {
         val file = fs.write("repo/notes.md", "Buy tea.\n")
         read(file)
         val arguments = call(file, Edit("tea", "coffee"))
@@ -305,14 +305,10 @@ class EditToolTest {
         val changed = runBlocking {
             tool.execute(arguments, fs.context(clearance = Clearance(ClearanceKind.HUMAN, null, review.snapshot)))
         }
-        val unreviewed = runBlocking { tool.execute(arguments, fs.context()) }
 
         assertEquals(
-            listOf(
-                "$file changed since this call was reviewed: read it again with fs.read, then repeat the call.",
-                "This call was not reviewed, so it writes nothing.",
-            ),
-            listOf(changed.text, unreviewed.text),
+            "$file changed since this call was reviewed: read it again with fs.read, then repeat the call.",
+            changed.text,
         )
         assertEquals("Buy more tea.\n", file.readText())
     }

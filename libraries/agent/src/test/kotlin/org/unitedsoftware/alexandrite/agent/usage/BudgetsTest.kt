@@ -1,6 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.usage
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.assertStartFails
 import org.unitedsoftware.alexandrite.agent.blocking
@@ -13,6 +15,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.Usage
@@ -250,7 +253,7 @@ class BudgetsTest {
     }
 
     @Test
-    fun `a job's result refused past the budget waits for the next operator message, which takes it in`() {
+    fun `a job's result refused past the budget is dropped, and the next turn is told it came, after a restart too`() {
         val finish = CompletableDeferred<Unit>()
         val slow = recordingTool("test.slow") { _, _ ->
             finish.await()
@@ -258,27 +261,34 @@ class BudgetsTest {
         }
         model.reply { toolCall("test.slow", "{}").usage(usage(1500, 100)) }
             .reply { text("It runs in the background.") }
-            .reply { text("The slow job is done.") }
+            .reply { text("It ended without a result I can see.") }
+        var job: RunId? = null
 
         harness { tool(startingInBackground(slow)) }.execute {
             ask("Start it.")
             val jobs = JobRecords(TestRecords(store).of("alexandrite-agent"))
-            val job = jobs.all().keys.single()
+            val started = jobs.all().keys.single().also { job = it }
             finish.complete(Unit)
-            val waiting = "Coder has used up its budget, so the result of job $job (test.slow) waits for the next " +
-                "message of an operator, which takes it in."
-            channel().awaitEvent { (it as? Event.Sent)?.message?.text == waiting }
+            val dropped =
+                "Coder has used up its budget, so the result of job $started (test.slow) is not taken in. Its " +
+                    "next turn here is told that the job ended."
+            channel().awaitEvent { (it as? Event.Sent)?.message?.text == dropped }
 
+            withTimeout(5_000) { while (jobs.all().isNotEmpty()) delay(5) }
             assertEquals(2, model.requests.size)
-            assertEquals(setOf(job), jobs.all().keys)
-            val answered = assertIs<TurnOutcome.Completed>(ask("What came of it?"))
+        }
+        harness { tool(startingInBackground(slow)) }.execute {
+            assertIs<TurnOutcome.Completed>(ask("What came of it?"))
 
-            assertEquals("The slow job is done.", answered.reply?.parts?.filterIsInstance<TextPart>()?.single()?.text)
             val history = model.requests.last().history.filterIsInstance<UserEntry>().takeLast(2)
             val framing = (history[0].parts.first() as ContextPart).text
-            assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job $job, test.slow"), framing)
+            assertEquals(
+                "[alexandrite:job]\nA background job ended: job $job, test.slow. Its result came after your budget " +
+                    "was used up, so it is not shown: run the call again if you still need it.\n[/alexandrite:job]",
+                framing,
+            )
+            assertTrue("Slow done." !in model.requests.last().history.toString())
             assertEquals(UserOrigin.FromChat::class, history[1].origin::class)
-            assertEquals(emptySet(), jobs.all().keys)
         }
     }
 

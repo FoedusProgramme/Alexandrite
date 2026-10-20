@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -7,7 +8,7 @@ import kotlin.test.assertFailsWith
 class CommandLineTest {
     private fun split(line: String, home: String? = "/h") = CommandLine.split(line, home)
 
-    private fun problem(line: String): String = assertFailsWith<CallProblem>(line) { split(line) }.message
+    private fun problem(line: String): String = assertFailsWith<ToolRefusal>(line) { split(line) }.message
 
     @Test
     fun `words split at whitespace, and quotes and escapes keep them whole`() {

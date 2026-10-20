@@ -1,5 +1,3 @@
 # Workspace
 
 Your workspace is the directory /srv/alexandrite/workspaces/coder, where your own files belong. File tools resolve a relative path against it; give any other place as an absolute path.
-
-Some places are protected, such as credential stores and Alexandrite's own configuration and data. File tools refuse them whatever the request; when one does, say so instead of looking for another way in.

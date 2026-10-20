@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.internal.floor.StandardPlaces
 import org.unitedsoftware.alexandrite.internal.floor.credentialPlaces
 import org.unitedsoftware.alexandrite.internal.floor.leveled
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
-import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -25,12 +24,10 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.di.key
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
-import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
@@ -70,6 +67,9 @@ internal class AgentFloor(
 
     override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         check(path, agent, conversation, tree = true) { it.checkTree(path) }
+
+    /** The groups and paths of the floor in force. */
+    val entries: FloorConfig get() = levels.config
 
     /** The places that a sandbox keeps commands out of: those the floor refuses, then those it asks a person about. */
     fun sandboxPlaces(): Pair<List<Path>, List<Path>> = levels.let { it.denied to it.asked }
@@ -115,6 +115,7 @@ internal class AgentFloor(
 
     /** The floors of [config]; throws a [ConfigException] for places that cannot be protected. */
     private fun levels(config: FloorConfig, quiet: Boolean): Levels = Levels(
+        config,
         level(config.deny, DENY_KEY, quiet),
         level(config.ask, ASK_KEY, quiet = true),
         places(config.deny, DENY_KEY),
@@ -155,7 +156,13 @@ internal class AgentFloor(
     }
 
     /** The floor that refuses and the one that asks a person, with the paths of each. */
-    private class Levels(val deny: HostFloor, val ask: HostFloor, val denied: List<Path>, val asked: List<Path>)
+    private class Levels(
+        val config: FloorConfig,
+        val deny: HostFloor,
+        val ask: HostFloor,
+        val denied: List<Path>,
+        val asked: List<Path>,
+    )
 }
 
 /** The path that [this] lets a call use, once a person allows it where the floor asks one; null when it refuses. */
@@ -169,12 +176,6 @@ internal val FloorCheck.canonical: Path?
 /** Why only a person may allow a call that reaches [path], which the floor [check] asks a person about. */
 internal fun askedPlace(path: Path, check: FloorCheck.Ask): String =
     "$path is in a place the floor asks a person about (${check.reason})"
-
-/** Refuses the call of [context] when [person] says why only a person may allow it and nobody did. */
-internal fun checkPerson(person: String?, context: ToolContext) {
-    if (person == null || context.clearance?.kind == ClearanceKind.HUMAN) return
-    throw ToolRefusal("$person, and no person allowed this call.", blocked = true)
-}
 
 /** The floor of each agent, which lets that agent alone read its persona directory. */
 internal class HostFloor(

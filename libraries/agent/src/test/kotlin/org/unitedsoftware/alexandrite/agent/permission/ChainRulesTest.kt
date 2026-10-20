@@ -45,6 +45,7 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.testChat
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -60,7 +61,7 @@ class ChainRulesTest {
     private val clock = TestClock()
     private val store = MemoryStore(clock)
     private val records = TestRecords(store.records).of(AGENT)
-    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT))
+    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT), testRecords())
     private val key = AgentChatKey(AgentId.MAIN, testChat())
     private val operator = testUser("operator", isOperator = true)
     private val exec = ScriptedExec()

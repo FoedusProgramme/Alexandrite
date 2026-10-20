@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
+import org.unitedsoftware.alexandrite.agent.permission.AgentFloor
 import org.unitedsoftware.alexandrite.agent.skill.SKILL_LOAD_TOOL
 import org.unitedsoftware.alexandrite.agent.skill.Skills
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
@@ -22,6 +23,7 @@ internal class PromptAssembler(
     private val workspaces: Workspaces,
     private val directories: ConversationDirectories,
     private val skills: Skills,
+    private val floor: AgentFloor,
 ) {
 
     /** The sections of [turn], a run of [profile] that [delegator] delegated. */
@@ -50,8 +52,9 @@ internal class PromptAssembler(
     }
 
     /** The workspace section of [agent], for an agent that selects a tool. */
-    private fun workspace(agent: AgentId): PromptSection? =
-        workspaces.paths[agent]?.takeIf { tools.offered(agent).isNotEmpty() }?.let(::workspaceSection)
+    private fun workspace(agent: AgentId): PromptSection? = workspaces.paths[agent]?.takeIf {
+        tools.offered(agent).isNotEmpty()
+    }?.let { workspaceSection(it, floor.entries) }
 
     /** The skills section of [turn], for an agent offered `skill.load`. */
     private fun MutableList<PromptSection>.addSkills(turn: TurnInfo) {

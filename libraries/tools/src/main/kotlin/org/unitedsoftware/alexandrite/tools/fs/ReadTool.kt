@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.hash.hex
 import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -40,7 +41,7 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.requiredString("path"), context)
-    } catch (e: Refusal) {
+    } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
 
@@ -59,7 +60,7 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
                 val text = try {
                     rendered(TextLines(input, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
                 } catch (e: NotText) {
-                    throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+                    throw ToolRefusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
                 }
                 if (attributes.size() <= MAX_WRITE_BYTES && drained(input)) {
                     ledger.record(conversation, file, HASH_PREFIX + hex(digest.digest()))
@@ -85,12 +86,12 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
     private fun rendered(lines: TextLines, path: Path, offset: Int, limit: Int): String {
         var number = 0
         while (number < offset - 1) {
-            lines.next() ?: throw Refusal(pastEnd(path, number, offset, lines.truncated))
+            lines.next() ?: throw ToolRefusal(pastEnd(path, number, offset, lines.truncated))
             number++
         }
         var next = lines.next()
         if (next == null) {
-            if (offset > 1) throw Refusal(pastEnd(path, number, offset, lines.truncated))
+            if (offset > 1) throw ToolRefusal(pastEnd(path, number, offset, lines.truncated))
             return "[The file is empty.]"
         }
         val text = StringBuilder()

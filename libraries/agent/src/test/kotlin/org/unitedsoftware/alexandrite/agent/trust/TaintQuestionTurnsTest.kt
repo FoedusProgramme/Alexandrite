@@ -415,7 +415,6 @@ class TaintQuestionTurnsTest {
 
             assertTrue(outcome is TurnOutcome.Completed)
             assertEquals(emptyList(), channel().approvals)
-            assertTrue(offer.marked)
             assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$project")), offer.roots)
             assertTrue(get<TrustControl>().folders().any { it.path == project })
         }
@@ -472,7 +471,6 @@ class TaintQuestionTurnsTest {
             ask(user = "guest", text = "Hi again.")
 
             assertTrue(outcome is TurnOutcome.Completed)
-            assertTrue(offer.marked)
             assertEquals(listOf(TrustRoot.person(channel().user("guest"), "Guest")), offer.roots)
             assertEquals("a message from Guest, whom the agent does not trust", offer.untrusted)
             assertNull(mark())

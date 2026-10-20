@@ -1,20 +1,13 @@
 package org.unitedsoftware.alexandrite.agent.turn
 
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import org.unitedsoftware.alexandrite.agent.StoreIndex
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
-import org.unitedsoftware.alexandrite.agent.control.Choice
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.agent.prompt.INITIATED_SOURCE
-import org.unitedsoftware.alexandrite.agent.worker.GatedReads
-import org.unitedsoftware.alexandrite.runtime.chat.standaloneChatStates
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
@@ -30,7 +23,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
-import org.unitedsoftware.alexandrite.sdk.chat.state
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
@@ -45,6 +37,7 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
+import org.unitedsoftware.alexandrite.sdk.store.collection
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
@@ -57,7 +50,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.ReplyRoute
-import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
@@ -67,6 +59,7 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
+import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -380,45 +373,11 @@ class InitiatedTurnsTest {
     }
 
     @Test
-    fun `a turn held while the router reads its chat's agent is cancelled by its id, and ends at a drain`() {
-        val reads = GatedReads(store.chatStates)
-        val gate = CompletableDeferred<Unit>()
-        model.reply { pause { gate.await() }.text("One.") }
-        lateinit var running: Admission
-        lateinit var drained: Admission.Accepted
-        val watcher = CoroutineScope(Dispatchers.Default)
-
-        agentHarness(config(grace = 5), store = null) {
-            channel().channel("side").channel("third").model(model).plugin(StoreIndex(store, chatStates = reads))
-        }.execute {
-            running = initiate(turn())
-            model.awaitRequests(1)
-            reads.hold()
-            val cancelled =
-                initiate(InitiatedTurn.builder(ChatAddress(main, "held"), TurnKind.REMINDER, "One.").build())
-            drained = initiate(InitiatedTurn.builder(ChatAddress(main, "held"), TurnKind.REMINDER, "Two.").build())
-                as Admission.Accepted
-
-            assertTrue(get<TurnControl>().cancelTurn(cancelled.turn, null))
-            assertEquals(TurnOutcome.Cancelled, cancelled.outcome())
-            watcher.launch {
-                drained.ticket.outcome()
-                gate.complete(Unit)
-            }
-        }
-
-        assertEquals(TurnOutcome.ShutDown(replayable = true), blocking { drained.ticket.outcome() })
-        assertIs<TurnOutcome.Completed>(blocking { running.outcome() })
-        watcher.cancel()
-    }
-
-    @Test
     fun `a turn for the agent that serves a chat runs as the agent the chat switched to, in the order it came`() {
         model.reply { text("One.") }.reply { text("Two.") }
         val switched = ChatAddress(main, "switched")
-        val selected = standaloneChatStates("alexandrite-agent", store.chatStates)
-            .state(SettingsStates.AGENT, Choice<AgentId>())
-        blocking { selected.set(switched, Choice(AgentId("helper"))) }
+        val selected = TestRecords(store.records).of("alexandrite-agent").collection<AgentId>(SettingsStates.SELECTIONS)
+        blocking { selected.put("$switched", AgentId("helper"), null) }
 
         harness().execute {
             val first = initiate(InitiatedTurn.builder(switched, TurnKind.HEARTBEAT, "First.").build())

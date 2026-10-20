@@ -51,7 +51,9 @@ internal class Budgets(
 ) : Lifecycle {
     private val noticed = records.collection<NoticedMark>(NOTICES)
     private val noticing = Mutex()
-    private val refused = ConcurrentHashMap.newKeySet<String>()
+
+    /** The day each agent last refused a turn at each chat. */
+    private val refused = ConcurrentHashMap<Pair<AgentId, ChatAddress>, LocalDate>()
     private val unpriced = ConcurrentHashMap.newKeySet<String>()
 
     override suspend fun onStart() {
@@ -109,7 +111,10 @@ internal class Budgets(
     suspend fun exhausted(agent: AgentId): Boolean = status(agent).any { it.exhausted }
 
     /** Whether this is the first turn of [agent] at [chat] refused today. */
-    fun firstRefusal(agent: AgentId, chat: ChatAddress): Boolean = refused.add("${today(agent)} $agent $chat")
+    fun firstRefusal(agent: AgentId, chat: ChatAddress): Boolean {
+        val today = today(agent)
+        return refused.put(agent to chat, today) != today
+    }
 
     /** The price of [model], null when its endpoint lists none or cannot list its models. */
     private suspend fun price(model: ModelRef): ModelPrice? =

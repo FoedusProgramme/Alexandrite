@@ -10,8 +10,6 @@ import org.unitedsoftware.alexandrite.internal.floor.FloorDecision
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
-import org.unitedsoftware.alexandrite.sdk.permission.Clearance
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
@@ -71,10 +69,6 @@ class ExecToolTest {
 
     private fun reached(path: Any, kind: String): String =
         "'$path' reaches a protected place ($kind): command.exec does not run this call."
-
-    private fun notAllowed(program: String): String =
-        "$program is no vetted read-only program, so it runs only once the permission layer allowed the call, " +
-            "which it did not."
 
     private fun assertFailed(expected: String, result: ToolResult) {
         assertEquals(true to expected, result.isError to result.text)
@@ -294,39 +288,33 @@ class ExecToolTest {
     // Clearance and taint.
 
     @Test
-    fun `programs outside the vetted set run only once allowed`() {
+    fun `programs outside the vetted set are reviewed as program runs, which the permission layer gates`() {
         val commands = listOf("sort -o x y", "awk 'BEGIN{print 1}'", "find . -exec id \\;", "ps aux", "mkdir made")
-        val unallowed = Clearance(ClearanceKind.NONE)
 
-        for (command in commands) {
-            val program = command.substringBefore(' ')
-            assertFailed(notAllowed(program), run(command))
-            assertFailed(notAllowed(program), run(command, fs.context(clearance = unallowed)))
-        }
-        assertFalse(fs.workspace.resolve("made").exists())
+        val risks = commands.map { review(it, fs.context(turn = operatorTurn())).risk }
+
+        assertEquals(List(commands.size) { ToolRisk.EXEC }, risks)
     }
 
     @Test
     fun `an allowed call runs an unvetted program, which taints the conversation`() {
         val file = fs.write("workspace/letters.txt", "b\na\n")
         val vetted = fs.allowed()
-        val refused = fs.context()
         val allowed = fs.allowed()
 
         assertEquals("Exit code: 0\nb\na", run("cat $file", vetted).text)
-        assertFailed(notAllowed("sort"), run("sort $file", refused))
         assertEquals("Exit code: 0\na\nb", run("sort $file", allowed).text)
 
         assertEquals(
-            listOf(emptyList(), emptyList(), listOf("command.exec ran sort")),
-            listOf(vetted, refused, allowed).map {
+            listOf(emptyList(), listOf("command.exec ran sort")),
+            listOf(vetted, allowed).map {
                 it.untrustedReasons
             },
         )
     }
 
     @Test
-    fun `an opaque program is reviewed as opaque with no rule, and runs only once allowed`() {
+    fun `an opaque program is reviewed as opaque with no rule, and runs once allowed`() {
         val marker = fs.workspace.resolve("marker")
         val command = "env -u UNUSED sh -c 'touch marker'"
 
@@ -343,7 +331,6 @@ class ExecToolTest {
             ),
             reviewed.preview,
         )
-        assertFailed(notAllowed("env"), run(command))
         assertFalse(marker.exists())
         assertEquals("Exit code: 0\n[no output]", run(command, fs.allowed()).text)
         assertTrue(marker.exists())
@@ -391,7 +378,6 @@ class ExecToolTest {
         fs.script("workspace/cat", "echo planted")
 
         assertEquals(ToolRisk.EXEC, review("./cat notes.txt", fs.context(turn = operatorTurn())).risk)
-        assertFailed(notAllowed("./cat"), run("./cat notes.txt"))
     }
 
     // Rules and snapshots.

@@ -56,6 +56,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.ToolCallCheck
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.recordingTool
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -74,7 +75,7 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class PermissionGateTest {
     private val clock = TestClock()
-    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"))
+    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"), testRecords())
     private val log = CopyOnWriteArrayList<String>()
     private val hooks = ToolBeforeHooks(log)
     private val judge = RecordingJudge()
@@ -153,7 +154,7 @@ class PermissionGateTest {
         val gate = gate(tools)
         val turns = mapOf("operator" to operator, "guest" to guest, "automation" to automation)
         val table = """
-            plan      operator   clean    run run run run  plan plan plan
+            plan      operator   clean    run run run plan plan plan plan
             plan      operator   tainted  run run run plan plan plan plan
             plan      guest     clean    run run run plan plan plan plan
             plan      guest     tainted  run run run plan plan plan plan
@@ -338,6 +339,25 @@ class PermissionGateTest {
                 "it. Do not retry.",
             refused(gate(listOf(exec)).admit(exec, guest)),
         )
+    }
+
+    @Test
+    fun `plan mode refuses an operator's lasting change that a clean conversation runs unasked`() = runTest {
+        val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)
+        val schedule = reviewedTool("schedule.create", ToolRisk.AGENT_STATE) {
+            CallReview.builder().risk(ToolRisk.PERSISTENT_STATE).build()
+        }
+        val jobs = recordingTool("job.list", ToolRisk.AGENT_STATE)
+        val tools = listOf(persona, schedule, jobs)
+        val gate = gate(tools)
+
+        setMode(operator, PermissionMode.PLAN)
+        val planned = tools.map { outcome(gate.admit(it)) }
+        setMode(operator, PermissionMode.ASK)
+        val asked = tools.map { outcome(gate.admit(it)) }
+
+        assertEquals(listOf("plan", "plan", "run"), planned)
+        assertEquals(listOf("run", "run", "run"), asked)
     }
 
     @Test
@@ -731,7 +751,7 @@ class PermissionGateTest {
             NoTrust,
             judge,
             approvals,
-            SettingsStates(FailingChatStates()),
+            SettingsStates(FailingChatStates(), testRecords()),
             directory,
             clock,
             NotContained,

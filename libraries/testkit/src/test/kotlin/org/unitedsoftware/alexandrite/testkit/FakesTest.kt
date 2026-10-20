@@ -466,10 +466,6 @@ class FakesTest {
         val chosen = blocking { control.settings.update(chat, update { agent(coder).home() }, null) }
         val reset = blocking { control.settings.update(chat, update { resetAgent() }, null) }
         val thread = blocking { control.settings.snapshot(testChat("a", "7")) }
-        val taken = assertFailsWith<ControlRefusedException> {
-            blocking { control.settings.update(chat, update { agent(AgentId.MAIN).home() }, null) }
-        }
-        val unchanged = blocking { control.settings.snapshot(chat) }
         val elsewhere = blocking { control.settings.snapshot(other) }
         val left = blocking { control.settings.update(chat, update { noHome() }, null) }
 
@@ -478,9 +474,7 @@ class FakesTest {
             listOf(chosen, reset).map { Triple(it.agent, it.agentSource, it.home) },
         )
         assertEquals(Triple(coder, AgentSource.HOME, true), Triple(thread.agent, thread.agentSource, thread.home))
-        assertEquals("test:main:a is the home chat of agent 'coder'.", taken.message)
         assertEquals(AgentId.MAIN to AgentSource.DEFAULT, elsewhere.agent to elsewhere.agentSource)
-        assertEquals(reset, unchanged)
         assertEquals(AgentId.MAIN to AgentSource.DEFAULT, left.agent to left.agentSource)
     }
 
@@ -527,14 +521,11 @@ class FakesTest {
         listOf(snapshot.defaultModel, snapshot.defaultReasoning, snapshot.defaultLanguage)
 
     @Test
-    fun `a recording agent refuses an agent it does not list and the refusals the test queues`() {
+    fun `a recording agent refuses the calls that the test queues refusals for`() {
         val control = RecordingAgent()
         val chat = testChat()
         val operator = testUser("ada", isOperator = true)
-        val coder = ChatSettingsUpdate.builder().agent(AgentId("coder")).build()
 
-        val unlisted =
-            assertFailsWith<ControlRefusedException> { blocking { control.settings.update(chat, coder, null) } }
         control.refuseNext("No agent serves $chat.")
         control.refuseNext("Folder /srv is protected.")
         val queued =
@@ -545,7 +536,6 @@ class FakesTest {
             assertFailsWith<ControlRefusedException> { blocking { control.trust.trustFolder(Path.of("/srv"), null) } }
         val conversation = blocking { control.conversations.newConversation(chat, operator) }
 
-        assertEquals("Agent 'coder' does not serve test:main.", unlisted.message)
         assertEquals("No agent serves $chat.", queued.message)
         assertEquals("Folder /srv is protected.", folder.message)
         assertEquals(ConversationId("conversation-1"), conversation)
@@ -556,13 +546,13 @@ class FakesTest {
                 RecordingAgent.Call.TrustFolder(Path.of("/srv"), null),
                 RecordingAgent.Call.NewConversation(chat, operator, conversation),
             ),
-            control.calls.drop(1),
+            control.calls,
         )
         assertEquals(emptyList(), control.trust.folders())
     }
 
     @Test
-    fun `a recording agent lists the models scripted per endpoint and refuses an unlisted endpoint`() {
+    fun `a recording agent lists the models scripted per endpoint, none for an unlisted one`() {
         val control = RecordingAgent()
         val models = listOf(ScriptedModel.modelInfo("a"), ScriptedModel.modelInfo("b"))
         control.scriptModels(EndpointId("local"), models)
@@ -570,12 +560,7 @@ class FakesTest {
 
         assertEquals(listOf(EndpointId("local"), EndpointId("remote")), control.catalog.endpoints())
         assertEquals(models, blocking { control.catalog.models(EndpointId("local")) })
-        assertEquals(
-            "No model endpoint 'nowhere'.",
-            assertFailsWith<ControlRefusedException> {
-                blocking { control.catalog.models(EndpointId("nowhere")) }
-            }.message,
-        )
+        assertEquals(emptyList(), blocking { control.catalog.models(EndpointId("nowhere")) })
     }
 
     @Test
@@ -594,8 +579,6 @@ class FakesTest {
         assertEquals(ChatLinkGroup(coder, anchor, listOf(first, second), links = links), linked)
         assertEquals(listOf(linked), control.links.groups(coder))
         assertEquals(emptyList(), control.links.groups(AgentId.MAIN))
-        assertFailsWith<ControlRefusedException> { blocking { control.links.link(coder, testChat("d"), second, null) } }
-        assertFailsWith<ControlRefusedException> { blocking { control.links.unlink(coder, anchor, null) } }
         assertEquals(
             listOf(Revocation(true, false), Revocation(true, false), Revocation(false, false)),
             blocking { listOf(first, second, first).map { control.links.unlink(coder, it, null) } },
@@ -603,26 +586,6 @@ class FakesTest {
         assertEquals(emptyList(), control.links.groups())
         assertEquals(RecordingAgent.Call.Link(coder, anchor, first, operator), control.calls.first())
         assertEquals(RecordingAgent.Call.Unlink(coder, first, null), control.calls.last())
-    }
-
-    @Test
-    fun `a recording agent refuses a self-link and a model that its listed endpoint lacks`() {
-        val control = RecordingAgent()
-        val chat = testChat()
-        control.scriptModels(EndpointId("local"), listOf(ScriptedModel.modelInfo("a")))
-        fun model(model: String) = blocking {
-            control.settings.update(chat, ChatSettingsUpdate.builder().model(ModelRef.parse(model)).build(), null)
-        }
-
-        val self = assertFailsWith<ControlRefusedException> {
-            blocking { control.links.link(AgentId.MAIN, chat, chat, null) }
-        }
-        val missing = assertFailsWith<ControlRefusedException> { model("local/b") }
-
-        assertEquals("$chat cannot be linked to itself.", self.message)
-        assertEquals("Model endpoint 'local' has no model 'b'.", missing.message)
-        assertEquals(listOf("local/a", "remote/b"), listOf("local/a", "remote/b").map { "${model(it).model}" })
-        assertEquals(emptyList(), control.links.groups())
     }
 
     @Test
@@ -634,7 +597,6 @@ class FakesTest {
         val declared = listOf(ChatLinkGroup(coder, anchor, listOf(member), declared = true))
 
         assertEquals(declared, control.links.groups())
-        assertFailsWith<ControlRefusedException> { blocking { control.links.link(coder, anchor, testChat("c"), null) } }
         assertEquals(Revocation(false, true), blocking { control.links.unlink(coder, member, null) })
         assertEquals(declared, control.links.groups())
     }
@@ -659,7 +621,6 @@ class FakesTest {
             listOf(TrustedFolder(declared, true, null, null), TrustedFolder(repository, false, TEST_TIME, operator)),
             control.trust.folders(),
         )
-        assertFailsWith<IllegalArgumentException> { blocking { control.trust.trustFolder(Path.of("repo"), null) } }
         val revoked = blocking {
             listOf(declared, Path.of("/srv"), repository, repository).map { control.trust.untrustFolder(it, null) }
         }
@@ -672,7 +633,7 @@ class FakesTest {
     }
 
     @Test
-    fun `a recording agent trusts people who are no operators and forgets them when untrusted`() {
+    fun `a recording agent trusts people and forgets them when untrusted`() {
         val control = RecordingAgent()
         val operator = testUser("ada", isOperator = true)
         val guest = testUser("bob")
@@ -682,7 +643,6 @@ class FakesTest {
 
         assertEquals(TrustedPerson(guest, TEST_TIME, operator), trusted)
         assertEquals(listOf(trusted), blocking { control.trust.people(testChat()) })
-        assertFailsWith<ControlRefusedException> { blocking { control.trust.trustPerson(testChat(), operator, null) } }
         assertEquals(Revocation(true, false), blocking { control.trust.untrustPerson(testChat(), guest, operator) })
         assertEquals(Revocation(false, true), blocking { control.trust.untrustPerson(testChat(), configured, null) })
         assertEquals(emptyList(), blocking { control.trust.people(testChat()) })
@@ -719,22 +679,20 @@ class FakesTest {
     }
 
     @Test
-    fun `a recording agent tells the trust rules of programs that run any code given as the agent does`() {
+    fun `a recording agent tells the trust rules that the test marks as running any code`() {
         val control = RecordingAgent()
-        val rules = listOf(
-            "command.exec",
-            "command.exec(bash -c)",
-            "command.exec(/usr/bin/python3)",
-            "command.exec(env)",
-            "command.*",
-            "command.exec(git status)",
-            "web.fetch(example.com)",
-        )
-        rules.forEach(control::declareTrust)
+        control.anyCodeRules += listOf("command.exec", "command.exec(bash -c)")
+        control.declareTrust("command.exec")
+        control.declareTrust("command.exec(make test)")
 
+        val granted = blocking { control.trust.trustRule(testChat(), "command.exec(bash -c)", null) }
         val anyCode = blocking { control.trust.rules(testChat()) }.associate { it.rule to it.anyCode }
 
-        assertEquals(rules.zip(listOf(true, true, true, true, true, false, false)).toMap(), anyCode)
+        assertTrue(granted.anyCode)
+        assertEquals(
+            mapOf("command.exec" to true, "command.exec(make test)" to false, "command.exec(bash -c)" to true),
+            anyCode,
+        )
     }
 
     // Chat states.
@@ -781,7 +739,7 @@ class FakesTest {
     }
 
     @Test
-    fun `a recording agent keeps a chat's mode and ends a bypass as the agent does`() {
+    fun `a recording agent keeps a chat's mode and ends a bypass when it is due, an hour on by default`() {
         var now = TEST_TIME
         val clock = object : Clock() {
             override fun getZone() = ZoneOffset.UTC
@@ -797,19 +755,17 @@ class FakesTest {
             blocking { control.settings.update(chat, ChatSettingsUpdate.builder().apply(block).build(), null) }
 
         val bypass = update { mode(PermissionMode.BYPASS) }
-        val capped = update { mode(PermissionMode.BYPASS, now + Duration.ofDays(2)) }
+        val given = update { mode(PermissionMode.BYPASS, now + Duration.ofDays(1)) }
         now += Duration.ofDays(1)
         val ended = blocking { control.settings.snapshot(chat) }
         val plan = update { mode(PermissionMode.PLAN) }
         val reset = update { resetMode() }
 
         assertEquals(PermissionMode.BYPASS to TEST_TIME + Duration.ofHours(1), bypass.mode to bypass.modeUntil)
-        assertEquals(TEST_TIME + Duration.ofDays(1), capped.modeUntil)
+        assertEquals(TEST_TIME + Duration.ofDays(1), given.modeUntil)
         assertEquals(listOf(null, PermissionMode.MANUAL), listOf(ended.mode, ended.effectiveMode))
         assertEquals(PermissionMode.PLAN to null, plan.mode to plan.modeUntil)
         assertEquals(null to PermissionMode.MANUAL, reset.mode to reset.defaultMode)
-        assertFailsWith<ControlRefusedException> { update { mode(PermissionMode.BYPASS, now) } }
-        assertFailsWith<ControlRefusedException> { update { mode(PermissionMode.of("yolo")) } }
     }
 
     @Test

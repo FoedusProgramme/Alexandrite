@@ -73,6 +73,12 @@ internal object TextKeys {
 
     /** Takes `{count}`, the lines of the preview. */
     const val APPROVAL_LINES: String = "approval.lines"
+
+    /** Takes `{count}`, the lines of the preview, and `{file}`, the file that holds it. */
+    const val APPROVAL_ATTACHED: String = "approval.attached"
+
+    /** The caption of the file that holds a whole reply too long for its messages. */
+    const val REPLY_FILE: String = "reply.file"
     const val APPROVAL_NOT_ASCII: String = "approval.not_ascii"
 
     /** Takes `{reason}`. */
@@ -162,27 +168,14 @@ internal object TextKeys {
     /** Takes `{id}`. */
     const val OFFER_TITLE_MARKED: String = "offer.title_marked"
 
-    /** Takes `{id}`. */
-    const val OFFER_TITLE_WAITING: String = "offer.title_waiting"
-
     /** Takes `{chat}`. */
     const val OFFER_MARKED: String = "offer.marked"
 
-    /** Takes `{person}` and `{chat}`. */
-    const val OFFER_WAITING: String = "offer.waiting"
-
     const val OFFER_SOURCE: String = "offer.source"
     const val OFFER_KEEP: String = "offer.keep"
-    const val OFFER_MARK: String = "offer.mark"
-
-    /** Takes `{root}`. */
-    const val OFFER_TRUST: String = "offer.trust"
 
     /** Takes `{root}`. */
     const val OFFER_TRUST_CLEAR: String = "offer.trust_clear"
-
-    /** Takes `{count}`. */
-    const val OFFER_TRUST_ALL: String = "offer.trust_all"
 
     /** Takes `{count}`. */
     const val OFFER_TRUST_CLEAR_ALL: String = "offer.trust_clear_all"
@@ -193,10 +186,6 @@ internal object TextKeys {
     /** Takes `{name}`. */
     const val OFFER_KEPT: String = "offer.kept"
 
-    /** Takes `{name}`. */
-    const val OFFER_MARKED_BY: String = "offer.marked_by"
-
-    const val OFFER_EXPIRED: String = "offer.expired"
     const val OFFER_EXPIRED_MARKED: String = "offer.expired_marked"
     const val OFFER_WITHDRAWN: String = "offer.withdrawn"
 

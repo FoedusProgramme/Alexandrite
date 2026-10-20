@@ -90,9 +90,9 @@ internal data class InterruptedRecord(
     val messages: List<InterruptedMessage> = emptyList(),
 )
 
-/** The job [id], a call of [tool] with [title], that a restart interrupted. */
+/** The job [id], a call of [tool] with [title], that a restart interrupted, or whose result came [pastBudget]. */
 @Serializable
-internal data class InterruptedJob(val id: RunId, val tool: String, val title: String)
+internal data class InterruptedJob(val id: RunId, val tool: String, val title: String, val pastBudget: Boolean = false)
 
 /** The message [id] to [agent], whose reply a restart interrupted. */
 @Serializable

@@ -2,7 +2,6 @@ package org.unitedsoftware.alexandrite.agent.routing
 
 import org.unitedsoftware.alexandrite.agent.agentDirectory
 import org.unitedsoftware.alexandrite.agent.blocking
-import org.unitedsoftware.alexandrite.agent.control.Choice
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.agent.provider
@@ -17,14 +16,10 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
-import org.unitedsoftware.alexandrite.sdk.chat.state
-import org.unitedsoftware.alexandrite.sdk.store.ChatStateStore
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.testRecords
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class ChatRouterTest {
     private val config = """
@@ -46,23 +41,12 @@ class ChatRouterTest {
         }
     """.trimIndent()
 
-    private val reads = AtomicInteger()
-    private val store = object : ChatStateStore {
-        private val memory = MemoryChatStateStore()
-
-        override suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String? {
-            reads.incrementAndGet()
-            return memory.read(plugin, name, agent, chat)
-        }
-
-        override suspend fun write(plugin: String, name: String, agent: AgentId?, chat: ChatAddress, json: String?) {
-            memory.write(plugin, name, agent, chat, json)
-        }
-    }
-    private val states = standaloneChatStates("alexandrite-agent", store)
+    private val states = standaloneChatStates("alexandrite-agent", MemoryChatStateStore())
+    private val records = testRecords()
+    private val selections = SettingsStates(states, records)
     private val directory = agentDirectory(settings(config), INSTANCES, listOf(provider(ScriptedModel())))
     private val topology = ChatTopology(directory, testRecords())
-    private val router = ChatRouter(channels(), directory, topology, SettingsStates(states))
+    private val router = ChatRouter(channels(), directory, topology, selections)
 
     private fun channels() = object : ChannelDirectory {
         override val instances = INSTANCES.map(ChannelInstanceId::parse).toSet()
@@ -71,32 +55,28 @@ class ChatRouterTest {
     }
 
     private fun select(chat: String, agent: String) {
-        val state = states.state(SettingsStates.AGENT, Choice<AgentId>())
-        blocking { state.set(ChatAddress.parse(chat), Choice(AgentId(agent))) }
+        blocking { selections.selectAgent(ChatAddress.parse(chat), SettingChange.SetTo(AgentId(agent))) }
     }
 
-    private fun resolve(chat: String): String = describe(blocking { router.resolve(ChatAddress.parse(chat)) })
+    private fun resolve(chat: String): String = describe(router.resolve(ChatAddress.parse(chat)))
 
     private fun source(chat: String): AgentSource =
-        (blocking { router.resolve(ChatAddress.parse(chat)) } as Resolution.Served).source
+        (router.resolve(ChatAddress.parse(chat)) as Resolution.Served).source
 
-    private fun describe(resolution: Resolution?): String = when (resolution) {
+    private fun describe(resolution: Resolution): String = when (resolution) {
         is Resolution.Served -> resolution.key.toString()
         Resolution.Unknown -> "unknown"
         Resolution.NoAgent -> "no agent"
-        null -> "not cached"
     }
 
     @Test
     fun `a chat of an instance that is not configured is unknown`() {
         assertEquals("unknown", resolve("test:other:1"))
-        assertEquals("unknown", describe(router.cached(ChatAddress.parse("test:other:1"))))
     }
 
     @Test
     fun `a chat of an instance that no agent serves has no agent`() {
         assertEquals("no agent", resolve("test:quiet:1"))
-        assertEquals("no agent", describe(router.cached(ChatAddress.parse("test:quiet:1"))))
     }
 
     @Test
@@ -165,27 +145,19 @@ class ChatRouterTest {
     }
 
     @Test
-    fun `the switch of a chat is read once and not at all where one agent serves the instance`() {
-        repeat(3) { resolve("test:main:5") }
-        repeat(3) { resolve("test:lone:5") }
-
-        assertEquals(1, reads.get())
-    }
-
-    @Test
-    fun `a chat resolves from memory once its switch is read`() {
-        val chat = ChatAddress.parse("test:main:5")
+    fun `the switches of an earlier run are read at start, and a reset goes back to the home or default agent`() {
         select("test:main:5", "reviewer")
-        reads.set(0)
+        select("test:main:1", "helper")
+        blocking { selections.selectAgent(ChatAddress.parse("test:main:1"), SettingChange.Reset) }
+        val restarted = SettingsStates(states, records).also { blocking { it.onStart() } }
+        val again = ChatRouter(channels(), directory, topology, restarted)
 
-        assertNull(router.cached(chat))
-        assertEquals("loner@test:lone:5", describe(router.cached(ChatAddress.parse("test:lone:5"))))
-        assertEquals("reviewer@test:main:5", resolve("test:main:5"))
         assertEquals(
-            Resolution.Served(AgentChatKey.parse("reviewer@test:main:5"), chat, AgentSource.SELECTED),
-            router.cached(chat),
+            listOf("reviewer@test:main:5", "reviewer@test:main:5#3", "reviewer@test:main:1"),
+            listOf("test:main:5", "test:main:5#3", "test:main:1").map {
+                describe(again.resolve(ChatAddress.parse(it)))
+            },
         )
-        assertEquals(1, reads.get())
     }
 
     @Test
@@ -195,7 +167,7 @@ class ChatRouterTest {
 
         assertEquals(
             Resolution.Served(AgentChatKey.parse("coder@test:main:7"), member, AgentSource.SELECTED),
-            blocking { router.resolve(member) },
+            router.resolve(member),
         )
         assertEquals("coder@test:main:7", resolve("test:main:7"))
         assertEquals("coder@test:main:7#1", resolve("test:main:7#1"))

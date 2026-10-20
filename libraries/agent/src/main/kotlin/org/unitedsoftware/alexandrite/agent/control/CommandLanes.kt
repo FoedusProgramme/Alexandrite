@@ -79,7 +79,7 @@ internal class CommandLanes(
     fun submit(turn: TurnId, command: Submission.Command, handler: CommandHandler, queuedAt: Instant): Admission =
         lock.locked {
             val chat = command.chat
-            val route = router.cached(chat)
+            val route = router.resolve(chat)
             val lane = lanes[chat]
             when {
                 route == Resolution.Unknown -> Admission.Refused(RefusalReason.UNKNOWN_CHAT)
@@ -177,7 +177,7 @@ internal class CommandLanes(
     fun unknown(turn: TurnId, command: CommandInvocation): Admission = answered(turn, command, TextKeys.UNKNOWN_COMMAND)
 
     private fun answered(turn: TurnId, command: CommandInvocation, key: String): Admission {
-        when (router.cached(command.chat)) {
+        when (router.resolve(command.chat)) {
             Resolution.Unknown -> return Admission.Refused(RefusalReason.UNKNOWN_CHAT)
             Resolution.NoAgent -> return Admission.Refused(RefusalReason.NO_AGENT)
             else -> Unit
@@ -220,30 +220,42 @@ internal class CommandLanes(
         lane.running += starting
         for (invocation in starting) {
             intakes.gate(lane.chat, invocation.turn)
-            intakes.arm(lane.chat, invocation.turn)
             val job = lock.launch { run(invocation) }
             invocation.job = job
-            if (!invocation.alongside) invocation.watch = lock.launch { watch(lane, invocation) }
+            invocation.watch = lock.launch { watch(lane, invocation) }
             job.invokeOnCompletion { error -> ended(lane, invocation, error) }
         }
     }
 
-    /** Releases the gates of the invocations queued behind [invocation] once it ran the gate time off a worker. */
+    /**
+     * Lets the chat's messages go on once [invocation] ran the gate time off a worker, past the commands queued behind
+     * it too when it runs alone.
+     */
     private suspend fun watch(lane: Lane, invocation: Invocation) {
         do {
             delay(gateTimeout)
         } while (lock.locked { invocation.running?.onWorker == true })
         lock.locked {
             if (invocation !in lane.running) return@locked
-            invocation.overdue = true
-            if (lane.waiting.isEmpty()) return@locked
-            logger.warn(
-                "Command {} in {} runs past {}: the commands queued behind it let the chat's messages go on",
-                invocation.turn,
-                lane.chat,
-                gateTimeout,
-            )
-            lane.waiting.forEach { intakes.release(lane.chat, it.turn) }
+            val behind = if (invocation.alongside) emptyList() else lane.waiting.toList()
+            invocation.overdue = !invocation.alongside
+            if (behind.isEmpty()) {
+                logger.warn(
+                    "Command {} held the messages of {} for {}: they go on",
+                    invocation.turn,
+                    lane.chat,
+                    gateTimeout,
+                )
+            } else {
+                logger.warn(
+                    "Command {} in {} runs past {}: the commands queued behind it let the chat's messages go on",
+                    invocation.turn,
+                    lane.chat,
+                    gateTimeout,
+                )
+            }
+            intakes.release(lane.chat, invocation.turn)
+            behind.forEach { intakes.release(lane.chat, it.turn) }
         }
     }
 

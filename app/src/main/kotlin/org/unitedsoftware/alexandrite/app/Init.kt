@@ -527,9 +527,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             ui.good(cli.t("init.secrets", "names" to secrets.keys.joinToString(), "file" to cli.secrets))
             summary["init.summary.secrets"] = "${cli.secrets}"
         }
-        val checked = configCheck(cli, false)
-        if (checked != ExitCode.OK) cli.fail(cli.t("init.check_failed"))
-        return checked
+        return ExitCode.OK
     }
 
     private fun restore(secrets: Map<String, String>, existed: Boolean) {

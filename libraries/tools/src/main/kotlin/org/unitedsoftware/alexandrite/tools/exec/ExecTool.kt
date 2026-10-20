@@ -12,11 +12,11 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
 import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -161,8 +161,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
         val call = ready.call
         val monitor = ready.monitor
-        val clearance = context.clearance
-        val reviewed = clearance?.snapshot
+        val reviewed = context.clearance?.snapshot
         val named = call.argv.first()
         if (reviewed != null && reviewed != call.snapshot) {
             return ToolResult(
@@ -171,21 +170,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                 isError = true,
             )
         }
-        if (call.asks.isNotEmpty() && clearance?.kind != ClearanceKind.HUMAN) {
-            return ToolResult(
-                "${call.asks.first().replaceFirstChar(Char::uppercaseChar)}, and no person allowed this call, so it " +
-                    "is not run.",
-                isError = true,
-            )
-        }
         val unvetted = call.programs.filterNot { it.vetted }
-        if (unvetted.isNotEmpty() && (clearance == null || clearance.kind == ClearanceKind.NONE)) {
-            return ToolResult(
-                "${unvetted.first().name} is no vetted read-only program, so it runs only once the permission layer " +
-                    "allowed the call, which it did not.",
-                isError = true,
-            )
-        }
         context.touched(call.cwd)
         call.steps.forEach { if (it.cwd != call.cwd) context.touched(it.cwd) }
         call.reached.forEach(context::touched)
@@ -272,7 +257,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val monitor = monitorOptions(arguments, parsed.timeout)
         val cwd = parsed.cwd?.let { resolveCwd(it, context, running) } ?: run {
             val workspace = context.workspace
-                ?: throw CallProblem("Give 'cwd': you have no workspace to run in by default.")
+                ?: throw ToolRefusal("Give 'cwd': you have no workspace to run in by default.")
             if (running) context.openWorkspace() else workspace
         }
         val planner = Planner(floor, context.turn.agent, context.turn.rootConversation, isOperator(context))
@@ -283,16 +268,14 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         }
         val sandbox = context.sandbox
         if (sandbox != null && !parsed.contained && sandbox.strict) {
-            throw CallProblem("Your agent runs every program in its sandbox, so 'sandbox' may not be false.")
+            throw ToolRefusal("Your agent runs every program in its sandbox, so 'sandbox' may not be false.")
         }
         val contained = sandbox?.takeIf { parsed.contained }
-        contained?.hostProblem(parsed.hosts)?.let { throw CallProblem(it) }
+        contained?.hostProblem(parsed.hosts)?.let { throw ToolRefusal(it) }
         val hosts = if (contained == null) emptyList() else parsed.hosts
         Inspection.Ready(call, planner, monitor, contained, hosts, parsed.background || monitor != null)
-    } catch (e: CallProblem) {
-        Inspection.Problem(e.message)
-    } catch (e: FloorRefusal) {
-        Inspection.Refused(e.message)
+    } catch (e: ToolRefusal) {
+        if (e.blocked) Inspection.Refused(e.message) else Inspection.Problem(e.message)
     }
 
     /** [text] as an absolute directory: a relative one resolved against the workspace, as the default cwd is. */
@@ -300,10 +283,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val path = try {
             Path.of(expandHome(text))
         } catch (e: InvalidPathException) {
-            throw CallProblem("'cwd' is no valid path.")
+            throw ToolRefusal("'cwd' is no valid path.")
         }
         if (path.isAbsolute) return path.normalize()
-        val workspace = context.workspace ?: throw CallProblem(
+        val workspace = context.workspace ?: throw ToolRefusal(
             "'cwd' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
         )
         return (if (running) context.openWorkspace() else workspace).resolve(path).normalize()
@@ -312,53 +295,53 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     private fun request(arguments: JsonObject): ParsedRequest {
         val background = arguments.optional("background")?.let { value ->
             (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                ?: throw CallProblem("'background' must be a boolean.")
+                ?: throw ToolRefusal("'background' must be a boolean.")
         } ?: false
         val command = arguments.optional("command")?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?: throw CallProblem("'command' must be a string.")
+                ?: throw ToolRefusal("'command' must be a string.")
         }
         val argv = arguments.optional("argv")?.let { value ->
-            val items = value as? JsonArray ?: throw CallProblem("'argv' must be an array of strings.")
+            val items = value as? JsonArray ?: throw ToolRefusal("'argv' must be an array of strings.")
             items.map { item ->
                 (item as? JsonPrimitive)?.takeIf { it.isString }?.content
-                    ?: throw CallProblem("'argv' must be an array of strings.")
+                    ?: throw ToolRefusal("'argv' must be an array of strings.")
             }
         }
         val words = when {
-            command != null && argv != null -> throw CallProblem("Give either 'command' or 'argv', not both.")
+            command != null && argv != null -> throw ToolRefusal("Give either 'command' or 'argv', not both.")
 
             command != null -> CommandLine.split(command, homeDirectory())
 
             // argv has no quoting, so a word's leading '~' always expands.
             argv != null -> argv.map { expandHome(it) }
 
-            else -> throw CallProblem("Give 'command' (a command line) or 'argv' (the program and its arguments).")
+            else -> throw ToolRefusal("Give 'command' (a command line) or 'argv' (the program and its arguments).")
         }
-        if (words.isEmpty() || words.first().isEmpty()) throw CallProblem("The call names no program.")
+        if (words.isEmpty() || words.first().isEmpty()) throw ToolRefusal("The call names no program.")
         if (words.any { '\u0000' in it }) {
-            throw CallProblem("An argument holds a NUL character, which no program takes.")
+            throw ToolRefusal("An argument holds a NUL character, which no program takes.")
         }
         val cwd = arguments.optional("cwd")?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?: throw CallProblem("'cwd' must be a string.")
+                ?: throw ToolRefusal("'cwd' must be a string.")
         }
         val seconds = arguments.optional("timeoutSeconds")?.let { value ->
             (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
-                ?: throw CallProblem("'timeoutSeconds' must be a whole number of at least 1.")
+                ?: throw ToolRefusal("'timeoutSeconds' must be a whole number of at least 1.")
         } ?: config.maxTimeoutSeconds
         if (seconds > config.maxTimeoutSeconds) {
-            throw CallProblem("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
+            throw ToolRefusal("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
         }
         val contained = arguments.optional("sandbox")?.let { value ->
             (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                ?: throw CallProblem("'sandbox' must be a boolean.")
+                ?: throw ToolRefusal("'sandbox' must be a boolean.")
         } ?: true
         val hosts = arguments.optional("network")?.let { value ->
-            val items = value as? JsonArray ?: throw CallProblem("'network' must be an array of strings.")
+            val items = value as? JsonArray ?: throw ToolRefusal("'network' must be an array of strings.")
             items.map { item ->
                 (item as? JsonPrimitive)?.takeIf { it.isString }?.content
-                    ?: throw CallProblem("'network' must be an array of strings.")
+                    ?: throw ToolRefusal("'network' must be an array of strings.")
             }
         }.orEmpty()
         return ParsedRequest(words, cwd, seconds.seconds, contained, hosts.distinct(), background)
@@ -366,16 +349,16 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
     private fun monitorOptions(arguments: JsonObject, timeout: Duration): MonitorOptions? {
         val value = arguments.optional("monitor") ?: return null
-        val monitor = value as? JsonObject ?: throw CallProblem("'monitor' must be an object.")
-        if (monitor.keys.any { it !in MONITOR_FIELDS }) throw CallProblem("Unknown monitor option.")
+        val monitor = value as? JsonObject ?: throw ToolRefusal("'monitor' must be an object.")
+        if (monitor.keys.any { it !in MONITOR_FIELDS }) throw ToolRefusal("Unknown monitor option.")
         val filter = (monitor["filter"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             ?.takeIf { it.isNotEmpty() && it.length <= 1024 }
-            ?: throw CallProblem("'monitor.filter' must be a nonempty string of at most 1024 characters.")
+            ?: throw ToolRefusal("'monitor.filter' must be a nonempty string of at most 1024 characters.")
         fun seconds(name: String, default: Int, maximum: Int): Duration {
             val raw = monitor[name] ?: return default.seconds
             val number = (raw as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
                 ?.takeIf { it in 1..maximum }
-                ?: throw CallProblem("'monitor.$name' must be a whole number from 1 to $maximum.")
+                ?: throw ToolRefusal("'monitor.$name' must be a whole number from 1 to $maximum.")
             return number.seconds
         }
         return MonitorOptions(

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.prompt
 
+import org.unitedsoftware.alexandrite.agent.config.FloorConfig
 import org.unitedsoftware.alexandrite.agent.skill.Skill
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -90,18 +91,33 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
 internal fun languageSection(language: LanguageTag): PromptSection =
     PromptSection(LANGUAGE_SECTION, "Answer in $language unless the user writes in another language.", stable = true)
 
-/** Where an agent keeps its own files, at [workspace], and what its file tools refuse. */
-internal fun workspaceSection(workspace: Path): PromptSection = PromptSection(
+/** Where an agent keeps its own files, at [workspace], and the places that the hard [floor] protects. */
+internal fun workspaceSection(workspace: Path, floor: FloorConfig = FloorConfig()): PromptSection = PromptSection(
     WORKSPACE_SECTION,
-    listOf(
+    listOfNotNull(
         "# Workspace",
         "Your workspace is the directory $workspace, where your own files belong. File tools resolve a relative " +
             "path against it; give any other place as an absolute path.",
-        "Some places are protected, such as credential stores and Alexandrite's own configuration and data. File " +
-            "tools refuse them whatever the request; when one does, say so instead of looking for another way in.",
+        floor.deny.takeIf { it.isNotEmpty() }?.let {
+            "The operator protects ${places(it)}. Tools refuse these places whatever the request; when one does, " +
+                "say so instead of looking for another way in."
+        },
+        floor.ask.takeIf { it.isNotEmpty() }?.let {
+            "A person must allow each call that reaches ${places(it)}, whatever the chat's permission mode."
+        },
     ).joinToString("\n\n"),
     stable = true,
 )
+
+/** The floor's [entries] as the model reads them. */
+private fun places(entries: List<String>): String = entries.joinToString("; ") { entry ->
+    when (entry) {
+        FloorConfig.CREDENTIALS -> "the credential stores"
+        FloorConfig.SYSTEM -> "the system's devices and process entries"
+        FloorConfig.ALEXANDRITE -> "Alexandrite's own configuration, data and installation"
+        else -> entry
+    }
+}
 
 /** Where this conversation keeps its own files, at [directory]. */
 internal fun conversationDirectorySection(directory: Path): PromptSection = PromptSection(

@@ -94,7 +94,7 @@ internal class ProfileCreateTool(private val profiles: Profiles) :
             "'reasoning' default to the delegating agent's; 'toolsAllow' and 'toolsDeny' are tool globs ('*' for " +
             "any), 'toolsAllow' defaulting to every tool; 'mode' only ever tightens the chain it runs in; " +
             "'maxRounds' and 'maxTurnTokens' are optional limits. An id a config entry or a plugin already uses " +
-            "cannot be created this way. A human reviews what is written before the profile exists.",
+            "cannot be created this way. $REVIEWED_WHEN",
         parameters = createSchema(),
         risk = ToolRisk.PERSISTENT_STATE,
         activity = ToolActivity.EDIT,
@@ -140,8 +140,7 @@ internal class ProfileEditTool(private val profiles: Profiles) :
         name = "profile.edit",
         description = "Edits a profile the agent created itself (profile.list shows the source of each one), " +
             "'id' naming it. Every other field is optional: leaving one out keeps the profile's own value; giving " +
-            "'model', 'reasoning', 'mode', 'maxRounds' or 'maxTurnTokens' as null clears it. A human reviews the " +
-            "exact change before it applies.",
+            "'model', 'reasoning', 'mode', 'maxRounds' or 'maxTurnTokens' as null clears it. $REVIEWED_WHEN",
         parameters = editSchema(),
         risk = ToolRisk.PERSISTENT_STATE,
         activity = ToolActivity.EDIT,
@@ -199,7 +198,7 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
     override val definition: ToolDefinition = ToolDefinition(
         name = "profile.remove",
         description = "Removes a profile the agent created itself (profile.list shows the source of each one), " +
-            "'id' naming it. A human reviews what is removed before it is gone.",
+            "'id' naming it. $REVIEWED_WHEN",
         parameters = idOnlySchema("The id of the profile to remove."),
         risk = ToolRisk.PERSISTENT_STATE,
         activity = ToolActivity.DELETE,
@@ -346,3 +345,8 @@ private fun JsonObject.longChange(name: String): SettingChange<Long> = when {
     this[name] == JsonNull -> SettingChange.Reset
     else -> SettingChange.SetTo(long(name) ?: throw ToolRefusal("'$name' must be a whole number."))
 }
+
+/** When a person sees a change of a profile before it applies. */
+private const val REVIEWED_WHEN =
+    "A person reviews the change first only when the turn is not an operator's own or the conversation took in " +
+        "untrusted content; otherwise it applies at once."

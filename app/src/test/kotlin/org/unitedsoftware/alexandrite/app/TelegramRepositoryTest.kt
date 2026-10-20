@@ -14,7 +14,6 @@ import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.NoticeKind
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
@@ -33,6 +32,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class TelegramRepositoryTest {
     @TempDir
@@ -202,7 +202,7 @@ class TelegramRepositoryTest {
     }
 
     @Test
-    fun `an answer too long for ten messages leaves its preview and the agent's notice in the chat`() {
+    fun `an answer too long for ten messages fills ten and goes out whole as a file`() {
         val listing = (1..2_000).joinToString("\n") { "Line $it of the listing." }
         val previewed = CompletableDeferred<Unit>()
         app.model.reply {
@@ -214,21 +214,22 @@ class TelegramRepositoryTest {
             app.send(app.ada, app.adaChat, "Print the whole listing.")
             app.messages(app.adaChat, 1)
             previewed.complete(Unit)
-            app.messages(app.adaChat, 2)
+            app.fake.await(30.seconds) { botMessages(ADA).takeIf { messages -> messages.any { it.file != null } } }
             idle()
         }
 
-        val (preview, notice) = app.fake.botMessages(ADA)
-        assertEquals(listing.take(4095) + "…" to 0, preview.text to preview.edits)
-        assertEquals("The answer is too long to send here. It is kept in the conversation.", notice.text)
-        assertEquals(emptyList(), app.fake.calls("editMessageText"))
+        val messages = app.fake.botMessages(ADA)
+        assertEquals(11, messages.size)
+        assertEquals(listOf("Line 1 of the listing."), messages.first().text.lines().take(1))
+        val file = checkNotNull(messages.last().file)
+        assertEquals("answer.md" to listing, file.name to file.bytes.decodeToString())
+        assertEquals("The answer goes on beyond these messages: this file holds all of it.", messages.last().text)
         val conversation = app.model.requests.single().ids.conversation
         val entries = runBlocking { app.store.transcripts.entries(conversation) }
         assertEquals(
             listOf("user: Print the whole listing.", "assistant: $listing"),
-            entries.dropLast(1).map(::described),
+            entries.map(::described),
         )
-        assertEquals(NoticeKind.TOO_LONG, (entries.last() as NoticeEntry).kind)
     }
 
     @Test

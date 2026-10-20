@@ -381,12 +381,27 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {
+    fun `a preview longer than four messages is attached whole, its start shown above the buttons`() = runTest {
         val desk = Desk(this)
-        val text = ReviewPreview.Text("x".repeat(4 * 4096))
+        val diff = ReviewPreview.Diff(Path.of("/srv/big.md"), (1..2_000).joinToString("\n") { "+line $it of the file" })
 
-        assertEquals(ApprovalAnswer.Unavailable("too large to review"), desk.desk.ask(request(preview = text)))
-        assertEquals(emptyList(), desk.api.sent)
+        val answer = asking(desk, request(preview = diff))
+        advanceTimeBy(10.seconds)
+        desk.press(ada, "apv:k3x9:a", message = 102)
+
+        assertEquals(ApprovalAnswer.Allowed(ada), answer.await())
+        advanceTimeBy(5.seconds)
+        assertEquals(listOf("sendDocument", "sendMessage"), desk.api.sent.take(2).map { it.method })
+        val file = desk.api.uploads.single().file
+        assertEquals("approval-k3x9.diff" to diff.unified, file.name to file.bytes().decodeToString())
+        val shown = desk.shown(ADA).last()
+        assertTrue(
+            "The preview has 2000 lines, more than a message holds: its start is below, and the file " +
+                "approval-k3x9.diff above holds all of it.\n\n+line 1 of the file\n" in shown,
+            shown,
+        )
+        assertTrue(shown.length <= 4096, "${shown.length}")
+        assertTrue(diff.unified.startsWith(shown.substringAfter("\n\n").substringBefore("\n\nAllowed by")), shown)
     }
 
     // Answers.
@@ -582,8 +597,8 @@ class ApprovalDeskTest {
 
     // Trust offers.
 
-    private fun offer(turn: TurnInfo, marked: Boolean, roots: List<TrustRoot>, id: String = "of1") =
-        TrustOffer(id, turn, "fs.read reached /srv/clone, a folder that is not trusted", roots, marked)
+    private fun offer(turn: TurnInfo, roots: List<TrustRoot>, id: String = "of1") =
+        TrustOffer(id, turn, "fs.read reached /srv/clone, a folder that is not trusted", roots)
 
     private fun TestScope.offering(desk: Desk, offer: TrustOffer): Deferred<ApprovalAnswer> =
         backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { desk.desk.offer(offer) }
@@ -593,8 +608,8 @@ class ApprovalDeskTest {
         val desk = Desk(this)
         val beat = testTurn(TurnKind.HEARTBEAT, ChatAddress(WORK, "$GROUP"))
         val folder = TrustRoot(TrustRootKind.FOLDER, "/srv/clone")
-        val trusted = offering(desk, offer(beat, marked = true, roots = listOf(folder)))
-        val kept = offering(desk, offer(beat, marked = true, roots = listOf(folder), id = "of2"))
+        val trusted = offering(desk, offer(beat, roots = listOf(folder)))
+        val kept = offering(desk, offer(beat, roots = listOf(folder), id = "of2"))
         advanceTimeBy(5.seconds)
 
         val shown = desk.shown(ADA).first()
@@ -640,30 +655,23 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `a guest's waiting message offers to trust the person or mark, and nobody answering marks`() = runTest {
+    fun `a guest's offer is to trust the person, and nobody answering keeps the conversation marked`() = runTest {
         val desk = Desk(this)
         val turn = turnOf(bob, GROUP)
-        val waiting = offering(desk, offer(turn, marked = false, roots = listOf(TrustRoot.person(bob))))
+        val waiting = offering(desk, offer(turn, roots = listOf(TrustRoot.person(bob))))
         advanceTimeBy(5.seconds)
 
         val shown = desk.shown(ADA).single()
-        assertTrue(
-            shown.startsWith(
-                "An untrusted message waits (#of1)\nA message from Bob would bring content from someone who is not " +
-                    "trusted into the conversation in telegram:work:$GROUP. Unless an operator trusts them, the " +
-                    "conversation is marked tainted.\n",
-            ),
-            shown,
-        )
+        assertTrue(shown.startsWith("Untrusted content came in (#of1)\n"), shown)
         assertTrue("Trust is not authority" in shown, shown)
-        assertTrue(shown.endsWith(" [Mark tainted|Trust person Bob]"), shown)
+        assertTrue(shown.endsWith(" [Keep|Trust person Bob and clear the taint]"), shown)
 
         advanceTimeBy(10.minutes)
         advanceUntilIdle()
 
         assertEquals(ApprovalAnswer.Expired, waiting.await())
         assertEquals(
-            "Nobody answered in time, so the conversation is marked tainted.",
+            "Nobody answered in time: the conversation stays marked tainted.",
             desk.shown(ADA).single().substringAfterLast("\n"),
         )
         assertEquals(emptyMap(), desk.api.keyboards)

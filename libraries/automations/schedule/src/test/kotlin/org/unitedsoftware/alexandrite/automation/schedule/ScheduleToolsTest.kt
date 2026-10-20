@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testDelegatedTurn
@@ -203,8 +204,22 @@ class ScheduleToolsTest {
         assertEquals(why to shown, created.person to created.preview)
         val cancelling = ReviewPreview.Text("Cancel task t-4k2p of this chat.")
         assertEquals(why to cancelling, cancelled.person to cancelled.preview)
-        assertEquals(CallReview.builder().build(), clean)
+        assertEquals(CallReview.builder().risk(ToolRisk.PERSISTENT_STATE).build(), clean)
         assertEquals(CallReview.builder().build(), guest)
+    }
+
+    @Test
+    fun `an operator's change of the schedule counts as lasting, so plan mode refuses it`() = test {
+        val schedule = opened()
+        val clean = testToolContext(turn())
+        val arguments = JsonObject(mapOf("prompt" to JsonPrimitive("Post the feed."), "in" to JsonPrimitive("1h")))
+
+        val created = (schedule.create as ReviewedTool).review(arguments, clean)
+        val cancelled =
+            (schedule.cancel as ReviewedTool).review(JsonObject(mapOf("id" to JsonPrimitive("t-4k2p"))), clean)
+
+        assertEquals(listOf(ToolRisk.PERSISTENT_STATE, ToolRisk.PERSISTENT_STATE), listOf(created.risk, cancelled.risk))
+        assertEquals(listOf(null, null), listOf(created.person, cancelled.person))
     }
 
     // Mandates.

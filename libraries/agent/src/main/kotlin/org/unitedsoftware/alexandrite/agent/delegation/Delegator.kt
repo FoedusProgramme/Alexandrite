@@ -200,7 +200,7 @@ internal class Delegator(
             val job = jobs.start(
                 turn,
                 callPart,
-                id.orEmpty(),
+                profile.id.value,
                 context,
                 Duration.INFINITE,
                 run,
@@ -236,7 +236,7 @@ internal class Delegator(
                 activityReady.complete(Unit)
             }
             return InTurnResult(
-                "[alexandrite:background] Run $run of profile $id started; its report will arrive later.",
+                "[alexandrite:background] Run $run of profile ${profile.id} started; its report will arrive later.",
                 ToolOutcome.Detached(run),
             )
         }

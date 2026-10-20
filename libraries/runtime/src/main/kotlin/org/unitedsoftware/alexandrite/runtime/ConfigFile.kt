@@ -10,7 +10,6 @@ import org.unitedsoftware.alexandrite.runtime.config.BYTE_ORDER_MARK
 import org.unitedsoftware.alexandrite.runtime.config.jsonStringEnd
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
-import org.unitedsoftware.alexandrite.sdk.config.ConfigLiteral
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSource
 import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import java.io.IOException
@@ -74,45 +73,6 @@ public object ConfigFile {
             }
             ConfigException(path, "the value from $origin $problem")
         }
-
-    /** The strings and lists of [element] as [resolved] reads them, a string that names a variable as written. */
-    internal fun literal(element: JsonElement): ConfigLiteral? = when (element) {
-        is JsonArray -> ConfigLiteral.Items(element.map { literal(it) ?: return null })
-
-        is JsonPrimitive -> when {
-            !element.isString -> null
-            else -> unescaped(element.content)?.let(ConfigLiteral::Text) ?: ConfigLiteral.Reference(element.content)
-        }
-
-        is JsonObject -> null
-    }
-
-    /** [literal] as the file writes it, so that [resolved] reads it back. */
-    internal fun written(literal: ConfigLiteral): JsonElement = when (literal) {
-        is ConfigLiteral.Text -> JsonPrimitive(literal.text.replace("\${", "$\${"))
-        is ConfigLiteral.Reference -> JsonPrimitive(literal.written)
-        is ConfigLiteral.Items -> JsonArray(literal.items.map(::written))
-    }
-
-    /** [text] with each `$${` made `${`, null when it inserts a variable. */
-    private fun unescaped(text: String): String? {
-        if ('$' !in text) return text
-        val literal = StringBuilder()
-        var index = 0
-        while (index < text.length) {
-            when {
-                text.startsWith("$\${", index) -> {
-                    literal.append("\${")
-                    index += 3
-                }
-
-                text.startsWith("\${", index) -> return null
-
-                else -> literal.append(text[index++])
-            }
-        }
-        return literal.toString()
-    }
 
     /** The JSON path of the first key that the valid JSON [text] repeats within one object, null when none. */
     private fun repeatedKey(text: String): String? {

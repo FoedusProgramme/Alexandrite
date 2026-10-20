@@ -101,7 +101,8 @@ internal class PermissionGate(
         val person =
             review.person ?: instruction?.takeIf { tainted }?.let { "the call writes $it, and ${tainted(call.taint)}" }
         val foreseen = foresight.foresee(checked)
-        if (required == null && person == null && !isGated(risk, principal, tainted, gatesNetwork(call))) {
+        val gated = required != null || person != null || isGated(risk, principal, tainted, gatesNetwork(call))
+        if (!gated && !(risk.severity >= ToolRisk.PERSISTENT_STATE.severity && planned(call))) {
             if (foreseen == null) {
                 val clearance = Clearance(ClearanceKind.NONE, snapshot = review.snapshot)
                 return running(checked, GateResult.Admitted(clearance, review.preview, review.exempt))
@@ -199,6 +200,8 @@ internal class PermissionGate(
         if (call.call.taint.tainted && containment.network) return false
         return containment.clearable && containment.hosts.isEmpty() && mode in CONTAINED_MODES
     }
+
+    private suspend fun planned(call: GateCall): Boolean = mode(call).first == PermissionMode.PLAN
 
     /** The permission mode of [call] and whether a profile of its chain tightened it, `ask` for an unread mode. */
     private suspend fun mode(call: GateCall): Pair<PermissionMode, Boolean> =

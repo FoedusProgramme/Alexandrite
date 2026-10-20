@@ -111,7 +111,6 @@ class InitTest {
         assertContains(printed.out, "Send this code to the bot Alexandrite Test Bot")
         assertContains(printed.out, "https://t.me/alexandrite_test_bot?start=TEST-C0DE")
         assertContains(printed.out, "Ada Lovelace @ada_test (1001) sent the code and is the bot's admin.")
-        assertContains(printed.out, "The config file ${cli.configFile} passes the checks of a start.")
         assertContains(printed.out, "Alexandrite 1.2.3 (pid 5151) is running.")
         assertContains(printed.out, "Logs: journalctl --user --unit alexandrite.service, or alexandrite logs.")
         assertEquals("Bearer sk-test", models.requests.single().header("authorization"))

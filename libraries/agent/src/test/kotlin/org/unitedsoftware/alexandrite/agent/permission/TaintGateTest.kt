@@ -41,6 +41,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.recordingTool
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -55,7 +56,7 @@ import kotlin.time.Duration.Companion.seconds
 /** How the gate decides the calls of a conversation that took in untrusted content. */
 class TaintGateTest {
     private val clock = TestClock()
-    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"))
+    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"), testRecords())
     private val operator: TurnInfo = testTurn { actor(testUser("operator", isOperator = true)) }
     private val judge = Judging()
     private val approvals = Asking()

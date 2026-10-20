@@ -171,10 +171,6 @@ class SubclassOptInTest {
             ) = TODO()
         }
 
-        class Editor : org.unitedsoftware.alexandrite.sdk.config.ConfigEditor {
-            override suspend fun edit(block: org.unitedsoftware.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
-        }
-
         class Snapshot : org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot {
             override fun <T : Any> section(key: org.unitedsoftware.alexandrite.sdk.di.Key<T>): T? = TODO()
         }
@@ -187,10 +183,7 @@ class SubclassOptInTest {
 
         class Edit : org.unitedsoftware.alexandrite.sdk.config.ConfigEdit {
             override fun get(path: String) = TODO()
-            override fun getLiteral(path: String) = TODO()
             override fun set(path: String, value: kotlinx.serialization.json.JsonElement) = TODO()
-            override fun setLiteral(path: String, value: org.unitedsoftware.alexandrite.sdk.config.ConfigLiteral) =
-                TODO()
             override fun remove(path: String) = TODO()
         }
 
@@ -964,29 +957,10 @@ class SubclassOptInTest {
             floor.checkWrite(path, agent) is FloorCheck.Allowed && floor.checkTree(path) is FloorCheck.Allowed
     """.trimIndent()
 
-    /** A plugin that writes its own settings back into the config file. */
+    /** A host component that changes the config file as an operator would. */
     private val configEdits = """
-        import kotlinx.serialization.json.JsonArray
         import kotlinx.serialization.json.JsonPrimitive
         import org.unitedsoftware.alexandrite.sdk.config.*
-
-        class Folders(private val editor: ConfigEditor) {
-            suspend fun trust(folders: List<String>): String? = try {
-                editor.edit {
-                    val trusted = get("trustedFolders") as? JsonArray ?: JsonArray(emptyList())
-                    set("trustedFolders", JsonArray(trusted + folders.map(::JsonPrimitive)))
-                    remove("legacyFolders")
-                    val kept = (getLiteral("folders") as? ConfigLiteral.Items)?.items.orEmpty()
-                    setLiteral("folders", ConfigLiteral.Items(kept + folders.map(ConfigLiteral::Text)))
-                    setLiteral("owner", "\${'$'}{not a variable}")
-                }
-                editor.set("home", JsonPrimitive("123"))
-                editor.remove("home")
-                null
-            } catch (e: ConfigEditException) {
-                if (e.refusal in ConfigEditRefusal.entries) e.message else ConfigEditRefusal.of(e.refusal.id).id
-            }
-        }
 
         class Operator(private val config: HostConfig) {
             suspend fun model(agent: String, model: String): List<String>? = try {
@@ -995,22 +969,7 @@ class SubclassOptInTest {
                 config.check { remove("agent.floor") }?.restart
                 changes.changed + changes.restart
             } catch (e: ConfigEditException) {
-                listOfNotNull(e.message)
-            }
-        }
-
-        class Settings(val limit: Int)
-
-        class Limits : LiveConfig {
-            @Volatile
-            var limit = 0
-
-            override val paths = listOf("limit")
-
-            override fun prepare(config: ConfigSnapshot): () -> Unit {
-                val next = config.section(org.unitedsoftware.alexandrite.sdk.di.key<Settings>())?.limit ?: 0
-                if (next < 0) throw ConfigException("limit", "may not be negative")
-                return { limit = next }
+                listOfNotNull(e.message, e.refusal.id.takeIf { e.refusal !in ConfigEditRefusal.entries })
             }
         }
     """.trimIndent()
@@ -1084,8 +1043,23 @@ class SubclassOptInTest {
     }
 
     @Test
-    fun `a plugin edits its config without the internal API`() {
+    fun `a host component edits the config without the internal API`() {
         assertEquals(emptyList(), errors(configEdits))
+    }
+
+    @Test
+    fun `only Alexandrite's own plugins take changes of their config while the runtime runs`() {
+        val live = """
+            class Limits : org.unitedsoftware.alexandrite.sdk.config.LiveConfig {
+                override val paths = listOf("limit")
+
+                override fun prepare(config: org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot): () -> Unit = {}
+            }
+        """.trimIndent()
+
+        val errors = errors(live)
+
+        assertTrue(errors.isNotEmpty() && errors.all { "Internal Alexandrite API" in it }, errors.joinToString("\n"))
     }
 
     @Test

@@ -107,7 +107,7 @@ internal class ChatSettingsImpl(
             }
 
             SettingChange.Reset -> {
-                val inherited = if (chat.thread == null) null else states.loadAgent(chat.parent).value
+                val inherited = if (chat.thread == null) null else states.selectedAgent(chat.parent)
                 (router.resolveAs(chat, inherited) as? Resolution.Served)?.key?.agent
                     ?: throw Refused(TextKeys.NO_AGENT, "chat" to chat)
             }

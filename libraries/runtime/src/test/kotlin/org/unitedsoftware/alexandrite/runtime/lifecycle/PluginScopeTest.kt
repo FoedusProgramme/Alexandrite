@@ -204,7 +204,7 @@ class PluginScopeTest {
                 runtime.stop()
 
                 assertEquals(
-                    listOf(Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, "core")),
+                    listOf(Problem(RuntimeProblemKind.SHUTDOWN, message, "core")),
                     runtime.join().problems,
                 )
                 assertEquals(listOf("open straggler", "stop straggler", "destroy straggler"), events.all())
@@ -233,7 +233,7 @@ class PluginScopeTest {
 
         val termination = spec(explicit(index), dataDir, shutdownGrace = 0.seconds).execute()
 
-        assertContains(termination.problems.map { it.kind }, RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE)
+        assertContains(termination.problems.map { it.kind }, RuntimeProblemKind.SHUTDOWN)
         assertFalse("straggler done" in events.all())
         release.complete(Unit)
     }
@@ -248,7 +248,7 @@ class PluginScopeTest {
         assertEquals(
             emptyList(),
             runtime.join().problems.filter {
-                it.kind == RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE
+                it.message.startsWith("Coroutines of")
             },
         )
     }

@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.expandHome
+import org.unitedsoftware.alexandrite.internal.sandbox.Protect
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Binds
@@ -116,18 +117,16 @@ internal class HostInstructionPlaces(
     }
 
     private fun protectedBy(agent: AgentId, config: SandboxConfig): Protected {
-        val entries = config.protect ?: SandboxConfig.DEFAULT_PROTECT
-        val (names, absolute) = entries.filterNot { it == SandboxConfig.ALEXANDRITE }
-            .partition { !it.startsWith("/") && !it.startsWith("~") }
+        val protect = Protect.of(config.protect)
         val key = "agent.agents.$agent.sandbox.protect"
-        val resolved = absolute.mapNotNull { entry ->
+        val resolved = protect.paths.mapNotNull { entry ->
             try {
                 configuredPath(paths, key, "the protected path", expandHome(entry))
             } catch (e: ConfigException) {
                 null
             }
         }
-        return Protected(names, resolved, SandboxConfig.ALEXANDRITE in entries)
+        return Protected(protect.names, resolved, protect.alexandrite)
     }
 
     private fun real(path: Path): Path = canonicalizer.canonicalize(path.toAbsolutePath().normalize()).real

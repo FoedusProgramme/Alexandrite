@@ -9,6 +9,8 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.tui.Mark
 import org.unitedsoftware.alexandrite.app.tui.columns
 import org.unitedsoftware.alexandrite.app.tui.pad
+import org.unitedsoftware.alexandrite.runtime.ConfigFile
+import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -91,12 +93,12 @@ internal fun diagnose(cli: Cli): List<Finding> {
         )
         cli.environment
     }
-    val raw = config(cli, environment, findings)
+    val resolved = config(cli, environment, findings)
     findings += permissions(cli)
     findings += disk(cli)
-    if (raw != null) {
-        findings += endpoints(cli, raw, environment)
-        findings += telegram(cli, raw, environment)
+    if (resolved != null) {
+        findings += endpoints(cli, resolved)
+        findings += telegram(cli, resolved)
     }
     findings += service(cli)
     val status = cli.status()
@@ -127,7 +129,10 @@ private fun java(cli: Cli): Finding {
     )
 }
 
-/** Checks the config file and returns it as written, null when it does not read. */
+/**
+ * Checks the config file and returns it resolved, without the values that name a variable nothing sets; null when it
+ * does not read.
+ */
 private fun config(cli: Cli, environment: Map<String, String>, findings: MutableList<Finding>): JsonObject? {
     val file = cli.locations.configFile
     if (!Files.exists(file)) {
@@ -152,7 +157,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
                 "secrets" to cli.secrets,
             ),
         )
-        return raw
+        return raw?.let { resolved(it, environment, unset.toSet()) }
     }
     val problems = configFileProblems(cli, environment)
     findings += if (problems.isEmpty()) {
@@ -168,7 +173,25 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
             ),
         )
     }
-    return raw
+    return raw?.let { resolved(it, environment, emptySet()) }
+}
+
+/** [raw] resolved from [environment], each value that names a variable of [unset] left out, null when it cannot be. */
+private fun resolved(raw: JsonObject, environment: Map<String, String>, unset: Set<String>): JsonObject? = try {
+    ConfigFile.resolve(without(raw, unset) as JsonObject, environment, "the config file")
+} catch (e: ConfigException) {
+    null
+}
+
+private fun without(element: JsonElement, unset: Set<String>): JsonElement? = when (element) {
+    is JsonObject -> JsonObject(element.mapNotNull { (key, value) -> without(value, unset)?.let { key to it } }.toMap())
+
+    is JsonArray -> JsonArray(element.mapNotNull { without(it, unset) })
+
+    is JsonPrimitive -> element.takeUnless {
+        it.isString &&
+            referencedVariables(it.content).any { name -> name in unset }
+    }
 }
 
 private fun strings(element: JsonElement): List<String> = when (element) {
@@ -205,8 +228,7 @@ private fun permissions(cli: Cli): List<Finding> {
         }
     }
     permissionsOf(cli.locations.dataDir)?.let { permissions ->
-        val open = permissions.filterNot { it.name.startsWith("OWNER") }
-        if (open.isNotEmpty()) {
+        if (PosixFilePermission.GROUP_WRITE in permissions || PosixFilePermission.OTHERS_WRITE in permissions) {
             findings += Finding(
                 "data",
                 Verdict.FAIL,
@@ -246,18 +268,18 @@ private fun disk(cli: Cli): Finding {
 }
 
 /** One request to each configured endpoint that checks that it answers and takes its key. */
-private fun endpoints(cli: Cli, raw: JsonObject, environment: Map<String, String>): List<Finding> =
-    raw.objectAt("providers").flatMap { (name, value) ->
+private fun endpoints(cli: Cli, config: JsonObject): List<Finding> =
+    config.objectAt("providers").flatMap { (name, value) ->
         val provider = providerKind(name) ?: return@flatMap emptyList()
         ((value as? JsonObject)?.get("endpoints") as? JsonObject).orEmpty().map { (id, endpoint) ->
             val config = endpoint as? JsonObject ?: JsonObject(emptyMap())
             val check = "endpoint $id"
-            val base = config["baseUrl"].text?.let { resolveReferences(it, environment) } ?: provider.defaultUrl
+            val base = config["baseUrl"].text ?: provider.defaultUrl
                 ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_base_url"))
-            val key = config["apiKey"].text?.let { resolveReferences(it, environment) }
+            val key = config["apiKey"].text
             val headers = buildMap {
                 (config["headers"] as? JsonObject)?.forEach { (header, text) ->
-                    text.text?.let { resolveReferences(it, environment) }?.let { put(header, it) }
+                    text.text?.let { put(header, it) }
                 }
                 putAll(keyHeaders(provider, key))
             }
@@ -304,13 +326,13 @@ private fun reached(
     }
 }
 
-private fun telegram(cli: Cli, raw: JsonObject, environment: Map<String, String>): List<Finding> =
-    raw.objectAt("channels.telegram.instances").map { (name, value) ->
+private fun telegram(cli: Cli, config: JsonObject): List<Finding> =
+    config.objectAt("channels.telegram.instances").map { (name, value) ->
         val config = value as? JsonObject ?: JsonObject(emptyMap())
         val check = "telegram:$name"
-        val token = config["botToken"].text?.let { resolveReferences(it, environment) }
+        val token = config["botToken"].text
             ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_token"))
-        val base = config["apiBaseUrl"].text?.let { resolveReferences(it, environment) } ?: TELEGRAM_API
+        val base = config["apiBaseUrl"].text ?: TELEGRAM_API
         when (val bot = telegramBot(cli, base, token)) {
             is BotCheck.Bot -> Finding(check, Verdict.OK, cli.t("bot.belongs", "bot" to described(cli, bot)))
             is BotCheck.Refused -> Finding(check, Verdict.FAIL, cli.texts(bot.reason))

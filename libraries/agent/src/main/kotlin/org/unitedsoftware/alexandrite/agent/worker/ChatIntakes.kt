@@ -1,11 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.worker
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.routing.ChatRouter
@@ -24,13 +19,10 @@ import org.unitedsoftware.alexandrite.sdk.turn.Capacity
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import java.time.Instant
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * One intake per chat, created on demand and removed once idle, which hands the chat's messages to the workers in
- * submit order.
- *
- * It holds them while a command of the chat gates it and while the router reads which agent the chat switched to.
+ * submit order, holding them while a command of the chat gates it.
  */
 @Singleton
 internal class ChatIntakes(
@@ -40,7 +32,6 @@ internal class ChatIntakes(
     private val router: ChatRouter,
 ) {
     private val perKey = settings.queue.perKey
-    private val gateTimeout = settings.queue.commandGateSeconds.seconds
     private val intakes = HashMap<ChatAddress, Intake>()
 
     /** The counted messages held for each key. */
@@ -52,39 +43,19 @@ internal class ChatIntakes(
         lock.locked {
             val chat = message.chat
             val held = Held(turn, message, capacity, queuedAt, AgentTicket(turn) { cancel(it, TurnCancelled(null)) })
-            val route = router.cached(chat)
+            val route = router.resolve(chat)
             when {
                 !workers.accepting -> Admission.Refused(RefusalReason.SHUTTING_DOWN)
-
-                route == Resolution.Unknown -> Admission.Refused(RefusalReason.UNKNOWN_CHAT)
-
-                route == Resolution.NoAgent -> Admission.Refused(RefusalReason.NO_AGENT)
-
-                route is Resolution.Served && chat !in intakes ->
-                    workers.submit(route.key, turn(held, route.key), heldAt[route.key] ?: 0)
-
-                else -> hold(held, (route as? Resolution.Served)?.key)
+                route !is Resolution.Served -> Admission.Refused(refusal(route))
+                chat !in intakes -> workers.submit(route.key, turn(held, route.key), heldAt[route.key] ?: 0)
+                else -> hold(held, route.key)
             }
         }
 
     /** Holds the chat's messages until [command] lets them go. */
     fun gate(chat: ChatAddress, command: TurnId) {
         lock.locked {
-            val intake = intakes.getOrPut(chat) { Intake(chat) }
-            if (command !in intake.gates) intake.gates[command] = null
-        }
-    }
-
-    /** Lets the messages that [command] holds go `queue.commandGateSeconds` from now at the latest. */
-    fun arm(chat: ChatAddress, command: TurnId) {
-        lock.locked {
-            val intake = intakes[chat] ?: return@locked
-            if (command !in intake.gates || intake.gates[command] != null) return@locked
-            intake.gates[command] = lock.launch {
-                delay(gateTimeout)
-                logger.warn("Command {} held the messages of {} for {}: they go on", command, chat, gateTimeout)
-                release(chat, command)
-            }
+            intakes.getOrPut(chat) { Intake(chat) }.gates += command
         }
     }
 
@@ -92,9 +63,7 @@ internal class ChatIntakes(
     fun release(chat: ChatAddress, command: TurnId) {
         lock.locked {
             val intake = intakes[chat] ?: return@locked
-            if (command !in intake.gates) return@locked
-            intake.gates.remove(command)?.cancel()
-            flush(intake)
+            if (intake.gates.remove(command)) flush(intake)
         }
     }
 
@@ -116,42 +85,29 @@ internal class ChatIntakes(
         lock.locked {
             for (intake in intakes.values) {
                 intake.held.forEach { it.ticket.complete(TurnOutcome.ShutDown(replayable = true)) }
-                intake.gates.values.forEach { it?.cancel() }
             }
             intakes.clear()
             heldAt.clear()
         }
     }
 
-    private fun hold(held: Held, key: AgentChatKey?): Admission {
+    private fun hold(held: Held, key: AgentChatKey): Admission {
         val chat = held.message.chat
-        val intake = intakes[chat]
         if (held.capacity == Capacity.COUNTED) {
-            val waiting = if (key == null) {
-                intake?.held.orEmpty().count { it.capacity == Capacity.COUNTED }
-            } else {
-                workers.waiting(key) + (heldAt[key] ?: 0)
+            if (workers.waiting(key) + (heldAt[key] ?: 0) >= perKey) {
+                return Admission.Refused(RefusalReason.QUEUE_FULL, perKey)
             }
-            if (waiting >= perKey) return Admission.Refused(RefusalReason.QUEUE_FULL, perKey)
-            if (key != null) {
-                held.countedAt = key
-                heldAt.merge(key, 1, Int::plus)
-            }
+            held.countedAt = key
+            heldAt.merge(key, 1, Int::plus)
         }
-        val target = intake ?: Intake(chat).also { intakes[chat] = it }
-        target.held.addLast(held)
-        if (key == null && !target.loading) load(target)
+        intakes.getOrPut(chat) { Intake(chat) }.held.addLast(held)
         return Admission.Accepted(held.ticket)
     }
 
     /** Hands the held messages of [intake] to the workers while nothing holds them. */
     private fun flush(intake: Intake) {
         while (intake.gates.isEmpty() && intake.held.isNotEmpty()) {
-            val route = router.cached(intake.chat)
-            if (route == null) {
-                if (!intake.loading) load(intake)
-                return
-            }
+            val route = router.resolve(intake.chat)
             val held = intake.held.removeFirst()
             uncount(held)
             if (route is Resolution.Served) {
@@ -163,43 +119,13 @@ internal class ChatIntakes(
         reclaim(intake)
     }
 
-    /** Reads which agent the chat of [intake] switched to, then hands its held messages on. */
-    private fun load(intake: Intake) {
-        intake.loading = true
-        lock.launch {
-            val error = try {
-                router.resolve(intake.chat)
-                null
-            } catch (e: Throwable) {
-                if (e is VirtualMachineError) throw e
-                currentCoroutineContext().ensureActive()
-                e
-            }
-            lock.locked {
-                if (intakes[intake.chat] !== intake) return@locked
-                intake.loading = false
-                if (error == null) {
-                    flush(intake)
-                } else {
-                    logger.warn("Cannot read which agent chat {} switched to: {}", intake.chat, error.toString())
-                    intake.held.forEach {
-                        uncount(it)
-                        it.ticket.complete(TurnOutcome.Failed("Cannot read which agent serves ${intake.chat}: $error"))
-                    }
-                    intake.held.clear()
-                    reclaim(intake)
-                }
-            }
-        }
-    }
-
     private fun uncount(held: Held) {
         val key = held.countedAt ?: return
         heldAt.compute(key) { _, count -> count?.minus(1)?.takeIf { it > 0 } }
     }
 
     private fun reclaim(intake: Intake) {
-        if (intake.held.isEmpty() && intake.gates.isEmpty() && !intake.loading) intakes.remove(intake.chat)
+        if (intake.held.isEmpty() && intake.gates.isEmpty()) intakes.remove(intake.chat)
     }
 
     private fun turn(held: Held, key: AgentChatKey): WorkerJob.Turn {
@@ -222,9 +148,8 @@ internal class ChatIntakes(
 private class Intake(val chat: ChatAddress) {
     val held = ArrayDeque<Held>()
 
-    /** The commands that gate the chat, with the timers that release them once they run. */
-    val gates = LinkedHashMap<TurnId, Job?>()
-    var loading = false
+    /** The commands that gate the chat. */
+    val gates = LinkedHashSet<TurnId>()
 }
 
 private class Held(
@@ -234,8 +159,10 @@ private class Held(
     val queuedAt: Instant,
     val ticket: AgentTicket,
 ) {
-    /** The key the message counts against, null for a chat not resolved yet. */
+    /** The key the message counts against, null for one that is not counted. */
     var countedAt: AgentChatKey? = null
 }
 
-private val logger = LoggerFactory.getLogger(ChatIntakes::class.java)
+/** Why a chat that [route] serves with no agent is refused. */
+internal fun refusal(route: Resolution): RefusalReason =
+    if (route == Resolution.Unknown) RefusalReason.UNKNOWN_CHAT else RefusalReason.NO_AGENT

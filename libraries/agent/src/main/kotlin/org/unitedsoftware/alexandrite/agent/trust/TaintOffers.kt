@@ -115,7 +115,7 @@ internal class TaintOffers(
             turn.chat.instance
         }
         val channel = instance?.let(channels::channel) ?: return null
-        val offer = TrustOffer(newId(), turn, ReviewText.escape(reason), roots.map { it.shown }, marked = true)
+        val offer = TrustOffer(newId(), turn, ReviewText.escape(reason), roots.map { it.shown })
         logger.info("Trust offer {} of turn {} of {} is made", offer.id, turn.id, turn.key)
         return try {
             channel.offerTrust(offer).also { logger.info("Trust offer {} ends: {}", offer.id, described(it)) }

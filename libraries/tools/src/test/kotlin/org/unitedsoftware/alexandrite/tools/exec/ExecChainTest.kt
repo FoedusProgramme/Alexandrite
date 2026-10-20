@@ -167,15 +167,14 @@ class ExecChainTest {
     }
 
     @Test
-    fun `a chain of vetted programs runs unallowed, one with an unvetted step only once allowed`() {
+    fun `a chain of vetted programs runs unallowed, one with an unvetted step is reviewed as a program run`() {
         val vetted = tool.run(fs.context(), "command" to "sh -c 'echo a; echo b'")
+        val risks = listOf("sh -c 'echo a; echo b'", "sh -c 'echo a && mkdir made'").map {
+            tool.check(fs.context(turn = operatorTurn()), "command" to it).risk
+        }
 
         assertEquals("Exit code: 0\n\$ echo a\na\n\$ echo b\nb", vetted.text)
-
-        val refused = tool.run(fs.context(), "command" to "sh -c 'echo a && mkdir made'")
-        assertEquals(true, refused.isError)
-        assertTrue(refused.text.startsWith("mkdir is no vetted read-only program"))
-        assertFalse(fs.workspace.resolve("made").exists())
+        assertEquals(listOf(ToolRisk.READ_ONLY, ToolRisk.EXEC), risks)
     }
 
     @Test

@@ -179,8 +179,6 @@ public class TrustOffer private constructor(
     public val untrusted: String,
     /** What trusting the content trusts for good, never empty. */
     public val roots: List<TrustRoot>,
-    /** Whether the conversation is marked tainted already, so that trusting clears the mark, else the content waits. */
-    public val marked: Boolean,
 ) {
     init {
         require(ID.matches(id)) { "Malformed trust offer id '$id'." }
@@ -190,13 +188,8 @@ public class TrustOffer private constructor(
     public companion object {
         private val ID = Regex("[A-Za-z0-9_-]{1,32}")
 
-        public operator fun invoke(
-            id: String,
-            turn: TurnInfo,
-            untrusted: String,
-            roots: List<TrustRoot>,
-            marked: Boolean,
-        ): TrustOffer = TrustOffer(id, turn, untrusted, roots.toList(), marked)
+        public operator fun invoke(id: String, turn: TurnInfo, untrusted: String, roots: List<TrustRoot>): TrustOffer =
+            TrustOffer(id, turn, untrusted, roots.toList())
     }
 }
 

@@ -286,10 +286,10 @@ class ChannelValuesTest {
     fun `a trust offer has a short id and offers at least one root, and a bare channel cannot make one`() {
         val root = TrustRoot(TrustRootKind.SERVER, "files")
 
-        assertEquals("o-1", TrustOffer("o-1", testTurn, "x", listOf(root), marked = true).id)
-        assertFailsWith<IllegalArgumentException> { TrustOffer("o 1", testTurn, "x", listOf(root), marked = true) }
-        assertFailsWith<IllegalArgumentException> { TrustOffer("o-1", testTurn, "x", emptyList(), marked = false) }
-        val answer = runBlocking { bare.offerTrust(TrustOffer("o-1", testTurn, "x", listOf(root), marked = true)) }
+        assertEquals("o-1", TrustOffer("o-1", testTurn, "x", listOf(root)).id)
+        assertFailsWith<IllegalArgumentException> { TrustOffer("o 1", testTurn, "x", listOf(root)) }
+        assertFailsWith<IllegalArgumentException> { TrustOffer("o-1", testTurn, "x", emptyList()) }
+        val answer = runBlocking { bare.offerTrust(TrustOffer("o-1", testTurn, "x", listOf(root))) }
         assertEquals(ApprovalAnswer.Unavailable("this channel cannot offer trust"), answer)
     }
 

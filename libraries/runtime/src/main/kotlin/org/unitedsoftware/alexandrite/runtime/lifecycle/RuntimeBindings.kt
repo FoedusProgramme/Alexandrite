@@ -17,7 +17,6 @@ import org.unitedsoftware.alexandrite.runtime.turn.PluginTurnInitiator
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
-import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
@@ -66,7 +65,6 @@ internal fun runtimeBindings(
     unreadableRecords: UnreadableRecordListener,
     texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
-    editors: (plugin: String) -> ConfigEditor,
     /** The host config that takes the changes of the [LiveConfig] contributions its argument lists, by plugin. */
     hostConfig: (live: () -> List<Pair<String, LiveConfig>>) -> HostConfig,
     scopes: PluginScopes,
@@ -165,12 +163,6 @@ internal fun runtimeBindings(
                 texts.of(plugin.id),
                 RUNTIME_PLUGIN,
                 "Texts of ${plugin.id}",
-            ),
-            instanceBinding(
-                key<ConfigEditor>(plugin.id),
-                editors(plugin.id),
-                RUNTIME_PLUGIN,
-                "ConfigEditor of ${plugin.id}",
             ),
         )
     }

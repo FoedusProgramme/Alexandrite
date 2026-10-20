@@ -24,7 +24,6 @@ import org.unitedsoftware.alexandrite.agent.context.Compaction
 import org.unitedsoftware.alexandrite.agent.context.Compactor
 import org.unitedsoftware.alexandrite.agent.context.contextView
 import org.unitedsoftware.alexandrite.agent.control.PendingCommands
-import org.unitedsoftware.alexandrite.agent.control.PendingComparison
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.control.effectiveZone
 import org.unitedsoftware.alexandrite.agent.delegation.DELEGATE_TOOL
@@ -35,7 +34,6 @@ import org.unitedsoftware.alexandrite.agent.delegation.delegator
 import org.unitedsoftware.alexandrite.agent.delivery.Notices
 import org.unitedsoftware.alexandrite.agent.delivery.ReplyStream
 import org.unitedsoftware.alexandrite.agent.delivery.Routes
-import org.unitedsoftware.alexandrite.agent.delivery.SentComparison
 import org.unitedsoftware.alexandrite.agent.delivery.SentMessages
 import org.unitedsoftware.alexandrite.agent.delivery.delivered
 import org.unitedsoftware.alexandrite.agent.delivery.notice
@@ -47,7 +45,7 @@ import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
 import org.unitedsoftware.alexandrite.agent.hook.or
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.job.EndedJob
-import org.unitedsoftware.alexandrite.agent.job.InterruptedComparison
+import org.unitedsoftware.alexandrite.agent.job.InterruptedJob
 import org.unitedsoftware.alexandrite.agent.job.InterruptedJobs
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.described
@@ -83,7 +81,6 @@ import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.OfferedTools
 import org.unitedsoftware.alexandrite.agent.tool.RenderedTool
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
-import org.unitedsoftware.alexandrite.agent.tool.ToolComparison
 import org.unitedsoftware.alexandrite.agent.tool.ToolExecutor
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
@@ -97,7 +94,6 @@ import org.unitedsoftware.alexandrite.agent.trust.TaintOffers
 import org.unitedsoftware.alexandrite.agent.trust.TrustSources
 import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.usage.Budgets
-import org.unitedsoftware.alexandrite.agent.usage.HeldJobs
 import org.unitedsoftware.alexandrite.agent.usage.UsageMeter
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelCapabilities
@@ -218,7 +214,6 @@ internal class AgentTurnRunner(
     private val routes: Routes,
     private val clock: Clock,
     private val budgets: Budgets,
-    private val heldJobs: HeldJobs,
 ) : TurnRunner {
     override suspend fun run(
         plan: TurnPlan,
@@ -320,26 +315,14 @@ internal class AgentTurnRunner(
                 conversations.startTurn(turn)
                 recorded = true
             }
-            var selection = selection(model)
-            val why = when (selection) {
-                is Selection.Found -> null
-                is Selection.Failed -> selection.error.takeIf(::movesOn)?.kind?.toString()
-                Selection.Unknown -> UNKNOWN_MODEL
-            }
-            val next = why?.let { nextAfterFailure() }
-            if (next != null) {
-                val moved = selection(next)
-                if (moved is Selection.Found) {
-                    movedOn(next, why)
-                    selection = moved
-                } else {
-                    logger.warn("Turn {} of {} cannot move on to model {} either", plan.id, plan.key, next)
-                }
-            }
-            val selected = when (selection) {
+            val selected = when (val selection = selection(model)) {
                 is Selection.Found -> selection.model
-                is Selection.Failed -> return modelFailed(selection.error)
-                Selection.Unknown -> return unknownModel()
+
+                is Selection.Failed ->
+                    selection.error.takeIf(::movesOn)?.let { movedOn(it.kind.toString()) }
+                        ?: return modelFailed(selection.error)
+
+                Selection.Unknown -> movedOn(UNKNOWN_MODEL) ?: return unknownModel()
             }
             images = MediaKind.IMAGE in selected.info.inputMedia
             val options = requestOptions(agent, selected.info, reasoning)
@@ -353,15 +336,7 @@ internal class AgentTurnRunner(
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
             val opening = opening(turn, input, text, context.baked)
-            val shared = delegation == null
-            val comparison = if (shared) offeredTools.compare(turn.conversation, definitions) else null
-            val commands = if (shared) pendingCommands.pending(turn.conversation) else null
-            val interrupted = if (shared) interruptedJobs.pending(turn.conversation) else null
-            val sent = if (shared) sentMessages.pending(turn.conversation, turn.zone ?: clock.zone) else null
-            sent?.taint?.let { taint.mark(it) }
-            if (commands?.commands?.any { !it.trusted } == true) {
-                taint.mark("a command of someone whom the agent does not trust")
-            }
+            val notes = if (delegation == null) pendingNotes(turn, definitions) else emptyList()
             val view = contextView(inherited + history.entries(turn.conversation))
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
@@ -369,15 +344,11 @@ internal class AgentTurnRunner(
             val window = compactor.open(turn, agent.config.compaction, selected.info.contextWindow, summaryModel, view)
             val parts = RequestParts(selected, options, window, sections, definitions, context)
             val turnTools = TurnTools((offered + toolset.unoffered).associateBy { it.definition.name }, callable)
-            val unstored =
-                listOfNotNull(comparison?.notice, commands?.notice, interrupted?.notice, sent?.notice, opening)
-            absorbHeldJobs(turn)
-            if (input !is TurnSource.FromJob) {
-                return rounds(parts, unstored, turnTools, comparison, commands, interrupted, sent)
-            }
-            store(unstored, comparison, commands, interrupted, sent)
+            val unstored = notes.mapNotNull { it.notice } + listOfNotNull(opening)
+            if (input !is TurnSource.FromJob) return rounds(parts, unstored, turnTools, notes)
+            store(unstored, notes)
             if (input.job.final) jobs.delivered(input.job.job)
-            return rounds(parts, emptyList(), turnTools, null, null, null, null)
+            return rounds(parts, emptyList(), turnTools, emptyList())
         }
 
         /** Ends the turn as [cause] cut it off, unless it had ended. */
@@ -683,7 +654,10 @@ internal class AgentTurnRunner(
             else -> false
         }
 
-        /** Refuses the turn past a budget, holding a job's result and telling the chat where that is news. */
+        /**
+         * Refuses the turn past a budget, noting a job's dropped result for the conversation's next turn and telling
+         * the chat where that is news.
+         */
         private suspend fun overBudget(input: TurnSource): TurnOutcome = withContext(NonCancellable) {
             val agent = plan.key.agent
             logger.info("Turn {} of {} is refused: agent '{}' used up a budget", plan.id, plan.key, agent)
@@ -711,7 +685,15 @@ internal class AgentTurnRunner(
                     logger.warn("Chat {} is not told that turn {} is refused: {}", chat, plan.id, delivery)
                 }
             }
-            job?.let(heldJobs::hold)
+            if (job != null) {
+                if (job.final && !job.cancelled()) {
+                    val started = job.job
+                    val dropped = InterruptedJob(started.id, started.call.name, started.title, pastBudget = true)
+                    interruptedJobs.add(started.resultConversation, dropped)
+                }
+                if (job.final) jobs.delivered(job.job)
+                job.consumed()
+            }
             if (input is TurnSource.FromDelegation) {
                 TurnOutcome.Failed("Agent '$agent' used up a budget.")
             } else {
@@ -719,22 +701,35 @@ internal class AgentTurnRunner(
             }
         }
 
-        /** Stores the [opening] entries before the first round. */
-        private suspend fun store(
-            opening: List<UserEntry>,
-            comparison: ToolComparison?,
-            commands: PendingComparison?,
-            interrupted: InterruptedComparison?,
-            sent: SentComparison?,
-        ) {
+        /** Stores the [opening] entries before the first round, and that [notes] were told. */
+        private suspend fun store(opening: List<UserEntry>, notes: List<PendingNote>) {
             withContext(NonCancellable) {
-                val turn = checkNotNull(turn)
                 append(*opening.toTypedArray())
-                comparison?.let { offeredTools.record(turn.conversation, it) }
-                commands?.let { pendingCommands.clear(turn.conversation, it) }
-                interrupted?.let { interruptedJobs.clear(turn.conversation, it) }
-                sent?.let { sentMessages.clear(turn.conversation, it) }
+                notes.forEach { it.told() }
             }
+        }
+
+        /**
+         * What waits to be told at the start of [turn] of a conversation the turn shares, offered [definitions]: the
+         * change of its tools, the commands run, the jobs interrupted and the messages sent to its chat since its last
+         * turn, which mark it tainted where they carry untrusted content.
+         */
+        private suspend fun pendingNotes(turn: TurnInfo, definitions: List<ToolDefinition>): List<PendingNote> {
+            val conversation = turn.conversation
+            val comparison = offeredTools.compare(conversation, definitions)
+            val commands = pendingCommands.pending(conversation)
+            val interrupted = interruptedJobs.pending(conversation)
+            val sent = sentMessages.pending(conversation, turn.zone ?: clock.zone)
+            sent?.taint?.let { taint.mark(it) }
+            if (commands?.commands?.any { !it.trusted } == true) {
+                taint.mark("a command of someone whom the agent does not trust")
+            }
+            return listOfNotNull(
+                comparison?.let { PendingNote(it.notice) { offeredTools.record(conversation, it) } },
+                commands?.let { PendingNote(it.notice) { pendingCommands.clear(conversation, it) } },
+                interrupted?.let { PendingNote(it.notice) { interruptedJobs.clear(conversation, it) } },
+                sent?.let { PendingNote(it.notice) { sentMessages.clear(conversation, it) } },
+            )
         }
 
         /** The unstored entry of [message] in [turn], whose words read [text], with the turn context [baked]. */
@@ -774,10 +769,7 @@ internal class AgentTurnRunner(
             first: RequestParts,
             opening: List<UserEntry>,
             firstTools: TurnTools,
-            comparison: ToolComparison?,
-            commands: PendingComparison?,
-            interrupted: InterruptedComparison?,
-            sent: SentComparison?,
+            notes: List<PendingNote>,
         ): TurnOutcome {
             val turn = checkNotNull(turn)
             var parts = first
@@ -848,10 +840,7 @@ internal class AgentTurnRunner(
                 }
                 val reply = withContext(NonCancellable) {
                     val entries = append(*(pending + message).toTypedArray())
-                    if (first && comparison != null) offeredTools.record(turn.conversation, comparison)
-                    if (first && commands != null) pendingCommands.clear(turn.conversation, commands)
-                    if (first && interrupted != null) interruptedJobs.clear(turn.conversation, interrupted)
-                    if (first && sent != null) sentMessages.clear(turn.conversation, sent)
+                    if (first) notes.forEach { it.told() }
                     entries.last() as AssistantEntry
                 }
                 pending = emptyList()
@@ -935,12 +924,22 @@ internal class AgentTurnRunner(
         private fun nextAfterFailure(): ModelRef? =
             if (movedFrom != null || delegation != null) null else nextModel(agent.models, model)
 
-        /** Has the turn's later requests go to [next], as its model failed for [why]. */
-        private fun movedOn(next: ModelRef, why: String) {
+        /**
+         * The next model, which the turn's later requests go to as its own failed for [why]; null when the turn does not
+         * move on or that model fails too.
+         */
+        private suspend fun movedOn(why: String): SelectedModel? {
+            val next = nextAfterFailure() ?: return null
+            val selected = (selection(next) as? Selection.Found)?.model
+            if (selected == null) {
+                logger.warn("Turn {} of {} cannot move on to model {} either", plan.id, plan.key, next)
+                return null
+            }
             logger.warn("Turn {} of {} moves on from model {} ({}) to {}", plan.id, plan.key, model, why, next)
             movedFrom = model
             movedWhy = why
             model = next
+            return selected
         }
 
         /**
@@ -949,13 +948,8 @@ internal class AgentTurnRunner(
          */
         private suspend fun moveOn(parts: RequestParts, error: ModelError): Pair<RequestParts, TurnTools>? {
             if (!movesOn(error)) return null
-            val next = nextAfterFailure() ?: return null
-            val selected = (selection(next) as? Selection.Found)?.model
-            if (selected == null) {
-                logger.warn("Turn {} of {} cannot move on to model {} either", plan.id, plan.key, next)
-                return null
-            }
-            movedOn(next, error.kind.toString())
+            val selected = movedOn(error.kind.toString()) ?: return null
+            val next = model
             previews?.discard()
             images = MediaKind.IMAGE in selected.info.inputMedia
             val turn = checkNotNull(turn)
@@ -1122,26 +1116,6 @@ internal class AgentTurnRunner(
                 while (taken.isNotEmpty()) absorbJob(turn, taken)
             } finally {
                 if (taken.isNotEmpty()) followUps.restore(taken.toList())
-            }
-        }
-
-        /** Takes in the results of the jobs whose own turns were refused past a budget. */
-        private suspend fun absorbHeldJobs(turn: TurnInfo) {
-            for (job in heldJobs.take(turn.conversation)) {
-                if (job.cancelled()) {
-                    job.consumed()
-                    continue
-                }
-                val entry = jobOpening(turn, job, job.text)
-                withContext(NonCancellable) {
-                    try {
-                        append(entry)
-                        if (job.final) jobs.delivered(job.job)
-                        logger.debug("Turn {} of {} takes in the held result of job {}", turn.id, turn.key, job.job.id)
-                    } finally {
-                        job.consumed()
-                    }
-                }
             }
         }
 
@@ -1724,3 +1698,6 @@ private sealed interface Selection {
 
 /** The kinds of turn that may end saying nothing: a job's that has nothing to add, a heartbeat's. */
 private val SILENT_KINDS = setOf(TurnKind.JOB, TurnKind.HEARTBEAT)
+
+/** A note that waits for a conversation's next turn: the model reads [notice], and [told] records that it did. */
+private class PendingNote(val notice: UserEntry?, val told: suspend () -> Unit)

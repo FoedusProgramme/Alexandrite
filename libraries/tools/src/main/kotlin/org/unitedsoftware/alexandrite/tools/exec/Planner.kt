@@ -8,6 +8,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
@@ -20,9 +21,6 @@ import java.nio.file.InvalidPathException
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import kotlin.time.Duration
-
-/** Thrown for a call that the floor refuses, with what the model is told. */
-internal class FloorRefusal(override val message: String) : Exception(message)
 
 /** The arguments of a call: [cwd] is null for the workspace. */
 internal class Request(val argv: List<String>, val cwd: Path?, val timeout: Duration)
@@ -119,12 +117,12 @@ internal class Planner(
      * What [request] runs in [cwd], which may not exist yet when [missingAllowed], where a leading `~` of a chain's
      * word is [home].
      *
-     * Throws [CallProblem] for a call that cannot run as given and [FloorRefusal] for one that the floor refuses.
+     * Throws a [ToolRefusal], blocked for one that the floor refuses.
      */
     fun plan(request: Request, cwd: Path, missingAllowed: Boolean, home: String?): PlannedCall {
         val directory = allowed(floor.checkTree(cwd, agent, conversation)) { "The working directory $cwd reaches $it" }
         if (!(missingAllowed && Files.notExists(directory)) && !Files.isDirectory(directory)) {
-            throw CallProblem("The working directory $cwd is no directory.")
+            throw ToolRefusal("The working directory $cwd is no directory.")
         }
         val argv = request.argv
         val outer = unwrap(argv)
@@ -177,7 +175,7 @@ internal class Planner(
     /**
      * The canonical directory that `cd [target]` changes [from] to, which may not exist yet.
      *
-     * Throws [FloorRefusal] for one that the floor refuses and [CallProblem] for a file that is no directory.
+     * Throws a [ToolRefusal], blocked for one that the floor refuses.
      */
     fun changed(target: String, from: Path): Path {
         val directory = allowed(floor.checkTree(candidatePath(target, from), agent, conversation)) {
@@ -186,7 +184,7 @@ internal class Planner(
         if (Files.exists(directory) &&
             !Files.isDirectory(directory)
         ) {
-            throw CallProblem("cd $target names no directory.")
+            throw ToolRefusal("cd $target names no directory.")
         }
         return directory
     }
@@ -194,7 +192,7 @@ internal class Planner(
     /**
      * What [argv] runs in [directory] with [environment] beside the usual variables, for [limit] at most.
      *
-     * Throws [CallProblem] for a call that cannot run as given and [FloorRefusal] for one that the floor refuses.
+     * Throws a [ToolRefusal], blocked for one that the floor refuses.
      */
     fun program(
         argv: List<String>,
@@ -205,7 +203,7 @@ internal class Planner(
     ): PlannedRun {
         val name = argv.first()
         val resolved = resolveProgram(name, directory, searchPath(System.getenv()))
-            ?: throw CallProblem(
+            ?: throw ToolRefusal(
                 if ('/' in name) {
                     "No executable file '$name' exists."
                 } else {
@@ -223,7 +221,7 @@ internal class Planner(
         val reached = mutableListOf<Path>()
         if (vetted) {
             if (parsed.readsFromFile) {
-                throw FloorRefusal(
+                throw ToolRefusal.blocked(
                     "$program is given an option that reads its arguments from a file, or one that is not known: " +
                         "command.exec runs neither, as the floor cannot check what they read.",
                 )
@@ -288,7 +286,7 @@ internal class Planner(
         }
         val canonical = allowed(check) { "'$candidate' reaches $it" }
         if (Files.isRegularFile(canonical, LinkOption.NOFOLLOW_LINKS) && hardLinks(canonical) > 1) {
-            throw FloorRefusal(
+            throw ToolRefusal.blocked(
                 "'$candidate' has more than one hard link, so it may be another name of a protected file: " +
                     "command.exec does not run this call.",
             )
@@ -313,8 +311,8 @@ internal class Planner(
     }
 
     /**
-     * The canonical path of [check], else a [FloorRefusal] saying what [refused] says of its reason; noted for a person
-     * where the floor asks one.
+     * The canonical path of [check], else a blocked [ToolRefusal] saying what [refused] says of its reason; noted for a
+     * person where the floor asks one.
      */
     private fun allowed(check: FloorCheck, refused: (String) -> String): Path = when (check) {
         is FloorCheck.Allowed -> check.canonical
@@ -326,7 +324,7 @@ internal class Planner(
         }
 
         is FloorCheck.Denied ->
-            throw FloorRefusal(
+            throw ToolRefusal.blocked(
                 "${refused("a protected place (${check.reason})")}: command.exec does not run this call.",
             )
     }
@@ -394,7 +392,7 @@ private val URL_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 private fun candidatePath(candidate: String, directory: Path): Path = try {
     directory.resolve(expandHome(candidate)).normalize()
 } catch (e: InvalidPathException) {
-    throw FloorRefusal(
+    throw ToolRefusal.blocked(
         "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
     )
 }

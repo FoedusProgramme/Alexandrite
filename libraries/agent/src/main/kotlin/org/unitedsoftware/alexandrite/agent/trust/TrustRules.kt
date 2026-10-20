@@ -1,14 +1,12 @@
 package org.unitedsoftware.alexandrite.agent.trust
 
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
 import org.unitedsoftware.alexandrite.agent.control.Granter
+import org.unitedsoftware.alexandrite.agent.control.SessionGrants
+import org.unitedsoftware.alexandrite.agent.control.grantKey
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
@@ -24,14 +22,12 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.TrustRule
-import java.time.Instant
 
 /** How far the output of a call is trusted. */
 internal enum class CallTrust {
@@ -75,31 +71,19 @@ internal class AgentTrustRules(
 ) : TrustRules,
     ConversationSeals,
     Lifecycle {
-    private val grants = records.collection<GrantedTrust>(COLLECTION)
+    private val grants = SessionGrants(
+        records.collection<GrantedTrust>(COLLECTION),
+        "trust rules",
+        GrantedTrust::conversation,
+        GrantedTrust::by,
+    ) { parsed(it.value.rule) }
 
     private val declared: Map<AgentId, List<RuleEntry>> = directory.agents.associate { agent ->
         agent.id to agent.config.permission.trust.map { RuleEntry.parse(it, homeDirectory(), trust = true) }
     }
 
-    /** Held from reading the granted rules until a change of them is applied. */
-    private val writing = Mutex()
-
-    @Volatile
-    private var granted: List<Granted> = emptyList()
-
     override suspend fun onStart() {
-        val kept = mutableListOf<Granted>()
-        for (record in grants.list()) {
-            val rule = record.value
-            val live = conversations.conversation(rule.conversation)?.state == ConversationState.ACTIVE
-            val entry = if (live) parsed(rule.rule) else null
-            if (entry == null) {
-                grants.remove(record.key)
-            } else {
-                kept += Granted(record.key, rule.conversation, entry, record.createdAt, rule.by?.user())
-            }
-        }
-        writing.withLock { granted = kept }
+        grants.load(conversations)
     }
 
     override fun trust(call: CheckedCall): CallTrust {
@@ -118,7 +102,7 @@ internal class AgentTrustRules(
     /** The trust rules that apply to [call]: its agent's declared ones and those granted in its session. */
     private fun rules(call: CheckedCall): List<RuleEntry> {
         val turn = call.call.turn
-        return declared[turn.agent].orEmpty() + granted.filter { it.conversation == session(turn) }.map { it.entry }
+        return declared[turn.agent].orEmpty() + grants.of(session(turn)).map { it.value }
     }
 
     /** The programs of the command of [call] that report untrusted content and that no rule of [rules] trusts. */
@@ -137,9 +121,7 @@ internal class AgentTrustRules(
 
     override fun inForce(agent: AgentId, conversation: ConversationId): List<TrustRule> =
         declared[agent].orEmpty().map { TrustRule(it.text, true, null, null, it.anyCode) } +
-            granted.filter { it.conversation == conversation }.map {
-                TrustRule(it.entry.text, false, it.at, it.by, it.entry.anyCode)
-            }
+            grants.of(conversation).map { TrustRule(it.value.text, false, it.at, it.by, it.value.anyCode) }
 
     override suspend fun grant(agent: AgentId, conversation: ConversationId, text: String, by: ChatUser?): TrustRule {
         RuleEntry.problem(text, trust = true)?.let {
@@ -149,12 +131,12 @@ internal class AgentTrustRules(
         if ('*' !in entry.tool && tools.tool(entry.tool) == null && !tools.isSourced(entry.tool)) {
             throw Refused(TextKeys.TRUST_RULE_UNKNOWN_TOOL, "tool" to entry.tool)
         }
-        val key = "$conversation/" + sha256Hex(entry.text)
-        val record = writing.withLock {
-            val record = grants.put(key, GrantedTrust(conversation, entry.text, by?.let(::Granter)), by?.address)
-            granted = granted.filterNot { it.key == key } + Granted(key, conversation, entry, record.createdAt, by)
-            record
-        }
+        val grant = grants.put(
+            grantKey(conversation, sha256Hex(entry.text)),
+            GrantedTrust(conversation, entry.text, by?.let(::Granter)),
+            entry,
+            by,
+        )
         logger.info(
             "The output of the calls that '{}' covers no longer taints conversation {} of agent '{}', as {} asked",
             entry.text,
@@ -162,7 +144,7 @@ internal class AgentTrustRules(
             agent,
             by?.address ?: "the host",
         )
-        return TrustRule(entry.text, false, record.createdAt, by, entry.anyCode)
+        return TrustRule(entry.text, false, grant.at, by, entry.anyCode)
     }
 
     override suspend fun revoke(
@@ -172,14 +154,7 @@ internal class AgentTrustRules(
         by: ChatUser?,
     ): Revocation {
         val written = text.trim()
-        val rule = writing.withLock {
-            val rule = granted.firstOrNull { it.conversation == conversation && it.entry.text == written }
-            if (rule != null) {
-                grants.remove(rule.key)
-                granted = granted - rule
-            }
-            rule
-        }
+        val rule = grants.remove(conversation) { rules -> rules.firstOrNull { it.value.text == written } }
         val declaredToo = declared[agent].orEmpty().any { it.text == written }
         if (rule != null) {
             logger.info(
@@ -194,19 +169,7 @@ internal class AgentTrustRules(
 
     /** Ends the rules granted in [conversation], which was sealed. */
     override suspend fun sealed(conversation: ConversationId) {
-        val ended = writing.withLock {
-            val ended = granted.filter { it.conversation == conversation }
-            granted = granted - ended.toSet()
-            ended
-        }
-        if (ended.isEmpty()) return
-        try {
-            for (rule in ended) grants.remove(rule.key)
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("Cannot remove the trust rules of sealed conversation {}: {}", conversation, e.toString())
-        }
-        logger.info("The {} trust rule(s) of conversation {} end with it", ended.size, conversation)
+        grants.sealed(conversation)
     }
 
     private fun parsed(text: String): RuleEntry? = try {
@@ -215,14 +178,6 @@ internal class AgentTrustRules(
         logger.warn("The trust rule '{}' is dropped: {}", text, e.message)
         null
     }
-
-    private class Granted(
-        val key: String,
-        val conversation: ConversationId,
-        val entry: RuleEntry,
-        val at: Instant,
-        val by: ChatUser?,
-    )
 
     private companion object {
         const val COLLECTION = "trust_rules"

@@ -499,7 +499,7 @@ class LifecycleTest {
         val error = spec.startFailure()
 
         assertEquals(StartStage.GRAPH, error.stage)
-        assertEquals(listOf(DiProblemKind.MISSING, RuntimeProblemKind.DESTROY_FAILED), error.problems.map { it.kind })
+        assertEquals(listOf(DiProblemKind.MISSING, RuntimeProblemKind.SHUTDOWN), error.problems.map { it.kind })
         assertEquals(
             "Destroying c (plugin core) failed: java.lang.IllegalStateException: close c failed",
             error.problems.last().message,
@@ -524,7 +524,7 @@ class LifecycleTest {
         val lines = logged { error = assertFailsWith<RuntimeStartException> { spec.execute() } }
 
         assertEquals(failure.from("core"), error.stopRequest)
-        assertEquals(listOf(RuntimeProblemKind.STOP_FAILED), error.problems.map { it.kind })
+        assertEquals(listOf(RuntimeProblemKind.SHUTDOWN), error.problems.map { it.kind })
         assertEquals(requested(failure.from("core"), error.problems), recorder.termination())
         assertContains(
             lines,
@@ -554,10 +554,10 @@ class LifecycleTest {
         )
         assertEquals(
             listOf(
-                RuntimeProblemKind.CLOSE_FAILED,
-                RuntimeProblemKind.DRAIN_FAILED,
-                RuntimeProblemKind.STOP_FAILED,
-                RuntimeProblemKind.DESTROY_FAILED,
+                RuntimeProblemKind.SHUTDOWN,
+                RuntimeProblemKind.SHUTDOWN,
+                RuntimeProblemKind.SHUTDOWN,
+                RuntimeProblemKind.SHUTDOWN,
             ),
             termination.problems.map { it.kind },
         )
@@ -582,12 +582,12 @@ class LifecycleTest {
         assertEquals(
             listOf(
                 Problem(
-                    RuntimeProblemKind.DRAIN_TIMED_OUT,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Draining b (plugin core) was cancelled: the shutdown grace of 200ms ran out.",
                     "core",
                 ),
                 Problem(
-                    RuntimeProblemKind.DRAIN_NOT_CALLED,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Skipped draining a (plugin core): the shutdown grace of 200ms had run out.",
                     "core",
                 ),
@@ -613,14 +613,14 @@ class LifecycleTest {
 
         assertEquals(
             listOf(
-                RuntimeProblemKind.CLOSE_TIMED_OUT to "Closing b (plugin core) was cancelled: the shutdown grace of " +
+                RuntimeProblemKind.SHUTDOWN to "Closing b (plugin core) was cancelled: the shutdown grace of " +
                     "1s ran out.",
-                RuntimeProblemKind.CLOSE_NOT_CALLED to "Skipped closing a (plugin core): the shutdown grace of 1s " +
+                RuntimeProblemKind.SHUTDOWN to "Skipped closing a (plugin core): the shutdown grace of 1s " +
                     "had run out.",
             ),
             problems.take(2).map { it.kind to it.message },
         )
-        assertEquals(List(2) { RuntimeProblemKind.DRAIN_NOT_CALLED }, problems.drop(2).map { it.kind })
+        assertEquals(List(2) { RuntimeProblemKind.SHUTDOWN }, problems.drop(2).map { it.kind })
         assertEquals(listOf("stop b", "stop a", "destroy b", "destroy a"), events.all().takeLast(4))
     }
 
@@ -641,7 +641,7 @@ class LifecycleTest {
         val termination = spec.execute()
 
         assertEquals(
-            listOf(RuntimeProblemKind.STOP_FAILED to "core", RuntimeProblemKind.DESTROY_FAILED to "core"),
+            listOf(RuntimeProblemKind.SHUTDOWN to "core", RuntimeProblemKind.SHUTDOWN to "core"),
             termination.problems.map { it.kind to it.plugin },
         )
         assertContains(termination.problems.first().message, "kotlin.NotImplementedError")

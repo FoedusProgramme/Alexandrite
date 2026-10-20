@@ -330,13 +330,13 @@ class ChannelInstanceTest {
         assertEquals(
             listOf(
                 Problem(
-                    RuntimeProblemKind.DRAIN_TIMED_OUT,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Draining Bot (plugin chan) in channel instance container 'chan:home' was cancelled: the " +
                         "shutdown grace of 5s ran out.",
                     "chan",
                 ),
                 Problem(
-                    RuntimeProblemKind.DRAIN_NOT_CALLED,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Skipped draining Bot (plugin chan) in channel instance container 'chan:work': the shutdown " +
                         "grace of 5s had run out.",
                     "chan",
@@ -435,7 +435,7 @@ class ChannelInstanceTest {
         assertEquals(
             listOf(
                 Problem(
-                    RuntimeProblemKind.STOP_FAILED,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Stopping Bot (plugin chan) in channel instance container 'chan:work' failed: " +
                         "java.lang.IllegalStateException: stop work failed",
                     "chan",
@@ -460,13 +460,13 @@ class ChannelInstanceTest {
         assertEquals(
             listOf(
                 Problem(
-                    RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Coroutines of channel instance chan:work (plugin chan) were still running: the shutdown grace " +
                         "of 0s ran out.",
                     "chan",
                 ),
             ),
-            termination.problems.filter { it.kind == RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE },
+            termination.problems.filter { it.message.startsWith("Coroutines of") },
         )
     }
 

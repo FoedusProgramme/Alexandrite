@@ -5,6 +5,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -20,7 +21,6 @@ import org.unitedsoftware.alexandrite.sdk.web.PageQuestion
 import org.unitedsoftware.alexandrite.sdk.web.WebModels
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
-import org.unitedsoftware.alexandrite.tools.fs.Refusal
 import org.unitedsoftware.alexandrite.tools.fs.count
 import org.unitedsoftware.alexandrite.tools.fs.property
 import org.unitedsoftware.alexandrite.tools.fs.requiredString
@@ -149,7 +149,7 @@ private suspend fun webResult(block: suspend () -> ToolResult): ToolResult = try
     ToolResult("Web request timed out.", isError = true)
 } catch (e: CancellationException) {
     throw e
-} catch (e: Refusal) {
+} catch (e: ToolRefusal) {
     ToolResult("Web request refused: ${why(e)}", isError = true)
 } catch (e: IllegalArgumentException) {
     ToolResult("Web request refused: ${why(e)}", isError = true)

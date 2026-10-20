@@ -185,19 +185,17 @@ class SendFileToolTest {
     }
 
     @Test
-    fun `a file that changed since its review is not sent, nor a call that was not reviewed`() {
+    fun `a file that changed since its review is not sent`() {
         report.writeText("first")
         val review = review(arguments(report))
         report.writeText("second")
 
         val changed = execute(arguments(report), review.snapshot)
-        val unreviewed = execute(arguments(report), null)
 
         assertEquals(
             "failed: $report changed since this call was reviewed, so it was not sent: repeat the call.",
             changed,
         )
-        assertEquals("failed: This call was not reviewed, so it sends nothing.", unreviewed)
         assertEquals(emptyList(), channel.sent)
     }
 

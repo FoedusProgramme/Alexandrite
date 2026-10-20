@@ -17,10 +17,9 @@ import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
-import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
-import org.unitedsoftware.alexandrite.sdk.config.set
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
@@ -29,6 +28,12 @@ import org.unitedsoftware.alexandrite.sdk.di.container.DiException
 import org.unitedsoftware.alexandrite.sdk.di.container.binding
 import org.unitedsoftware.alexandrite.sdk.di.container.instanceBinding
 import org.unitedsoftware.alexandrite.sdk.di.key
+import org.unitedsoftware.alexandrite.sdk.hook.Hook
+import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
+import org.unitedsoftware.alexandrite.sdk.hook.Hooks
+import org.unitedsoftware.alexandrite.sdk.hook.Interception
+import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextItem
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginFiles
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
@@ -44,6 +49,9 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.turn.TurnContext
+import org.unitedsoftware.alexandrite.sdk.turn.TurnInput
+import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
@@ -200,20 +208,22 @@ class PluginHarnessTest {
         Index("folders", sections = listOf(ConfigSectionSpec(key<Folders>(), "", Folders.serializer(), "Folders")))
 
     @Test
-    fun `a plugin edits its own config in the harness's config file, which later runs start from`() {
+    fun `the host config edits the harness's config file, which later runs start from`() {
         val file = directory.resolve("config/alexandrite.json")
         val harness =
             PluginHarness.builder(folders).dataRoot(directory).keptConfigFile(file).config("""{"home": "1"}""").build()
         val edited = Folders(trusted = listOf("/srv/repo"))
 
         harness.execute {
-            val editor = get<ConfigEditor>("folders")
+            val config = get<HostConfig>()
 
-            editor.edit {
-                set("trusted", JsonArray(listOf(JsonPrimitive("/srv/repo"))))
-                remove("home")
+            config.edit {
+                set("plugins.folders.trusted", JsonArray(listOf(JsonPrimitive("/srv/repo"))))
+                remove("plugins.folders.home")
             }
-            val refused = assertFailsWith<ConfigEditException> { editor.set("bogus", JsonPrimitive(1)) }
+            val refused = assertFailsWith<ConfigEditException> {
+                config.edit { set("plugins.folders.bogus", JsonPrimitive(1)) }
+            }
 
             assertEquals(Folders("1"), get<Folders>())
             assertEquals(edited, readConfig().decodeSection("plugins.folders", Folders.serializer()))
@@ -240,7 +250,7 @@ class PluginHarnessTest {
         harness.execute {
             assertEquals(Folders(home), get<Folders>())
 
-            get<ConfigEditor>("folders").set("trusted", JsonArray(listOf(JsonPrimitive("/srv"))))
+            get<HostConfig>().edit { set("plugins.folders.trusted", JsonArray(listOf(JsonPrimitive("/srv")))) }
         }
 
         assertEquals(text.replace("}}}", ", \"trusted\": [\"/srv\"]}}}"), Files.readString(file))
@@ -252,7 +262,7 @@ class PluginHarnessTest {
         val named = harness { configFile(file).config("""{"greeting": "hi"}""") }
 
         named.execute {
-            get<ConfigEditor>("probe").set("greeting", JsonPrimitive("hey"))
+            get<HostConfig>().edit { set("plugins.probe.greeting", JsonPrimitive("hey")) }
 
             assertEquals(JsonPrimitive("hey"), readConfig().tree("plugins.probe")?.get("greeting"))
         }
@@ -501,5 +511,40 @@ class PluginHarnessTest {
         assertEquals(StartStage.GRAPH, error.stage)
         assertNull(error.stopRequest)
         assertFalse(ran)
+    }
+
+    // Hooks under test.
+
+    private class Guard : InterceptorHook<TurnInput> {
+        override val point = TurnPoints.TURN_INPUT
+
+        override suspend fun intercept(payload: TurnInput): HookDecision<TurnInput> = when {
+            "drop" in payload.text -> HookDecision.Abort("Not here.")
+            payload.text.isBlank() -> HookDecision.Replace(payload.withText("(empty)"))
+            else -> HookDecision.Continue
+        }
+    }
+
+    @Test
+    fun `a hook is tested through the runtime's hooks with a payload`() {
+        val index = TestIndex("guard", listOf(binding(key<Hook>(), "guard", "Guard", multi = true) { Guard() }))
+        val turn = testTurn()
+        val context = TurnContext(turn, "hello", listOf(TurnContextItem("recall", "Ada likes tea.")))
+
+        runBlocking {
+            PluginHarness.builder(index).build().run {
+                val hooks = get<Hooks>()
+
+                val aborted = hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, null, "drop it", false))
+                val proceeded = hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, null, "", false))
+
+                assertEquals("Not here.", assertIs<Interception.Aborted>(aborted).reply)
+                assertEquals("(empty)", assertIs<Interception.Proceed<TurnInput>>(proceeded).payload.text)
+                assertEquals(
+                    context,
+                    assertIs<Interception.Proceed<*>>(hooks.fire(TurnPoints.CONTEXT_INJECT, context)).payload,
+                )
+            }
+        }
     }
 }

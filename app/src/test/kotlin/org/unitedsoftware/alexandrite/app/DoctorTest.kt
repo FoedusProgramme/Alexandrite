@@ -95,6 +95,21 @@ class DoctorTest {
     }
 
     @Test
+    fun `a data directory others may read passes, one they may write fails as it serves no control socket`() {
+        Files.setPosixFilePermissions(cli.dataDir, PosixFilePermissions.fromString("rwxr-xr-x"))
+        val readable = cli("doctor")
+        Files.setPosixFilePermissions(cli.dataDir, PosixFilePermissions.fromString("rwxrwxr-x"))
+        val writable = cli("doctor")
+
+        assertFalse(readable.out.lines().any { it.drop(6).startsWith("data:") })
+        assertEquals(
+            "FAIL  data: Others may write ${cli.dataDir} (rwxrwxr-x), so Alexandrite serves no control socket: run " +
+                "chmod go-w on it.",
+            line(writable, "data"),
+        )
+    }
+
+    @Test
     fun `an OpenRouter key is checked by the request only a valid key gets an answer to`() {
         cli.config(
             """{"providers": {"openrouter": {"endpoints": {"openrouter": {"apiKey": "sk-or-made-up"}}}}}""",

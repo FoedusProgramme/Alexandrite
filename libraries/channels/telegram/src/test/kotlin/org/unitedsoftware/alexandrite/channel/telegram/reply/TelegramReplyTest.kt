@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -291,23 +292,26 @@ class TelegramReplyTest {
     }
 
     @Test
-    fun `a final of ten messages goes out whole, one of eleven is too long without a call and leaves the previews`() =
-        runTest {
-            val output = output()
-            val reply = output.open()
-            reply.preview(0, "Short")
-            advanceTimeBy(100)
+    fun `a final of ten messages goes out whole, one of eleven in ten messages and the whole as a file`() = runTest {
+        val output = output()
+        val reply = output.open()
+        reply.preview(0, "Short")
+        advanceTimeBy(100)
 
-            val ten = output.open(DIRECT + 1).complete(markdown("x".repeat(40_960)))
-            val eleven = reply.complete(markdown("x".repeat(40_961)))
+        val ten = output.open(DIRECT + 1).complete(markdown("x".repeat(40_960)))
+        val eleven = reply.complete(markdown("x".repeat(40_961)))
 
-            val sent = output.api.calls("sendMessage").filter { it.chat == DIRECT + 1 }
-            assertEquals(10, (ten as Delivery.Delivered).messages.size)
-            assertEquals(List(10) { 4_096 }, sent.map { it.text?.length })
-            assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), eleven)
-            val previews = output.api.sent.filter { it.chat == DIRECT && it.method != "sendChatAction" }
-            assertEquals(listOf("Short"), previews.map { it.text })
-        }
+        val sent = output.api.calls("sendMessage").filter { it.chat == DIRECT + 1 }
+        assertEquals(10, (ten as Delivery.Delivered).messages.size)
+        assertEquals(List(10) { 4_096 }, sent.map { it.text?.length })
+        assertEquals(11, assertIs<Delivery.Delivered>(eleven).messages.size)
+        val shown = output.api.sent.filter { it.chat == DIRECT && it.method != "sendChatAction" }
+        assertEquals(
+            listOf("sendMessage", "editMessageText") + List(9) { "sendMessage" } + "sendDocument",
+            shown.map { it.method },
+        )
+        assertEquals("x".repeat(40_961), output.api.uploads.single().file.bytes().decodeToString())
+    }
 
     @Test
     fun `a later part Telegram refuses ends the final as not delivered, naming the parts that arrived`() = runTest {

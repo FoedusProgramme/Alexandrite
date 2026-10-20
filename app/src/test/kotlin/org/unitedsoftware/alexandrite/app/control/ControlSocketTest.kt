@@ -53,14 +53,25 @@ class ControlSocketTest {
     }
 
     @Test
-    fun `no socket is made in a directory that other users may enter`() {
+    fun `no socket is made in a directory that other users may write`() {
         val open = Files.createDirectory(directory.resolve("open"))
-        Files.setPosixFilePermissions(open, PosixFilePermissions.fromString("rwxr-x---"))
+        Files.setPosixFilePermissions(open, PosixFilePermissions.fromString("rwxrwx---"))
 
         val error = assertFailsWith<IOException> { ControlSocket.open(open.resolve(CONTROL_SOCKET)) }
 
-        assertEquals("$open is open to other users (rwxr-x---); make it owner-only with chmod 700", error.message)
+        assertEquals("Other users may write $open (rwxrwx---); run chmod go-w on it", error.message)
         assertFalse(Files.exists(open.resolve(CONTROL_SOCKET), NOFOLLOW_LINKS))
+    }
+
+    @Test
+    fun `a directory that other users may only read still serves a socket that only its owner reaches`() {
+        val shared = Files.createDirectory(directory.resolve("shared"))
+        Files.setPosixFilePermissions(shared, PosixFilePermissions.fromString("rwxr-xr-x"))
+
+        served(shared) { path ->
+            assertEquals("rw-------", permissions(path))
+            assertIs<ControlReply.Pong>(ask(path, ControlRequest.Ping))
+        }
     }
 
     @Test
