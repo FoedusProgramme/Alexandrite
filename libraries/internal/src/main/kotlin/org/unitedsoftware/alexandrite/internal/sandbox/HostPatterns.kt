@@ -113,7 +113,8 @@ internal fun isLocalAddress(address: InetAddress): Boolean {
 
 /**
  * Whether [address] is no public unicast one: loopback, private, link-local, shared, unspecified, multicast, reserved
- * for documentation or benchmarks, a relay, or IPv6 outside global unicast.
+ * for documentation, a relay, or IPv6 outside global unicast. The benchmark range 198.18.0.0/15 counts as public: proxies
+ * in fake-ip mode (Clash, sing-box) answer every name with an address there and reach the named host themselves.
  */
 public fun isNonPublicAddress(address: InetAddress): Boolean {
     if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
@@ -134,7 +135,7 @@ public fun isNonPublicAddress(address: InetAddress): Boolean {
         169 -> second == 254
         172 -> second in 16..31
         192 -> (second == 0 && third in setOf(0, 2)) || second == 168 || (second == 88 && third == 99)
-        198 -> second in 18..19 || (second == 51 && third == 100)
+        198 -> second == 51 && third == 100
         203 -> second == 0 && third == 113
         else -> first >= 224
     }
