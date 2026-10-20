@@ -5,7 +5,7 @@ import org.unitedsoftware.alexandrite.channel.qqbot.mapping.QqBotChats
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import java.util.Locale
@@ -34,7 +34,7 @@ internal class QqBotCommandRule(val bare: QqBotWho, val withArguments: QqBotWho 
  * does not judge it.
  */
 @Singleton
-internal class QqBotCommandRules(handlers: List<CommandHandler>, private val control: AgentControl?) {
+internal class QqBotCommandRules(handlers: List<CommandHandler>, private val links: ChatLinks?) {
     private val claimed = handlers.flatMap { it.commands }.mapTo(HashSet()) { it.name.lowercase(Locale.ROOT) }
 
     /** The key of the refusal of [invocation] in a chat of [kind], null when its issuer may run it. */
@@ -65,7 +65,7 @@ internal class QqBotCommandRules(handlers: List<CommandHandler>, private val con
         }
     }
 
-    private fun linked(chat: ChatAddress): Boolean = control?.links().orEmpty().any { group ->
+    private fun linked(chat: ChatAddress): Boolean = links?.groups().orEmpty().any { group ->
         (group.members + group.anchor).any { it.parent == chat.parent }
     }
 

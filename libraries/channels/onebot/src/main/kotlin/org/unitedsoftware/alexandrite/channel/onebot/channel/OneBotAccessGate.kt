@@ -16,7 +16,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -33,7 +34,8 @@ internal class OneBotAccessGate(
     private val desk: OneBotPairingDesk,
     private val sender: OneBotSender,
     private val texts: Texts,
-    private val control: AgentControl?,
+    private val catalog: AgentCatalog?,
+    private val links: ChatLinks?,
 ) : Lifecycle {
     private val logged = object : LinkedHashMap<ChatAddress, Unit>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, Unit>) = size > LOGGED_CHATS
@@ -91,13 +93,13 @@ internal class OneBotAccessGate(
 
     /** Warns once of each home chat and linked chat of this instance that is not paired. */
     private fun warnUnpaired(pairing: InstancePairing) {
-        val control = control ?: return
+        if (catalog == null && links == null) return
         val uses = LinkedHashMap<ChatAddress, MutableSet<String>>()
         try {
-            for (agent in control.agents(instance.id)) {
+            for (agent in catalog?.agents(instance.id).orEmpty()) {
                 agent.home?.let { uses.getOrPut(it.parent, ::LinkedHashSet) += "the home chat of agent ${agent.id}" }
             }
-            for (group in control.links()) {
+            for (group in links?.groups().orEmpty()) {
                 for (chat in (listOf(group.anchor) + group.members).filter { it.instance == instance.id }) {
                     uses.getOrPut(chat.parent, ::LinkedHashSet) += "linked at agent ${group.agent}"
                 }

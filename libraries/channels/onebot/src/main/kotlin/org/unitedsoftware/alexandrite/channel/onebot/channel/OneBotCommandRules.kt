@@ -5,7 +5,7 @@ import org.unitedsoftware.alexandrite.channel.onebot.mapping.OneBotMessages
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import java.util.Locale
@@ -37,7 +37,7 @@ internal class CommandRule(val bare: Who, val withArguments: Who = bare)
  * belong with the rest of what every channel shares, and they are here until that is decided.
  */
 @Singleton
-internal class OneBotCommandRules(handlers: List<CommandHandler>, private val control: AgentControl?) {
+internal class OneBotCommandRules(handlers: List<CommandHandler>, private val links: ChatLinks?) {
     private val claimed = handlers.flatMap { it.commands }.mapTo(HashSet()) { it.name.lowercase(Locale.ROOT) }
 
     /** The key of the refusal of [invocation] in a chat of [kind], null when its issuer may run it. */
@@ -68,7 +68,7 @@ internal class OneBotCommandRules(handlers: List<CommandHandler>, private val co
         }
     }
 
-    private fun linked(chat: ChatAddress): Boolean = control?.links().orEmpty().any { group ->
+    private fun linked(chat: ChatAddress): Boolean = links?.groups().orEmpty().any { group ->
         (group.members + group.anchor).any { it.parent == chat.parent }
     }
 

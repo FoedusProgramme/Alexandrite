@@ -236,7 +236,7 @@ class OneBotApprovalIntegrationTest {
         arguments = """{"path":"notes.md"}""",
         preview = null,
         reason = "the chat is in ask mode",
-        always = null,
+        alwaysRules = emptyList(),
     )
 
     /** A report of the group that answers the message [replyTo] with [text], sent by [from]. */

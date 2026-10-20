@@ -384,7 +384,7 @@ class QqBotChannelIntegrationTest {
                             "{}",
                             null,
                             "it runs a command",
-                            null,
+                            emptyList(),
                         )
                         val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
                         assertTrue(sendReached.await(5, TimeUnit.SECONDS), "the approval message was not sent")
@@ -437,7 +437,7 @@ class QqBotChannelIntegrationTest {
                             "{}",
                             null,
                             "it runs a command",
-                            null,
+                            emptyList(),
                         )
                         val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
                         assertNotNull(api.awaitRequest(SEND_DIRECT))

@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 class OneBotCommandRulesTest {
     private val instance = ChannelInstanceId(ChannelType("onebot"), "main")
 
-    private val rules = OneBotCommandRules(listOf(handler()), control = null)
+    private val rules = OneBotCommandRules(listOf(handler()), links = null)
 
     @Test
     fun `an admin of the instance runs anything`() {

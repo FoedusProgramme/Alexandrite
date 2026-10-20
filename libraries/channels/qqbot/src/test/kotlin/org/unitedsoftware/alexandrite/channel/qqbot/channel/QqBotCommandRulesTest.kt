@@ -15,7 +15,7 @@ class QqBotCommandRulesTest {
     private val instance = ChannelInstanceId(ChannelType("qqbot"), "main")
     private val direct = ChatAddress(instance, "private:u1")
     private val group = ChatAddress(instance, "group:g1")
-    private val rules = QqBotCommandRules(listOf(Commands), control = null)
+    private val rules = QqBotCommandRules(listOf(Commands), links = null)
 
     @Test
     fun `mayRun answers the matrix for a member`() {

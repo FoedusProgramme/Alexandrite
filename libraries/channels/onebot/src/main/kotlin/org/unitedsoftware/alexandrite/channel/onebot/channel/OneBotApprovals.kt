@@ -433,7 +433,7 @@ internal class OneBotApprovals(
 
     /** The language of [chat], null when the runtime has no agent to ask and the host's language applies. */
     private suspend fun language(chat: ChatAddress): LanguageTag? = try {
-        settings?.language(chat)
+        settings?.snapshot(chat)?.effectiveLanguage
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
