@@ -4,6 +4,10 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.util.Locale
+
+/** Whether this host names paths the POSIX way, which the rest of command.exec is written for. */
+internal val POSIX_HOST: Boolean = File.separatorChar == '/'
 
 /** Programs that neither run other programs or code nor write files, whatever their arguments. */
 internal val VETTED_READ_ONLY: Set<String> = setOf(
@@ -16,33 +20,96 @@ internal val VETTED_READ_ONLY: Set<String> = setOf(
 internal val NEVER_READ_ONLY: Set<String> = setOf("du")
 
 /** The directories searched first for a program, which only the system may write to. */
-internal val SYSTEM_DIRECTORIES: List<Path> = listOf("/usr/bin", "/bin", "/usr/sbin", "/sbin").map(Path::of)
+internal val SYSTEM_DIRECTORIES: List<Path> = systemDirectories(System.getenv())
 
-/** Where a program named without a `/` is looked for, in order. */
+/** The directories searched first for a program in [environment], which only the system may write to. */
+internal fun systemDirectories(environment: Map<String, String>): List<Path> = if (POSIX_HOST) {
+    listOf("/usr/bin", "/bin", "/usr/sbin", "/sbin").map(Path::of)
+} else {
+    val windows = Path.of(environment.variable("SystemRoot") ?: environment.variable("WINDIR") ?: DEFAULT_WINDOWS_ROOT)
+    listOf(
+        windows.resolve("System32"),
+        windows,
+        windows.resolve("System32").resolve("Wbem"),
+        windows.resolve("System32").resolve("WindowsPowerShell").resolve("v1.0"),
+        windows.resolve("System32").resolve("OpenSSH"),
+    ).distinct()
+}
+
+/** Where a program named without a directory part is looked for, in order. */
 internal fun searchPath(environment: Map<String, String>): List<Path> {
-    val path = environment["PATH"].orEmpty().split(File.pathSeparatorChar).mapNotNull { entry ->
+    val path = environment.variable("PATH").orEmpty().split(File.pathSeparatorChar).mapNotNull { entry ->
+        // Windows allows an entry to be quoted, and pads a list with spaces; a POSIX entry is the name itself.
+        val name = if (POSIX_HOST) entry else entry.trim().removeSurrounding("\"")
         try {
-            Path.of(entry).takeIf { it.isAbsolute }
+            Path.of(name).takeIf { it.isAbsolute }
         } catch (e: InvalidPathException) {
             null
         }
     }
-    return (SYSTEM_DIRECTORIES + PACKAGE_DIRECTORIES + path).distinct()
+    return (systemDirectories(environment) + PACKAGE_DIRECTORIES + path).distinct()
 }
 
-/** The executable file that [name] names, relative to [cwd] when it holds a `/`, null when there is none. */
+/**
+ * The executable file that [name] names, relative to [cwd] when it names a directory part too, null when there is
+ * none.
+ */
 internal fun resolveProgram(name: String, cwd: Path, search: List<Path>): Path? {
-    fun executable(path: Path): Path? = path.takeIf { Files.isRegularFile(it) && Files.isExecutable(it) }
+    fun executable(path: Path): Path? = path.takeIf(::isRunnableProgram)
     return try {
-        if ('/' in name) {
+        if (namesDirectory(name)) {
             executable(cwd.resolve(name).normalize())
         } else {
-            search.firstNotNullOfOrNull { executable(it.resolve(name)) }
+            val names = programNames(name)
+            search.firstNotNullOfOrNull { directory ->
+                names.firstNotNullOfOrNull { executable(directory.resolve(it)) }
+            }
         }
     } catch (e: InvalidPathException) {
         null
     }
 }
+
+/** Whether [name] names a directory part beside the program, so that it is resolved as given. */
+internal fun namesDirectory(name: String): Boolean = '/' in name || (File.separatorChar == '\\' && '\\' in name)
+
+/** [name] without its directory part, and on Windows without the extension that runs it. */
+internal fun baseName(name: String): String {
+    val file = if (POSIX_HOST) name.substringAfterLast('/') else name.substringAfterLast('/').substringAfterLast('\\')
+    if (POSIX_HOST) return file
+    val extension = runnableExtension(file) ?: return file
+    return file.dropLast(extension.length)
+}
+
+/** The value of the variable [name] in [this] environment, compared as this host compares variable names. */
+internal fun Map<String, String>.variable(name: String): String? =
+    this[name] ?: if (POSIX_HOST) null else entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+
+/** Whether [name] is one of [names], compared as this host compares variable names. */
+internal fun nameIs(name: String, names: Collection<String>): Boolean =
+    if (POSIX_HOST) name in names else names.any { it.equals(name, ignoreCase = true) }
+
+/** Whether [name] starts with [prefix], compared as this host compares variable names. */
+internal fun nameStartsWith(name: String, prefix: String): Boolean =
+    if (POSIX_HOST) name.startsWith(prefix) else name.startsWith(prefix, ignoreCase = true)
+
+/** Whether [path] is a file that this host runs as a program. */
+private fun isRunnableProgram(path: Path): Boolean = when {
+    !Files.isRegularFile(path) -> false
+    POSIX_HOST -> Files.isExecutable(path)
+    else -> runnableExtension(path.fileName.toString()) != null
+}
+
+/** The extension that this host runs [file] by directly, in lower case, or null when it runs no file of that name. */
+private fun runnableExtension(file: String): String? {
+    val dot = file.lastIndexOf('.')
+    if (dot < 0) return null
+    return file.substring(dot).lowercase(Locale.ROOT).takeIf { it in PROGRAM_EXTENSIONS }
+}
+
+/** The file names that [name] is tried as on this host, in order. */
+private fun programNames(name: String): List<String> =
+    if (POSIX_HOST) listOf(name) else listOf(name) + PROGRAM_EXTENSIONS.map { "$name$it" }
 
 /** Whether [program] (a base name) given [arguments] runs code that the floor cannot see. */
 internal fun isOpaque(program: String, arguments: List<String>): Boolean = when {
@@ -55,7 +122,15 @@ internal fun isOpaque(program: String, arguments: List<String>): Boolean = when 
 /** Whether [name] is a binary that acts as the program its argv[0] names. */
 internal fun isMultiCall(name: String): Boolean = name in MULTI_CALL
 
-private val PACKAGE_DIRECTORIES = listOf("/opt/homebrew/bin", "/usr/local/bin").map(Path::of)
+/** The directories that package managers install into on a POSIX host. */
+private val PACKAGE_DIRECTORIES: List<Path> =
+    if (POSIX_HOST) listOf("/opt/homebrew/bin", "/usr/local/bin").map(Path::of) else emptyList()
+
+/** The extensions that Windows runs a program by directly, in lower case. */
+private val PROGRAM_EXTENSIONS = setOf(".exe", ".com", ".bat", ".cmd")
+
+/** Where Windows is installed when the environment names it nowhere. */
+private const val DEFAULT_WINDOWS_ROOT = "C:\\Windows"
 
 /** Programs whose purpose is to run another program or code. */
 private val LAUNCHERS = setOf(

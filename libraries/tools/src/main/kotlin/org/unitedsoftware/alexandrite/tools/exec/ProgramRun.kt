@@ -64,11 +64,12 @@ internal suspend fun runProgram(
 /**
  * The variables of [parent] that a program gets: the usual ones and those named in [extra]. They include `TERM` and
  * every `LC_*` on purpose, which an MCP server's minimal environment leaves out, since a command's output is read like
- * a terminal's.
+ * a terminal's. On Windows they include what a program needs to find the system and the user's own files, whose
+ * names the host compares without case.
  */
 internal fun childEnvironment(parent: Map<String, String>, extra: List<String>): Map<String, String> {
-    val passed = parent.filterKeys { it in PASSED || it.startsWith("LC_") || it in extra }
-    if ("PATH" in passed) return passed
+    val passed = parent.filterKeys { nameIs(it, PASSED) || nameStartsWith(it, "LC_") || nameIs(it, extra) }
+    if (passed.variable("PATH") != null) return passed
     return passed + ("PATH" to SYSTEM_DIRECTORIES.joinToString(File.pathSeparator))
 }
 
@@ -153,7 +154,19 @@ internal class OutputCollector(limit: Int) {
     }
 }
 
-private val PASSED = setOf("PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR")
+private val POSIX_PASSED = setOf("PATH", "HOME", "USER", "LANG", "TERM", "TMPDIR")
+
+/**
+ * The variables of [POSIX_PASSED]'s kind that a Windows program needs as well: where the system, the temporary files
+ * and the user's own files are. They hold no secrets, unlike the ones that are left out.
+ */
+private val WINDOWS_PASSED = setOf(
+    "SystemRoot", "SystemDrive", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE",
+    "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "COMMONPROGRAMFILES",
+    "PUBLIC", "USERNAME", "USERDOMAIN", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+)
+
+private val PASSED: Set<String> = POSIX_PASSED + if (POSIX_HOST) emptySet() else WINDOWS_PASSED
 
 /** How long a program and its processes have to stop before they are killed. */
 private val STOP_GRACE = 1.seconds
