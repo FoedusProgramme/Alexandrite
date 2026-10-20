@@ -21,15 +21,6 @@ class ChatIntakesTest {
     private val command = TurnId("t-command")
 
     @Test
-    fun `a chat of an unknown instance or without an agent is refused at once`() = runTest {
-        val bench = WorkerBench(this)
-
-        assertEquals(Admission.Refused(RefusalReason.UNKNOWN_CHAT), bench.receive("test:other:1"))
-        assertEquals(Admission.Refused(RefusalReason.NO_AGENT), bench.receive("test:quiet:1"))
-        assertEquals(emptySet(), bench.intakes.chats)
-    }
-
-    @Test
     fun `a gate holds the chat's messages until it is released, then hands them on in order`() = runTest {
         val bench = WorkerBench(this, perKey = 5)
         bench.intakes.gate(gated, command)

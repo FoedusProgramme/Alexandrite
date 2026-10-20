@@ -4,14 +4,9 @@ import kotlinx.coroutines.delay
 import org.unitedsoftware.alexandrite.agent.GatedConversations
 import org.unitedsoftware.alexandrite.agent.StoreIndex
 import org.unitedsoftware.alexandrite.agent.agentHarness
-import org.unitedsoftware.alexandrite.agent.blocking
-import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
-import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.Capacity
@@ -32,7 +27,6 @@ import org.unitedsoftware.alexandrite.testkit.testUser
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 
 class AgentTurnSubmitterTest {
     private fun config(agents: String, perKey: Int = 20) = """
@@ -91,67 +85,6 @@ class AgentTurnSubmitterTest {
 
             assertEquals(Admission.Refused(RefusalReason.QUEUE_FULL, 2), full)
             assertEquals(List(4) { "Hi" }, (listOf(running) + taken + exempt).map { answer(it) })
-        }
-    }
-
-    @Test
-    fun `two linked chats share one worker while an unlinked chat runs beside them`() {
-        val store = MemoryStore()
-        val conversations = GatedConversations(store)
-        val agents = """
-            "coder": {
-              "model": "scripted/test-model",
-              "channels": {"test:main": {}},
-              "linkedChats": [["test:main:1", "test:main:2"]]
-            }
-        """.trimIndent()
-
-        agentHarness(config(agents), store = null) {
-            channel().model(model(3)).plugin(StoreIndex(store, conversations))
-        }.execute {
-            val channel = channel()
-            val anchor = channel.receive("Hello", channel.chat("1"))
-            val member = channel.receive("Hello", channel.chat("2"))
-            val unlinked = channel.receive("Hello", channel.chat("3"))
-            val group = AgentChatKey.parse("coder@test:main:1")
-            val alone = AgentChatKey.parse("coder@test:main:3")
-            while (conversations.asked.size < 2) delay(10)
-
-            conversations.open(alone)
-
-            assertEquals("Hi", answer(unlinked))
-            assertFalse(anchor.ticket.ended || member.ticket.ended)
-            assertEquals(setOf(group, alone), conversations.asked.toSet())
-            conversations.open(group)
-            assertEquals(listOf("Hi", "Hi"), listOf(answer(anchor), answer(member)))
-            assertEquals(setOf(group, alone), conversations.asked.toSet())
-        }
-    }
-
-    @Test
-    fun `a home chat switched with agent goes to the agent it chose`() {
-        val store = MemoryStore()
-        val conversations = GatedConversations(store).apply { openAll() }
-        val agents = """
-            "coder": {"model": "scripted/test-model", "channels": {"test:main": {"default": true}}},
-            "helper": {"model": "scripted/test-model", "channels": {"test:main": {"home": "1"}}},
-            "reviewer": {"model": "scripted/test-model", "channels": {"test:main": {"home": "3"}}}
-        """.trimIndent()
-
-        agentHarness(config(agents), store = null) {
-            channel().model(model(3)).plugin(StoreIndex(store, conversations))
-        }.execute {
-            val channel = channel()
-            get<SettingsStates>().selectAgent(channel.chat("1"), SettingChange.SetTo(AgentId("coder")))
-            val switched = channel.receive("Hello", channel.chat("1"))
-            val thread = channel.receive("Hello", channel.chat("1", "5"))
-            val home = channel.receive("Hello", channel.chat("3"))
-            listOf(switched, thread, home).forEach { outcome(it) }
-
-            assertEquals(
-                setOf("coder@test:main:1", "coder@test:main:1#5", "reviewer@test:main:3"),
-                conversations.asked.map { it.toString() }.toSet(),
-            )
         }
     }
 

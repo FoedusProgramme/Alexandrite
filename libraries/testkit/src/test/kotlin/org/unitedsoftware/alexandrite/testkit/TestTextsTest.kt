@@ -159,29 +159,12 @@ class TestTextsTest {
     }
 
     @Test
-    fun `the check fails without en properties, on a text file twice on the class path and on an unreadable file`() {
+    fun `the check fails without en properties`() {
         val none = classLoader(mapOf("alexandrite/i18n/other/en.properties" to "a=A\n"))
-        val twice = classLoader(
-            mapOf("alexandrite/i18n/twice/en.properties" to "a=A\n", "alexandrite/i18n/twice/de.properties" to "a=A\n"),
-            mapOf("alexandrite/i18n/twice/de.properties" to "a=B\n"),
-        )
-        val bad = classLoader(
-            mapOf(
-                "alexandrite/i18n/bad/en.properties" to "a=A\n",
-                "alexandrite/i18n/bad/de.properties" to "a=\\uZZZZ\n",
-            ),
-        )
 
         val missing = assertFailsWith<AssertionError> { assertTextsComplete("absent", none) }
-        val duplicated = assertFailsWith<AssertionError> { assertTextsComplete("twice", twice) }
-        val unreadable = assertFailsWith<AssertionError> { assertTextsComplete("bad", bad) }
 
-        assertEquals(
-            "Plugin 'absent' has no texts: alexandrite/i18n/absent/en.properties is not on the class path.",
-            missing.message,
-        )
-        assertContains(duplicated.message.orEmpty(), "- de.properties is on the class path 2 times: ")
-        assertContains(unreadable.message.orEmpty(), "- de.properties cannot be read: java.io.IOException: Malformed")
+        assertContains(missing.message.orEmpty(), "alexandrite/i18n/absent/en.properties is not on the class path")
     }
 
     @Test

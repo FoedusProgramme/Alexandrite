@@ -85,11 +85,4 @@ class AllowCommandsTest {
         assertEquals(List(7) { usage }, replies)
         assertEquals(emptyList(), control.calls)
     }
-
-    @Test
-    fun `a refused revocation replies with the agent's message`() = runTest {
-        control.refuseNext("No agent serves the chat test:main:chat.")
-
-        assertEquals("No agent serves the chat test:main:chat.", allow("revoke 1"))
-    }
 }

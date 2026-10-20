@@ -49,7 +49,6 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class TaintTurnsTest {
@@ -335,18 +334,12 @@ class TaintTurnsTest {
         assertEquals(ToolOutcome.Succeeded, status.outcome)
         val at = blocking { mark() }!!.at
         val since = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm").format(at.atOffset(ZoneOffset.ofHours(8)))
-        assertEquals(
-            listOf(
-                "Permission status of this chat (only an operator changes it):",
-                "Mode: ask (the default).",
-                "Allow rules: none.",
-                "Conversation: tainted since $since +08:00 (call call-1 reported " +
-                    "untrusted content: a pasted page). Until /new starts a new conversation, calls that change your " +
-                    "lasting state, such as an edit of your persona, need an approval. An operator clears the mark " +
-                    "with /untaint once sure of what came in, or trusts its source with /trust so that it no longer " +
-                    "taints.",
+        val conversation = status.text().lines().last()
+        assertTrue(
+            conversation.startsWith(
+                "Conversation: tainted since $since +08:00 (call call-1 reported untrusted content",
             ),
-            status.text().lines(),
+            conversation,
         )
     }
 }

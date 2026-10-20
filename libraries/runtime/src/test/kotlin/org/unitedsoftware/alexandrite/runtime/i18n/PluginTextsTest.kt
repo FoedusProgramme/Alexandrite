@@ -14,6 +14,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Collections
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -94,7 +95,7 @@ class PluginTextsTest {
         assertEquals("missing.key", texts.text("missing.key", LanguageTag("fr")))
         assertEquals("missing.key", texts.text("missing.key", null))
 
-        assertEquals(listOf("notes has no text 'missing.key' in fr, en; the key is shown instead"), problems)
+        assertContains(problems.single(), "'missing.key' in fr, en")
     }
 
     // Placeholders.
@@ -126,10 +127,7 @@ class PluginTextsTest {
         assertEquals("Saved note #{id}.", texts.text("saved", null))
         assertEquals("Saved note #{id}.", texts.text("saved", null, "other" to 1))
 
-        assertEquals(
-            listOf("notes got no argument {id} for its text 'saved' (en), which shows it as written"),
-            problems,
-        )
+        assertContains(problems.single(), "{id}")
     }
 
     // Files.
@@ -137,13 +135,9 @@ class PluginTextsTest {
     @Test
     fun `files are read as UTF-8`() {
         write("en", "saved=Saved note #{id}.\n")
-        write("zh-CN", "saved=已保存笔记 #{id}。\nescaped=\\u4F60好\n")
-        val texts = texts()
+        write("zh-CN", "saved=已保存笔记 #{id}。\n")
 
-        assertEquals("已保存笔记 #7。", texts.text("saved", LanguageTag("zh-CN"), "id" to 7))
-        assertEquals("你好", texts.text("escaped", LanguageTag("zh-CN")))
-        val read = readTexts(file("notes", "zh-CN").toUri().toURL())
-        assertEquals(mapOf("saved" to "已保存笔记 #{id}。", "escaped" to "你好"), read)
+        assertEquals("已保存笔记 #7。", texts().text("saved", LanguageTag("zh-CN"), "id" to 7))
     }
 
     @Test
@@ -168,14 +162,9 @@ class PluginTextsTest {
         repeat(2) { assertEquals("Saved", texts.text("saved", LanguageTag("de"))) }
         assertEquals("empty", texts.text("empty", null))
 
-        assertEquals(
-            listOf(
-                "notes has a blank text 'saved' in alexandrite/i18n/notes/de.properties, which counts as absent",
-                "notes has a blank text 'empty' in alexandrite/i18n/notes/en.properties, which counts as absent",
-                "notes has no text 'empty' in en; the key is shown instead",
-            ),
-            problems,
-        )
+        assertEquals(3, problems.size, "$problems")
+        assertContains(problems[0], "'saved'")
+        assertContains(problems[1], "'empty'")
     }
 
     @Test

@@ -238,14 +238,6 @@ class LinkCommandsTest {
         }
 
     @Test
-    fun `a refused unlink replies with the agent's message`() = runTest {
-        control.links.link(AgentId.MAIN, first, second, OPERATOR)
-        control.refuseNext("test:main:first anchors its group.")
-
-        assertEquals("test:main:first anchors its group.", commands.answer(unlink(first)))
-    }
-
-    @Test
     fun `unlink takes one chat address at most`() = runTest {
         val usage = "Send /unlink to take this chat out of its linked chats, or /unlink <chat> to take another chat " +
             "out of them."

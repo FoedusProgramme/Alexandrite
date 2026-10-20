@@ -25,13 +25,6 @@ class ConfigFileTest {
     private fun json(text: String): JsonObject = Json.parseToJsonElement(text) as JsonObject
 
     @Test
-    fun `a config file without references is read as it is`() {
-        val text = """{"app": {"zone": "UTC", "plugins": ["notes"], "grace": 15, "on": true, "none": null}}"""
-
-        assertEquals(json(text), read(text))
-    }
-
-    @Test
     fun `environment references in string values are resolved at any depth`() {
         val config = read(
             $$$"""

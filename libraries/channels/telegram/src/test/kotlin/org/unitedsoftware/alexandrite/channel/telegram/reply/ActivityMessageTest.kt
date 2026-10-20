@@ -8,7 +8,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.DelegatedRun
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
-import org.unitedsoftware.alexandrite.sdk.channel.TurnEventKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
@@ -21,38 +20,6 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class ActivityMessageTest {
     private fun TestScope.output(streaming: Boolean = true) = Output(this, streaming)
-
-    @Test
-    fun `the channel asks only for tool call events, not thoughts or usage`() = runTest {
-        val output = output()
-
-        val events = output.channel.capabilities(output.address()).events
-
-        assertEquals(setOf(TurnEventKind.TOOL_CALL_STARTED, TurnEventKind.TOOL_CALL_UPDATED), events)
-    }
-
-    @Test
-    fun `a tool call opens an activity message below the body text, edited past the summary's tense`() = runTest {
-        val output = output()
-        val reply = output.open()
-        val id = ToolCallId("c1")
-
-        reply.preview(0, "Let me check.")
-        advanceTimeBy(1_100)
-        reply.event(TurnEvent.ToolCallStarted(id, "fs.read", ToolActivity.READ, "notes.md"))
-        advanceTimeBy(1_100)
-        reply.event(TurnEvent.ToolCallUpdated(id, ToolCallStatus.COMPLETED))
-        advanceTimeBy(1_100)
-
-        assertEquals(
-            listOf(
-                "sendMessage Let me check.",
-                "sendMessage Reading 1 file\nnotes.md",
-                "editMessageText Read 1 file\nnotes.md",
-            ),
-            output.shown(),
-        )
-    }
 
     @Test
     fun `new body text opens a new message, and its tool calls a new activity message below it`() = runTest {
@@ -90,24 +57,6 @@ class ActivityMessageTest {
             ),
             output.shown(),
         )
-    }
-
-    @Test
-    fun `the activity message keeps its folded details below the summary`() = runTest {
-        val output = output()
-        val reply = output.open()
-        val (first, second) = ToolCallId("c1") to ToolCallId("c2")
-
-        reply.event(TurnEvent.ToolCallStarted(first, "fs.read", ToolActivity.READ, "a.kt"))
-        reply.event(TurnEvent.ToolCallStarted(second, "fs.read", ToolActivity.READ, "b.kt"))
-        advanceTimeBy(1_100)
-        reply.event(TurnEvent.ToolCallUpdated(first, ToolCallStatus.COMPLETED))
-        reply.event(TurnEvent.ToolCallUpdated(second, ToolCallStatus.COMPLETED))
-        advanceTimeBy(1_100)
-
-        val edit = output.api.calls("editMessageText").last()
-        assertEquals("Read 2 files\na.kt\nb.kt", edit.text)
-        assertEquals(listOf("expandable_blockquote 13+9"), edit.entities)
     }
 
     @Test

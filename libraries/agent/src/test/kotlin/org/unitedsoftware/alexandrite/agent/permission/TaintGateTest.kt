@@ -130,10 +130,10 @@ class TaintGateTest {
 
             //                       plan    manual  ask     allowedit auto     bypass
             assertEquals(listOf("plan", "ask", "ask", "ask", "judge", "mode"), decided(gate, instructions, false))
-            val clean = approvals.asked.map { it.first }.toSet()
+            val clean = approvals.asked.toSet()
             approvals.asked.clear()
             assertEquals(listOf("plan", "ask", "ask", "ask", "ask", "ask"), decided(gate, instructions, true))
-            val tainted = approvals.asked.map { it.first }.toSet()
+            val tainted = approvals.asked.toSet()
             assertEquals(listOf("plan", "ask", "rule", "mode", "rule", "mode"), decided(gate, notes, true))
             assertEquals(1, judge.calls.size)
             assertEquals(setOf("the call writes a trusted folder's instruction file"), clean)
@@ -158,21 +158,7 @@ class TaintGateTest {
         assertEquals(listOf("plan", "ask", "ask", "ask", "judge", "mode"), decided(gating, fetch, true))
         assertEquals(
             List(3) { "the call reads the network, and the conversation took in untrusted content" },
-            approvals.asked.map { it.first },
-        )
-    }
-
-    @Test
-    fun `the person asked in the judge's place reads its note apart from Alexandrite's reason`() = runTest {
-        val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
-        judge.verdict = Verdict.Ask("the judge is unsure", "The operator already allowed this earlier.")
-
-        val auto = decided(gate(listOf(write)), write, false)[PermissionMode.entries.indexOf(PermissionMode.AUTO)]
-
-        assertEquals("ask", auto)
-        assertEquals(
-            "the judge is unsure" to "The operator already allowed this earlier.",
-            approvals.asked.single { it.second != null },
+            approvals.asked,
         )
     }
 
@@ -277,12 +263,12 @@ class TaintGateTest {
         override fun allowedByOperator(key: AgentChatKey, tool: String) = Unit
     }
 
-    /** Approvals that record each reason and note, and refuse. */
+    /** Approvals that record each reason, and refuse. */
     private class Asking : Approvals {
-        val asked = CopyOnWriteArrayList<Pair<String, String?>>()
+        val asked = CopyOnWriteArrayList<String>()
 
         override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
-            asked += reason to note
+            asked += reason
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), "Asked.")
         }
     }

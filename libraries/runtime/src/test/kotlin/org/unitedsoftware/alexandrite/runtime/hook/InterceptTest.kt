@@ -7,12 +7,9 @@ import org.unitedsoftware.alexandrite.sdk.hook.Hook
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.hook.HookEffect
 import org.unitedsoftware.alexandrite.sdk.hook.HookFailure
-import org.unitedsoftware.alexandrite.sdk.hook.HookPoint
 import org.unitedsoftware.alexandrite.sdk.hook.Interception
 import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
 import org.unitedsoftware.alexandrite.sdk.hook.InterceptorPoint
-import org.unitedsoftware.alexandrite.sdk.hook.ObserverDelivery
-import org.unitedsoftware.alexandrite.sdk.hook.ObserverHook
 import org.unitedsoftware.alexandrite.sdk.hook.ObserverPoint
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -83,10 +80,7 @@ class InterceptTest {
 
         val error = assertFailsWith<IllegalArgumentException> { dispatcher.fire(rewritePoint(), "") }
 
-        assertEquals(
-            "Cannot fire hook point 'test.rewrite': its hooks subscribe to another point object with this id.",
-            error.message,
-        )
+        assertContains(error.message!!, "'test.rewrite'")
         assertEquals(emptyList(), records.all())
     }
 
@@ -164,46 +158,32 @@ class InterceptTest {
         )
     }
 
-    @Test
-    fun `without interceptors the original payload proceeds`() = runTest {
-        assertEquals(Interception.Proceed("x"), hookDispatcher(emptyList()).fire(rewrite, "x"))
-    }
-
     // Disallowed decisions.
 
     @Test
-    fun `a replace at a point without REPLACE is a disallowed decision`() = runTest {
-        val point = InterceptorPoint<String>("test.deny", setOf(HookEffect.ABORT), FailurePolicy.FAIL_OPEN)
-        val next = TestInterceptor(point, order = 1) {
-            records.record("next got $it")
-            HookDecision.Continue
+    fun `a decision the point does not allow is disallowed, and the next hook gets the payload as it was`() = runTest {
+        val noReplace = InterceptorPoint<String>("test.deny", setOf(HookEffect.ABORT), FailurePolicy.FAIL_OPEN)
+        val noAbort = InterceptorPoint<String>("test.replace", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
+        val cases = listOf<Pair<InterceptorHook<String>, HookDecision<String>>>(
+            Rewriter(noReplace) to HookDecision.Replace("rewritten"),
+            Denier(noAbort) to HookDecision.Abort("denied"),
+        )
+
+        for ((hook, decision) in cases) {
+            val reported = RecordingListener()
+            val next = TestInterceptor(hook.point, order = 1) {
+                records.record("next got $it")
+                HookDecision.Continue
+            }
+            val dispatcher = hookDispatcher(listOf(hook, next), reported)
+
+            assertEquals(Interception.Proceed("x"), dispatcher.fire(hook.point, "x"))
+            assertEquals(
+                listOf(Reported(hook::class.java.name, hook.point, HookFailure.Disallowed(decision))),
+                reported.all(),
+            )
         }
-        val dispatcher = hookDispatcher(listOf(Rewriter(point), next), listener)
-
-        val result = dispatcher.fire(point, "x")
-
-        assertEquals(Interception.Proceed("x"), result)
-        assertEquals(listOf("next got x"), records.all())
-        assertEquals(
-            listOf(
-                Reported(Rewriter::class.java.name, point, HookFailure.Disallowed(HookDecision.Replace("rewritten"))),
-            ),
-            listener.all(),
-        )
-    }
-
-    @Test
-    fun `an abort at a point without ABORT is a disallowed decision`() = runTest {
-        val point = InterceptorPoint<String>("test.replace", setOf(HookEffect.REPLACE), FailurePolicy.FAIL_OPEN)
-        val dispatcher = hookDispatcher(listOf(Denier(point), appending("b", order = 1, point = point)), listener)
-
-        val result = dispatcher.fire(point, "x")
-
-        assertEquals(Interception.Proceed("xb"), result)
-        assertEquals(
-            listOf(Reported(Denier::class.java.name, point, HookFailure.Disallowed(HookDecision.Abort("denied")))),
-            listener.all(),
-        )
+        assertEquals(listOf("next got x", "next got x"), records.all())
     }
 
     // Failure policy.

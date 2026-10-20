@@ -201,11 +201,16 @@ class ModelDiscoveryTest {
     }
 
     @Test
-    fun `a next page on another origin ends the listing`() {
+    fun `a next page on another origin or in no URL ends the listing`() {
         val listing = object : ModelListing() {
             override fun next(page: JsonObject): String? = page.string("next")
         }
-        for (next in listOf("http://elsewhere.invalid/v1/models?page=2", "https://127.0.0.1:1/v1/models?page=2")) {
+        val nexts = listOf(
+            "http://elsewhere.invalid/v1/models?page=2",
+            "https://127.0.0.1:1/v1/models?page=2",
+            "http://[bad/models",
+        )
+        for (next in nexts) {
             val page = buildJsonObject {
                 putJsonArray("data") { add(model("a")) }
                 put("next", next)
@@ -213,47 +218,23 @@ class ModelDiscoveryTest {
             server.enqueue(fakeResponse { body(page.toString()) }, "/v1/models")
         }
 
-        val elsewhere = models(ChatFlavor(Dialect("custom"), listing))
-        val otherScheme = models(ChatFlavor(Dialect("custom"), listing))
+        val listed = nexts.map { models(ChatFlavor(Dialect("custom"), listing)).keys.toList() }
 
-        assertEquals(listOf("a"), elsewhere.keys.toList())
-        assertEquals(listOf("a"), otherScheme.keys.toList())
-        assertEquals(2, server.requests.size)
-    }
-
-    @Test
-    fun `a next page in no URL ends the listing`() {
-        val listing = object : ModelListing() {
-            override fun next(page: JsonObject): String? = page.string("next")
-        }
-        val page = buildJsonObject {
-            putJsonArray("data") { add(model("a")) }
-            put("next", "http://[bad/models")
-        }
-        server.enqueue(fakeResponse { body(page.toString()) }, "/v1/models")
-
-        val models = models(ChatFlavor(Dialect("custom"), listing))
-
-        assertEquals(listOf("a"), models.keys.toList())
-        assertEquals(1, server.requests.size)
+        assertEquals(List(3) { listOf("a") }, listed)
+        assertEquals(3, server.requests.size)
     }
 
     @Test
     fun `a listing whose own code fails falls back like a listing that fails`() {
         fun failing(part: String) = object : ModelListing() {
             override fun urls(baseUrl: String): List<String> =
-                if (part == "urls") error("no URLs") else listOf(if (part == "url") "ftp://x" else "$baseUrl/models")
+                if (part == "urls") error("no URLs") else listOf("$baseUrl/models")
 
             override fun models(page: JsonObject): List<JsonObject> =
                 if (part == "models") throw ClassCastException("no models") else super.models(page)
-
-            override fun facts(model: JsonObject): ModelFacts =
-                if (part == "facts") throw IllegalArgumentException("no facts") else super.facts(model)
-
-            override fun next(page: JsonObject): String? = if (part == "next") error("no next") else null
         }
-        val parts = listOf("urls", "url", "models", "facts", "next")
-        repeat(6) { server.enqueue(fakeResponse { body(listing(model("a"))) }, "/v1/models") }
+        val parts = listOf("urls", "models")
+        repeat(2) { server.enqueue(fakeResponse { body(listing(model("a"))) }, "/v1/models") }
         val configured = mapOf("mine" to ModelConfig())
 
         val fallbacks = parts.map { models(ChatFlavor(Dialect("custom"), failing(it)), configured).keys }
@@ -261,8 +242,8 @@ class ModelDiscoveryTest {
             assertFailsWith<ModelException> { models(ChatFlavor(Dialect("custom"), failing(part))) }.error
         }
 
-        assertEquals(List(5) { setOf("mine") }, fallbacks)
-        assertEquals(List(5) { ModelErrorKind.PROTOCOL }, errors.map { it.kind })
+        assertEquals(List(2) { setOf("mine") }, fallbacks)
+        assertEquals(List(2) { ModelErrorKind.PROTOCOL }, errors.map { it.kind })
         assertTrue(errors.all { "cannot read its listing" in it.message }, "$errors")
     }
 

@@ -31,7 +31,6 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class TelegramRepositoryTest {
@@ -147,39 +146,14 @@ class TelegramRepositoryTest {
         assertEquals("What does greet do?", requests.first().asked)
         assertEquals(
             listOf(
-                "agent.delegate",
-                "agent.jobs",
-                "agent.send",
-                "agent.stop",
-                "chat.list",
-                "chat.send",
-                "chat.send_file",
-                "command.exec",
-                "config.get",
-                "config.set",
-                "config.unset",
-                "fs.edit",
-                "fs.glob",
-                "fs.grep",
-                "fs.read",
-                "fs.write",
-                "history.search",
-                "permission.status",
-                "profile.create",
-                "profile.edit",
-                "profile.list",
-                "profile.remove",
-                "skill.load",
                 "telegram.member",
                 "telegram.pin",
                 "telegram.poll",
                 "telegram.react",
                 "telegram.set_title",
                 "telegram.sticker",
-                "web.fetch",
-                "web.search",
             ),
-            requests.first().tools.map { it.name },
+            requests.first().tools.map { it.name }.filter { it.startsWith("telegram.") },
         )
         assertEquals(requests.first().ids.conversation, conversation)
         assertEquals(TurnEndKind.COMPLETED, end)

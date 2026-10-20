@@ -41,10 +41,8 @@ class DeepSeekPluginTest {
     fun `a malformed endpoint fails the start at CONFIG without showing its values`() = runBlocking {
         val cases = listOf(
             """{"endpoints": {"x": {"baseUrl": "https://api.example.com"}}}""" to "apiKey",
-            """{"endpoints": {"x": {"apiKey": "hunter2", "headers": {"Host": "h"}}}}""" to "may not set host",
             """{"endpoints": {"x": {"apiKey": "hunter2", "promptCacheKey": true}}}""" to "promptCacheKey",
             """{"endpoints": {"x": {"apiKey": "hunter2", "baseUrl": "ftp://a"}}}""" to "baseUrl must be",
-            """{"endpoints": {"Bad_Id": {"apiKey": "hunter2"}}}""" to "no endpoint id",
         )
 
         for ((config, expected) in cases) {

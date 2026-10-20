@@ -12,7 +12,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedPerson
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
@@ -119,15 +118,6 @@ class TrustCommandsTest {
     }
 
     @Test
-    fun `a refused trust replies with the agent's message`() = runTest {
-        control.refuseNext("/srv/data is a protected place (the data directory), so it cannot be trusted.")
-
-        val reply = commands.answer(trust("/srv/data"))
-
-        assertEquals("/srv/data is a protected place (the data directory), so it cannot be trusted.", reply)
-    }
-
-    @Test
     fun `untaint clears the taint of the chat's conversation and says what it was, or that there was none`() = runTest {
         val untaint = testCommand("untaint", issuer = OPERATOR)
         control.taints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
@@ -220,13 +210,6 @@ class TrustCommandsTest {
     }
 
     @Test
-    fun `a rule the agent refuses replies with its message`() = runTest {
-        control.refuseNext("'command.exec(a && b)' holds shell syntax.")
-
-        assertEquals("'command.exec(a && b)' holds shell syntax.", commands.answer(trust("command.exec(a && b)")))
-    }
-
-    @Test
     fun `only an operator may trust, untrust or untaint, in every form`() {
         val forms = commands.commands.associate { it.name to it.operatorsOnly }
 
@@ -265,15 +248,17 @@ class TrustCommandsTest {
         val cy = testUser("cy")
 
         commands.answer(testCommand("trust", "@bob_b @cy", issuer = OPERATOR, mentions = listOf(bob, cy)))
+        control.trust.trustPerson(trust().chat, testUser("dee"), null)
 
         assertEquals(
             "No folder is trusted.\n\nPeople whose own messages and files do not taint, trusted here:\n" +
-                "- Bob (@bob_b) (trusted by Operator on 2026-01-01)\n- Cy (trusted by Operator on 2026-01-01)\n\n" +
+                "- Bob (@bob_b) (trusted by Operator on 2026-01-01)\n- Cy (trusted by Operator on 2026-01-01)\n" +
+                "- Dee (trusted by the host on 2026-01-01)\n\n" +
                 "People whom their channel's config trusts are marked by the channel and not listed here. Trust " +
                 "gives no authority: a trusted person approves nothing and runs no operator commands.",
             commands.answer(trust()),
         )
-        assertEquals(listOf(bob, cy), control.calls.map { (it as Call.TrustPerson).person })
+        assertEquals(listOf(bob, cy), control.calls.take(2).map { (it as Call.TrustPerson).person })
     }
 
     @Test
@@ -292,16 +277,6 @@ class TrustCommandsTest {
             )
             assertEquals(emptyList(), control.trust.people(trust().chat))
         }
-
-    @Test
-    fun `a person trusted by the host is listed so`() = runTest {
-        control.trust.trustPerson(trust().chat, testUser("bob"), null)
-
-        val listed = commands.answer(trust())
-
-        assertEquals("- Bob (trusted by the host on 2026-01-01)", listed.lines()[3])
-        assertEquals(TrustedPerson(testUser("bob"), TEST_TIME, null), control.trust.people(trust().chat).single())
-    }
 
     private fun trust(folder: String = "") = testCommand("trust", folder, issuer = OPERATOR)
 

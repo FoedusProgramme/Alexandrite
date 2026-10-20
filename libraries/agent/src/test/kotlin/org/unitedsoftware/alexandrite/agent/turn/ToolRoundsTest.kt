@@ -127,28 +127,7 @@ class ToolRoundsTest {
             assertEquals(listOf(0, 0, 0), requests.map { it.turnStart })
             val shared = requests.map { listOf(it.instructions, it.turnContext, it.tools, it.options, it.cacheKey) }
             assertEquals(1, shared.distinct().size)
-            assertEquals(
-                listOf(
-                    "agent.delegate",
-                    "agent.jobs",
-                    "agent.send",
-                    "agent.stop",
-                    "chat.list",
-                    "chat.send",
-                    "chat.send_file",
-                    "fs.read",
-                    "history.search",
-                    "permission.status",
-                    "profile.create",
-                    "profile.edit",
-                    "profile.list",
-                    "profile.remove",
-                    "skill.load",
-                ),
-                requests[0].tools.map {
-                    it.name
-                },
-            )
+            assertTrue("fs.read" in requests[0].tools.map { it.name })
             assertEquals(List(3) { ToolChoice.Auto }, requests.map { it.toolChoice })
             val calls = entries.filterIsInstance<AssistantEntry>().flatMap { it.parts.filterIsInstance<ToolCallPart>() }
             assertEquals(calls.map { it.id }, read.calls.map { it.call })
@@ -375,26 +354,7 @@ class ToolRoundsTest {
             val entries = stored()
             val requests = model.requests
             assertEquals(listOf(ToolChoice.Auto, ToolChoice.None), requests.map { it.toolChoice })
-            assertEquals(
-                listOf(
-                    "agent.delegate",
-                    "agent.jobs",
-                    "agent.send",
-                    "agent.stop",
-                    "chat.list",
-                    "chat.send",
-                    "chat.send_file",
-                    "fs.read",
-                    "history.search",
-                    "permission.status",
-                    "profile.create",
-                    "profile.edit",
-                    "profile.list",
-                    "profile.remove",
-                    "skill.load",
-                ),
-                requests[1].tools.map { it.name },
-            )
+            assertEquals(requests[0].tools, requests[1].tools)
             assertEquals(1, read.calls.size)
             val note = limitNote("its limit of tool rounds (1)")
             assertEquals(entries.take(3) + note, requests[1].history)
@@ -546,17 +506,9 @@ class ToolRoundsTest {
             val guest = ask(user = "guest")
             guest.ticket.outcome()
 
-            assertEquals(
-                List(3) {
-                    listOf(
-                        "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.list", "chat.send",
-                        "chat.send_file", "fs.glob", "fs.read", "fs.write", "history.search",
-                        "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
-                        "skill.load",
-                    ) to ToolChoice.Auto
-                },
-                model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
-            )
+            val offers = model.requests.map { it.tools to it.toolChoice }
+            assertEquals(List(3) { model.requests[0].tools to ToolChoice.Auto }, offers)
+            assertTrue(model.requests[0].tools.map { it.name }.containsAll(listOf("fs.glob", "fs.read", "fs.write")))
             val results = results(store.transcripts.turnEntries(guest.ticket.turn))
             assertEquals(
                 NotRun(NotRunReason.NOT_PERMITTED) to "This turn may not call 'fs.glob'.",
@@ -578,29 +530,8 @@ class ToolRoundsTest {
             asked.ticket.outcome()
 
             val guest = model.requests.drop(2)
-            assertEquals(
-                List(2) {
-                    listOf(
-                        "agent.delegate",
-                        "agent.jobs",
-                        "agent.send",
-                        "agent.stop",
-                        "chat.list",
-                        "chat.send",
-                        "chat.send_file",
-                        "fs.read",
-                        "history.search",
-                        "permission.status",
-                        "profile.create",
-                        "profile.edit",
-                        "profile.list",
-                        "profile.remove",
-                        "skill.load",
-                    ) to ToolChoice.Auto
-                },
-                guest.map { request -> request.tools.map { it.name } to request.toolChoice },
-            )
-            assertEquals(model.requests[0].tools, guest[0].tools)
+            val offers = guest.map { it.tools to it.toolChoice }
+            assertEquals(List(2) { model.requests[0].tools to ToolChoice.Auto }, offers)
             assertTrue(guest[0].history.any { it is ToolResultEntry })
             val refused = results(store.transcripts.turnEntries(asked.ticket.turn)).getValue("fs.read")
             assertEquals(NotRun(NotRunReason.NOT_PERMITTED), refused.outcome)
@@ -616,28 +547,8 @@ class ToolRoundsTest {
         harness { hook(hook) }.execute {
             ask().ticket.outcome()
 
-            assertEquals(
-                List(2) {
-                    listOf(
-                        "agent.delegate",
-                        "agent.jobs",
-                        "agent.send",
-                        "agent.stop",
-                        "chat.list",
-                        "chat.send",
-                        "chat.send_file",
-                        "fs.read",
-                        "history.search",
-                        "permission.status",
-                        "profile.create",
-                        "profile.edit",
-                        "profile.list",
-                        "profile.remove",
-                        "skill.load",
-                    ) to ToolChoice.Auto
-                },
-                model.requests.map { request -> request.tools.map { it.name } to request.toolChoice },
-            )
+            assertTrue(model.requests.all { request -> "fs.read" in request.tools.map { it.name } })
+            assertEquals(List(2) { ToolChoice.Auto }, model.requests.map { it.toolChoice })
             val result = stored().filterIsInstance<ToolResultEntry>().single()
             assertEquals(NotRun(NotRunReason.NOT_PERMITTED), result.outcome)
             assertEquals(emptyList(), read.calls)

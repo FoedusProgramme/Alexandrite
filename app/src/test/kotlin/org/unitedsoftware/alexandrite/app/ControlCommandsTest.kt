@@ -98,6 +98,10 @@ class ControlCommandsTest {
         assertEquals(Triple(0, "Paired $BOB.\n", ""), printed(ControlRequest.Approve("BBBB-BBBB")))
         assertEquals(Triple(0, "Denied the request of $GROUP.\n", ""), printed(ControlRequest.Deny("GGGG-GGGG")))
         assertEquals(
+            listOf("approve BBBB-BBBB by the host", "deny GGGG-GGGG by the host"),
+            desk.calls.filterNot { it.startsWith("holds") },
+        )
+        assertEquals(
             refused("No chat waits with the code AAAA-AAAA."),
             printed(ControlRequest.Approve("AAAA-AAAA")),
         )
@@ -138,12 +142,15 @@ class ControlCommandsTest {
     }
 
     @Test
-    fun `unpairing a chat that is still a home chat or linked says that the bot sends it nothing`() {
+    fun `unpairing a chat that is still a home chat or linked says and logs that the bot sends it nothing`() {
         val control = RecordingAgent()
         runBlocking {
             control.settings.update(chat("9"), ChatSettingsUpdate.builder().home().build(), null)
             control.links.link(AgentId.MAIN, chat("7"), chat("9"), null)
         }
+        lateinit var answered: Answered
+
+        val lines = logged { answered = printed(ControlRequest.Unpair("chat:work:9"), agent = control) }
 
         assertEquals(
             Triple(
@@ -152,7 +159,14 @@ class ControlCommandsTest {
                     "sends it nothing until it is paired again.\n",
                 "",
             ),
-            printed(ControlRequest.Unpair("chat:work:9"), agent = control),
+            answered,
+        )
+        assertEquals(
+            listOf(
+                "WARN Chat chat:work:9 is unpaired but still the home chat of agent main and linked at agent main: " +
+                    "the bot sends it nothing until it is paired again",
+            ),
+            lines.filter { it.startsWith("WARN") },
         )
     }
 

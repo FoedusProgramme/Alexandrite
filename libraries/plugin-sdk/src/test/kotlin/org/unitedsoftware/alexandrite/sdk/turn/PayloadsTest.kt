@@ -19,8 +19,6 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
-import org.unitedsoftware.alexandrite.sdk.model.Trust
-import org.unitedsoftware.alexandrite.sdk.model.TurnContextItem
 import org.unitedsoftware.alexandrite.sdk.model.Usage
 import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
@@ -49,7 +47,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 
 class PayloadsTest {
     private val turn = TurnInfo.builder(TurnId("t1"), chat, ConversationId("c1"), TurnKind.MESSAGE).actor(ada).build()
@@ -67,43 +64,6 @@ class PayloadsTest {
     private fun inline(): MediaPart = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(byteArrayOf(1, 2)))
 
     // Interceptor payloads.
-
-    @Test
-    fun `each with method replaces its own property, a context item goes last, and the turn is kept`() {
-        val sections = PromptSections(turn, listOf(PromptSection("persona", "You are Athena.", stable = true)))
-        val start = TurnStart(turn, message, listOf(tool("notes.add"), tool("notes.find")))
-        val input = TurnInput(turn, message, "Hello", followUp = false)
-        val preview = ReplyPreview(turn, 1, "Hel")
-        val recall = TurnContextItem("recall", "Ada likes tea.")
-        val marker = TurnContextItem("marker", "Answer briefly.", Trust.TRUSTED)
-
-        val newSections = sections.withSections(emptyList())
-        val narrowed = start.withTools(listOf(tool("notes.find")))
-        val rewritten = input.withText("Hello!")
-        val longer = preview.withText("Hello")
-        val context = TurnContext(turn, "Hello", emptyList()) + recall + marker
-
-        assertEquals(PromptSections(turn, emptyList()), newSections)
-        assertEquals(TurnStart(turn, message, listOf(tool("notes.find"))), narrowed)
-        assertEquals(TurnInput(turn, message, "Hello!", followUp = false), rewritten)
-        assertEquals(ReplyPreview(turn, 1, "Hello"), longer)
-        assertEquals(TurnContext(turn, "Hello", listOf(recall, marker)), context)
-        listOf(newSections, narrowed, rewritten, longer, context).forEach { assertSame(turn, it.turn) }
-    }
-
-    @Test
-    fun `a check requires approval only once a hook gives a reason, keeping the rest`() {
-        val check = ToolCallCheck(turn, call("toolu_01"), tool("notes.add"), ToolRisk.PERSISTENT_STATE)
-        val reason = "Lasting changes need a person."
-
-        val required = check.withRequireApproval(reason)
-
-        assertNull(check.requireApproval)
-        assertEquals(
-            ToolCallCheck(turn, call("toolu_01"), tool("notes.add"), ToolRisk.PERSISTENT_STATE, reason),
-            required,
-        )
-    }
 
     @Test
     fun `a model call belongs to its turn and round, also after a hook replaced the request`() {
@@ -174,7 +134,7 @@ class PayloadsTest {
     }
 
     @Test
-    fun `a tool call is done with its own result, and a turn commits stored entries`() {
+    fun `a call is done with its own result, a turn commits stored entries and a conversation seals into another`() {
         val done = ToolCallDone(turn, call("toolu_01"), result("toolu_01"))
 
         assertEquals("toolu_01", done.result.callId.value)
@@ -183,13 +143,6 @@ class PayloadsTest {
             TurnCommitted(turn, listOf(user("Hello")), TurnOutcome.Completed(null), null)
         }
         assertEquals(1, TurnCommitted(turn, listOf(user("Hello", record(1))), TurnOutcome.Cancelled, null).entries.size)
-    }
-
-    @Test
-    fun `a sealed conversation has another successor`() {
-        val sealed = ConversationSealed(turn, ConversationId("c1"), ConversationId("c2"))
-
-        assertEquals(ConversationId("c2"), sealed.successor)
         assertFailsWith<IllegalArgumentException> {
             ConversationSealed(turn, ConversationId("c1"), ConversationId("c1"))
         }

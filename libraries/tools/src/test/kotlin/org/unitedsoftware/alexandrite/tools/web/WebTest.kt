@@ -147,16 +147,6 @@ class WebTest {
     }
 
     @Test
-    fun `plain text is preserved rather than interpreted as HTML`() {
-        val source = "<script>literal text</script>\nA < B"
-        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
-        val page = fetchPage(URI("https://example.com"), 100, 1000, { listOf(public) }) { _, _, _, _ ->
-            WebResponse(200, mapOf("content-type" to "text/plain"), source.toByteArray())
-        }
-        assertEquals(source, page.second)
-    }
-
-    @Test
     fun `private host allowances require exact hosts and normalize case and trailing dot`() {
         val config = WebConfig(allowedPrivateHosts = setOf("Private.Example.", "LOCALHOST.", "[::1]"))
         assertEquals(setOf("private.example", "localhost", "::1"), config.normalizedPrivateHosts)

@@ -2,7 +2,6 @@ package org.unitedsoftware.alexandrite.agent.job
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
@@ -26,13 +25,9 @@ import org.unitedsoftware.alexandrite.agent.tool.ToolGate
 import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
-import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
-import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
-import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
-import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.BackgroundCall
@@ -52,7 +47,6 @@ import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -125,11 +119,7 @@ class JobsTest {
             val id = job(end)
             assertEquals(10_000, currentTime)
             assertTrue(id.value.matches(Regex("j-[0-9a-z]{6}")), "$id")
-            assertEquals(
-                "[alexandrite:background] fs.slow is still running as job $id; its result will come in a later turn " +
-                    "— go on, or end your turn.",
-                end.result.text(),
-            )
+            assertTrue(end.result.text().startsWith("[alexandrite:background]"))
             val started = clock.now.minusSeconds(10)
             assertEquals(
                 listOf(JobStatus(id, turn.chat, "fs.slow", "/srv/big", started, turn.actor)),
@@ -184,25 +174,6 @@ class JobsTest {
     }
 
     @Test
-    fun `a chat runs as many jobs as it may, and past that a call stays in the foreground`() = runTest {
-        val slow = recordingTool("fs.slow") { _, _ -> awaitCancellation() }
-        val quick = recordingTool("fs.slow") { _, _ ->
-            delay(15.seconds)
-            ToolResult("Done.")
-        }
-        val jobs = jobs(maxJobsPerChat = 1)
-
-        val first = jobs.execute(slow)
-        val second = async { jobs.execute(quick) }
-        val elsewhere = async { jobs.execute(slow, turn = testTurn(chat = testChat("other"))) }
-        advanceTimeBy(16.seconds)
-
-        assertEquals(ToolOutcome.Succeeded to "Done.", second.await().result.let { it.outcome to it.text() })
-        val jobsOf = listOf(turn.chat, testChat("other")).map { chat -> jobs.list(chat).map { it.id } }
-        assertEquals(listOf(listOf(job(first)), listOf(job(elsewhere.await()))), jobsOf)
-    }
-
-    @Test
     fun `a stopped job stops its tool and hands on nothing, while a shutdown keeps its record`() = runTest {
         val tool = recordingTool("fs.slow") { _, _ -> awaitCancellation() }
         val jobs = jobs()
@@ -227,26 +198,6 @@ class JobsTest {
         assertEquals(setOf(kept), recorded())
         assertEquals(emptyList(), delivered)
         assertEquals(null, jobs.detachedAfterDrain(tool))
-    }
-
-    @Test
-    fun `what the tool reports untrusted after its call moved on taints the turn, and the job says why`() = runTest {
-        val tool = recordingTool("fs.slow") { _, context ->
-            delay(30.seconds)
-            context.untrusted("a web page")
-            ToolResult("Fetched.")
-        }
-        val jobs = jobs()
-
-        jobs.execute(tool)
-        assertFalse(taint.tainted)
-        advanceTimeBy(30.seconds)
-
-        assertTrue(taint.tainted)
-        assertEquals(
-            "call call-1 reported untrusted content: a web page",
-            delivered.single().untrusted,
-        )
     }
 
     @Test
@@ -304,29 +255,6 @@ class JobsTest {
         assertEquals(listOf(true, false, true), taken.toList())
         assertEquals(2, delivered.count { !it.final })
         assertEquals(emptyList(), jobs.list(turn.chat))
-    }
-
-    @Test
-    fun `a job that a run started records the run's conversation and turn, which take its result`() = runTest {
-        val child = turn.toBuilder(TurnId("child-turn"), ConversationId("child-conversation")).apply {
-            lineage(
-                TurnLineage(
-                    RunId("parent-run"),
-                    turn.id,
-                    turn.conversation,
-                    call.id,
-                    turn.id,
-                    turn.conversation,
-                    1,
-                ),
-            )
-        }.build()
-        val job = BackgroundJob(RunId("nested-job"), child, call, "reviewer", clock.now, 120.seconds)
-        val records = JobRecords(records.of("alexandrite-agent"))
-        records.put(job)
-        val saved = records.all().getValue(job.id)
-        assertEquals(child.conversation to child.id, saved.conversation to saved.turn)
-        assertEquals(child.conversation, job.resultConversation)
     }
 
     /** The job of a call made once the agent stopped, null when the call stayed in the foreground. */

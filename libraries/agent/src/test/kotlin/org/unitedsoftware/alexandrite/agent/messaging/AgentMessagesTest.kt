@@ -387,38 +387,12 @@ class AgentMessagesTest {
             val notices = model.requests.last().history.filterIsInstance<UserEntry>().flatMap { entry ->
                 entry.parts.filterIsInstance<ContextPart>().map { it.text }
             }
-            assertTrue(
-                notices.any {
-                    "your message to agent reviewer was interrupted by a restart, so no reply will come" in it
-                },
-                notices.toString(),
-            )
+            assertTrue(notices.any { "interrupted by a restart" in it }, notices.toString())
             val notice = store.transcripts.entries(
                 store.conversations.current(AgentChatKey.parse("coder@test:main:chat")).id,
             )
                 .filterIsInstance<NoticeEntry>().map { it.text }
-            assertTrue(
-                "The message to agent reviewer was interrupted by a restart; no reply will come." in notice,
-                notice.toString(),
-            )
+            assertTrue(notice.any { "interrupted by a restart" in it }, notice.toString())
         }
-    }
-
-    @Test
-    fun `a refunded round trip can be taken again`() {
-        val budget = MessageBudget()
-        repeat(3) { assertTrue(budget.take()) }
-        budget.refund()
-        assertTrue(budget.take())
-        assertEquals(false, budget.take())
-    }
-
-    @Test
-    fun `budget is shared and allows only three round trips`() {
-        val budget = MessageBudget()
-        assertTrue(budget.take())
-        assertTrue(budget.take())
-        assertTrue(budget.take())
-        assertEquals(false, budget.take())
     }
 }

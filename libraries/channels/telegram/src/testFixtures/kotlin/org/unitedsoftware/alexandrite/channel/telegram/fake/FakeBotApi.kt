@@ -495,7 +495,6 @@ public class FakeBotApi(
     private fun webhookInfo(): JsonObject = buildJsonObject {
         put("url", webhookUrl)
         put("has_custom_certificate", false)
-        put("pending_update_count", pendingUpdates)
     }
 
     private fun getUpdates(params: JsonObject): JsonArray = lock.withLock {

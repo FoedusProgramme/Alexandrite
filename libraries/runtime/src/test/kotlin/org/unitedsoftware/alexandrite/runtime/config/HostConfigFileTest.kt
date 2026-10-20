@@ -440,15 +440,11 @@ class HostConfigFileTest {
     }
 
     @Test
-    fun `get reads a value as the file writes it`() {
+    fun `get shows a secret that the file holds as a value as hidden, and a reference as it is`() {
         write()
-
         assertEquals(JsonPrimitive("\${env:NOTES_TOKEN}"), runBlocking { config().get("plugins.notes.token") })
         assertNull(runBlocking { config().get("plugins.mail.folder") })
-    }
 
-    @Test
-    fun `get shows a secret that the file holds as a value as hidden, and a reference as it is`() {
         write(original.replace("\"\${env:NOTES_TOKEN}\"", "\"s3cret-token\""))
 
         assertEquals(JsonPrimitive(HostConfig.HIDDEN_SECRET), runBlocking { config().get("plugins.notes.token") })

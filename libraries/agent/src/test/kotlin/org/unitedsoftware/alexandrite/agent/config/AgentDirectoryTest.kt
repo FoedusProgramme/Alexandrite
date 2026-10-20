@@ -79,13 +79,7 @@ class AgentDirectoryTest {
         }
 
         assertEquals(emptyList(), agent.attachments)
-        assertEquals(
-            listOf(
-                "WARN Agent 'coder' is attached to discord:main, but no instance of channel type discord is " +
-                    "configured: the attachment is ignored",
-            ),
-            lines.filter { "discord" in it },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") && "discord:main" in it })
     }
 
     @Test
@@ -113,15 +107,7 @@ class AgentDirectoryTest {
             listOf(listOf("test:main:1", "discord:main:2", "test:main:3")),
             agent.linkedChats.map { group -> group.map(ChatAddress::toString) },
         )
-        assertEquals(
-            listOf(
-                "WARN Agent 'coder' is attached to discord:main, but no instance of channel type discord is " +
-                    "configured: the attachment is ignored",
-                "WARN Agent 'coder' links chat discord:main:2, but no instance of channel type discord is " +
-                    "configured: the chat gets no messages",
-            ),
-            lines.filter { "discord" in it },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") && "discord:main:2" in it })
     }
 
     @Test

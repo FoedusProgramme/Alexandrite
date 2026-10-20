@@ -57,8 +57,6 @@ internal class MemoryBotApi : BotApi {
 
     var clock: () -> Long = { 0 }
 
-    var webhook = ""
-
     /** Each send, edit and chat action, in order. */
     val sent = mutableListOf<SentCall>()
 
@@ -85,7 +83,7 @@ internal class MemoryBotApi : BotApi {
 
     override suspend fun getMe(): User = started("getMe") { me }
 
-    override suspend fun getWebhookInfo(): WebhookInfo = started("getWebhookInfo") { WebhookInfo(webhook) }
+    override suspend fun getWebhookInfo(): WebhookInfo = started("getWebhookInfo") { WebhookInfo("") }
 
     override suspend fun getUpdates(offset: Long?, limit: Int, timeoutSeconds: Int): List<Update> {
         offsets += offset

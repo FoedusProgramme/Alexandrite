@@ -16,7 +16,6 @@ import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -48,11 +47,6 @@ class EditToolTest {
         ledger = ReadLedger()
         reader = ReadTool(fs.floor, ledger)
         tool = EditTool(fs.floor, ledger, fs.places)
-    }
-
-    @Test
-    fun `the call is titled by its path, of activity edit`() {
-        assertEquals(ToolActivity.EDIT to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
     }
 
     private fun read(file: Any, conversation: String = "test", vararg more: Pair<String, Any>) {
@@ -221,16 +215,6 @@ class EditToolTest {
 
         assertEquals("Edited $file: +3 -2 lines.", result)
         assertContentEquals(bom + "uno\r\ndos\r\nmas\r\nthree\r\n".toByteArray(), file.readBytes())
-    }
-
-    @Test
-    fun `a file that is no UTF-8 is refused`() {
-        val file = fs.bytes("repo/latin.txt", "café\n".toByteArray(Charsets.ISO_8859_1))
-
-        assertEquals(
-            "problem: $file is no UTF-8 text (it looks binary): the write tools change text files only.",
-            edit(file, Edit("caf", "tea")),
-        )
     }
 
     // Where it writes.

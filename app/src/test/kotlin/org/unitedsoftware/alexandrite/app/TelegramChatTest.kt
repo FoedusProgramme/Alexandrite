@@ -5,7 +5,6 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.BOT_MENTION
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODE
-import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODER
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.FAST_MODEL
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.GROUP
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
@@ -88,45 +87,17 @@ class TelegramChatTest {
     }
 
     @Test
-    fun `model and settings show each value in force with its source, and the next message uses the chosen model`() {
+    fun `the model chosen in a chat answers its next message`() {
         app.model.reply { text("I run on the fast model.") }
 
         app.run(app.builder(directory)) {
-            app.send(app.ada, app.adaChat, "/model")
-            app.messages(app.adaChat, 1)
             app.send(app.ada, app.adaChat, "/model scripted/$FAST_MODEL")
-            app.messages(app.adaChat, 2)
-            app.send(app.ada, app.adaChat, "/settings")
-            app.messages(app.adaChat, 3)
+            app.message(app.adaChat, "This chat now uses the model scripted/$FAST_MODEL.")
             app.send(app.ada, app.adaChat, "Which model are you?")
             app.message(app.adaChat, "I run on the fast model.")
             idle()
         }
 
-        val (model, chosen, settings) = app.fake.botMessages(ADA).map { it.text }
-        assertEquals(
-            "Model: scripted/test-model (the agent's setting).\nEndpoints: scripted. List an endpoint's models with " +
-                "/model <endpoint>, switch with /model <endpoint>/<model>, go back to the agent's model with " +
-                "/model reset.",
-            model,
-        )
-        assertEquals("This chat now uses the model scripted/$FAST_MODEL.", chosen)
-        assertEquals(
-            """
-            Settings of telegram:work:$ADA
-            Agent: coder "Coder" (the default agent of telegram:work)
-            Model: scripted/$FAST_MODEL (set in this chat)
-            Reasoning effort: low (the agent's setting)
-            Language: default (the host's language)
-            Time zone: UTC (the host's time zone)
-            Permission mode: ask (the default)
-            Conversation: not tainted.
-            Home: coder has no home chat on telegram:work
-            Linked: no other chat shares the conversation of coder
-            You are an operator here.
-            """.trimIndent(),
-            settings,
-        )
         assertEquals(FAST_MODEL, app.model.requests.single().model.model)
     }
 

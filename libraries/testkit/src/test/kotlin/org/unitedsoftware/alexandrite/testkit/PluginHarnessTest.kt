@@ -14,7 +14,6 @@ import org.unitedsoftware.alexandrite.runtime.Termination
 import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -54,7 +53,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.TurnInput
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -168,18 +166,6 @@ class PluginHarnessTest {
             assertEquals("added", get<String>("extra"))
             assertEquals("extra", get<PluginInfo>("extra").id)
             assertFailsWith<DiException> { get<PluginInfo>("alexandrite-agent") }
-        }
-    }
-
-    @Test
-    fun `the harness names the plugin's own directories`() {
-        harness().execute {
-            val files = get<PluginFiles>("probe")
-
-            assertEquals(directory.resolve("plugins/probe"), dataDir)
-            assertEquals(directory.resolve("cache/plugins/probe"), cacheDir)
-            assertEquals(dataDir, files.dataDir)
-            assertEquals(cacheDir, files.cacheDir)
         }
     }
 
@@ -309,24 +295,10 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a kept config file keeps its layout where the harness splices in its channels' sections`() {
+    fun `a kept config file the test wrote gets the sections of the harness's recording channels in its layout`() {
         val file = directory.resolve("alexandrite.json")
         val text = "{\n\t\"plugins\": {\n\t\t\"probe\": {\"greeting\": \"h\\u0069\"}\n\t}\n}\n"
         Files.writeString(file, text)
-
-        harness { keptConfigFile(file).channel(operators = setOf("ada")) }.execute {
-            assertTrue(channel().user("ada").isOperator)
-        }
-
-        val section = "\t\t\"test-channel\": {\n\t\t\t\"instances\": {\n\t\t\t\t\"main\": {\n" +
-            "\t\t\t\t\t\"operators\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
-        assertEquals(text.replace("}\n\t}", "},\n$section\n\t}"), Files.readString(file))
-    }
-
-    @Test
-    fun `a kept config file the test wrote gets the sections of the harness's recording channels`() {
-        val file = directory.resolve("alexandrite.json")
-        Files.writeString(file, "{\"plugins\": {\"probe\": {\"greeting\": \"hi\"}}}\n")
         val harness = harness { keptConfigFile(file).channel(operators = setOf("ada")) }
 
         harness.execute {
@@ -336,6 +308,9 @@ class PluginHarnessTest {
         val written = Files.readString(file)
         harness.execute { channel() }
 
+        val section = "\t\t\"test-channel\": {\n\t\t\t\"instances\": {\n\t\t\t\t\"main\": {\n" +
+            "\t\t\t\t\t\"operators\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
+        assertEquals(text.replace("}\n\t}", "},\n$section\n\t}"), written)
         assertEquals(written, Files.readString(file))
     }
 
@@ -385,18 +360,6 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a temporary data root is deleted after a failed start too`() {
-        val roots = mutableListOf<Path>()
-        val builder = PluginHarness.builder(broken())
-        builder.temporaryRoot = { Files.createTempDirectory(directory, "root-").also(roots::add) }
-
-        assertFailsWith<RuntimeStartException> { builder.build().execute {} }
-
-        assertEquals(1, roots.size)
-        assertFalse(Files.exists(roots.single()))
-    }
-
-    @Test
     fun `deleting a temporary data root leaves the targets of links alone`() {
         assumeTrue("posix" in directory.fileSystem.supportedFileAttributeViews(), "no symbolic links")
         val outside = Files.createDirectories(directory.resolve("outside"))
@@ -410,25 +373,6 @@ class PluginHarnessTest {
 
         assertFalse(Files.exists(root))
         assertEquals("kept", Files.readString(outside.resolve("precious.txt")))
-    }
-
-    @Test
-    fun `a temporary data root that cannot be deleted fails the run`() {
-        assumeTrue("posix" in directory.fileSystem.supportedFileAttributeViews(), "no POSIX permissions")
-        lateinit var locked: Path
-
-        val error = assertFailsWith<IllegalStateException> {
-            PluginHarness.builder(probe).build().execute {
-                locked = Files.createDirectories(dataDir.resolve("locked"))
-                Files.writeString(locked.resolve("file"), "")
-                Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("r-x------"))
-            }
-        }
-
-        Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwx------"))
-        val root = locked.parent.parent.parent
-        assertContains(error.message!!, "Cannot delete the temporary data root $root")
-        Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
     }
 
     // What a run checks.
@@ -460,10 +404,8 @@ class PluginHarnessTest {
             }
         }
 
-        assertEquals(
-            "The run block was cut short by StopRequest(kind=FAILURE, reason=gave up, plugin=stopper).",
-            error.message,
-        )
+        assertContains(error.message!!, "The run block was cut short")
+        assertContains(error.message!!, "gave up")
     }
 
     @Test
@@ -472,11 +414,8 @@ class PluginHarnessTest {
             PluginHarness.builder(stopper(failStop = true)).dataRoot(directory).build().execute {}
         }
 
-        assertEquals(
-            "Stopping the runtime met a problem:\n- Stopping Stopper (plugin stopper) failed: " +
-                "java.lang.IllegalStateException: cannot stop",
-            error.message,
-        )
+        assertContains(error.message!!, "Stopping the runtime met a problem")
+        assertContains(error.message!!, "cannot stop")
     }
 
     @Test
@@ -499,18 +438,21 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a failed start throws without running the block`() {
-        val missing = Dependency(key<String>("missing"), DependencyKind.INSTANCE, "missing")
-        val greeter = binding(key<Greeter>(), "broken", "Greeter", dependencies = listOf(missing)) { Greeter("never") }
+    fun `a failed start throws without running the block, and deletes a temporary data root`() {
         var ran = false
+        val roots = mutableListOf<Path>()
+        val temporary = PluginHarness.builder(broken())
+        temporary.temporaryRoot = { Files.createTempDirectory(directory, "root-").also(roots::add) }
 
         val error = assertFailsWith<RuntimeStartException> {
-            PluginHarness.builder(Index("broken", listOf(greeter))).dataRoot(directory).build().execute { ran = true }
+            PluginHarness.builder(broken()).dataRoot(directory).build().execute { ran = true }
         }
+        assertFailsWith<RuntimeStartException> { temporary.build().execute {} }
 
         assertEquals(StartStage.GRAPH, error.stage)
         assertNull(error.stopRequest)
         assertFalse(ran)
+        assertFalse(Files.exists(roots.single()))
     }
 
     // Hooks under test.

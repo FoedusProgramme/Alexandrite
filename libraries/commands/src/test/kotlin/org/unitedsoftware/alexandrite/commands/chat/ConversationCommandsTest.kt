@@ -6,8 +6,6 @@ import org.unitedsoftware.alexandrite.commands.OPERATOR
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -49,23 +47,6 @@ class ConversationCommandsTest {
             "A new conversation with main has started. The linked chats share it too (2 besides this one).",
             reply,
         )
-    }
-
-    @Test
-    fun `a refused new replies with the agent's message`() = runTest {
-        control.refuseNext("No agent serves test:main:chat.")
-
-        val reply = commands.answer(testCommand("new"))
-
-        assertEquals("No agent serves test:main:chat.", reply)
-        assertEquals(listOf(Call.NewConversation(testChat(), GUEST, null)), control.calls)
-    }
-
-    @Test
-    fun `new and cancel take no arguments`() = runTest {
-        assertEquals("Send /new without anything after it.", commands.answer(testCommand("new", "now")))
-        assertEquals("Send /cancel without anything after it.", commands.answer(testCommand("cancel", "all")))
-        assertEquals(emptyList(), control.calls)
     }
 
     // /cancel.

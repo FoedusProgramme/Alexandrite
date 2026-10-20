@@ -99,7 +99,7 @@ class EndToEndTest {
     }
 
     @Test
-    fun `plugin code needs an opt-in to use the container, while its generated index opts in itself`() {
+    fun `plugin code needs an opt-in to use the container or implement its scope, while its index opts in itself`() {
         val uses = source(
             "Uses.kt",
             """
@@ -110,18 +110,6 @@ class EndToEndTest {
             fun build(): Container = Container.build(emptyList())
             """.trimIndent(),
         )
-
-        compile(workingDir, uses, entry("sample")).use { compiled ->
-            val errors = compiled.messages.lines().filter { it.startsWith("e: ") }
-
-            assertFalse(compiled.succeeded)
-            assertTrue(errors.isNotEmpty(), compiled.messages)
-            assertTrue(errors.all { "Uses.kt" in it && "Internal Alexandrite API" in it }, compiled.messages)
-        }
-    }
-
-    @Test
-    fun `plugin code needs an opt-in to implement the plugin scope`() {
         val implements = source(
             "Scope.kt",
             """
@@ -136,12 +124,12 @@ class EndToEndTest {
             """.trimIndent(),
         )
 
-        compile(workingDir, implements, entry("sample")).use { compiled ->
+        compile(workingDir, uses, implements, entry("sample")).use { compiled ->
             val errors = compiled.messages.lines().filter { it.startsWith("e: ") }
 
             assertFalse(compiled.succeeded)
-            assertTrue(errors.isNotEmpty(), compiled.messages)
-            assertTrue(errors.all { "Scope.kt" in it && "Internal Alexandrite API" in it }, compiled.messages)
+            assertTrue(errors.all { "Internal Alexandrite API" in it }, compiled.messages)
+            assertTrue(listOf("Uses.kt", "Scope.kt").all { file -> errors.any { file in it } }, compiled.messages)
         }
     }
 }

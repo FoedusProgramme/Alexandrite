@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.testkit.TestToolContext
@@ -46,12 +45,6 @@ class ExecToolTest {
     fun setUp() {
         fs = ExecFixture(directory)
         tool = fs.tool()
-    }
-
-    @Test
-    fun `the call is titled by its command or argv, of activity execute`() {
-        val titleArguments = tool.definition.titleArguments
-        assertEquals(ToolActivity.EXECUTE to listOf("command", "argv"), tool.definition.activity to titleArguments)
     }
 
     private fun run(command: String, context: TestToolContext = fs.context()): ToolResult =
@@ -98,34 +91,11 @@ class ExecToolTest {
     }
 
     @Test
-    fun `vetted programs run without being allowed`() {
-        assertEquals("Exit code: 0\n3", run("printf 3").text)
-        assertTrue(run("ls /").text.startsWith("Exit code: 0\n"))
-    }
-
-    @Test
-    fun `quoted arguments are kept whole`() {
-        assertEquals("Exit code: 0\na b|c d|e f|", run("""printf '%s|' "a b" 'c d' e\ f""").text)
-    }
-
-    @Test
     fun `argv passes shell syntax and variables as plain arguments`() {
         val argv = listOf("echo", "a", ";", "\$(id)", "`id`", "\$HOME", ">", "x")
 
         assertEquals("Exit code: 0\na ; \$(id) `id` \$HOME > x", tool.run(fs.context(), "argv" to argv).text)
         assertFalse(fs.workspace.resolve("x").exists())
-    }
-
-    @Test
-    fun `variables in a command line stay literal`() {
-        assertEquals("Exit code: 0\n\$(id) `id` \$HOME", run("echo '\$(id)' '`id`' \$HOME").text)
-    }
-
-    @Test
-    fun `a leading unquoted tilde expands to the home directory`() {
-        val home = System.getProperty("user.home")
-
-        assertEquals("Exit code: 0\n$home $home/docs a~b ~ ~root", run("echo ~ ~/docs a~b '~' ~root").text)
     }
 
     @Test

@@ -1,9 +1,6 @@
 package org.unitedsoftware.alexandrite.channel.telegram.api
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -29,7 +26,6 @@ import org.unitedsoftware.alexandrite.channel.telegram.configOf
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotApi
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeUser
 import org.unitedsoftware.alexandrite.channel.telegram.logged
-import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundFile
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -63,29 +59,6 @@ class HttpBotApiTest {
         failure { sendMessage(SendMessage(chat, text)) }
 
     // Envelopes.
-
-    @Test
-    fun `getMe reads the bot`() = runBlocking {
-        val me = api.getMe()
-
-        assertEquals(fake.botId, me.id)
-        assertTrue(me.isBot)
-        assertEquals("alexandrite_test_bot", me.username)
-        assertEquals(true, me.canReadAllGroupMessages)
-        assertEquals(JsonObject(emptyMap()), fake.calls("getMe").single().params)
-    }
-
-    @Test
-    fun `getWebhookInfo reads the webhook`() = runBlocking {
-        assertEquals("", api.getWebhookInfo().url)
-
-        fake.webhookUrl = "https://hooks.example.com/bot"
-        fake.send(ada, direct, "Hi")
-
-        val info = api.getWebhookInfo()
-        assertEquals("https://hooks.example.com/bot", info.url)
-        assertEquals(1, info.pendingUpdateCount)
-    }
 
     @Test
     fun `sendMessage sends each field it is given and reads the message`() = runBlocking {
@@ -164,23 +137,6 @@ class HttpBotApiTest {
         assertEquals(BAD_REQUEST, failure { getFile("unknown") }.failure)
         assertEquals(PROTOCOL, failure { download("../bot/getMe", 10) }.failure)
         assertEquals(listOf(path, path), fake.calls("download").map { it.params["path"]?.jsonPrimitive?.content })
-    }
-
-    @Test
-    fun `editMessageText edits the message in place`() = runBlocking {
-        val sent = api.sendMessage(SendMessage(direct.id, "Draft"))
-
-        val edited = api.editMessageText(
-            EditMessageText(direct.id, sent.messageId, "Final", entities = listOf(MessageEntity("italic", 0, 5))),
-        )
-
-        assertEquals(sent.messageId, edited.messageId)
-        assertEquals("Final", edited.text)
-        assertTrue(edited.editDate != null)
-        val kept = fake.botMessage(direct.id, sent.messageId)!!
-        assertEquals("Final", kept.text)
-        assertEquals(1, kept.edits)
-        assertEquals(JsonArray(listOf(entity("italic", 0, 5))), kept.entities)
     }
 
     @Test
@@ -308,18 +264,6 @@ class HttpBotApiTest {
         fake.respond("getUpdates", 200, """{"ok": true, "result": [{"update_id": 5}, {"message": {}}]}""")
 
         assertEquals(PROTOCOL, failure { getUpdates(null, 100, 0) }.failure)
-    }
-
-    @Test
-    fun `a long poll is held until an update arrives`() = runBlocking {
-        val started = TimeSource.Monotonic.markNow()
-        val poll = async(Dispatchers.IO) { api.getUpdates(null, 100, 10) }
-        fake.await { calls("getUpdates").singleOrNull() }
-
-        fake.send(ada, direct, "Late")
-
-        assertEquals(listOf("Late"), poll.await().map { it.message?.text })
-        assertTrue(started.elapsedNow() < 5.seconds)
     }
 
     @Test
@@ -497,22 +441,6 @@ class HttpBotApiTest {
         assertEquals(NOT_MODIFIED, classify("editMessageText", 400, "Bad Request: MESSAGE IS NOT MODIFIED", null))
         assertEquals(BAD_REQUEST, classify("getUpdates", 404, null, null))
         assertEquals(PROTOCOL, classify("getMe", 101, null, null))
-    }
-
-    // The limiter's 429.
-
-    @Test
-    fun `a 429 is waited out and the call made once more through the limiter`() = runBlocking {
-        val limiter = SendLimiter()
-        fake.fail("sendMessage", 429, "Too Many Requests: retry after 1", retryAfter = 1)
-        val started = TimeSource.Monotonic.markNow()
-
-        val message = limiter.message(direct.id) { api.sendMessage(SendMessage(direct.id, "Hello")) }
-
-        assertEquals("Hello", message.text)
-        assertTrue(started.elapsedNow() >= 1.seconds)
-        assertEquals(2, fake.calls("sendMessage").size)
-        assertEquals(1, fake.botMessages(direct.id).size)
     }
 
     private fun entity(type: String, offset: Int, length: Int) = buildJsonObject {

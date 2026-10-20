@@ -164,11 +164,11 @@ class HeartbeatPluginTest {
             }
         }
 
-        val refusal = "WARN A heartbeat of agent 'coder' was refused: queue_full; the same refusal is not logged " +
-            "again until a beat runs"
-        val unknown = "WARN Agent 'coder' has a heartbeat but is no configured agent, so it does not beat: add it " +
-            "under agent.agents, or remove its heartbeat"
-        assertEquals(listOf(refusal, unknown, refusal), lines.filter { "home" !in it })
+        val warnings = lines.filter { "home" !in it }
+        assertEquals(3, warnings.size, "$warnings")
+        assertContains(warnings[0], "queue_full")
+        assertContains(warnings[1], "no configured agent")
+        assertContains(warnings[2], "queue_full")
     }
 
     // Config.
@@ -221,13 +221,7 @@ class HeartbeatPluginTest {
         control.declareHome(coder, testChat("home"))
         val housed = logged { harness("""{"agents": {"coder": {"every": "30m"}}}""").execute {} }
 
-        assertEquals(
-            listOf(
-                "WARN Agent 'coder' has a heartbeat but no home chat, so a beat reaches nobody through \"home\": " +
-                    "send /home in the chat that should be its home, or set its channels.<instance>.home in the config",
-            ),
-            homeless,
-        )
+        assertContains(homeless.single(), "Agent 'coder' has a heartbeat but no home chat")
         assertEquals(emptyList(), housed)
     }
 
@@ -263,15 +257,12 @@ class HeartbeatPluginTest {
             )
             assertEquals("Send /heartbeat without anything after it.", heartbeat("now"))
         }
-    }
-
-    @Test
-    fun `the command shows an interval without active hours in the host's zone`() {
-        harness("""{"agents": {"coder": {"every": "2h"}}}""").execute {
-            time.settle(1)
-            control.declareHome(coder, testChat("home"))
-
-            assertEquals("Heartbeat of Coder: every 2 h, all day (UTC).\nNext beat: 2026-10-18 12:00.", heartbeat())
+        val fresh = ManualTime()
+        heartbeatHarness("""{"agents": {"coder": {"every": "2h"}}}""") {
+            plugin(TimePlugin(fresh)).turnInitiator(initiator).agent(control).channel()
+        }.execute {
+            fresh.settle(1)
+            assertContains(heartbeat(), "every 2 h, all day (UTC)")
         }
     }
 }

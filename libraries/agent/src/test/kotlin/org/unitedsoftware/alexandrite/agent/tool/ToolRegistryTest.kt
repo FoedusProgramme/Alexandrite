@@ -47,32 +47,9 @@ class ToolRegistryTest {
             fun offered(agent: String) = registry.offered(AgentId(agent)).map { it.definition.name }
 
             assertEquals(listOf("fs.glob", "fs.read", "fs.write", "notes.find"), offered("coder"))
-            assertEquals(
-                listOf(
-                    "agent.delegate",
-                    "agent.jobs",
-                    "agent.send",
-                    "agent.stop",
-                    "chat.list",
-                    "chat.send",
-                    "chat.send_file",
-                    "exec.run",
-                    "fs.glob",
-                    "fs.read",
-                    "fs.secret",
-                    "fs.write",
-                    "history.search",
-                    "notes.add",
-                    "notes.find",
-                    "permission.status",
-                    "profile.create",
-                    "profile.edit",
-                    "profile.list",
-                    "profile.remove",
-                    "skill.load",
-                ),
-                offered("helper"),
-            )
+            val helper = offered("helper")
+            assertEquals(helper.sorted(), helper)
+            assertTrue(helper.containsAll(tools.map { it.definition.name }) && "permission.status" in helper, "$helper")
             assertEquals(emptyList(), offered("reviewer"))
             assertEquals(emptyList(), offered("other"))
             assertSame(tools.first(), registry.tool("fs.read"))

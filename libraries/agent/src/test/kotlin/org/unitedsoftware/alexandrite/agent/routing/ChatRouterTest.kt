@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.testRecords
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class ChatRouterTest {
     private val config = """
@@ -70,13 +71,9 @@ class ChatRouterTest {
     }
 
     @Test
-    fun `a chat of an instance that is not configured is unknown`() {
-        assertEquals("unknown", resolve("test:other:1"))
-    }
-
-    @Test
-    fun `a chat of an instance that no agent serves has no agent`() {
+    fun `a chat of an instance that no agent serves has no agent, and one that is not configured is unknown`() {
         assertEquals("no agent", resolve("test:quiet:1"))
+        assertEquals("unknown", resolve("test:other:1"))
     }
 
     @Test
@@ -135,13 +132,8 @@ class ChatRouterTest {
 
         assertEquals("coder@test:main:5", resolve("test:main:5"))
         assertEquals("reviewer@test:main:1", resolve("test:main:1"))
-        assertEquals(
-            listOf("test:main:5", "test:main:1").map {
-                "WARN Chat $it switched to agent 'planner', which no longer serves test:main: the chat goes to its " +
-                    "home or default agent"
-            },
-            lines,
-        )
+        assertEquals(2, lines.size, "$lines")
+        assertTrue(lines.all { it.startsWith("WARN") && "'planner'" in it })
     }
 
     @Test

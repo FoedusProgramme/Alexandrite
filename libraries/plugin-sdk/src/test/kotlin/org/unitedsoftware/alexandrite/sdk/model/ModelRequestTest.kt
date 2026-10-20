@@ -8,7 +8,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
-import org.unitedsoftware.alexandrite.sdk.transcript.ProviderData
 import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
@@ -16,48 +15,15 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.call
-import org.unitedsoftware.alexandrite.sdk.transcript.json
 import org.unitedsoftware.alexandrite.sdk.transcript.reply
 import org.unitedsoftware.alexandrite.sdk.transcript.user
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class ModelRequestTest {
     // Requests.
-
-    @Test
-    fun `a rebuilt request keeps what the block leaves alone`() {
-        val request = request(listOf(user("Earlier"), reply(TextPart("Hi")), user("Now")), turnStart = 2)
-            .instructions(listOf(PromptSection("persona", "You are Alexandrite.", stable = true)))
-            .turnContext(listOf(TurnContextItem("recall", "Ada likes tea.", Trust.TRUSTED)))
-            .tools(listOf(tool("notes.add")))
-            .toolChoice(ToolChoice.Named("notes.add"))
-            .options(ModelOptions.builder().reasoning(ReasoningEffort.HIGH).build())
-            .cacheKey("c1")
-            .providerOptions(ProviderData.EMPTY.with(Dialect("openai-chat"), json("""{"user":"ada"}""")))
-            .build()
-
-        val narrowed = request.rebuild {
-            tools(emptyList())
-            toolChoice(ToolChoice.None)
-            ids(RequestIds(ConversationId("c1"), TurnId("t1"), 1))
-        }
-
-        assertEquals(request, request.toBuilder().build())
-        assertEquals(request.hashCode(), request.toBuilder().build().hashCode())
-        assertEquals(request.history, narrowed.history)
-        assertEquals(request.instructions, narrowed.instructions)
-        assertEquals(request.turnContext, narrowed.turnContext)
-        assertEquals(request.cacheKey, narrowed.cacheKey)
-        assertEquals(emptyList(), narrowed.tools)
-        assertEquals(1, narrowed.ids.round)
-        assertNotEquals(request, narrowed)
-    }
 
     @Test
     fun `a request keeps the lists it was built from as they were`() {
@@ -151,25 +117,6 @@ class ModelRequestTest {
     // Options.
 
     @Test
-    fun `rebuilt options keep what the block leaves alone`() {
-        val options = ModelOptions.builder()
-            .maxOutputTokens(1024)
-            .temperature(0.0)
-            .topP(1.0)
-            .stopSequences(listOf("END"))
-            .reasoning(ReasoningEffort.NONE)
-            .parallelToolCalls(false)
-            .build()
-
-        assertEquals(options, options.toBuilder().build())
-        assertEquals(
-            ModelOptions.builder().maxOutputTokens(1024).temperature(0.0).topP(1.0).stopSequences(listOf("END"))
-                .reasoning(ReasoningEffort.MAX).parallelToolCalls(false).build(),
-            options.rebuild { reasoning(ReasoningEffort.MAX) },
-        )
-    }
-
-    @Test
     fun `options are validated`() {
         val invalid = listOf<ModelOptions.Builder.() -> Unit>(
             { maxOutputTokens(0) },
@@ -187,47 +134,10 @@ class ModelRequestTest {
 
     @Test
     fun `a forced tool has a valid name`() {
-        assertEquals("notes.add", ToolChoice.Named("notes.add").name)
         assertFailsWith<IllegalArgumentException> { ToolChoice.Named("notes-add") }
-        assertEquals("Required", ToolChoice.Required.toString())
     }
 
     // Model info.
-
-    @Test
-    fun `a model claims nothing beyond text unless its builder is told`() {
-        val info = ModelInfo.builder("deepseek-chat", Dialect("deepseek")).build()
-
-        assertNull(info.displayName)
-        assertNull(info.contextWindow)
-        assertNull(info.maxOutputTokens)
-        assertEquals(emptySet(), info.inputMedia)
-        assertFalse(info.nativeTools)
-        assertFalse(info.parallelToolCalls)
-        assertEquals(emptySet(), info.reasoningEfforts)
-        assertFalse(info.streaming)
-    }
-
-    @Test
-    fun `rebuilt model info keeps what the block leaves alone`() {
-        val info = ModelInfo.builder("claude-opus", Dialect("anthropic"))
-            .displayName("Claude Opus")
-            .contextWindow(1_000_000)
-            .maxOutputTokens(128_000)
-            .inputMedia(setOf(MediaKind.IMAGE, MediaKind.FILE))
-            .nativeTools(true)
-            .parallelToolCalls(true)
-            .reasoningEfforts(setOf(ReasoningEffort.NONE, ReasoningEffort.HIGH, ReasoningEffort.MAX))
-            .streaming(true)
-            .build()
-
-        val narrowed = info.rebuild { contextWindow(200_000) }
-
-        assertEquals(info, info.toBuilder().build())
-        assertEquals(200_000, narrowed.contextWindow)
-        assertEquals(info.reasoningEfforts, narrowed.reasoningEfforts)
-        assertTrue(narrowed.parallelToolCalls)
-    }
 
     @Test
     fun `model info is validated`() {

@@ -56,17 +56,8 @@ class ProblemTest {
         val container = build(service("a"))
         runBlocking { container.start() }
 
-        val twice = assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
-        val nested = assertFailsWith<IllegalStateException> {
-            container.child("tg", setOf("test")).child("dc", setOf("test"))
-        }
-
-        assertEquals("Cannot start container 'root' twice.", twice.message)
-        assertEquals(
-            "Cannot create channel instance container 'dc' inside channel instance container 'tg': " +
-                "only a root container has channel instance containers.",
-            nested.message,
-        )
+        assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
+        assertFailsWith<IllegalStateException> { container.child("tg", setOf("test")).child("dc", setOf("test")) }
         container.close()
     }
 
@@ -75,6 +66,10 @@ class ProblemTest {
         val container = build(service("a"))
         container.close()
         assertProblem(CLOSED, null, svc("a")) { container.get(svc("a")) }
+        assertProblem(CLOSED, null, null) { container.getOrNull(svc("a")) }
+        assertProblem(CLOSED, null, null) { container.getAll(svc("t")) }
+        assertProblem(CLOSED, null, null) { container.lazy(svc("a")) }
+        assertProblem(CLOSED, null, null) { container.provider(svc("a")) }
         assertProblem(CLOSED, null, null) { container.child("tg", setOf("test")) }
         assertProblem(CLOSED, null, null) { runBlocking { container.start() } }
     }

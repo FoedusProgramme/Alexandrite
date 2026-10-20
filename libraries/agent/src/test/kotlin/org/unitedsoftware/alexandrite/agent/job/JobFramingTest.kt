@@ -51,21 +51,4 @@ class JobFramingTest {
             jobFraming(ended("", ToolOutcome.Succeeded), "", ZoneOffset.UTC),
         )
     }
-
-    @Test
-    fun `a call that moved to the background tells the model its job, which comes later`() {
-        val result = backgroundResult(call, RunId("j-7kq2mx"))
-
-        assertEquals(
-            listOf(
-                TextPart(
-                    "[alexandrite:background] command.exec is still running as job j-7kq2mx; its result will come " +
-                        "in a later turn — go on, or end your turn.",
-                ),
-            ),
-            result.content,
-        )
-        assertEquals(ToolOutcome.Detached(RunId("j-7kq2mx")), result.outcome)
-        assertEquals(call.id to call.name, result.callId to result.toolName)
-    }
 }

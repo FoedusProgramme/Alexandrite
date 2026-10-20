@@ -126,17 +126,6 @@ class ReplyStreamTest {
     }
 
     @Test
-    fun `a paused round's text is followed by a new segment too`() = runTest {
-        val stream = stream(interval = 0)
-
-        stream.text("Here goes.")
-        stream.nextSegment()
-        stream.text("The rest.")
-
-        assertEquals(listOf("preview 0 Here goes.", "start 1", "preview 1 The rest."), sink.calls)
-    }
-
-    @Test
     fun `a tool call flushes the round's held-back text at once`() = runTest {
         val stream = stream()
 
@@ -206,7 +195,7 @@ class ReplyStreamTest {
     }
 
     @Test
-    fun `a preview the sink fails is logged and the stream goes on`() {
+    fun `a preview the sink fails with an exception or an error is logged and the stream goes on`() {
         sink.failing = true
         val stream = stream(interval = 0)
 
@@ -214,27 +203,15 @@ class ReplyStreamTest {
             blocking {
                 stream.text("Hel")
                 stream.text("lo")
+                sink.failing = false
+                sink.error = NotImplementedError("Not yet.")
+                stream.text("!")
             }
         }
 
         assertTrue(stream.shown)
-        assertEquals(
-            List(2) { "WARN A preview of turn t-1 did not reach its chat: java.lang.IllegalStateException: Gone." },
-            lines,
-        )
-    }
-
-    @Test
-    fun `a preview the sink fails with an error is logged and the stream goes on`() {
-        sink.error = NotImplementedError("Not yet.")
-        val stream = stream(interval = 0)
-
-        val lines = logged { blocking { stream.text("Hel") } }
-
-        assertEquals(
-            listOf("WARN A preview of turn t-1 did not reach its chat: kotlin.NotImplementedError: Not yet."),
-            lines,
-        )
+        assertEquals(3, lines.count { it.startsWith("WARN") && "turn t-1" in it })
+        assertTrue("NotImplementedError" in lines.last())
     }
 
     @Test

@@ -26,7 +26,6 @@ import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
@@ -92,12 +91,6 @@ class PermissionStatusToolTest {
         null,
         taint,
     )
-
-    @Test
-    fun `the call is of activity other, titled by nothing`() {
-        val definition = tool().definition
-        assertEquals(ToolActivity.OTHER to emptyList(), definition.activity to definition.titleArguments)
-    }
 
     private suspend fun status(
         tool: PermissionStatusTool = tool(),

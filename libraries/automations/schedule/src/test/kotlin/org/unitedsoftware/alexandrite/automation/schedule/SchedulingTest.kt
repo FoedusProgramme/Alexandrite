@@ -217,20 +217,30 @@ class SchedulingTest {
     }
 
     @Test
-    fun `a refused turn is reported and does not stop the task`() = test {
-        val schedule = opened()
-        val id = schedule.make(mapOf("every" to "1h"))
-        schedule.initiator.recording.refuseNext(RefusalReason.QUEUE_FULL, queueCapacity = 5)
+    fun `a refused turn is reported and does not stop the task, also for a chat still unknown after the start`() =
+        test {
+            val schedule = opened()
+            val unknown = schedule.make(mapOf("in" to "10m"))
+            val id = schedule.make(mapOf("every" to "1h"))
+            schedule.initiator.recording.refuseNext(RefusalReason.UNKNOWN_CHAT)
+            schedule.initiator.recording.refuseNext(RefusalReason.QUEUE_FULL, queueCapacity = 5)
 
-        schedule.advance(1.hours)
+            schedule.advance(1.hours)
 
-        assertEquals(
-            listOf("Scheduled task $id, due at 2026-10-18 19:00 +08:00, could not run (queue_full): Check the build."),
-            schedule.notices,
-        )
-        schedule.advance(1.hours)
-        assertEquals(listOf(false, true), schedule.initiator.recording.results.map { it is Admission.Accepted })
-    }
+            assertEquals(
+                listOf(
+                    "Scheduled task $unknown, due at 2026-10-18 18:10 +08:00, could not run (unknown_chat): " +
+                        "Check the build.",
+                    "Scheduled task $id, due at 2026-10-18 19:00 +08:00, could not run (queue_full): Check the build.",
+                ),
+                schedule.notices,
+            )
+            schedule.advance(1.hours)
+            assertEquals(
+                listOf(false, false, true),
+                schedule.initiator.recording.results.map { it is Admission.Accepted },
+            )
+        }
 
     @Test
     fun `a turn refused as the agent shuts down is replayed after the restart`() = test {
@@ -273,23 +283,6 @@ class SchedulingTest {
 
         assertEquals(1, second.initiator.tickets.size)
         assertEquals(emptyList(), second.notices)
-    }
-
-    @Test
-    fun `a chat still unknown a while after the start is reported`() = test {
-        val schedule = opened()
-        val id = schedule.make(mapOf("in" to "10m"))
-        schedule.initiator.recording.refuseNext(RefusalReason.UNKNOWN_CHAT)
-
-        schedule.advance(10.minutes)
-
-        assertEquals(
-            listOf(
-                "Scheduled task $id, due at 2026-10-18 18:10 +08:00, could not run (unknown_chat): Check the build.",
-            ),
-            schedule.notices,
-        )
-        assertEquals(emptyList(), schedule.initiator.tickets)
     }
 
     @Test

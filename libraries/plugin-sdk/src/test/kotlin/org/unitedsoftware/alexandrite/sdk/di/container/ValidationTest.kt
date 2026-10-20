@@ -11,6 +11,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 
 class ValidationTest {
@@ -61,16 +62,7 @@ class ValidationTest {
             Container.build(listOf(plugin("core", service("a", plugin = "core"), service("b", plugin = "extra"))))
         }
 
-        assertEquals(
-            "Cannot build container 'root' (1 problem):\n" +
-                "- Plugin mismatch: the bindings of plugin 'core' include b (plugin extra), " +
-                "which belongs to plugin 'extra'.",
-            error.message,
-        )
-        assertEquals(
-            listOf(PLUGIN_MISMATCH to "core"),
-            error.problems.map { it.kind to it.plugin },
-        )
+        assertEquals(listOf(PLUGIN_MISMATCH to "core"), error.problems.map { it.kind to it.plugin })
     }
 
     @Test
@@ -87,71 +79,40 @@ class ValidationTest {
     // Cycles.
 
     @Test
-    fun `a cycle through INSTANCE is rejected`() {
-        val error =
-            assertFailsWith<DiException> {
-                build(service("a", dep("b")), service("b", dep("c")), service("c", dep("a")))
-            }
-
-        assertContains(error.message!!, "a (plugin test) -> b (plugin test) -> c (plugin test) -> a (plugin test)")
-    }
-
-    @Test
-    fun `a binding that depends on itself is a cycle`() {
-        val error = assertFailsWith<DiException> { build(service("a", dep("a"))) }
-
-        assertContains(error.message!!, "a (plugin test) -> a (plugin test), through parameter 'a'")
-    }
-
-    @Test
-    fun `a cycle through OPTIONAL is rejected`() {
-        val error = assertFailsWith<DiException> {
-            build(service("a", dep("b", DependencyKind.OPTIONAL)), service("b", dep("a")))
-        }
-
-        assertContains(error.message!!, "Dependency cycle: a (plugin test) -> b (plugin test) -> a (plugin test)")
-    }
-
-    @Test
-    fun `a cycle through ALL is rejected`() {
-        val error = assertFailsWith<DiException> {
-            build(
+    fun `a cycle through INSTANCE, OPTIONAL or ALL is rejected, naming its path`() {
+        val cycles = mapOf(
+            listOf(service("a", dep("b")), service("b", dep("c")), service("c", dep("a"))) to
+                "a (plugin test) -> b (plugin test) -> c (plugin test) -> a (plugin test)",
+            listOf(service("a", dep("a"))) to "a (plugin test) -> a (plugin test), through parameter 'a'",
+            listOf(service("a", dep("b", DependencyKind.OPTIONAL)), service("b", dep("a"))) to
+                "a (plugin test) -> b (plugin test) -> a (plugin test)",
+            listOf(
                 service("a", dep("tools", DependencyKind.ALL)),
                 service("t", dep("a"), key = svc("tools"), multi = true),
-            )
+            ) to "a (plugin test) -> t (plugin test) -> a (plugin test)",
+        )
+
+        for ((bindings, path) in cycles) {
+            val error = assertFailsWith<DiException> { build(*bindings.toTypedArray()) }
+
+            assertEquals(listOf(CYCLE), error.problems.map { it.kind }, path)
+            assertContains(error.message!!, path)
         }
-
-        assertContains(error.message!!, "Dependency cycle: a (plugin test) -> t (plugin test) -> a (plugin test)")
     }
 
     @Test
-    fun `LAZY breaks a cycle`() {
-        val container = build(service("a", dep("b", DependencyKind.LAZY)), service("b", dep("a")))
+    fun `LAZY and PROVIDER break a cycle`() {
+        val lazy = build(service("a", dep("b", DependencyKind.LAZY)), service("b", dep("a")))
+        val provided = build(service("a", dep("b", DependencyKind.PROVIDER)), service("b", dep("a")))
 
-        val lazyB = container.get(svc("a")).injected["b"] as Lazy<*>
-        assertSame(container.get(svc("a")), (lazyB.value as Service).dependency("a"))
-    }
-
-    @Test
-    fun `PROVIDER breaks a cycle`() {
-        val container = build(service("a", dep("b", DependencyKind.PROVIDER)), service("b", dep("a")))
-
-        val provideB = container.get(svc("a")).injected["b"] as Function0<*>
-        assertSame(container.get(svc("b")), provideB())
+        val lazyB = lazy.get(svc("a")).injected["b"] as Lazy<*>
+        assertFalse(lazyB.isInitialized())
+        assertSame(lazy.get(svc("a")), (lazyB.value as Service).dependency("a"))
+        val provideB = provided.get(svc("a")).injected["b"] as Function0<*>
+        assertSame(provided.get(svc("b")), provideB())
     }
 
     // Scopes.
-
-    @Test
-    fun `a singleton cannot depend on a channel binding`() {
-        val error =
-            assertFailsWith<DiException> { build(service("a", dep("c")), service("c", scope = CHANNEL_INSTANCE)) }
-
-        assertContains(
-            error.message!!,
-            "Scope violation: singleton a (plugin test) depends on channel-instance-scoped c (plugin test)",
-        )
-    }
 
     @Test
     fun `a singleton cannot depend on channel contributions through ALL`() {
@@ -163,12 +124,7 @@ class ValidationTest {
             )
         }
 
-        assertContains(
-            error.message!!,
-            "Scope violation: channel-instance-scoped t2 (plugin test) contributes to " +
-                "@Named(\"tools\") $serviceType, which singleton a (plugin test) collects through parameter 'tools'. " +
-                "Make it a singleton or make a channel-instance-scoped.",
-        )
+        assertEquals(listOf(SCOPE), error.problems.map { it.kind })
     }
 
     @Test

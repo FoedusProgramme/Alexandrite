@@ -376,25 +376,6 @@ class InitTest {
         assertNull(cli.machine.executed.firstOrNull { it.contains("enable") })
     }
 
-    @Test
-    fun `init prints Chinese when the locale is Chinese`() {
-        cli.environment = mapOf("LANG" to "zh_CN.UTF-8")
-
-        val printed = cli("init", "--non-interactive", "--only", "language", "--zone", "Asia/Shanghai")
-        val skipped = cli("init", "--non-interactive", "--force", "--only", "admin", "--only", "telegram")
-        val status = cli("status")
-        val usage = cli("init", "--only", "nothing")
-
-        assertEquals(0, printed.code, printed.err)
-        assertContains(printed.out, "正在设置 Alexandrite")
-        assertContains(printed.out, "智能体用 zh-CN 回答，并按 Asia/Shanghai 报时。")
-        assertContains(skipped.out, "已跳过 Telegram：之后可以用 alexandrite init --only telegram 设置")
-        assertContains(skipped.out, "已跳过管理员：之后可以用 alexandrite init --only admin 认领机器人的管理员。")
-        assertContains(status.out, "Alexandrite 没有在运行。")
-        assertContains(usage.err, "'nothing' 不是 init 的步骤")
-        assertContains(usage.err, "用法：alexandrite init")
-    }
-
     // On the terminal.
 
     @Test

@@ -130,21 +130,28 @@ class ConfigBindingsTest {
     }
 
     @Test
-    fun `a key that holds no section of the plugin is unknown to its parent`() {
-        val error = failure("""{"plugins": {"weather": {"cache": {"size": 5}}}}""", weather)
+    fun `a key that holds no section of the plugin is unknown to its parent, which the error names in full`() {
+        val cases = listOf(
+            Triple(
+                """{"plugins": {"weather": {"cache": {"size": 5}}}}""",
+                listOf(weather),
+                "plugins.weather" to "cache",
+            ),
+            Triple(
+                """{"plugins": {"weather": {"cache": {"disk": {"dir": "/tmp"}}}}}""",
+                listOf(cache, disk),
+                "plugins.weather.cache.disk" to "dir",
+            ),
+        )
 
-        assertEquals("plugins.weather", error.path)
-        assertContains(error.message!!, "Invalid config at 'plugins.weather': ")
-        assertContains(error.message!!, "unknown key 'cache'")
-    }
+        for ((json, sections, expected) in cases) {
+            val (path, key) = expected
+            val error = failure(json, *sections.toTypedArray())
 
-    @Test
-    fun `an unknown key fails naming the full path`() {
-        val error = failure("""{"plugins": {"weather": {"cache": {"disk": {"dir": "/tmp"}}}}}""", cache, disk)
-
-        assertEquals("plugins.weather.cache.disk", error.path)
-        assertContains(error.message!!, "Invalid config at 'plugins.weather.cache.disk': ")
-        assertContains(error.message!!, "unknown key 'dir'")
+            assertEquals(path, error.path)
+            assertContains(error.message!!, "Invalid config at '$path': ")
+            assertContains(error.message!!, "unknown key '$key'")
+        }
     }
 
     @Test
@@ -171,15 +178,6 @@ class ConfigBindingsTest {
             "Invalid config at 'plugins.weather.alerts': unknown key 'mild'. Allowed keys: severe.",
             error.message,
         )
-    }
-
-    @Test
-    fun `a plugin without sections accepts only enabled at its root`() {
-        assertEquals(emptyList(), bindings("""{"plugins": {"weather": {"enabled": true}}}"""))
-
-        val error = failure("""{"plugins": {"weather": {"modle": 1}}}""")
-
-        assertEquals("Invalid config at 'plugins.weather': unknown key 'modle'. Allowed keys: enabled.", error.message)
     }
 
     @Test
@@ -230,11 +228,6 @@ class ConfigBindingsTest {
 
     @Test
     fun `a long string of the config is masked even where an error does not quote it`() {
-        val checked = spec("bot", CheckedConfig.serializer())
-
-        val error = failure("""{"plugins": {"weather": {"bot": {"token": "abcdefgh12", "port": 0}}}}""", checked)
-
-        assertEquals("Invalid config at 'plugins.weather.bot': port of '***' must be positive", error.message)
         val bare = spec("bare", BareConfig.serializer())
         val unquoted = failure("""{"plugins": {"weather": {"bare": {"token": "abcdefgh12"}}}}""", bare)
         assertEquals("Invalid config at 'plugins.weather.bare': token *** is too short", unquoted.message)

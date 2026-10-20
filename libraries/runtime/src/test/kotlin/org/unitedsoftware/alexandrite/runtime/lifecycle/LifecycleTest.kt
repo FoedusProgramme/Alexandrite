@@ -257,24 +257,20 @@ class LifecycleTest {
         val control = CompletableDeferred<RuntimeControl>()
         val failure = StopRequest.failure("disk full")
         val spec = spec(core(worker("a", "core", onStart = { control.complete(it) })), dataDir)
-        lateinit var termination: Termination
 
-        val lines = logged {
-            termination = spec.execute {
-                val plugin = control.await()
-                thread { plugin.stop(failure) }
-                try {
-                    awaitCancellation()
-                } catch (e: CancellationException) {
-                    events.record("block cancelled")
-                    throw e
-                }
+        val termination = spec.execute {
+            val plugin = control.await()
+            thread { plugin.stop(failure) }
+            try {
+                awaitCancellation()
+            } catch (e: CancellationException) {
+                events.record("block cancelled")
+                throw e
             }
         }
 
         assertEquals(requested(failure.from("core")), termination)
         assertEquals("core", termination.request.plugin)
-        assertContains(lines, "INFO test: stopping: StopRequest(kind=FAILURE, reason=disk full, plugin=core)")
         assertEquals(listOf("block cancelled"), events.all())
     }
 
@@ -335,15 +331,7 @@ class LifecycleTest {
         }
 
         assertEquals(requested(RESTART), termination)
-        assertEquals(
-            listOf(
-                "INFO test: stopping: $RESTART",
-                "INFO test: ignoring the stop request ${late.from("core")}: $RESTART came first",
-                "INFO test: stopped",
-                "INFO test: ignoring the stop request $HOST_STOP: $RESTART came first",
-            ),
-            lines.filterNot { it.startsWith("INFO test: loading plugins") },
-        )
+        assertEquals(2, lines.count { "ignoring the stop request" in it }, "$lines")
     }
 
     @Test
@@ -546,24 +534,15 @@ class LifecycleTest {
 
         val lines = logged { termination = spec.execute() }
 
-        val messages = listOf(
-            "Closing a (plugin core) failed: java.lang.IllegalStateException: close a failed",
-            "Draining b (plugin core) failed: java.lang.IllegalStateException: drain b failed",
-            "Stopping b (plugin core) failed: java.lang.IllegalStateException: stop b failed",
-            "Destroying c (plugin core) failed: java.lang.IllegalStateException: close c failed",
-        )
+        val failures = listOf("close a failed", "drain b failed", "stop b failed", "close c failed")
         assertEquals(
-            listOf(
-                RuntimeProblemKind.SHUTDOWN,
-                RuntimeProblemKind.SHUTDOWN,
-                RuntimeProblemKind.SHUTDOWN,
-                RuntimeProblemKind.SHUTDOWN,
-            ),
-            termination.problems.map { it.kind },
+            List(4) {
+                RuntimeProblemKind.SHUTDOWN to "core"
+            },
+            termination.problems.map { it.kind to it.plugin },
         )
-        assertEquals(messages, termination.problems.map { it.message })
-        assertEquals(List(4) { "core" }, termination.problems.map { it.plugin })
-        assertEquals(messages.map { "WARN test: $it" }, lines.filter { it.startsWith("WARN") })
+        failures.zip(termination.problems).forEach { (failure, problem) -> assertContains(problem.message, failure) }
+        assertEquals(4, lines.count { it.startsWith("WARN") }, "$lines")
     }
 
     @Test

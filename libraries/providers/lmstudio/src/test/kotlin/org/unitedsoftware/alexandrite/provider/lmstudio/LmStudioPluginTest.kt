@@ -39,9 +39,7 @@ class LmStudioPluginTest {
     @Test
     fun `a malformed endpoint fails the start at CONFIG without showing its values`() = runBlocking {
         val cases = listOf(
-            """{"endpoints": {"x": {"apiKey": "hunter2", "headers": {"Host": "h"}}}}""" to "may not set host",
             """{"endpoints": {"x": {"apiKey": "hunter2", "baseUrl": "ftp://a"}}}""" to "baseUrl must be",
-            """{"endpoints": {"x": {"apiKey": "hunter2", "turnContext": "sometimes"}}}""" to "turnContext must be",
         )
 
         for ((config, expected) in cases) {

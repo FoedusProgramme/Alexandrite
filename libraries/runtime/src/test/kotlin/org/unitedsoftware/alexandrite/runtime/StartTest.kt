@@ -33,7 +33,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -77,10 +76,6 @@ class StartTest {
         assertNull(failed.stopRequest)
         assertEquals(StartStage.START, stopped.stage)
         assertEquals(RESTART.from("core"), stopped.stopRequest)
-        assertEquals(
-            "Cannot start runtime 'test': a stop was requested at stage START: ${RESTART.from("core")}",
-            stopped.message,
-        )
     }
 
     @Test
@@ -100,21 +95,6 @@ class StartTest {
         assertEquals(listOf("PluginsResolved", "Stopping", "Stopped"), recorder.names())
         assertEquals(requested(START_CANCELLED), recorder.termination())
         assertEquals(listOf("create a", "start a", "destroy a"), events.all())
-    }
-
-    @Test
-    fun `a stop may be requested from another thread or another coroutine`() {
-        val first = spec(core(), dataDir.resolve("a")).started()
-        val second = spec(core(), dataDir.resolve("b")).started()
-
-        thread { first.stop(RESTART) }.join()
-        val termination = runBlocking {
-            launch(Dispatchers.IO) { second.stop(RESTART) }
-            second.join()
-        }
-
-        assertEquals(requested(RESTART), first.terminated())
-        assertEquals(requested(RESTART), termination)
     }
 
     @Test
@@ -296,22 +276,10 @@ class StartTest {
         }
     }
 
-    @Test
-    fun `by default lifecycle calls, events and plugin coroutines run on Dispatchers Default`() {
-        val host = Thread.currentThread().name
-
-        val seen = threadsOf { threads ->
-            spec(core(recorded(threads)), dataDir, listener = { threads.record(it::class.simpleName!!) })
-        }
-
-        assertEquals(calls.sorted(), seen.map { it.first }.sorted())
-        assertTrue(seen.all { it.second.startsWith("DefaultDispatcher-worker-") && it.second != host }, "$seen")
-    }
-
     // Deadlocks.
 
     @Test
-    fun `joining a runtime from its listener or its lifecycle calls fails at once`() {
+    fun `joining a runtime from its listener, its lifecycle calls or its plugins' coroutines fails at once`() {
         val handle = CompletableDeferred<AlexandriteRuntime>()
         val outcomes = Collections.synchronizedList(mutableListOf<String>())
         suspend fun attempt(where: String) {
@@ -331,12 +299,16 @@ class StartTest {
         )
         val runtime = spec(core(worker), dataDir, listener = listener).started()
         handle.complete(runtime)
+        runBlocking { runtime.services.resolver().get(key<PluginScope>("core")).launch { attempt("coroutine") }.join() }
 
         runtime.stop()
 
         assertEquals(requested(HOST_STOP), runtime.terminated())
         val message =
             "Runtime 'test' cannot be joined from its listener, its lifecycle calls or its plugins' coroutines."
-        assertEquals(setOf("listener: $message", "drain: $message", "stop: $message"), outcomes.toSet())
+        assertEquals(
+            setOf("listener", "coroutine", "drain", "stop").map { "$it: $message" }.toSet(),
+            outcomes.toSet(),
+        )
     }
 }

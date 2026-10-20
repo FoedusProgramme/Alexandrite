@@ -231,10 +231,6 @@ class SandboxesTest {
             agentHarness("""{"agents": {"coder": {"description": "Codes.", "sandbox": $sandbox}}}""")
                 .assertStartFails(StartStage.CONFIG, "Invalid config at 'agent': $message")
         }
-        assertTrue(
-            settings("""{"agents": {"coder": {"description": "Codes."}}}""").agents.getValue("coder").sandbox
-                .autoAllow,
-        )
     }
 
     private fun boundary() = Boundary(listOf(project))

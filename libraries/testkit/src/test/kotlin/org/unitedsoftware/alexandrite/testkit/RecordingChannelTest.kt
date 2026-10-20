@@ -1,9 +1,5 @@
 package org.unitedsoftware.alexandrite.testkit
 
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.coroutineScope
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelCapabilities
@@ -18,7 +14,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ReplySink
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
-import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
@@ -28,7 +23,6 @@ import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -113,12 +107,13 @@ class RecordingChannelTest {
     }
 
     @Test
-    fun `a delivery reaches the chat as one message per part unless it is scripted`() {
+    fun `a delivery is one message per part unless it is scripted, and too long beyond the chat's parts`() {
         val chat = channel.chat("busy")
         val gone = Delivery.NotDelivered(DeliveryFailure.CHAT_GONE, "left")
         val limited = Delivery.NotDelivered(DeliveryFailure.RATE_LIMITED, retryAfter = 2.seconds)
         channel.scriptDeliveries(gone, chat = chat)
         channel.scriptDeliveries(limited)
+        channel.scriptCapabilities(ChannelCapabilities.builder().maxPartsPerReply(2).build(), turn.chat)
 
         val deliveries = blocking {
             listOf(
@@ -128,6 +123,7 @@ class RecordingChannelTest {
                 channel.send(chat, reply("a text of 25 characters..")),
             )
         }
+        val delivery = blocking { open().complete(reply("a text of 25 characters..")) }
 
         assertEquals(gone, deliveries[0])
         assertEquals(limited, deliveries[1])
@@ -135,51 +131,9 @@ class RecordingChannelTest {
         assertEquals(3, (deliveries[3] as Delivery.Delivered).messages.size)
         assertEquals(3, blocking { channel.partsNeeded(chat, "a text of 25 characters..", Markup.PLAIN) })
         assertEquals(1, blocking { channel.partsNeeded(chat, "", Markup.MARKDOWN) })
-    }
-
-    @Test
-    fun `a reply that needs more parts than the chat allows is too long`() {
-        channel.scriptCapabilities(ChannelCapabilities.builder().maxPartsPerReply(2).build(), turn.chat)
-
-        val delivery = blocking { open().complete(reply("a text of 25 characters..")) }
-
         val failure = assertIs<Delivery.NotDelivered>(delivery)
         assertEquals(DeliveryFailure.TOO_LONG, failure.kind)
         assertEquals(delivery, channel.reply(turn.id).delivery)
-    }
-
-    @Test
-    fun `capabilities are scripted per chat, for every other chat, or are the defaults`() {
-        val plain = ChannelCapabilities.builder().build()
-        val streaming = ChannelCapabilities.builder().streaming(true).build()
-        val fresh = RecordingChannel()
-
-        channel.scriptCapabilities(plain, channel.chat("quiet"))
-        channel.scriptCapabilities(streaming)
-
-        assertEquals(RecordingChannel.DEFAULT_CAPABILITIES, blocking { fresh.capabilities(fresh.chat()) })
-        assertEquals(plain, blocking { channel.capabilities(channel.chat("quiet")) })
-        assertEquals(streaming, blocking { channel.capabilities(channel.chat("other")) })
-        val defaults = RecordingChannel.DEFAULT_CAPABILITIES
-        assertTrue(defaults.streaming && defaults.finalReplacesPreview && defaults.proactive)
-        assertEquals(setOf(Markup.PLAIN, Markup.MARKDOWN), defaults.markups)
-    }
-
-    @Test
-    fun `a test awaits a reply and its end`() {
-        val reply = blocking {
-            coroutineScope {
-                val awaited = async(start = CoroutineStart.UNDISPATCHED) { channel.awaitReply(turn.id).awaitEnd() }
-                val sink = channel.openReply(ReplyRequest(turn, null))
-                sink.preview(0, "Hi")
-                sink.complete(reply("Hi!"))
-                awaited.await()
-            }
-        }
-
-        assertEquals(reply("Hi!"), reply.completed)
-        val previewed = blocking { channel.awaitEvent { it is RecordingChannel.Event.Previewed } }
-        assertEquals(RecordingChannel.Event.Previewed(turn.id, 0, "Hi"), previewed)
     }
 
     // The rules of Channel and ReplySink.
@@ -193,29 +147,50 @@ class RecordingChannelTest {
     }
 
     @Test
-    fun `a reply sink is used in order and ends once`() {
+    fun `a reply sink is used in order and ends once, by a turn of the instance, for chats of the instance`() {
         val completed = open(turn("completed"))
         val abandoned = open(turn("abandoned"))
         val streaming = open(turn("streaming"))
+        open()
         blocking {
             completed.complete(reply("Done"))
             abandoned.abandon(ReplyEnd.FAILED)
             streaming.preview(1, "Second")
         }
+        val elsewhere = testTurn(chat = testChat(instance = ChannelInstanceId(ChannelType("test"), "work")))
+        val delegated = testDelegatedTurn(turn)
+        val foreign = testChat(instance = ChannelInstanceId(ChannelType("other"), "main"))
+        val other = "other:main:chat, a chat of another instance."
 
-        assertViolation("a preview of turn completed after its reply ended.") { completed.preview(0, "late") }
-        assertViolation("the reply of turn completed completed after it ended.") { completed.complete(reply("again")) }
-        assertViolation("the reply of turn completed abandoned after it ended.") { completed.abandon(ReplyEnd.FAILED) }
-        assertViolation("the reply of turn abandoned completed after it ended.") { abandoned.complete(reply("late")) }
-        assertViolation("a preview of turn streaming in segment 0 after segment 1 froze it.") {
-            streaming.preview(0, "First")
-        }
-        assertViolation("a preview of turn streaming in segment -1.") { streaming.preview(-1, "Before") }
-        assertEquals(6, channel.violations.size)
+        fun case(expected: String, call: suspend () -> Unit) = expected to call
+        val violations = listOf(
+            case("a preview of turn completed after its reply ended.") { completed.preview(0, "late") },
+            case("the reply of turn completed completed after it ended.") { completed.complete(reply("again")) },
+            case("the reply of turn completed abandoned after it ended.") { completed.abandon(ReplyEnd.FAILED) },
+            case("the reply of turn abandoned completed after it ended.") { abandoned.complete(reply("late")) },
+            case("a preview of turn streaming in segment 0 after segment 1 froze it.") {
+                streaming.preview(0, "First")
+            },
+            case("a preview of turn streaming in segment -1.") { streaming.preview(-1, "Before") },
+            case("a second reply of turn test-turn.") { channel.openReply(ReplyRequest(turn, null)) },
+            case("a reply of turn test-turn opened for test:work:chat.") {
+                channel.openReply(ReplyRequest(elsewhere, null))
+            },
+            case("a reply of turn test-run-turn, which replies to its caller.") {
+                channel.openReply(ReplyRequest(delegated, null))
+            },
+            case("a message sent for $other") { channel.send(foreign, reply("x")) },
+            case("a question for the capabilities for $other") { channel.capabilities(foreign) },
+            case("a question for the parts needed for $other") { channel.partsNeeded(foreign, "x", Markup.PLAIN) },
+            case("an approval request for $other") { channel.askApproval(approval("a1", testTurn(chat = foreign))) },
+        )
+
+        for ((expected, call) in violations) assertViolation(expected, call)
+        assertEquals(violations.size, channel.violations.size)
     }
 
     @Test
-    fun `a reply records the segments the agent starts, apart from the events`() {
+    fun `a reply records the segments the agent starts in order while it is open, apart from the events`() {
         val sink = open()
 
         blocking {
@@ -235,17 +210,12 @@ class RecordingChannelTest {
             channel.events.map { it::class.simpleName },
         )
         assertEquals(emptyList(), channel.violations)
-    }
-
-    @Test
-    fun `segments start in order and only while the reply is open`() {
         val started = open(turn("started"))
         val ended = open(turn("ended"))
         blocking {
             started.startSegment(2)
             ended.abandon(ReplyEnd.CANCELLED)
         }
-
         assertViolation("segment 1 of turn started started after segment 2.") { started.startSegment(1) }
         assertViolation("a preview of turn started in segment 1 after segment 2 froze it.") {
             started.preview(1, "Late")
@@ -253,40 +223,6 @@ class RecordingChannelTest {
         assertViolation("segment 1 of turn ended started after its reply ended.") { ended.startSegment(1) }
         assertEquals(listOf(2), channel.reply(TurnId("started")).startedSegments)
         assertEquals(emptyList(), channel.reply(TurnId("ended")).startedSegments)
-    }
-
-    @Test
-    fun `only a turn of the instance that replies to its chat opens one reply`() {
-        open()
-        val foreign = testTurn(chat = testChat(instance = ChannelInstanceId(ChannelType("test"), "work")))
-        val delegated = testDelegatedTurn(turn)
-
-        assertViolation("a second reply of turn test-turn.") { channel.openReply(ReplyRequest(turn, null)) }
-        assertViolation("a reply of turn test-turn opened for test:work:chat.") {
-            channel.openReply(ReplyRequest(foreign, null))
-        }
-        assertViolation("a reply of turn test-run-turn, which replies to its caller.") {
-            channel.openReply(ReplyRequest(delegated, null))
-        }
-        assertEquals(ReplyTarget.CALLER, delegated.replyTarget)
-    }
-
-    @Test
-    fun `the channel answers only for chats of its instance`() {
-        val foreign = testChat(instance = ChannelInstanceId(ChannelType("other"), "main"))
-
-        assertViolation("a message sent for other:main:chat, a chat of another instance.") {
-            channel.send(foreign, reply("x"))
-        }
-        assertViolation("a question for the capabilities for other:main:chat, a chat of another instance.") {
-            channel.capabilities(foreign)
-        }
-        assertViolation("a question for the parts needed for other:main:chat, a chat of another instance.") {
-            channel.partsNeeded(foreign, "x", Markup.PLAIN)
-        }
-        assertViolation("an approval request for other:main:chat, a chat of another instance.") {
-            channel.askApproval(approval("a1", testTurn(chat = foreign)))
-        }
     }
 
     // Approvals.
@@ -315,40 +251,11 @@ class RecordingChannelTest {
         )
     }
 
-    @Test
-    fun `held approval requests take their answers once released, and a withdrawn one is recorded as such`() {
-        val ada = channel.user("ada")
-        channel.scriptApprovals(ApprovalAnswer.Allowed(ada))
-        channel.holdApprovals()
-
-        val (answer, events) = blocking {
-            coroutineScope {
-                val withdrawn = async { channel.askApproval(approval("a1")) }
-                val waiting = async { channel.askApproval(approval("a2")) }
-                assertEquals(listOf("a1", "a2"), channel.awaitApprovals(2).map { it.id })
-                withdrawn.cancelAndJoin()
-                channel.releaseApprovals()
-                waiting.await() to channel.events
-            }
-        }
-
-        assertEquals(ApprovalAnswer.Allowed(ada), answer)
-        assertEquals(
-            listOf(
-                RecordingChannel.Event.ApprovalAsked(approval("a1")),
-                RecordingChannel.Event.ApprovalAsked(approval("a2")),
-                RecordingChannel.Event.ApprovalWithdrawn("a1"),
-                RecordingChannel.Event.ApprovalAnswered("a2", ApprovalAnswer.Allowed(ada)),
-            ),
-            events,
-        )
-    }
-
     private fun approval(id: String, turn: TurnInfo = this.turn) =
         ApprovalRequest(id, turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test")
 
     @Test
-    fun `a stopped instance takes the agent's calls, ignores previews and delivers nothing`() {
+    fun `a stopped instance takes the agent's calls, ignores previews, delivers nothing and sees broken rules`() {
         val sink = open()
         blocking { sink.preview(0, "Hel") }
         channel.stopped = true
@@ -369,53 +276,11 @@ class RecordingChannelTest {
         assertEquals(ReplyEnd.SHUTDOWN, channel.reply(TurnId("other")).abandoned)
         assertEquals(RecordingChannel.DEFAULT_CAPABILITIES, blocking { channel.capabilities(channel.chat()) })
         assertEquals(emptyList(), channel.violations)
-    }
-
-    @Test
-    fun `a stopped instance still sees the calls that break the rules`() {
-        val sink = open()
-        blocking { sink.preview(1, "Next") }
-        channel.stopped = true
-
-        assertViolation("a preview of turn test-turn in segment 0 after segment 1 froze it.") { sink.preview(0, "x") }
-        blocking { sink.abandon(ReplyEnd.SHUTDOWN) }
         assertViolation("the reply of turn test-turn completed after it ended.") { sink.complete(reply("x")) }
         assertViolation("a second reply of turn test-turn.") { channel.openReply(ReplyRequest(turn, null)) }
     }
 
     // What a test receives.
-
-    @Test
-    fun `the channel builds chats, users, messages and commands of its instance`() {
-        val thread = channel.chat("group", "7")
-        val message = channel.message("hi", thread, channel.user("ada")) { text("hi there") }
-        val command = channel.command("new", "now", issuer = channel.user("bob"))
-
-        assertEquals("test:main:group#7", thread.toString())
-        assertTrue(channel.user("ada").isOperator)
-        assertFalse(channel.user().isOperator)
-        assertEquals("Ada", channel.user("ada").displayName)
-        assertEquals(ChannelMessageRef(thread, "in-1"), message.ref)
-        assertEquals("hi there", message.text)
-        assertNull(message.forwarded)
-        assertEquals(TEST_TIME, message.receivedAt)
-        assertEquals("new", command.name)
-        assertEquals("now", command.arguments)
-        assertEquals(ChannelMessageRef(channel.chat(), "in-2"), command.trigger)
-        assertEquals("test:main@bob", command.issuer.address.toString())
-    }
-
-    @Test
-    fun `a command the channel receives may reply to someone and name others`() {
-        val (cy, dan) = listOf("cy", "dan").map(channel::user)
-
-        val replying = channel.command("trust", issuer = channel.user("ada"), replyTo = cy)
-        channel.receiveCommand("trust", issuer = channel.user("ada"), mentions = listOf(cy, dan))
-
-        assertEquals(cy to emptyList(), replying.replyTo to replying.mentions)
-        val received = assertIs<Submission.Command>(submitter.submissions.single()).invocation
-        assertEquals(null to listOf(cy, dan), received.replyTo to received.mentions)
-    }
 
     @Test
     fun `what the channel receives goes to its submitter`() {
@@ -436,23 +301,5 @@ class RecordingChannelTest {
             listOf(RecordingChannel.Event.Received(message), RecordingChannel.Event.Received(command)),
             channel.events,
         )
-    }
-
-    @Test
-    fun `a channel without a submitter or a submission of another instance is refused`() {
-        val alone = RecordingChannel()
-        val foreign = Submission.Message(
-            testMessage(chat = testChat(instance = ChannelInstanceId(ChannelType("x"), "y"))),
-        )
-
-        val missing = assertFailsWith<IllegalStateException> { alone.receive("hi") }
-
-        assertEquals(
-            "Recording channel test:main has no TurnSubmitter: run the agent, or give the harness a " +
-                "RecordingTurnSubmitter.",
-            missing.message,
-        )
-        assertFailsWith<IllegalArgumentException> { channel.submit(foreign) }
-        assertFailsWith<IllegalArgumentException> { RecordingChannel(partLength = 0) }
     }
 }

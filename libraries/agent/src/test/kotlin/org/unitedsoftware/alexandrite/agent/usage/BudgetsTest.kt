@@ -51,6 +51,8 @@ import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BudgetsTest {
@@ -134,13 +136,14 @@ class BudgetsTest {
     }
 
     @Test
-    fun `usage sums by period in the agent's zone, by chat and in all, with its cost where every call had a price`() {
+    fun `usage sums by period in the agent's zone, by chat and in all, priced only where every call had a price`() {
         val priced = ScriptedModel(models = listOf(ScriptedModel.modelInfo().rebuild { price(PRICE) }))
         val other = ChatAddress.parse("test:main:other")
         seed(usage(1000, 100), today.minusDays(3), cost = BigDecimal("0.0045"))
         seed(usage(4000, 400), today.minusDays(20), cost = BigDecimal("0.018"))
         seed(usage(7, 3), today.minusDays(40))
         seed(usage(50, 5), today, other, BigDecimal("0.000225"))
+        seed(usage(9, 1), today.minusDays(1), other)
         priced.reply { text("Done.").usage(usage(100, 10)) }
 
         harness(model = priced).execute {
@@ -154,24 +157,15 @@ class BudgetsTest {
             assertEquals(110L, tokens(UsagePeriod.TODAY, chat = true))
             assertEquals(165L, tokens(UsagePeriod.TODAY, chat = false))
             assertEquals(1210L, tokens(UsagePeriod.LAST_7_DAYS, chat = true))
-            assertEquals(1265L, tokens(UsagePeriod.LAST_7_DAYS, chat = false))
-            val month = 165L + (if (weekInMonth) 1100 else 0) + (if (inMonth) 4400 else 0)
+            assertEquals(1275L, tokens(UsagePeriod.LAST_7_DAYS, chat = false))
+            val yesterday = if (today.minusDays(1).month == today.month) 10 else 0
+            val month = 165L + yesterday + (if (weekInMonth) 1100 else 0) + (if (inMonth) 4400 else 0)
             assertEquals(month, tokens(UsagePeriod.THIS_MONTH, chat = false))
-            fun cost(periods: List<PeriodUsage>) =
-                periods.single { it.period == UsagePeriod.TODAY }.models.single().cost
+            fun cost(periods: List<PeriodUsage>, period: UsagePeriod = UsagePeriod.TODAY) =
+                periods.single { it.period == period }.models.single().cost
             assertEquals(BigDecimal("0.00045") to BigDecimal("0.000675"), cost(usage.chat) to cost(usage.total))
-        }
-    }
-
-    @Test
-    fun `a call of a model without a price leaves the period's money unknown`() {
-        seed(usage(1000, 100), cost = BigDecimal("0.01"))
-        seed(usage(10, 1))
-
-        harness().execute {
-            val today = get<UsageReports>().report(chat).agents.single().chat.first().models.single()
-
-            assertEquals(1111L to null, today.tokens to today.cost)
+            assertNotNull(cost(usage.chat, UsagePeriod.LAST_7_DAYS))
+            assertNull(cost(usage.total, UsagePeriod.LAST_7_DAYS))
         }
     }
 

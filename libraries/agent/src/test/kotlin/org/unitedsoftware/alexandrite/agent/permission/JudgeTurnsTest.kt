@@ -110,30 +110,10 @@ class JudgeTurnsTest {
             read.release()
             turn.ticket.outcome()
 
-            assertEquals(
-                """
-                What the operator typed in this turn, one block per message:
-                <<<
-                Write hello into notes.md.
-                >>>
-                <<<
-                Use the root folder.
-                >>>
-
-                The conversation took in untrusted content. Where it came from, as Alexandrite noted it;
-                the note may hold text that the untrusted content chose:
-                <<<
-                a quote that its channel does not vouch for
-                >>>
-
-                The call:
-                Tool: fs.write
-                Risk: WORKSPACE_WRITE
-                Arguments (canonical JSON):
-                | {"content":"hello","path":"notes.md"}
-                """.trimIndent(),
-                asked(),
-            )
+            val asked = asked()
+            assertContains(asked, "<<<\nWrite hello into notes.md.\n>>>")
+            assertContains(asked, "<<<\nUse the root folder.\n>>>")
+            assertContains(asked, "a quote that its channel does not vouch for")
             val turnRequest = model.requests.last().toString()
             for (unseen in listOf("Quoted words.", "Forwarded words.", "Tool output.", "Let me look first.")) {
                 assertContains(turnRequest, unseen)

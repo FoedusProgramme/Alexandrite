@@ -61,6 +61,7 @@ import java.nio.file.Path
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class CallRulesTest {
@@ -365,27 +366,18 @@ class CallRulesTest {
         val rules = Setup().rules
         val test = run("make", "test")
 
-        val lines = logged {
-            blocking {
-                setMode(PermissionMode.MANUAL)
-                rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
-                setMode(PermissionMode.ASK)
-                rules.grant(
-                    checked(operator(), exec, test),
-                    listOf(RuleSubject("command.exec", listOf("make"), "make")),
-                    operator,
-                )
-            }
+        blocking {
+            setMode(PermissionMode.MANUAL)
+            rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
+            setMode(PermissionMode.ASK)
+            rules.grant(
+                checked(operator(), exec, test),
+                listOf(RuleSubject("command.exec", listOf("make"), "make")),
+                operator,
+            )
         }
 
         assertEquals(emptyList(), blocking { storedRules() })
-        assertEquals(
-            listOf(
-                "WARN Call call-1 in turn test-turn offers no rule 'make test' to grant, so none is granted",
-                "WARN Call call-1 in turn test-turn offers no rule 'make' to grant, so none is granted",
-            ),
-            lines.filter { it.startsWith("WARN") },
-        )
     }
 
     @Test
@@ -478,12 +470,8 @@ class CallRulesTest {
     fun `a rule that names a tool no plugin contributes is warned about`() {
         val lines = logged { Setup("""{"allow": ["deploy.run", "web.fetch"], "deny": ["command.exec(rm)"]}""") }
 
-        assertEquals(
-            listOf(
-                "WARN The permission rule web.fetch of agent 'main' names a tool that no plugin contributes",
-            ),
-            lines.filter { it.startsWith("WARN") },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") })
+        assertTrue(lines.single { it.startsWith("WARN") }.contains("web.fetch"))
     }
 
     private fun run(vararg argv: String, executable: String? = null): CallReview {

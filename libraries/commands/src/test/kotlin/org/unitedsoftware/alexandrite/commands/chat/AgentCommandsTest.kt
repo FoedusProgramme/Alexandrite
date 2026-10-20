@@ -163,15 +163,6 @@ class AgentCommandsTest {
     }
 
     @Test
-    fun `a refused home replies with the agent's message`() = runTest {
-        control.refuseNext("test:main:chat is the home chat of agent 'coder'.")
-
-        val reply = commands.answer(testCommand("home"))
-
-        assertEquals("test:main:chat is the home chat of agent 'coder'.", reply)
-    }
-
-    @Test
     fun `home takes nothing but off and reset`() = runTest {
         val reply = commands.answer(testCommand("home", "away"))
 

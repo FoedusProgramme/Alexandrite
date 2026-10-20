@@ -1,9 +1,6 @@
 package org.unitedsoftware.alexandrite.sdk.tool
 
 import kotlinx.serialization.json.JsonObject
-import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
-import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
-import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -36,43 +33,6 @@ class ToolDefinitionTest {
             }
             assertEquals("Tool 'sample.run' declares a timeout that is not positive.", error.message)
         }
-    }
-
-    @Test
-    fun `a review leaves what its builder is not given unset and rebuilds to an equal one`() {
-        val empty = CallReview.builder().build()
-        val review = CallReview.builder().risk(ToolRisk.READ_ONLY).exempt(true).person("a person decides").build()
-
-        assertEquals(
-            List(6) { null } + listOf(false, false, false, null, null),
-            with(empty) {
-                listOf(risk, refusal, preview, snapshot, rule, problem)
-            } + with(empty) { listOf(exempt, background, untrusted, person, contained) },
-        )
-        assertEquals(review, review.rebuild { })
-        assertEquals(
-            CallReview.builder().risk(ToolRisk.READ_ONLY).person("a person decides").build(),
-            review.rebuild { exempt(false) },
-        )
-    }
-
-    @Test
-    fun `a tool declares its activity and the arguments that title a call, otherwise OTHER and none`() {
-        assertEquals(
-            ToolActivity.OTHER to emptyList(),
-            definition("sample.run").let {
-                it.activity to it.titleArguments
-            },
-        )
-
-        val read = ToolDefinition(
-            "sample.read",
-            "Reads",
-            JsonObject(emptyMap()),
-            activity = ToolActivity.READ,
-            titleArguments = listOf("path"),
-        )
-        assertEquals(ToolActivity.READ to listOf("path"), read.activity to read.titleArguments)
     }
 
     @Test
@@ -110,25 +70,10 @@ class ToolDefinitionTest {
     }
 
     @Test
-    fun `an outgoing file holds no fewer than 0 bytes and has no caption until given`() {
-        val chat = ChatAddress(ChannelInstanceId(ChannelType("telegram"), "work"), "1001")
-
-        assertNull(ReviewPreview.OutgoingFile(Path.of("/srv/a.txt"), 0, "e3b0", chat).caption)
-        assertFailsWith<IllegalArgumentException> { ReviewPreview.OutgoingFile(Path.of("/srv/a"), -1, "e3b0", chat) }
-    }
-
-    @Test
     fun `the risks rise in severity, the ones always gated sharing the highest`() {
         val severities = ToolRisk.entries.associateWith { it.severity }
 
         assertEquals(listOf(0, 1, 2, 3, 4, 4, 4), severities.values.toList())
         assertEquals(ToolRisk.entries, ToolRisk.entries.sortedBy { it.severity })
-    }
-
-    @Test
-    fun `an activity keeps the id a version does not know`() {
-        assertEquals(12, ToolActivity.entries.size)
-        assertEquals("fork", ToolActivity.of("fork").id)
-        assertEquals(ToolActivity.READ, ToolActivity.of("read"))
     }
 }

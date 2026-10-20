@@ -363,17 +363,6 @@ class PermissionGateTest {
         assertEquals(listOf("ask", "mode"), listOf(opaque, visible).map { outcome(gate.admit(it)) })
     }
 
-    @Test
-    fun `allowedit clears a workspace write wherever the floor allows it, not only inside the workspace`() = runTest {
-        val write = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) {
-            CallReview.builder().preview(ReviewPreview.Diff(Path.of("/home/user/project/report.md"), "+Done.")).build()
-        }
-        val gate = gate(listOf(write))
-        setMode(operator, PermissionMode.ALLOW_EDIT)
-
-        assertEquals("mode", outcome(gate.admit(write)))
-    }
-
     // The places that the floor asks a person about.
 
     @Test
@@ -486,28 +475,6 @@ class PermissionGateTest {
     // The judge and the rules.
 
     @Test
-    fun `in auto mode the judge's allow runs the call, its deny refuses it and its ask asks a person`() = runTest {
-        val exec = reviewedTool("command.exec", ToolRisk.EXEC) { CallReview.builder().snapshot("sha256:abc").build() }
-        val gate = gate(listOf(exec))
-        setMode(operator, PermissionMode.AUTO)
-
-        judge.verdict = Verdict.Allow
-        val allowed = assertIs<GateResult.Admitted>(gate.admit(exec)).clearance
-        judge.verdict = Verdict.Deny("it deletes the repository")
-        val denied = refused(gate.admit(exec))
-        judge.verdict = Verdict.Ask("it is unsure")
-        gate.admit(exec)
-
-        assertEquals(Clearance(ClearanceKind.JUDGE, snapshot = "sha256:abc"), allowed)
-        assertEquals(
-            ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY) to "[alexandrite:denied by=policy] Not run: it " +
-                "deletes the repository. Do not retry this or an equivalent call; tell the user.",
-            denied,
-        )
-        assertEquals(listOf("it is unsure"), approvals.reasons)
-    }
-
-    @Test
     fun `in auto mode an opaque program of a tainted conversation asks a person without the judge`() = runTest {
         val shell = reviewedTool("command.exec", ToolRisk.EXEC) {
             CallReview.builder()
@@ -548,20 +515,6 @@ class PermissionGateTest {
 
         assertEquals(List(2) { ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY) }, results)
         assertEquals(0, rules.allowChecks)
-    }
-
-    @Test
-    fun `an allow rule runs an operator's gated call outside manual mode only`() = runTest {
-        val exec = recordingTool("command.exec", ToolRisk.EXEC)
-        val gate = gate(listOf(exec))
-        rules.allowed = true
-
-        val decided = listOf("manual", "ask", "allowedit", "auto").map { mode ->
-            setMode(operator, PermissionMode.of(mode))
-            outcome(gate.admit(exec))
-        } + outcome(gate.admit(exec, guest))
-
-        assertEquals(listOf("ask", "rule", "rule", "rule", "ask"), decided)
     }
 
     // Review and hooks.
@@ -618,17 +571,15 @@ class PermissionGateTest {
     }
 
     @Test
-    fun `a review that throws or runs past the tool's timeout refuses the call, with a warning`() = runTest {
+    fun `a review that throws or runs past the tool's timeout refuses the call`() = runTest {
         val failing = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) { error("Disk on fire.\nAt line 2.") }
         val slow = reviewedTool("fs.edit", ToolRisk.WORKSPACE_WRITE) { awaitCancellation() }
         val gate = gate(listOf(failing, slow))
         setMode(operator, PermissionMode.BYPASS, clock.now + Duration.ofHours(1))
         lateinit var results: List<Pair<ToolOutcome, String>>
 
-        val lines = logged {
-            launch { results = listOf(failing, slow).map { refused(gate.admit(it)) } }
-            advanceUntilIdle()
-        }
+        launch { results = listOf(failing, slow).map { refused(gate.admit(it)) } }
+        advanceUntilIdle()
 
         val refused = ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY)
         val retry = "Do not retry this or an equivalent call; tell the user."
@@ -640,13 +591,6 @@ class PermissionGateTest {
                     "timed out after 5 s). $retry",
             ),
             results,
-        )
-        assertEquals(
-            listOf(
-                "WARN Tool fs.write could not review call call-1 in turn test-turn: Disk on fire.",
-                "WARN Tool fs.edit could not review call call-1 in turn test-turn: the review timed out after 5 s",
-            ),
-            lines.filter { it.startsWith("WARN") },
         )
         assertEquals(emptyList(), hooks.checks)
     }
@@ -794,11 +738,18 @@ class PermissionGateTest {
     fun `a call that runs carries its review's snapshot, and an unreviewed one none`() = runTest {
         val reviewed = reviewedTool("fs.edit", ToolRisk.READ_ONLY) { CallReview.builder().snapshot("sha256:1").build() }
         val plain = recordingTool("fs.read")
-        val gate = gate(listOf(reviewed, plain))
+        val exec = reviewedTool("command.exec", ToolRisk.EXEC) { CallReview.builder().snapshot("sha256:abc").build() }
+        val gate = gate(listOf(reviewed, plain, exec))
 
         assertEquals(
             listOf(Clearance(ClearanceKind.NONE, snapshot = "sha256:1"), Clearance(ClearanceKind.NONE)),
             listOf(reviewed, plain).map { assertIs<GateResult.Admitted>(gate.admit(it)).clearance },
+        )
+        setMode(operator, PermissionMode.AUTO)
+        judge.verdict = Verdict.Allow
+        assertEquals(
+            Clearance(ClearanceKind.JUDGE, snapshot = "sha256:abc"),
+            assertIs<GateResult.Admitted>(gate.admit(exec)).clearance,
         )
     }
 

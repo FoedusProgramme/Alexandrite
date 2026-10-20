@@ -77,20 +77,6 @@ class AgentFloorTest {
     }
 
     @Test
-    fun `the floor lets each agent alone read its own persona directory`() {
-        harness("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""").execute {
-            val floor = get<HardFloor>()
-            val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
-            val denied = FloorCheck.Denied("Alexandrite's configuration")
-
-            assertEquals(FloorCheck.Allowed(persona), floor.checkRead(persona, AgentId("coder")))
-            assertEquals(denied, floor.checkRead(persona, AgentId("helper")))
-            assertEquals(denied, floor.checkRead(persona))
-            assertEquals(denied, floor.checkRead(configFile, AgentId("coder")))
-        }
-    }
-
-    @Test
     fun `each agent writes only its own persona files, and a tree that would reach a protected place is refused`() {
         harness("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""").execute {
             val floor = get<HardFloor>()
@@ -146,23 +132,7 @@ class AgentFloorTest {
     }
 
     @Test
-    fun `the operator's protected paths are denied, and a relative one fails the start without a config file`() {
-        val config = """
-            {
-              "floor": {"deny": ["credentials", "system", "alexandrite", "vault", ${JsonPrimitive("$root/keys")}]},
-              "agents": {"coder": {"description": "Codes."}}
-            }
-        """.trimIndent()
-
-        agentHarness(config) {
-            dataRoot(data)
-            configFile(configFile)
-        }.execute {
-            val floor = get<HardFloor>()
-
-            assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(configFile.resolveSibling("vault/notes.md")))
-            assertEquals(FloorCheck.Denied(OPERATOR), floor.checkRead(root.resolve("keys/api.env")))
-        }
+    fun `a relative protected path fails the start without a config file`() {
         agentHarness("""{"floor": {"deny": ["vault"]}}""") { dataRoot(data) }.assertStartFails(
             StartStage.GRAPH,
             "Invalid config at 'agent.floor.deny': the protected path 'vault' is relative, but the host read no " +

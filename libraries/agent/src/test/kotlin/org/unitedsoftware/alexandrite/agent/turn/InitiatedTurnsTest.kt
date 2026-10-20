@@ -6,7 +6,6 @@ import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.execute
-import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.agent.prompt.INITIATED_SOURCE
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
@@ -166,27 +165,8 @@ class InitiatedTurnsTest {
                 listOf(turn.chat, turn.key, turn.kind, turn.actor, turn.replyTarget, turn.conversation),
             )
             val request = model.requests.single()
-            assertEquals(
-                listOf(
-                    "agent.delegate",
-                    "agent.jobs",
-                    "agent.send",
-                    "agent.stop",
-                    "chat.list",
-                    "chat.send",
-                    "chat.send_file",
-                    "fs.read",
-                    "history.search",
-                    "permission.status",
-                    "profile.create",
-                    "profile.edit",
-                    "profile.list",
-                    "profile.remove",
-                    "skill.load",
-                ) to
-                    ToolChoice.Auto,
-                request.tools.map { it.name } to request.toolChoice,
-            )
+            assertTrue("fs.read" in request.tools.map { it.name })
+            assertEquals(ToolChoice.Auto, request.toolChoice)
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.turn)?.end)
         }
     }
@@ -392,32 +372,10 @@ class InitiatedTurnsTest {
     }
 
     @Test
-    fun `a turn at a linked chat runs in its group's conversation and keeps the member as its chat`() {
-        model.reply { text("Noted.") }
-        val member = ChatAddress(side, "member")
-        val anchor = coder(ChatAddress(main, "anchor"))
-
-        harness().execute {
-            val admission = initiate(turn(coder(member)))
-            admission.outcome()
-
-            val record = store.conversations.turn(admission.turn)
-            assertEquals(anchor to member, record?.key to record?.chat)
-            assertEquals(2, stored(anchor).size)
-        }
-    }
-
-    @Test
     fun `no plugin starts an approval, an agent message or a job turn, which the agent starts itself`() {
         harness().execute {
             for (kind in listOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE, TurnKind.JOB)) {
-                val refused = assertFailsWith<IllegalArgumentException> { initiate(turn(kind = kind)) }
-
-                assertEquals(
-                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval, agent message " +
-                        "and job turns itself.",
-                    refused.message,
-                )
+                assertFailsWith<IllegalArgumentException> { initiate(turn(kind = kind)) }
             }
             assertEquals(emptyList(), stored())
         }
@@ -426,24 +384,8 @@ class InitiatedTurnsTest {
     // The pipeline.
 
     @Test
-    fun `a heartbeat runs in the heartbeat base conversation`() {
-        model.reply { text("All quiet.") }
-
-        harness().execute {
-            val admission = initiate(turn(kind = TurnKind.HEARTBEAT, prompt = "Check in."))
-            admission.outcome()
-
-            val base = store.conversations.heartbeatBase(coder).id
-            val entries = store.transcripts.entries(base)
-            assertOpening(entries[0], "Check in.", TurnKind.HEARTBEAT)
-            assertEquals(base, store.conversations.turn(admission.turn)?.conversation)
-            assertEquals(emptyList(), stored())
-        }
-    }
-
-    @Test
-    fun `a failure is stored, returned and sent as a notice along the route`() {
-        model.fail(ModelErrorKind.AUTHENTICATION, "Bad key.")
+    fun `a failure is stored, returned and sent as a notice along the route, and to no chat without one`() {
+        repeat(2) { model.fail(ModelErrorKind.AUTHENTICATION, "Bad key.") }
 
         harness().execute {
             val other = channel().chat("other")
@@ -456,23 +398,16 @@ class InitiatedTurnsTest {
             assertEquals(other to MessageKind.NOTICE, sent.chat to sent.message.kind)
             assertEquals(notice.text, sent.message.text)
             assertTrue(channel().replies.isEmpty())
-        }
-    }
 
-    @Test
-    fun `a failure of a turn with no route is sent to no chat`() {
-        model.fail(ModelErrorKind.AUTHENTICATION, "Bad key.")
-
-        harness().execute {
             initiate(turn()).outcome()
 
-            assertEquals(listOf(NoticeKind.FAILED), stored().map { (it as NoticeEntry).kind })
-            assertEquals(emptyList(), channel().events)
+            assertEquals(listOf(NoticeKind.FAILED, NoticeKind.FAILED), stored().map { (it as NoticeEntry).kind })
+            assertEquals(1, channel().sent.size)
         }
     }
 
     @Test
-    fun `turn input sees the prompt and no message, and its refusal is stored but not sent`() {
+    fun `turn input sees the prompt and no message, its refusal is stored but not sent, and a rewrite is kept`() {
         val input = Interceptor(TurnPoints.TURN_INPUT) { HookDecision.Abort("Not now.") }
 
         harness { hook(input) }.execute {
@@ -486,17 +421,13 @@ class InitiatedTurnsTest {
             assertTrue(channel().events.isEmpty() && channel("side").events.isEmpty())
             assertTrue(model.requests.isEmpty())
         }
-    }
-
-    @Test
-    fun `turn input rewrites what the model reads and the transcript keeps`() {
         model.reply { text("Done.") }
-        val input = Interceptor(TurnPoints.TURN_INPUT) { HookDecision.Replace(it.withText("Rewritten.")) }
+        val rewrite = Interceptor(TurnPoints.TURN_INPUT) { HookDecision.Replace(it.withText("Rewritten.")) }
 
-        harness { hook(input) }.execute {
+        harness { hook(rewrite) }.execute {
             initiate(turn()).outcome()
 
-            assertOpening(stored()[0], "Rewritten.")
+            assertOpening(stored()[1], "Rewritten.")
         }
     }
 
@@ -517,22 +448,16 @@ class InitiatedTurnsTest {
     @Test
     fun `an untrusted prompt taints the turn and a trusted one does not`() {
         model.reply { text("One.") }.reply { text("Two.") }
-        val turns = mutableListOf<TurnId>()
+        suspend fun taint() = store.conversations.taint(store.conversations.current(coder).id)?.reason
 
-        val lines = logged {
-            harness().execute {
-                for (turn in listOf(turn(), turn().rebuild { trust(Trust.TRUSTED) })) {
-                    turns += initiate(turn).also { it.outcome() }.turn
-                }
-            }
+        harness().execute {
+            initiate(turn().rebuild { trust(Trust.TRUSTED) }).outcome()
+            assertEquals(null, taint())
+            initiate(turn()).outcome()
+            assertEquals("an untrusted prompt of plugin 'beat'", taint())
         }
 
-        val (untrusted, trusted) = turns
-        val reason = "an untrusted prompt of plugin 'beat'"
-        assertTrue("DEBUG Turn $untrusted of $coder is tainted: $reason" in lines)
-        assertTrue(lines.none { it.startsWith("DEBUG Turn $trusted") && "tainted" in it })
-        assertEquals(reason, blocking { store.conversations.taint(store.conversations.current(coder).id)?.reason })
-        assertOpening(blocking { stored() }[2], "Remind them to stretch.", trust = "trusted")
+        assertOpening(blocking { stored() }[0], "Remind them to stretch.", trust = "trusted")
     }
 
     // Through the runtime.

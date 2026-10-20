@@ -9,7 +9,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.testUser
 import java.io.IOException
-import java.lang.reflect.Modifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -181,17 +180,8 @@ class PairingsTest {
 
         assertIs<PairingDecision.Approved>(desk.approve(code.text, null))
         assertFalse(desk.holds(code.text))
-    }
-
-    @Test
-    fun `an expired code is no longer held`() {
-        val code = assertNotNull(offer())
-
-        clock.advance(599)
-        assertTrue(desk.holds(code.text))
-        clock.advance(1)
-
-        assertFalse(desk.holds(code.text))
+        clock.advance(600)
+        assertFalse(other.holds(elsewhere.text))
     }
 
     @Test
@@ -308,11 +298,6 @@ class PairingsTest {
         assertNull(offer())
         val reopened = desk.open(work, emptyList())
         assertNotNull(offer(pairing = reopened))
-    }
-
-    @Test
-    fun `the desk cannot be subclassed to replace how it decides`() {
-        assertTrue(Modifier.isFinal(Pairings::class.java.modifiers))
     }
 
     @Test

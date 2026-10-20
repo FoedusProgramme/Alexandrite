@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeKind
@@ -87,6 +88,8 @@ class NoSilentTurnTest {
             assertEquals(listOf(1000, 1500), model.requests.map { it.options.maxOutputTokens })
             val text = "The model reached its output limit before it wrote an answer."
             assertEquals(listOf(NoticeEntry(null, text, NoticeKind.OUTPUT_LIMIT)), stored())
+            assertEquals(text, channel.reply(admission.ticket.turn).completed?.text)
+            assertEquals(TurnEndKind.TAKEN_BACK, store.conversations.turn(admission.ticket.turn)?.end)
         }
     }
 

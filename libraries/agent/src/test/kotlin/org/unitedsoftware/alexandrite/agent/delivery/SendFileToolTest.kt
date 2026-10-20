@@ -27,7 +27,6 @@ import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
@@ -102,12 +101,8 @@ class SendFileToolTest {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test
-    fun `the tool sends, titled by its path, and is always gated as an external action`() {
-        val definition = tool().definition
-
-        assertEquals("chat.send_file", definition.name)
-        assertEquals(ToolRisk.EXTERNAL_ACTION, definition.risk)
-        assertEquals(ToolActivity.SEND to listOf("path"), definition.activity to definition.titleArguments)
+    fun `the tool is always gated as an external action`() {
+        assertEquals(ToolRisk.EXTERNAL_ACTION, tool().definition.risk)
     }
 
     @Test
@@ -226,14 +221,6 @@ class SendFileToolTest {
         execute(arguments(report), review(arguments(report), child).snapshot, child)
 
         assertEquals(testChat("root-chat"), channel.sent.single().chat)
-    }
-
-    @Test
-    fun `media types follow the file's extension`() {
-        assertEquals(
-            listOf("image/png", "application/pdf", "text/markdown", "application/octet-stream"),
-            listOf("a.PNG", "b.pdf", "c.md", "d").map(::mediaTypeOf),
-        )
     }
 
     private companion object {

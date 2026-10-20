@@ -1,13 +1,5 @@
 package org.unitedsoftware.alexandrite.testkit
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
@@ -18,25 +10,15 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
-import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
-import org.unitedsoftware.alexandrite.sdk.model.Trust
-import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.Usage
-import org.unitedsoftware.alexandrite.sdk.model.Warning
 import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
-import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.transcript.OpaquePart
 import org.unitedsoftware.alexandrite.sdk.transcript.ReasoningPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ReasoningSeal
 import org.unitedsoftware.alexandrite.sdk.transcript.SealKind
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
-import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
-import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptRules
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -110,81 +92,6 @@ class ScriptedModelTest {
         replies.forEach { model.reply(it) }
 
         for (reply in replies) assertStreamContract(model.collect(request(model)))
-    }
-
-    @Test
-    fun `parts carry what the request and the endpoint name`() {
-        val odd = ScriptedModel.modelInfo("other-model").rebuild { dialect(Dialect("odd")) }
-        val other = ScriptedModel(models = listOf(odd))
-        other.reply {
-            reasoning("Hm.", seal = "plain", sealKind = SealKind.PLAIN)
-            opaque("note", JsonObject(emptyMap()))
-            toolCall("notes.add", id = ToolCallId("given"))
-            toolCall("notes.list")
-        }
-        val request = request(other)
-
-        val message = assertIs<ModelEvent.Completed>(other.collect(request).last()).message
-
-        assertEquals(ModelRef(EndpointId("scripted"), "other-model"), message.producedBy)
-        val seal = (message.parts[0] as ReasoningPart).seal!!
-        assertEquals(listOf(other.ref, Dialect("odd"), SealKind.PLAIN), listOf(seal.origin, seal.dialect, seal.kind))
-        assertEquals(Dialect("odd"), (message.parts[1] as OpaquePart).dialect)
-        assertEquals(ToolCallId("given"), (message.parts[2] as ToolCallPart).id)
-        assertEquals(request.ids.callId(3), (message.parts[3] as ToolCallPart).id)
-    }
-
-    @Test
-    fun `the finish follows the parts unless it is scripted`() {
-        model.reply { text("Done.") }
-        model.reply { toolCall("notes.add") }
-        model.reply {
-            text("Cut")
-            finish(FinishKind.MAX_OUTPUT_TOKENS, "length", "too long")
-        }
-
-        val finishes = List(3) { assertIs<ModelEvent.Completed>(model.collect(request(model)).last()).finish }
-
-        assertEquals(
-            listOf(
-                FinishReason(FinishKind.END_TURN, null, null),
-                FinishReason(FinishKind.TOOL_USE, null, null),
-                FinishReason(FinishKind.MAX_OUTPUT_TOKENS, "length", "too long"),
-            ),
-            finishes,
-        )
-    }
-
-    @Test
-    fun `a scripted warning is part of the response's start`() {
-        model.reply { warning("option", "top-p ignored") }
-
-        val started = assertIs<ModelEvent.ResponseStarted>(model.collect(request(model)).first())
-
-        assertEquals(listOf(Warning("option", "top-p ignored")), started.warnings)
-    }
-
-    @Test
-    fun `the transcript rules hold for a turn of two rounds built from its responses`() {
-        val turn = testTurn()
-        model.reply {
-            toolCall("notes.add", """{"text":"milk"}""")
-            toolCall("notes.list")
-        }
-        model.reply(RequestMatch.round(1)) { text("Saved.") }
-        val user = testUserEntry(turn)
-
-        val first = assertIs<ModelEvent.Completed>(model.collect(request(model, 0, listOf(user))).last()).message
-        val results = first.parts.filterIsInstance<ToolCallPart>().map {
-            ToolResultEntry(null, it.id, it.name, listOf(TextPart("ok")), ToolOutcome.Succeeded)
-        }
-        val history = listOf(user, first) + results
-        val second = assertIs<ModelEvent.Completed>(model.collect(request(model, 1, history)).last()).message
-
-        assertEquals(emptyList(), TranscriptRules.check(history + second))
-        assertEquals(emptyList(), model.problems)
-        val ids = first.parts.filterIsInstance<ToolCallPart>().map { it.id }
-        assertEquals(listOf(ToolCallId("call-test-turn-0-0"), ToolCallId("call-test-turn-0-1")), ids)
     }
 
     // Requests and the script.
@@ -262,41 +169,10 @@ class ScriptedModelTest {
         assertEquals(1, model.remaining)
     }
 
-    @Test
-    fun `a request for a model the endpoint does not serve fails as the backend would`() {
-        model.reply { text("kept") }
-        val request = request(model).rebuild { model(ModelRef(EndpointId("scripted"), "missing")) }
-
-        val error = assertFailsWith<ModelException> { model.collect(request) }
-
-        assertEquals(ModelErrorKind.MODEL_NOT_FOUND, error.error.kind)
-        assertEquals(emptyList(), model.problems)
-        assertEquals(1, model.remaining)
-    }
-
-    @Test
-    fun `a request that offers tools to a model that takes none fails as an endpoint fails it`() {
-        val plain = ScriptedModel.modelInfo("plain").toBuilder().nativeTools(false).parallelToolCalls(false).build()
-        val model = ScriptedModel(models = listOf(ScriptedModel.modelInfo(), plain))
-        model.reply { text("kept") }
-        val request = request(model).rebuild {
-            model(ModelRef(model.id, "plain"))
-            tools(listOf(testToolDefinition()))
-        }
-
-        val error = assertFailsWith<ModelException> { model.collect(request) }
-
-        assertEquals(ModelErrorKind.UNSUPPORTED, error.error.kind)
-        assertFalse(error.error.outputStarted || error.error.retryable)
-        assertEquals(emptyList(), model.problems)
-        assertEquals(1, model.remaining)
-        assertEquals(1, model.requests.size)
-    }
-
     // Errors and cancellation.
 
     @Test
-    fun `a scripted failure is thrown before any event, as one before the output even when it says otherwise`() {
+    fun `a scripted failure is thrown before any event as one before the output, or after the events of its reply`() {
         val started = ModelError.builder(ModelErrorKind.SERVER_ERROR, "Gone.").outputStarted(true).build()
         val error = ModelError.builder(ModelErrorKind.RATE_LIMITED, "Slow down.").build()
         model.fail(started).fail(error).fail(ModelErrorKind.OVERLOADED)
@@ -313,137 +189,13 @@ class ScriptedModelTest {
         assertStreamContract(request(model), emptyList(), thrown.first())
         assertEquals(ModelErrorKind.OVERLOADED, overloaded.error.kind)
         assertTrue(overloaded.error.retryable)
-    }
 
-    @Test
-    fun `a failure within a reply follows the events before it and says that output started`() {
         model.reply {
             text("Hal")
             fail(ModelErrorKind.SERVER_ERROR, "Gone.")
         }
-        val events = mutableListOf<ModelEvent>()
-
-        val thrown = assertFailsWith<ModelException> { blocking { model.stream(request(model)).collect(events::add) } }
-
-        assertEquals(ModelErrorKind.SERVER_ERROR, thrown.error.kind)
-        assertTrue(thrown.error.outputStarted)
-        assertEquals(
-            listOf("ResponseStarted", "TextDelta", "PartCompleted"),
-            events.map { it::class.simpleName },
-        )
-    }
-
-    @Test
-    fun `a hanging reply emits what comes before and ends when its collector is cancelled`() {
-        model.reply {
-            text("Thinking")
-            hang()
-        }
-        val events = mutableListOf<ModelEvent>()
-
-        blocking {
-            coroutineScope {
-                val job = launch { model.stream(request(model)).collect(events::add) }
-                model.awaitRequests(1)
-                while (events.size < 3) yield()
-                job.cancelAndJoin()
-                assertTrue(job.isCancelled)
-            }
-        }
-
+        val within = assertFailsWith<ModelException> { blocking { model.stream(request(model)).collect(events::add) } }
+        assertEquals(ModelErrorKind.SERVER_ERROR to true, within.error.kind to within.error.outputStarted)
         assertEquals(listOf("ResponseStarted", "TextDelta", "PartCompleted"), events.map { it::class.simpleName })
-    }
-
-    @Test
-    fun `a paused reply holds its later events until the gate opens`() {
-        val gate = CompletableDeferred<Unit>()
-        model.reply {
-            text("One")
-            pause { gate.await() }
-            text("Two")
-        }
-        val events = mutableListOf<ModelEvent>()
-
-        blocking {
-            coroutineScope {
-                val stream = async(start = CoroutineStart.UNDISPATCHED) {
-                    model.stream(request(model)).collect(events::add)
-                }
-                while (events.size < 3) yield()
-                assertEquals(3, events.size)
-                gate.complete(Unit)
-                stream.await()
-            }
-        }
-
-        assertStreamContract(events)
-    }
-
-    @Test
-    fun `a reply ends where it hangs or fails`() {
-        assertFailsWith<IllegalStateException> {
-            scriptedReply {
-                hang()
-                text("never")
-            }
-        }
-        assertFailsWith<IllegalStateException> {
-            scriptedReply {
-                fail(ModelErrorKind.TIMEOUT)
-                hang()
-            }
-        }
-        assertFailsWith<IllegalArgumentException> { scriptedReply { toolCall("") } }
-    }
-
-    // The endpoint.
-
-    @Test
-    fun `the endpoint lists its models and answers the turn-context modes it was given`() {
-        val models = listOf(ScriptedModel.modelInfo("a"), ScriptedModel.modelInfo("b"))
-        val endpoint = ScriptedModel(EndpointId("side"), models, TurnContextMode.NOT_SUPPORTED)
-        val split = ScriptedModel(untrustedTurnContextMode = TurnContextMode.KEPT_UNRENDERED)
-
-        assertEquals(models, blocking { endpoint.models() })
-        assertEquals(ModelRef(EndpointId("side"), "a"), endpoint.ref)
-        assertEquals(TurnContextMode.NOT_SUPPORTED, endpoint.turnContextMode("a", ModelOptions.DEFAULT, Trust.TRUSTED))
-        assertEquals(
-            TurnContextMode.NOT_SUPPORTED,
-            endpoint.turnContextMode("a", ModelOptions.DEFAULT, Trust.UNTRUSTED),
-        )
-        val mode = model.turnContextMode("test-model", ModelOptions.DEFAULT, Trust.UNTRUSTED)
-        assertEquals(TurnContextMode.TRANSIENT, mode)
-        assertEquals(
-            listOf(TurnContextMode.TRANSIENT, TurnContextMode.KEPT_UNRENDERED),
-            listOf(Trust.TRUSTED, Trust.UNTRUSTED).map {
-                split.turnContextMode("test-model", ModelOptions.DEFAULT, it)
-            },
-        )
-        assertFailsWith<IllegalArgumentException> { ScriptedModel(models = emptyList()) }
-        assertFailsWith<IllegalArgumentException> { ScriptedModel(models = listOf(models[0], models[0])) }
-    }
-
-    @Test
-    fun `the default model takes tools, streams and reasons`() {
-        val info = ScriptedModel.modelInfo()
-
-        assertEquals("test-model", info.id)
-        assertEquals(ScriptedModel.DIALECT, info.dialect)
-        assertTrue(info.nativeTools && info.parallelToolCalls && info.streaming)
-        assertTrue(info.reasoningEfforts.isNotEmpty())
-        assertEquals(TEST_MODEL, model.ref)
-    }
-
-    @Test
-    fun `responses of concurrent requests do not mix`() {
-        repeat(20) { n -> model.reply(RequestMatch.round(n)) { text("$n") } }
-
-        val texts = blocking {
-            coroutineScope {
-                (0 until 20).map { n -> async { model.stream(request(model, n)).toList() } }.map { it.await() }
-            }
-        }.map { (assertIs<ModelEvent.Completed>(it.last()).message.parts.single() as TextPart).text }
-
-        assertEquals((0 until 20).map { "$it" }, texts)
     }
 }

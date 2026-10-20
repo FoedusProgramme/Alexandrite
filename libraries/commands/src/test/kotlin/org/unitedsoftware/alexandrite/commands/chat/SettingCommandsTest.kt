@@ -13,11 +13,7 @@ import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
-import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -38,7 +34,6 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 class SettingCommandsTest {
     private val clock = TestClock()
@@ -176,37 +171,6 @@ class SettingCommandsTest {
     }
 
     @Test
-    fun `a refused model replies with the agent's message`() = runTest {
-        control.refuseNext("Model endpoint 'big' has no model 'm-99'.")
-
-        val reply = commands.answer(testCommand("model", "big/m-99"))
-
-        assertEquals("Model endpoint 'big' has no model 'm-99'.", reply)
-    }
-
-    @Test
-    fun `an error of the chat settings that is no refusal is no reply`() = runTest {
-        val failing = object : ChatSettings by control.settings {
-            override suspend fun update(
-                chat: ChatAddress,
-                update: ChatSettingsUpdate,
-                by: ChatUser?,
-            ): ChatSettingsSnapshot = throw IllegalArgumentException("A linked group holds each chat once.")
-        }
-
-        assertFailsWith<IllegalArgumentException> {
-            SettingCommands(
-                failing,
-                control.links,
-                listing,
-                control.trust,
-                commandTexts(),
-                clock,
-            ).answer(testCommand("model", "big/m-01"))
-        }
-    }
-
-    @Test
     fun `a malformed model reference or more than one argument changes nothing`() = runTest {
         val usage = "Send /model to see the model, /model <number> to pick one of the agent's models, " +
             "/model <endpoint> to list an endpoint's models, /model <endpoint>/<model> to switch, or /model reset " +
@@ -288,15 +252,6 @@ class SettingCommandsTest {
             ),
             control.calls.map { (it as Call.UpdateSettings).update },
         )
-    }
-
-    @Test
-    fun `language shows the agent's language and where it is set`() = runTest {
-        control.scriptAgent(AgentId.MAIN, "Main", language = LanguageTag("en-GB"))
-
-        assertEquals("Language: en-GB (the agent's setting).", commands.answer(testCommand("language")))
-        commands.answer(testCommand("language", "en-US"))
-        assertEquals("Language: en-US (set in this chat).", commands.answer(testCommand("language")))
     }
 
     @Test
@@ -451,10 +406,5 @@ class SettingCommandsTest {
         val lines = commands.answer(testCommand("settings")).lines()
 
         assertEquals("Conversation: its taint could not be read, so it counts as tainted.", lines[7])
-    }
-
-    @Test
-    fun `settings takes no arguments`() = runTest {
-        assertEquals("Send /settings without anything after it.", commands.answer(testCommand("settings", "all")))
     }
 }

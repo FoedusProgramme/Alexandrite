@@ -72,7 +72,7 @@ internal class WorkerBench(
     )
     private val directory = agentDirectory(settings, INSTANCES, listOf(provider(ScriptedModel())))
     private val router = ChatRouter(channels(), directory, ChatTopology(directory, testRecords()), selections)
-    val lock = SubmitLock(pluginScope(scope))
+    private val lock = SubmitLock(pluginScope(scope))
     val workers = TurnWorkers(settings, lock, conversations, runner, clock).also { it.open() }
     val intakes = ChatIntakes(settings, lock, workers, router)
 

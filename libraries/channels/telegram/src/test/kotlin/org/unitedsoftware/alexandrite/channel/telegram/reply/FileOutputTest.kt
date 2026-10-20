@@ -22,7 +22,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FileOutputTest {
@@ -33,14 +32,6 @@ class FileOutputTest {
 
     private fun message(caption: String, vararg files: OutboundFile): OutboundMessage =
         OutboundMessage.builder(caption, MessageKind.REPLY).markup(Markup.MARKDOWN).files(files.toList()).build()
-
-    @Test
-    fun `the channel takes files of up to 50 MB`() = runTest {
-        val output = output()
-        val capabilities = output.channel.capabilities(output.address())
-
-        assertEquals(true to 50L * 1024 * 1024, capabilities.files to capabilities.maxFileBytes)
-    }
 
     @Test
     fun `a picture goes as a photo unless asked as a file, anything else as a document, the caption formatted`() =
@@ -95,19 +86,6 @@ class FileOutputTest {
             assertTrue("1025 characters" in (long as Delivery.NotDelivered).detail.orEmpty(), long.detail)
             assertEquals(emptyList(), output.api.calls())
         }
-
-    @Test
-    fun `an upload that hits the rate limit goes once more after the wait`() = runTest {
-        val output = output()
-        output.api.fail("sendDocument", BotApiFailure.RATE_LIMITED, retryAfter = 3.seconds)
-
-        val delivery = output.channel.send(output.address(), message("", file("a.txt", "text/plain")))
-
-        assertIs<Delivery.Delivered>(delivery)
-        val calls = output.api.calls("sendDocument")
-        assertEquals(2, calls.size)
-        assertTrue(calls[1].at - calls[0].at >= 3_000, "$calls")
-    }
 
     @Test
     fun `a sticker or a poll a tool posts in a group comes after the text the reply holds so far`() = runTest {

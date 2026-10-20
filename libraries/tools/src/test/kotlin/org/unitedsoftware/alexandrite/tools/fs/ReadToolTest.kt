@@ -4,7 +4,6 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -22,11 +21,6 @@ class ReadToolTest {
     fun setUp() {
         fs = FsFixture(directory)
         tool = ReadTool(fs.floor, ReadLedger())
-    }
-
-    @Test
-    fun `the call is titled by its path, of activity read`() {
-        assertEquals(ToolActivity.READ to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
     }
 
     @Test

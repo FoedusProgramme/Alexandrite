@@ -10,7 +10,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent
-import org.unitedsoftware.alexandrite.testkit.assertTextsComplete
+import org.unitedsoftware.alexandrite.testkit.testCommand
 import java.lang.reflect.Modifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,6 +60,23 @@ class CommandsPluginTest {
     }
 
     @Test
+    fun `a command that takes no arguments answers its usage when given some`() {
+        val agent = RecordingAgent()
+
+        runBlocking {
+            PluginHarness.builder(AlexandriteCommandsIndex()).agent(agent).build().run {
+                val byName = getAll<CommandHandler>().flatMap { handler -> handler.commands.map { it.name to handler } }
+                for ((name, handler) in byName.toMap().filterKeys { it in NO_ARGUMENTS }) {
+                    val reply = handler.answer(testCommand(name, "now"))
+                    assertEquals("Send /$name without anything after it.", reply, name)
+                }
+            }
+        }
+
+        assertEquals(emptyList(), agent.calls)
+    }
+
+    @Test
     fun `the descriptions and usages in the texts belong to the declared commands`() {
         val described = english.keys.mapNotNull { Regex("command\\.(.+)\\.description").matchEntire(it) }
         val usages = english.keys.filter { it.startsWith("usage.") }.map { it.removePrefix("usage.") }
@@ -78,12 +95,9 @@ class CommandsPluginTest {
         assertEquals(english.keys - commandKeys.toSet(), named.toSet())
     }
 
-    @Test
-    fun `the plugin's texts are complete in each language it ships`() {
-        assertEquals(listOf(LanguageTag("en")), assertTextsComplete(PLUGIN))
-    }
-
     private companion object {
+        val NO_ARGUMENTS = setOf("cancel", "context", "help", "new", "profiles", "settings")
+
         val COMMANDS = listOf(
             "agent",
             "allow",

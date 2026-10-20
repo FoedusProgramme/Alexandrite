@@ -24,26 +24,16 @@ class ToolTitlesTest {
         JsonObject(pairs.associate { (k, v) -> k to JsonPrimitive(v) })
 
     @Test
-    fun `no arguments title the call by its name`() {
-        assertEquals("test.call", toolTitle(definition(listOf("path")), null))
-        assertEquals("test.call", toolTitle(definition(listOf("path")), JsonObject(emptyMap())))
-    }
-
-    @Test
-    fun `every present title argument joins the title, in order, blank ones skipped`() {
+    fun `every present title argument joins the title, in order, blank ones skipped, else the name titles it`() {
         val definition = definition(listOf("path", "pattern"))
+        val argv = JsonObject(mapOf("argv" to JsonArray(listOf("ls", "-la").map(::JsonPrimitive))))
 
         assertEquals("calculator *", toolTitle(definition, args("path" to "calculator", "pattern" to "*")))
         assertEquals("calculator", toolTitle(definition, args("path" to "calculator", "pattern" to " ")))
         assertEquals("*", toolTitle(definition, args("pattern" to "*")))
-    }
-
-    @Test
-    fun `an array argument joins its elements with spaces among the other arguments`() {
-        val definition = definition(listOf("argv"))
-        val argv = JsonObject(mapOf("argv" to JsonArray(listOf("ls", "-la").map(::JsonPrimitive))))
-
-        assertEquals("ls -la", toolTitle(definition, argv))
+        assertEquals("ls -la", toolTitle(definition(listOf("argv")), argv))
+        assertEquals("test.call", toolTitle(definition, null))
+        assertEquals("test.call", toolTitle(definition, JsonObject(emptyMap())))
     }
 
     @Test
@@ -77,7 +67,7 @@ class ToolTitlesTest {
     }
 
     @Test
-    fun `a token that is the workspace becomes a dot, one inside it loses that prefix`() {
+    fun `a token that is the workspace becomes a dot, one inside it loses that prefix, others stay`() {
         val workspace = Path.of("/srv/workspaces/main")
 
         assertEquals(".", relativized("/srv/workspaces/main", workspace))
@@ -90,12 +80,6 @@ class ToolTitlesTest {
             "git -C calculator status",
             relativized("git -C /srv/workspaces/main/calculator status", workspace),
         )
-    }
-
-    @Test
-    fun `tokens outside the workspace, and the title itself with no workspace, are left as they are`() {
-        val workspace = Path.of("/srv/workspaces/main")
-
         assertEquals("/srv/notes.md", relativized("/srv/notes.md", workspace))
         assertEquals("/srv/workspaces/main/calculator", relativized("/srv/workspaces/main/calculator", null))
     }

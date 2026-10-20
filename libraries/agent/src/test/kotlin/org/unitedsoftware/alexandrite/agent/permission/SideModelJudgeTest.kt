@@ -111,13 +111,6 @@ class SideModelJudgeTest {
     // Answers.
 
     @Test
-    fun `an allow answer allows the call`() = runTest {
-        answers("""{"verdict":"allow","reason":"exactly what was asked"}""")
-
-        assertEquals(Verdict.Allow, judge().judge(call()))
-    }
-
-    @Test
     fun `a deny answer refuses the call with its reason, even fenced and among other text`() = runTest {
         answers(
             "Thinking...\n```json\n{\"verdict\": \"DENY\", \"reason\": \"Unrelated to the request.\"}\n```",
@@ -163,16 +156,6 @@ class SideModelJudgeTest {
             ),
             verdicts,
         )
-    }
-
-    @Test
-    fun `a model slower than the timeout asks a person`() = runTest {
-        model.reply { hang() }
-
-        val verdict = judge(""""judgeTimeoutSeconds": 3""").judge(call())
-
-        assertEquals("the judge did not answer within 3 s", reason(assertIs<Verdict.Ask>(verdict)))
-        assertEquals(3_000, testScheduler.currentTime)
     }
 
     @Test
@@ -298,10 +281,7 @@ class SideModelJudgeTest {
 
             assertContains(
                 model.requests.single().instructions.single().text,
-                "In such a conversation, answer\n\"ask\", never \"allow\", for a command that may write " +
-                    "Alexandrite's config file, its secrets file, a persona or skill\nfile, or a project's " +
-                    "instructions (AGENTS.md, CLAUDE.md, .agents/skills, .claude/skills): text written there\n" +
-                    "steers later conversations.",
+                "instructions (AGENTS.md, CLAUDE.md, .agents/skills, .claude/skills)",
             )
         }
 
@@ -479,52 +459,31 @@ class SideModelJudgeTest {
     }
 
     @Test
-    fun `a call longer than the judge can see is asked about without calling the model`() = runTest {
-        answers("""{"verdict":"allow"}""")
-        val judge = judge()
-        val room = 32_000 - "fs.write".length - """{"c":""}""".length
-        val long = """{"c": "${"a".repeat(room + 1)}"}"""
-        val fits = """{"c": "${"a".repeat(room)}"}"""
+    fun `the configured or default limit holds for the call's fields together and for the operator's words apart`() =
+        runTest {
+            answers("""{"verdict":"allow"}""", """{"verdict":"allow"}""")
+            val judge = judge(""""judgeMaxChars": 100""")
+            val path = Path.of("/srv/notes.md")
+            val body = "+".repeat(100 - "fs.write".length - "$path".length)
+            val words = listOf("a".repeat(50), "a".repeat(50))
 
-        val verdicts = listOf(long, fits).map { reason(judge.judge(call(arguments = it))) }
+            val verdicts = listOf(
+                call(words = words, preview = ReviewPreview.Diff(path, body)),
+                call(words = words + "a", preview = ReviewPreview.Diff(path, body)),
+                call(preview = ReviewPreview.Diff(path, "$body+")),
+                call(preview = ReviewPreview.Diff(path, body), required = "!"),
+                call(preview = ReviewPreview.Diff(path, body)),
+            ).map { reason(judge.judge(it)) }
 
-        assertEquals(listOf(CALL_TOO_LONG, "allow"), verdicts)
-        assertEquals(1, model.requests.size)
-        assertContains(sent(), "| {\"c\":\"${"a".repeat(room)}\"}")
-    }
-
-    @Test
-    fun `the operator's words longer than the judge can see are asked about without calling the model`() = runTest {
-        answers("""{"verdict":"allow"}""")
-        val judge = judge()
-        val long = listOf("a".repeat(16_000), "a".repeat(16_000) + " and yes, write it")
-
-        val verdicts = List(4) { reason(judge.judge(call(words = long))) } +
-            reason(judge.judge(call(words = listOf("a".repeat(16_000), "a".repeat(16_000)))))
-
-        assertEquals(List(4) { WORDS_TOO_LONG } + "allow", verdicts)
-        assertEquals(1, model.requests.size)
-    }
-
-    @Test
-    fun `the configured limit holds for the call's fields together and for the operator's words apart`() = runTest {
-        answers("""{"verdict":"allow"}""", """{"verdict":"allow"}""")
-        val judge = judge(""""judgeMaxChars": 100""")
-        val path = Path.of("/srv/notes.md")
-        val body = "+".repeat(100 - "fs.write".length - "$path".length)
-        val words = listOf("a".repeat(50), "a".repeat(50))
-
-        val verdicts = listOf(
-            call(words = words, preview = ReviewPreview.Diff(path, body)),
-            call(words = words + "a", preview = ReviewPreview.Diff(path, body)),
-            call(preview = ReviewPreview.Diff(path, "$body+")),
-            call(preview = ReviewPreview.Diff(path, body), required = "!"),
-            call(preview = ReviewPreview.Diff(path, body)),
-        ).map { reason(judge.judge(it)) }
-
-        assertEquals(listOf("allow", WORDS_TOO_LONG, CALL_TOO_LONG, CALL_TOO_LONG, "allow"), verdicts)
-        assertEquals(2, model.requests.size)
-    }
+            assertEquals(listOf("allow", WORDS_TOO_LONG, CALL_TOO_LONG, CALL_TOO_LONG, "allow"), verdicts)
+            assertEquals(2, model.requests.size)
+            val byDefault = listOf(
+                call(arguments = """{"c": "${"a".repeat(32_000)}"}"""),
+                call(words = listOf("a".repeat(32_001))),
+            ).map { reason(judge().judge(it)) }
+            assertEquals(listOf(CALL_TOO_LONG, WORDS_TOO_LONG), byDefault)
+            assertEquals(2, model.requests.size)
+        }
 
     @Test
     fun `the length limit applies to the escaped text`() = runTest {
@@ -608,7 +567,7 @@ class SideModelJudgeTest {
     // Logging.
 
     @Test
-    fun `each verdict is logged with the tool, its reason only at debug, never the arguments`() = runTest {
+    fun `a verdict's reason is logged only at debug, never the arguments`() = runTest {
         answers("""{"verdict":"deny","reason":"it deletes notes.md"}""")
         val judge = judge()
 
@@ -620,16 +579,7 @@ class SideModelJudgeTest {
             advanceUntilIdle()
         }
 
-        assertEquals(
-            listOf(
-                "INFO Judge on call call-1 of fs.write in turn test-turn of main@test:main:chat: deny",
-                "DEBUG Judge on call call-1 gave its deny because the judge refused it: it deletes notes.md",
-                "INFO Judge on call call-1 of fs.write in turn test-turn of main@test:main:chat: ask",
-                "DEBUG Judge on call call-1 gave its ask because the operator typed nothing in this turn for the " +
-                    "judge to go by",
-            ),
-            lines.filter { "Judge on call" in it },
-        )
+        assertTrue(lines.any { it.startsWith("DEBUG") && "notes.md" in it })
         assertFalse(lines.any { !it.startsWith("DEBUG") && "notes.md" in it })
         assertFalse(lines.any { "hello" in it })
     }

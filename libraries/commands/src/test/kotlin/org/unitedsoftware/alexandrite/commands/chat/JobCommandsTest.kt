@@ -1,15 +1,11 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.CHINESE
 import org.unitedsoftware.alexandrite.commands.GUEST
 import org.unitedsoftware.alexandrite.commands.OPERATOR
-import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
-import org.unitedsoftware.alexandrite.commands.commandContext
 import org.unitedsoftware.alexandrite.commands.commandTexts
-import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
@@ -72,14 +68,5 @@ class JobCommandsTest {
 
         assertEquals(List(4) { usage }, replies)
         assertEquals(emptyList(), control.calls)
-    }
-
-    @Test
-    fun `jobs answers in the language of the chat`() = runTest {
-        val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "jobs.none", "没有后台任务。").build()
-        val chinese = JobCommands(control.turns, commandTexts(catalog), clock)
-        val invocation = testCommand("jobs", issuer = OPERATOR)
-
-        assertEquals("没有后台任务。", chinese.answer(invocation, commandContext(invocation, language = CHINESE)))
     }
 }

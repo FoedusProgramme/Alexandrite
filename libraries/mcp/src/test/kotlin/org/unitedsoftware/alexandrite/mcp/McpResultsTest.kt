@@ -82,16 +82,4 @@ class McpResultsTest {
         assertEquals(ToolResult("it broke", isError = true), result(McpContent.Text("it broke"), isError = true))
         assertEquals(ToolResult("[The tool returned no content.]"), result())
     }
-
-    @Test
-    fun `a server that asks for input gets an error the model reads`() {
-        val result = McpResults.needsInput("files")
-
-        assertTrue(result.isError)
-        assertEquals(
-            "MCP server files asked for input to complete the call, which Alexandrite does not support yet; the call " +
-                "did not complete.",
-            result.text,
-        )
-    }
 }

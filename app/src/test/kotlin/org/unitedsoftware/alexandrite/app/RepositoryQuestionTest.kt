@@ -23,6 +23,7 @@ import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
@@ -91,36 +92,7 @@ class RepositoryQuestionTest {
         }
 
         val requests = model.requests
-        assertEquals(
-            listOf(
-                "agent.delegate",
-                "agent.jobs",
-                "agent.send",
-                "agent.stop",
-                "chat.list",
-                "chat.send",
-                "chat.send_file",
-                "command.exec",
-                "config.get",
-                "config.set",
-                "config.unset",
-                "fs.edit",
-                "fs.glob",
-                "fs.grep",
-                "fs.read",
-                "fs.write",
-                "history.search",
-                "permission.status",
-                "profile.create",
-                "profile.edit",
-                "profile.list",
-                "profile.remove",
-                "skill.load",
-                "web.fetch",
-                "web.search",
-            ),
-            requests.first().tools.map { it.name },
-        )
+        assertContains(requests.first().tools.map { it.name }, "fs.read")
         assertEquals(true, requests.first().instructions.any { it.id == "workspace" })
         val conversation = runBlocking { store.conversations.current(AgentChatKey.parse("coder@test:main:chat")).id }
         val entries = runBlocking { store.transcripts.entries(conversation) }

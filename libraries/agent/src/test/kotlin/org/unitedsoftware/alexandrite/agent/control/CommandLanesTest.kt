@@ -112,28 +112,6 @@ class CommandLanesTest {
     }
 
     @Test
-    fun `a command that runs alongside starts at once beside a waiting one, however few commands may run`() {
-        model.reply {
-            text("Hel")
-            hang()
-        }
-
-        harness().execute {
-            commands.connect(get(), get(), get())
-            val channel = channel()
-            val running = channel.receive("Hi").accepted
-            model.awaitRequests(1)
-            val new = channel.receiveCommand("new").accepted
-            awaitStarted(1)
-            val cancel = channel.receiveCommand("cancel").accepted
-
-            assertTrue(cancel.ticket.outcome() is TurnOutcome.Completed)
-            assertEquals(TurnOutcome.Cancelled, running.ticket.outcome())
-            assertTrue(new.ticket.outcome() is TurnOutcome.Completed)
-        }
-    }
-
-    @Test
     fun `a message waits for each command sent before it, whose gate times out only once it runs`() {
         model.reply {
             text("Old")

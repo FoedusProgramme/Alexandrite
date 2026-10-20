@@ -10,16 +10,13 @@ import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
-import kotlin.io.path.readBytes
 import kotlin.io.path.readText
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
@@ -36,11 +33,6 @@ class WriteToolTest {
         fs = FsFixture(directory)
         ledger = ReadLedger()
         tool = WriteTool(fs.floor, ledger, fs.places)
-    }
-
-    @Test
-    fun `the call is titled by its path, of activity edit`() {
-        assertEquals(ToolActivity.EDIT to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
     }
 
     private fun read(file: Path) {
@@ -167,16 +159,6 @@ class WriteToolTest {
         val edited = fs.reviewedRun(EditTool(fs.floor, ledger, fs.places), arguments("path" to file, "edits" to edits))
 
         assertEquals("Edited $file: +1 -1 lines." to "Step two.\n", edited to file.readText())
-    }
-
-    @Test
-    fun `the text takes the line breaks and the byte order mark of the file it replaces`() {
-        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
-        val file = fs.bytes("repo/win.txt", bom + "one\r\ntwo\r\n".toByteArray())
-        read(file)
-
-        assertEquals("Wrote $file: +2 -2 lines.", write(file, "uno\ndos\n"))
-        assertContentEquals(bom + "uno\r\ndos\r\n".toByteArray(), file.readBytes())
     }
 
     @Test

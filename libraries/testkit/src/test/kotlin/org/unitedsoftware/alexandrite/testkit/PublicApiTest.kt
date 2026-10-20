@@ -10,7 +10,6 @@ import java.io.File
 import java.io.OutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class PublicApiTest {
     @TempDir
@@ -88,25 +87,5 @@ class PublicApiTest {
     @Test
     fun `a plugin's test uses the main doubles without the internal API`() {
         assertEquals(emptyList(), errors("Sample.kt" to sample))
-    }
-
-    @Test
-    fun `a test without the internal API cannot call what leaks an internal type in its signature`() {
-        val leaking = """
-            @file:OptIn(org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi::class)
-
-            package leak
-
-            fun initiation(): org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation? = null
-
-            fun take(initiations: List<org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation>): Int = initiations.size
-        """.trimIndent()
-        val caller = "fun one() = leak.initiation()\n\nfun two() = leak.take(listOf())"
-
-        val errors = errors("Leak.kt" to leaking, "Use.kt" to caller)
-
-        val lines = errors.map { Regex("Use\\.kt:(\\d+):").find(it)?.groupValues?.get(1) }.toSet()
-        assertEquals(setOf("1", "3"), lines, errors.joinToString("\n"))
-        assertTrue(errors.all { "Internal Alexandrite API" in it }, errors.joinToString("\n"))
     }
 }

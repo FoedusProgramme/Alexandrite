@@ -10,9 +10,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatInfo
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import org.unitedsoftware.alexandrite.sdk.chat.ForwardKind
-import org.unitedsoftware.alexandrite.sdk.chat.ForwardOrigin
-import org.unitedsoftware.alexandrite.sdk.chat.Quote
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -39,57 +36,16 @@ class ChannelValuesTest {
     private val at = Instant.parse("2026-10-08T09:00:00Z")
     private val photo = MediaContent { maxBytes -> ByteArray(minOf(maxBytes, 3L).toInt()) { 7 } }
 
-    private fun message(): IncomingMessage.Builder = IncomingMessage.builder(ref, sender, group, at, forwarded = null)
-
     // Inbound.
-
-    @Test
-    fun `a rebuilt incoming message keeps what the block leaves alone`() {
-        val forwarded = ForwardOrigin(ForwardKind.CHAT, "News", null, null)
-        val image = MediaAttachment.builder(MediaKind.IMAGE, "image/png", photo).width(640).height(480).build()
-        val message = message()
-            .text("look")
-            .media(listOf(image))
-            .quote(Quote.builder("earlier").build())
-            .facts(listOf(DisplayFact("Edited", "no")))
-            .build()
-
-        val changed = message.rebuild {
-            text("look at this")
-            forwarded(forwarded)
-        }
-
-        assertEquals(message, message.toBuilder().build())
-        assertEquals("look at this", changed.text)
-        assertEquals(forwarded, changed.forwarded)
-        assertEquals(listOf(image), changed.media)
-        assertEquals(message.quote, changed.quote)
-        assertEquals(message.facts, changed.facts)
-    }
 
     @Test
     fun `an incoming message comes from a user of its own channel instance`() {
         val stranger =
             ChatUser(UserAddress(ChannelInstanceId(ChannelType("telegram"), "home"), "1"), "Bo", null, false, false)
 
-        val error = assertFailsWith<IllegalArgumentException> {
+        assertFailsWith<IllegalArgumentException> {
             IncomingMessage.builder(ref, stranger, group, at, forwarded = null).build()
         }
-
-        assertEquals("The sender telegram:home@1 is no user of channel instance telegram:work.", error.message)
-    }
-
-    @Test
-    fun `a rebuilt media attachment keeps what the block leaves alone`() {
-        fun image() = MediaAttachment.builder(MediaKind.IMAGE, "image/png", photo)
-            .size(3)
-            .width(640)
-            .height(480)
-            .name("photo.png")
-        val quoted = image().fromQuote(true).build()
-
-        assertEquals(quoted, quoted.toBuilder().build())
-        assertEquals(image().build(), quoted.rebuild { fromQuote(false) })
     }
 
     @Test
@@ -116,24 +72,10 @@ class ChannelValuesTest {
     @Test
     fun `an outbound message is plain, replies to nothing and has no conversation until set`() {
         val notice = OutboundMessage.builder("Queue full.", MessageKind.NOTICE).build()
-        val reply = notice.rebuild {
-            kind(MessageKind.REPLY)
-            markup(Markup.MARKDOWN)
-            replyTo(ref)
-            conversation(ConversationId("c1"))
-        }
 
         assertEquals(Markup.PLAIN, notice.markup)
         assertNull(notice.replyTo)
         assertNull(notice.conversation)
-        assertEquals(
-            OutboundMessage.builder("Queue full.", MessageKind.REPLY)
-                .markup(Markup.MARKDOWN)
-                .replyTo(ref)
-                .conversation(ConversationId("c1"))
-                .build(),
-            reply,
-        )
         assertFailsWith<IllegalArgumentException> { OutboundMessage.builder(" \n", MessageKind.REPLY).build() }
     }
 
@@ -145,7 +87,6 @@ class ChannelValuesTest {
 
         assertEquals(listOf(file), message.files)
         assertEquals(emptyList(), OutboundMessage.builder("Hi", MessageKind.REPLY).build().files)
-        assertEquals(message, message.toBuilder().build())
     }
 
     @Test
@@ -160,13 +101,8 @@ class ChannelValuesTest {
         assertEquals(3L, file.size)
         assertFalse(file.asFile)
         assertEquals(file, OutboundFile.builder("report.pdf", "application/pdf", byteArrayOf(1, 2, 3)).build())
-        assertEquals(file.hashCode(), file.toBuilder().build().hashCode())
         assertFalse(file == file.rebuild { asFile(true) })
         assertFalse(file == file.rebuild { content(byteArrayOf(1, 2)) })
-        assertEquals(
-            "OutboundFile(name=report.pdf, mediaType=application/pdf, size=3, sha256=039058c6f2c0cb49, asFile=false)",
-            "$file",
-        )
         assertFailsWith<IllegalArgumentException> { file.rebuild { name(" ") } }
         assertFailsWith<IllegalArgumentException> { file.rebuild { mediaType("") } }
     }
@@ -182,15 +118,6 @@ class ChannelValuesTest {
         assertEquals(setOf(Markup.PLAIN), capabilities.markups)
         assertFalse(capabilities.files)
         assertNull(capabilities.maxFileBytes)
-        assertEquals(50L, capabilities.rebuild { maxFileBytes(50) }.maxFileBytes)
-        assertEquals(
-            ChannelCapabilities.builder().streaming(true).finalReplacesPreview(true).maxPartsPerReply(5).build(),
-            capabilities.rebuild {
-                streaming(true)
-                finalReplacesPreview(true)
-                maxPartsPerReply(5)
-            },
-        )
         assertFailsWith<IllegalArgumentException> { ChannelCapabilities.builder().maxPartsPerReply(0).build() }
         assertFailsWith<IllegalArgumentException> { ChannelCapabilities.builder().markups(emptySet()).build() }
         assertFailsWith<IllegalArgumentException> { ChannelCapabilities.builder().maxFileBytes(0).build() }
@@ -283,14 +210,12 @@ class ChannelValuesTest {
     }
 
     @Test
-    fun `a trust offer has a short id and offers at least one root, and a bare channel cannot make one`() {
+    fun `a trust offer has a short id and offers at least one root`() {
         val root = TrustRoot(TrustRootKind.SERVER, "files")
 
         assertEquals("o-1", TrustOffer("o-1", testTurn, "x", listOf(root)).id)
         assertFailsWith<IllegalArgumentException> { TrustOffer("o 1", testTurn, "x", listOf(root)) }
         assertFailsWith<IllegalArgumentException> { TrustOffer("o-1", testTurn, "x", emptyList()) }
-        val answer = runBlocking { bare.offerTrust(TrustOffer("o-1", testTurn, "x", listOf(root))) }
-        assertEquals(ApprovalAnswer.Unavailable("this channel cannot offer trust"), answer)
     }
 
     private val bare = object : Channel {
@@ -311,20 +236,16 @@ class ChannelValuesTest {
     }
 
     @Test
-    fun `a channel that names no operators counts no one an operator and splits no text`() {
-        assertFalse(runBlocking { bare.isOperator(chat, UserAddress(work, "2")) })
-        assertEquals(1, runBlocking { bare.partsNeeded(chat, "x".repeat(10_000), Markup.PLAIN) })
-    }
-
-    @Test
-    fun `a channel that does not ask for approvals answers that it cannot`() {
-        val channel = bare
+    fun `a bare channel names no operators, splits no text and cannot ask for approvals or offer trust`() {
         val request = ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x")
+        val offer = TrustOffer("o-1", testTurn, "x", listOf(TrustRoot(TrustRootKind.SERVER, "files")))
 
-        assertEquals(
-            ApprovalAnswer.Unavailable("this channel cannot ask for approvals"),
-            runBlocking { channel.askApproval(request) },
-        )
+        runBlocking {
+            assertFalse(bare.isOperator(chat, UserAddress(work, "2")))
+            assertEquals(1, bare.partsNeeded(chat, "x".repeat(10_000), Markup.PLAIN))
+            assertEquals(ApprovalAnswer.Unavailable("this channel cannot ask for approvals"), bare.askApproval(request))
+            assertEquals(ApprovalAnswer.Unavailable("this channel cannot offer trust"), bare.offerTrust(offer))
+        }
     }
 
     private val testTurn: TurnInfo

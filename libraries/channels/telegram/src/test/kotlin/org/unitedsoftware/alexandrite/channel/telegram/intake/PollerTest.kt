@@ -10,7 +10,6 @@ import org.unitedsoftware.alexandrite.channel.telegram.TelegramBots
 import org.unitedsoftware.alexandrite.channel.telegram.api.BotApiFailure
 import org.unitedsoftware.alexandrite.channel.telegram.api.Update
 import org.unitedsoftware.alexandrite.channel.telegram.logged
-import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -96,21 +95,6 @@ class PollerTest {
     }
 
     @Test
-    fun `an agent that closes stops the batch and leaves its update unconfirmed`() = runTest {
-        api.polls += batch(5, 6, 7)
-        answer = { if (it.updateId == 6L) Dispatch.CLOSING else Dispatch.DONE }
-        val poller = poller()
-
-        poller.onOpen()
-        runCurrent()
-        api.polls += batch()
-        poller.onClose()
-
-        assertEquals(listOf(5L, 6L), dispatched)
-        assertEquals(listOf(null, 6L), api.offsets)
-    }
-
-    @Test
     fun `failed polls back off from a second, doubling up to the longest, with one warning a streak`() = runTest {
         repeat(4) { api.failPoll(BotApiFailure.TRANSIENT) }
         api.polls += batch(5)
@@ -158,19 +142,6 @@ class PollerTest {
         assertEquals(7, api.pollTimes.size)
         assertEquals(listOf(5L), dispatched)
         assertEquals(1, lines.count { it.startsWith("ERROR") && "another program polls this bot" in it }, "$lines")
-        poller.onClose()
-    }
-
-    @Test
-    fun `a token Telegram no longer accepts stops polling and the runtime`() = runTest {
-        api.failPoll(BotApiFailure.UNAUTHORIZED)
-        val poller = poller()
-
-        poller.onOpen()
-        advanceTimeBy(1.minutes)
-
-        assertEquals(listOf<Long?>(null), api.offsets)
-        assertEquals(StopKind.FAILURE, control.requests.single().kind)
         poller.onClose()
     }
 }

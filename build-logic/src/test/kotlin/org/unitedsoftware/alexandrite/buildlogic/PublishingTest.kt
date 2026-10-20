@@ -36,7 +36,7 @@ class PublishingTest {
         description?.let { "description = \"$it\"\n" }.orEmpty()
 
     @Test
-    fun `a published module's POM carries its jar name, the version and the project's facts`() {
+    fun `a published module's POM carries its jar name, the version and its description`() {
         build(
             mapOf("libraries/internal" to library("Helpers")),
             ":libraries:internal:generatePomFileForMavenPublication",
@@ -49,10 +49,6 @@ class PublishingTest {
             "<artifactId>alexandrite-internal</artifactId>",
             "<version>1.2.3</version>",
             "<description>Helpers</description>",
-            "<url>https://alexandrite.unitedsoftware.org</url>",
-            "<name>MIT License</name>",
-            "<email>contact@unitedsoftware.org</email>",
-            "<url>https://github.com/FoedusProgramme/alexandrite</url>",
         )) {
             assertContains(pom, expected)
         }

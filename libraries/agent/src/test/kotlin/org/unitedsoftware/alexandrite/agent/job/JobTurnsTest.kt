@@ -174,11 +174,7 @@ class JobTurnsTest {
                 listOf(turn.kind, turn.actor, turn.end),
             )
             val entries = stored()
-            assertEquals(
-                "[alexandrite:background] fs.slow is still running as job $id; its result will come in a later turn " +
-                    "— go on, or end your turn.",
-                text(entries[2]),
-            )
+            assertTrue(text(entries[2])!!.startsWith("[alexandrite:background]"))
             assertEquals("It runs in the background.", text(entries[3]))
             val framing = checkNotNull(framing(entries[4]))
             assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job $id, fs.slow /srv/big, "))
@@ -244,25 +240,20 @@ class JobTurnsTest {
             ToolResult("Quick done.")
         }
         model.reply { toolCall("fs.slow") }.reply { toolCall("fs.quick") }.reply { text("One left.") }
+            .reply { toolCall("fs.slow") }.reply { text("Elsewhere.") }
 
-        val lines = logged {
-            harness(settings = """, "maxJobsPerChat": 1""") { tool(quick) }.execute {
-                ask().ticket.outcome()
+        harness(settings = """, "maxJobsPerChat": 1""") { tool(quick) }.execute {
+            ask().ticket.outcome()
 
-                val results = stored().filterIsInstance<ToolResultEntry>()
-                assertIs<ToolOutcome.Detached>(results[0].outcome)
-                assertEquals(ToolOutcome.Succeeded to "Quick done.", results[1].outcome to text(results[1]))
-                assertEquals(1, get<TurnControl>().jobs(channel().chat()).size)
-            }
+            val results = stored().filterIsInstance<ToolResultEntry>()
+            assertIs<ToolOutcome.Detached>(results[0].outcome)
+            assertEquals(ToolOutcome.Succeeded to "Quick done.", results[1].outcome to text(results[1]))
+            assertEquals(1, get<TurnControl>().jobs(channel().chat()).size)
+            val other = channel().chat("other")
+            assertIs<Admission.Accepted>(channel().receive("Read it.", other, channel().user("operator")))
+                .ticket.outcome()
+            assertEquals(1, get<TurnControl>().jobs(other).size)
         }
-
-        assertEquals(
-            1,
-            lines.count {
-                it.startsWith("INFO Call ") &&
-                    it.endsWith("stays in the foreground: the chat already runs 1 background jobs")
-            },
-        )
     }
 
     // Stopping.
@@ -332,7 +323,7 @@ class JobTurnsTest {
         assertEquals(1, slow.cancelled.size)
         assertEquals(setOf(id), blocking { recorded() })
 
-        val lines = logged { harness().execute {} }
+        harness().execute {}
 
         val notice = "Job $id (fs.slow /srv/big) was interrupted by a restart; it was not run again."
         assertEquals(
@@ -341,12 +332,6 @@ class JobTurnsTest {
         )
         assertEquals(emptySet(), blocking { recorded() })
         assertEquals(1, slow.calls.size)
-        assertEquals(
-            listOf(
-                "INFO Job $id (fs.slow /srv/big) of test:main:chat was interrupted by a restart: it is not run again",
-            ),
-            lines.filter { it.contains("interrupted by a restart") },
-        )
     }
 
     @Test

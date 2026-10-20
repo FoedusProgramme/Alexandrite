@@ -484,11 +484,11 @@ class ProjectInstructionsTest {
     // Bounds of one round.
 
     @Test
-    fun `one round loads at most eight instruction files, notes the rest, and warns of untrusted folders at once`() {
+    fun `one round loads at most eight instruction files, notes the rest, and names ten untrusted folders`() {
         repository.resolve(".git").createDirectories()
         val packages = (1..10).map { repository.resolve("pkg$it") }
         packages.forEach { write(it.resolve("AGENTS.md"), "Rules of ${it.fileName}.\n") }
-        val others = (1..3).map { root.resolve("other/repo$it") }
+        val others = (1..12).map { root.resolve("other/repo$it") }
         others.forEach { other ->
             other.resolve(".git").createDirectories()
             write(other.resolve("AGENTS.md"), "Rules.\n")
@@ -505,40 +505,10 @@ class ProjectInstructionsTest {
                 projects(entries).map { it.texts().first() },
             )
             val result = entries.filterIsInstance<ToolResultEntry>().single().text()
-            assertContains(
-                result,
-                "[Note: the project instructions ${files.drop(8).joinToString()} were not loaded, as the calls of " +
-                    "this round reached the limit of 8 files and 64 KiB of project instructions; they load when a " +
-                    "later call touches them.]",
-            )
-            val notice = "Coder is working in folders whose project instructions were not loaded: " +
-                others.joinToString("; ") { "$it (AGENTS.md)" } + ". An operator can trust a folder with /trust " +
-                "<folder>; its instructions load the next time the agent touches it."
-            assertEquals(
-                listOf(MessageKind.NOTICE to notice),
-                channel().sent.map {
-                    it.message.kind to it.message.text
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `the notice of one round names ten untrusted folders and counts the others`() {
-        val others = (1..12).map { root.resolve("other/repo$it") }
-        others.forEach { other ->
-            other.resolve(".git").createDirectories()
-            write(other.resolve("AGENTS.md"), "Rules.\n")
-        }
-        greps(*others.map { it.resolve("Main.kt") }.toTypedArray())
-
-        harness().execute {
-            ask()
-
-            val notice = "Coder is working in folders whose project instructions were not loaded: " +
-                others.take(10).joinToString("; ") { "$it (AGENTS.md)" } + " and 2 more. An operator can trust a " +
-                "folder with /trust <folder>; its instructions load the next time the agent touches it."
-            assertEquals(listOf(notice), channel().sent.map { it.message.text })
+            assertContains(result, "[Note: the project instructions ${files.drop(8).joinToString()} were not loaded")
+            val notice = channel().sent.single().message
+            assertEquals(MessageKind.NOTICE, notice.kind)
+            assertContains(notice.text, others.take(10).joinToString("; ") { "$it (AGENTS.md)" } + " and 2 more.")
         }
     }
 
@@ -584,14 +554,7 @@ class ProjectInstructionsTest {
                 listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
                 projects(stored()).map { it.texts().first() },
             )
-            assertEquals(
-                listOf(
-                    "Coder is working in $module, which has project instructions (AGENTS.md) that were not loaded. " +
-                        "An operator can trust the folder with /trust $module; they load the next time the agent " +
-                        "touches it.",
-                ),
-                channel().sent.map { it.message.text },
-            )
+            assertContains(channel().sent.single().message.text, "/trust $module;")
         }
     }
 

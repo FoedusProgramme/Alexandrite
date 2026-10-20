@@ -115,7 +115,7 @@ public class FakeAnswer internal constructor(public val query: String, public va
 }
 
 /** The `bot_command` and `mention` entities that Telegram finds in [text]. */
-public fun telegramEntities(text: String): JsonArray {
+internal fun telegramEntities(text: String): JsonArray {
     val commands = COMMAND.findAll(text).map { it.range }.toList()
     val mentions = MENTION.findAll(text).map { it.range }.filter { mention -> commands.none { mention.first in it } }
     val found = commands.map { "bot_command" to it } + mentions.map { "mention" to it }

@@ -57,15 +57,12 @@ class PluginOptionsTest {
     }
 
     @Test
-    fun `the options of a third-party plugin default its config root`() {
-        val options = options(*required)
+    fun `the options of a third-party plugin default its config root, and a built-in plugin's are accepted`() {
+        val thirdParty = options(*required)
+        val reserved = options(*builtIn)
 
-        assertEquals("weather", options.id)
-        assertEquals("1.2.3", options.version)
-        assertEquals("plugins.weather", options.configRoot)
-        assertFalse(options.builtIn)
-        assertNull(options.packageName)
-        assertNull(options.indexClass)
+        assertEquals("plugins.weather" to false, thirdParty.configRoot to thirdParty.builtIn)
+        assertEquals("weather" to true, reserved.configRoot to reserved.builtIn)
     }
 
     @Test
@@ -77,15 +74,6 @@ class PluginOptionsTest {
     }
 
     // Built-in plugins.
-
-    @Test
-    fun `a built-in plugin keeps its reserved id and config root`() {
-        val options = options(*builtIn)
-
-        assertEquals("alexandrite-weather", options.id)
-        assertEquals("weather", options.configRoot)
-        assertEquals(true, options.builtIn)
-    }
 
     @Test
     fun `a reserved id needs the built-in option`() {

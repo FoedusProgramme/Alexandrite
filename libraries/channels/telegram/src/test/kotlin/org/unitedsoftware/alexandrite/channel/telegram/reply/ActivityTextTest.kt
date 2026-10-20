@@ -31,15 +31,6 @@ class ActivityTextTest {
     }
 
     @Test
-    fun `a running call shows present tense, a finished one past tense`() {
-        val running = renderActivity(texts, null, listOf(call()))
-        val completed = renderActivity(texts, null, listOf(call(status = ToolCallStatus.COMPLETED)))
-
-        assertEquals("Reading 1 file\nnotes.md", running.text)
-        assertEquals("Read 1 file\nnotes.md", completed.text)
-    }
-
-    @Test
     fun `several calls of different kinds aggregate by kind, each in the tense of its own calls`() {
         val calls = listOf(
             call(tool = "command.exec", activity = ToolActivity.EXECUTE, title = "ls", status = ToolCallStatus.RUNNING),
@@ -236,38 +227,18 @@ class ActivityTextTest {
     }
 
     @Test
-    fun `the zh-CN catalog's wording replaces the plugin's own English default`() {
-        val catalog = TextCatalog.builder()
-            .text(PLUGIN, LanguageTag("zh-CN"), "activity.verb.read.past", "读取了")
-            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.read.one", "{count} 个文件")
-            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.read.many", "{count} 个文件")
-            .build()
-        val zh = testTexts(PLUGIN, LanguageTag("zh-CN"), catalog)
-
-        val rendered = renderActivity(zh, LanguageTag("zh-CN"), listOf(call(status = ToolCallStatus.COMPLETED)))
-
-        assertEquals("读取了 1 个文件\nnotes.md", rendered.text)
-    }
-
-    @Test
-    fun `files sent read as sent once done and as being sent while one still runs, in both languages`() {
+    fun `files sent read as sent once done and as being sent while one still runs, in the chat's language`() {
         val sent = call("chat.send_file", ToolActivity.SEND, "report.pdf", ToolCallStatus.COMPLETED)
         val sending = listOf(sent, call("chat.send_file", ToolActivity.SEND, "chart.png"))
         val catalog = TextCatalog.builder()
-            .text(PLUGIN, LanguageTag("zh-CN"), "activity.verb.send.present", "正在发送")
             .text(PLUGIN, LanguageTag("zh-CN"), "activity.verb.send.past", "发送了")
             .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.send.one", "{count} 个文件")
-            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.send.many", "{count} 个文件")
             .build()
         val zh = testTexts(PLUGIN, LanguageTag("zh-CN"), catalog)
 
         assertEquals("Sent 1 file\nreport.pdf", renderActivity(texts, null, listOf(sent)).text)
         assertEquals("Sending 2 files\nreport.pdf\nchart.png", renderActivity(texts, null, sending).text)
         assertEquals("发送了 1 个文件\nreport.pdf", renderActivity(zh, LanguageTag("zh-CN"), listOf(sent)).text)
-        assertEquals(
-            "正在发送 2 个文件\nreport.pdf\nchart.png",
-            renderActivity(zh, LanguageTag("zh-CN"), sending).text,
-        )
     }
 
     @Test

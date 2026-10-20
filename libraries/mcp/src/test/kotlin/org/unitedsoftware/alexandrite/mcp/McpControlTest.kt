@@ -25,14 +25,6 @@ class McpControlTest {
     }
 
     @Test
-    fun `transports and states look up each known id and keep an unknown one`() {
-        assertEquals(McpTransport.entries, McpTransport.entries.map { McpTransport.of(it.id) })
-        assertEquals(McpServerState.entries, McpServerState.entries.map { McpServerState.of(it.id) })
-        assertEquals("websocket", McpTransport.of("websocket").id)
-        assertEquals("paused", McpServerState.of("paused").id)
-    }
-
-    @Test
     fun `the host logs in with the address pasted back and logs out again`() = FakeOAuthServer().use { fake ->
         withHub(McpConfig(mapOf("fake" to ServerConfigBuilder(url = fake.url).build()))) {
             until("waiting for a login") { server("fake").status.value.state == ServerState.NEEDS_LOGIN }

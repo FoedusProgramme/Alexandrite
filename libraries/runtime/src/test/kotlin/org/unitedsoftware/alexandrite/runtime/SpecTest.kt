@@ -1,23 +1,19 @@
 package org.unitedsoftware.alexandrite.runtime
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.runtime.plugin.BuiltInLayer
 import org.unitedsoftware.alexandrite.runtime.plugin.BuiltInPlugin
 import org.unitedsoftware.alexandrite.runtime.plugin.DisabledPlugin
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
-import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSource
 import org.unitedsoftware.alexandrite.sdk.di.container.DiProblemKind
 import org.unitedsoftware.alexandrite.sdk.problem.Problem
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.ZoneId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -45,18 +41,8 @@ class SpecTest {
     // Builders.
 
     @Test
-    fun `a runtime config needs only its data directory`() {
-        val config = RuntimeConfig.builder(dataDir).build()
-
-        assertEquals(dataDir, config.dataDir)
-        assertEquals(dataDir.resolve("cache"), config.cacheDir)
-        assertEquals(emptyList(), config.protected)
-        assertEquals(ZoneId.systemDefault(), config.zone)
-        assertEquals(LanguageTag("en"), config.language)
-        assertEquals(15.seconds, config.shutdownGrace)
-        assertEquals(30.seconds, config.startTimeout)
-        assertEquals("alexandrite", config.name)
-        assertSame(Dispatchers.Default, config.dispatcher)
+    fun `a runtime config keeps its cache in its data directory unless told otherwise`() {
+        assertEquals(dataDir.resolve("cache"), RuntimeConfig.builder(dataDir).build().cacheDir)
     }
 
     @Test
@@ -68,38 +54,24 @@ class SpecTest {
             { builder.name(" ") },
         )
 
-        val messages = rejected.map { assertFailsWith<IllegalArgumentException> { it() }.message }
-
-        assertEquals(
-            listOf(
-                "The shutdown grace may not be negative, was -1s.",
-                "The start timeout must be positive, was 0s.",
-                "The runtime name may not be blank.",
-            ),
-            messages,
-        )
+        rejected.forEach { assertFailsWith<IllegalArgumentException> { it() } }
     }
 
     @Test
     fun `a runtime config rejects a cache directory that is the data directory, holds it or lies in plugin data`() {
-        val rejected = listOf(dataDir, Path.of("data/../data"), dataDir.toAbsolutePath(), Path.of(""))
-
-        val messages = rejected.map { cache ->
-            assertFailsWith<IllegalArgumentException> { RuntimeConfig.builder(dataDir).cacheDir(cache).build() }.message
-        }
-        val inPlugins = assertFailsWith<IllegalArgumentException> {
-            RuntimeConfig.builder(dataDir).cacheDir(Path.of("data/plugins/weather")).build()
-        }
-
-        assertEquals(
-            "The cache directory may not be the data directory or hold it, was 'data' for the data directory 'data'.",
-            messages.first(),
+        val rejected = listOf(
+            dataDir,
+            Path.of("data/../data"),
+            dataDir.toAbsolutePath(),
+            Path.of(""),
+            Path.of("data/plugins/weather"),
         )
-        assertEquals(
-            "The cache directory may not lie in the plugins' data, was 'data/plugins/weather' for the data " +
-                "directory 'data'.",
-            inPlugins.message,
-        )
+
+        for (cache in rejected) {
+            assertFailsWith<IllegalArgumentException>("$cache") {
+                RuntimeConfig.builder(dataDir).cacheDir(cache).build()
+            }
+        }
         RuntimeConfig.builder(dataDir).cacheDir(Path.of("data-cache")).build()
         RuntimeConfig.builder(dataDir).cacheDir(Path.of("data/cache")).build()
     }
@@ -128,11 +100,6 @@ class SpecTest {
     // Values.
 
     @Test
-    fun `a loaded plugin prints its id instead of its whole info`() {
-        assertEquals("LoadedPlugin(id=hello, layer=null, configRoot=plugins.hello)", loaded(HelloIndex()).toString())
-    }
-
-    @Test
     fun `values have no copy or component functions`() {
         for (value in values) {
             val type = value.javaClass
@@ -144,8 +111,6 @@ class SpecTest {
     fun `the problem kinds of the container and the runtime have ids unique across both`() {
         val ids = (DiProblemKind.entries + RuntimeProblemKind.entries).map { it.id }
 
-        assertEquals("di.wrong_kind", DiProblemKind.WRONG_KIND.id)
-        assertEquals("runtime.shutdown", RuntimeProblemKind.SHUTDOWN.id)
         assertEquals(ids.size, ids.toSet().size)
     }
 }

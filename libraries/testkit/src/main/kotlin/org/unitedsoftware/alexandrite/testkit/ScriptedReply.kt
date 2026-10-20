@@ -12,7 +12,6 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.model.Usage
-import org.unitedsoftware.alexandrite.sdk.model.Warning
 import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantPart
@@ -30,7 +29,6 @@ public class ScriptedReply private constructor(
     private val actions: List<Action>,
     private val usage: Usage,
     private val finish: FinishReason?,
-    private val warnings: List<Warning>,
 ) {
     /** Whether the reply ends without its terminal event. */
     internal val cutShort: Boolean get() = actions.lastOrNull().let(::ends)
@@ -42,7 +40,7 @@ public class ScriptedReply private constructor(
         ids: RequestIds,
         dialect: Dialect,
     ) {
-        emit(ModelEvent.ResponseStarted(responseId, model.model, warnings))
+        emit(ModelEvent.ResponseStarted(responseId, model.model, emptyList()))
         val parts = mutableListOf<AssistantPart>()
         for (action in actions) {
             val index = parts.size
@@ -100,7 +98,6 @@ public class ScriptedReply private constructor(
         private val actions = mutableListOf<Action>()
         private var usage: Usage = Usage.builder().build()
         private var finish: FinishReason? = null
-        private val warnings = mutableListOf<Warning>()
 
         /** A text part, streamed as one delta per chunk. */
         public fun text(vararg chunks: String): Builder = add(Text(chunks.toList()))
@@ -149,9 +146,7 @@ public class ScriptedReply private constructor(
         public fun finish(kind: FinishKind, raw: String? = null, detail: String? = null): Builder =
             apply { finish = FinishReason(kind, raw, detail) }
 
-        public fun warning(kind: String, message: String): Builder = apply { warnings += Warning(kind, message) }
-
-        public fun build(): ScriptedReply = ScriptedReply(actions.toList(), usage, finish, warnings.toList())
+        public fun build(): ScriptedReply = ScriptedReply(actions.toList(), usage, finish)
 
         private fun add(action: Action): Builder = apply {
             check(!ends(actions.lastOrNull())) {

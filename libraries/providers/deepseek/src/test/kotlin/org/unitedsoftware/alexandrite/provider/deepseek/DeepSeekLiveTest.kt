@@ -16,7 +16,6 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
-import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
@@ -124,21 +123,6 @@ class DeepSeekLiveTest {
             println("Round 1: ${reply.message.parts}, ${reply.finish}, ${reply.usage}")
             assertEquals(FinishKind.END_TURN, reply.finish.kind)
             assertTrue(reply.message.parts.any { it is TextPart })
-        }
-    }
-
-    @Test
-    fun `DeepSeek is asked for no forced tool choice while it thinks`() = runBlocking {
-        live().use { endpoint ->
-            val history = listOf(testUserEntry(turn, "What time is it? Use the tool."))
-
-            val events = endpoint.events(request(history, 0) { tools(listOf(clock)).toolChoice(ToolChoice.Required) })
-
-            println("Reply: ${events.completed().message.parts}, ${events.completed().finish}")
-            assertEquals(
-                listOf("Model '$model' takes no forced tool choice while it thinks, so the model decides."),
-                events.warnings(),
-            )
         }
     }
 

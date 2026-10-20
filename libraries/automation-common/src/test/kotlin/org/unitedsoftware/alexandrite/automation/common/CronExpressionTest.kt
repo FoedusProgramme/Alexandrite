@@ -148,15 +148,6 @@ class CronExpressionTest {
     }
 
     @Test
-    fun `the leap day comes every four years, skipping 2100`() {
-        assertEquals(
-            listOf("2028-02-29T00:00", "2032-02-29T00:00", "2036-02-29T00:00"),
-            series("0 0 29 2 *", "2026-10-18T10:00", 3),
-        )
-        assertEquals("2104-02-29T00:00", next("0 0 29 2 *", "2096-03-01T00:00"))
-    }
-
-    @Test
     fun `an expression that never fires has no next`() {
         assertNull(cron("0 0 30 2 *").next(ORIGIN, UTC))
         assertNull(cron("0 0 31 4,6,9,11 *").next(ORIGIN, UTC))

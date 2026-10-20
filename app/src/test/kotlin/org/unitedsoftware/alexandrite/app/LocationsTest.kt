@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.app
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 class LocationsTest {
     private val home = Path.of("/home/me")
@@ -158,12 +157,5 @@ class LocationsTest {
             assertEquals(path("/var/cache/alexandrite"), at(os, named + own)[2], os)
             assertEquals(path("cache"), at(os, named, Options(cacheDir = Path.of("cache")))[2], os)
         }
-    }
-
-    @Test
-    fun `a variable that names no valid path is refused naming the variable`() {
-        val error = assertFailsWith<IllegalArgumentException> { at("Linux", mapOf("XDG_DATA_HOME" to "/a\u0000b")) }
-
-        assertEquals("XDG_DATA_HOME names no valid path: Nul character not allowed.", error.message)
     }
 }

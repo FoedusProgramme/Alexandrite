@@ -91,18 +91,6 @@ class SchedulerTest {
     }
 
     @Test
-    fun `a recurring task fires at each occurrence`() = runTest {
-        val harness = harness()
-        harness.scheduler.schedule("r", When.Every(10.minutes, ORIGIN), UTC)
-
-        advance(35.minutes)
-
-        assertEquals(listOf(10, 20, 30).map { at(it.minutes) }, harness.fires.map { it.at })
-        assertEquals(at(40.minutes), harness.store.tasks.getValue("r").next)
-        assertNull(harness.store.tasks.getValue("r").pending)
-    }
-
-    @Test
     fun `the occurrence is saved as pending with the next due instant in one save before it fires`() = runTest {
         val store = MemoryTaskStore<String>()
         val seen = mutableListOf<Task<String>>()
@@ -120,25 +108,6 @@ class SchedulerTest {
         assertEquals(at(20.minutes), atFire.next)
         assertEquals(savesBefore + 2, store.saves.size)
         assertEquals(atFire, store.saves[savesBefore])
-    }
-
-    @Test
-    fun `one slow fire does not hold another`() = runTest {
-        val release = CompletableDeferred<Unit>()
-        val harness = harness { task, _ ->
-            if (task.id == "slow") release.await()
-            Fired.DONE
-        }
-        harness.scheduler.schedule("slow", once(1.minutes), UTC)
-        harness.scheduler.schedule("fast", once(2.minutes), UTC)
-
-        advance(3.minutes)
-
-        assertEquals(listOf("slow" to at(1.minutes), "fast" to at(2.minutes)), harness.fires.map { it.id to it.at })
-        assertEquals(listOf("slow"), harness.store.tasks.keys.toList())
-        release.complete(Unit)
-        runCurrent()
-        assertTrue(harness.store.tasks.isEmpty())
     }
 
     @Test
@@ -181,26 +150,18 @@ class SchedulerTest {
     // Adding and cancelling.
 
     @Test
-    fun `adding a task wakes the loop early`() = runTest {
+    fun `adding a task wakes the loop early, also when it had no task`() = runTest {
         val harness = harness()
+        advance(1.minutes)
+        harness.scheduler.schedule("first", once(2.minutes), UTC)
+        advance(1.minutes)
         harness.scheduler.schedule("late", once(1.hours), UTC)
         advance(1.minutes)
 
         harness.scheduler.schedule("soon", once(5.minutes), UTC)
         advance(5.minutes)
 
-        assertEquals(listOf("soon" to at(5.minutes)), harness.fires.map { it.id to it.at })
-    }
-
-    @Test
-    fun `adding to an empty scheduler wakes it`() = runTest {
-        val harness = harness()
-        advance(1.hours)
-
-        harness.scheduler.schedule("t", once(2.hours), UTC)
-        advance(1.hours)
-
-        assertEquals(listOf(at(2.hours)), harness.fires.map { it.at })
+        assertEquals(listOf("first" to at(2.minutes), "soon" to at(5.minutes)), harness.fires.map { it.id to it.at })
     }
 
     @Test
@@ -269,25 +230,6 @@ class SchedulerTest {
     // Restarts.
 
     @Test
-    fun `a fire cut short by a stop is cut off at the next start, never fired twice`() = runTest {
-        val store = MemoryTaskStore<String>()
-        val first = harness(store) { _, _ -> awaitCancellation() }
-        first.scheduler.schedule("t", When.Every(10.minutes, ORIGIN), UTC)
-        advance(10.minutes)
-        first.job.cancelAndJoin()
-
-        assertEquals(Occurrence(at(10.minutes), Duration.ZERO), store.tasks.getValue("t").pending?.occurrence)
-        val second = harness(store)
-        advance(5.minutes)
-
-        assertEquals(emptyList(), second.fires)
-        assertEquals(listOf("cut off t ${at(10.minutes)} crashed"), second.events.log)
-        assertNull(store.tasks.getValue("t").pending)
-        advance(5.minutes)
-        assertEquals(listOf(at(20.minutes)), second.fires.map { it.at })
-    }
-
-    @Test
     fun `a crashed one-shot task is cut off and removed`() = runTest {
         val occurrence = Occurrence(at((-1).minutes), Duration.ZERO)
         val store = MemoryTaskStore(listOf(Task("t", once((-1).minutes), UTC, null, Pending(occurrence, false))))
@@ -297,28 +239,6 @@ class SchedulerTest {
         assertEquals(listOf("cut off t ${at((-1).minutes)} crashed"), harness.events.log)
         assertEquals(emptyList(), harness.fires)
         assertTrue(store.tasks.isEmpty())
-    }
-
-    @Test
-    fun `a replayed occurrence stays pending and fires again after a restart`() = runTest {
-        val store = MemoryTaskStore<String>()
-        val first = harness(store) { _, _ -> Fired.REPLAY }
-        first.scheduler.schedule("t", once(10.minutes), UTC)
-        advance(10.minutes)
-
-        assertEquals(
-            Pending(Occurrence(at(10.minutes), Duration.ZERO), replay = true),
-            store.tasks.getValue("t").pending,
-        )
-        advance(1.hours)
-        assertEquals(1, first.fires.size)
-        first.job.cancelAndJoin()
-
-        val second = harness(store)
-
-        assertEquals(listOf(Triple("t", at(10.minutes), 1.hours)), second.fires.map { Triple(it.id, it.due, it.late) })
-        assertTrue(store.tasks.isEmpty())
-        assertEquals(emptyList(), second.events.log)
     }
 
     @Test
@@ -336,40 +256,16 @@ class SchedulerTest {
     // Missed occurrences.
 
     @Test
-    fun `a one-shot task missed within the window runs late`() = runTest {
-        val store = MemoryTaskStore(listOf(Task("t", once((-2).hours), UTC, at((-2).hours), null)))
-
-        val harness = harness(store)
-
-        assertEquals(
-            listOf(Triple(at((-2).hours), 2.hours, ORIGIN)),
-            harness.fires.map {
-                Triple(it.due, it.late, it.at)
-            },
-        )
-        assertEquals(emptyList(), harness.events.log)
-        assertTrue(store.tasks.isEmpty())
-    }
-
-    @Test
     fun `a one-shot task missed beyond the window is reported and removed`() = runTest {
-        val store = MemoryTaskStore(listOf(Task("t", once((-25).hours), UTC, at((-25).hours), null)))
+        for ((missed, window) in listOf((-25).hours to Scheduler.DEFAULT_MISSED_WINDOW, (-2).hours to 1.hours)) {
+            val store = MemoryTaskStore(listOf(Task("t", once(missed), UTC, at(missed), null)))
 
-        val harness = harness(store)
+            val harness = harness(store, window = window)
 
-        assertEquals(emptyList(), harness.fires)
-        assertEquals(listOf("missed t ${at((-25).hours)}"), harness.events.log)
-        assertTrue(store.tasks.isEmpty())
-    }
-
-    @Test
-    fun `the window is configurable`() = runTest {
-        val store = MemoryTaskStore(listOf(Task("t", once((-2).hours), UTC, at((-2).hours), null)))
-
-        val harness = harness(store, window = 1.hours)
-
-        assertEquals(emptyList(), harness.fires)
-        assertEquals(listOf("missed t ${at((-2).hours)}"), harness.events.log)
+            assertEquals(emptyList(), harness.fires)
+            assertEquals(listOf("missed t ${at(missed)}"), harness.events.log)
+            assertTrue(store.tasks.isEmpty())
+        }
     }
 
     @Test

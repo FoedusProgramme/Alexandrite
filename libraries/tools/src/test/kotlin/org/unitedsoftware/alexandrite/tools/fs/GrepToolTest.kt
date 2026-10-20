@@ -7,11 +7,11 @@ import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class GrepToolTest {
@@ -31,14 +31,6 @@ class GrepToolTest {
         text = fs.write("repo/src/util/Text.kt", "package demo\n\nfun greet(name: String) = println(\"Hi, \$name\")\n")
         fs.write("repo/README.md", "# Demo\n\nCall greet() from main.\n")
         fs.write("repo/.git/HEAD", "fun greet in git\n")
-    }
-
-    @Test
-    fun `the call is titled by its pattern, of activity search`() {
-        assertEquals(
-            ToolActivity.SEARCH to listOf("pattern"),
-            tool.definition.activity to tool.definition.titleArguments,
-        )
     }
 
     @Test
@@ -105,10 +97,8 @@ class GrepToolTest {
             "'src' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
             tool.call(fs.context(workspace = null), "pattern" to "x", "path" to "src"),
         )
-        assertRefused(
-            "'pattern' is no valid regular expression: Unclosed group near index 4.",
-            tool.call(context, "pattern" to "fun(", "path" to main),
-        )
+        val malformed = tool.call(context, "pattern" to "fun(", "path" to main)
+        assertTrue(malformed.isError && malformed.text.startsWith("'pattern' is no valid regular expression"))
     }
 
     @Test

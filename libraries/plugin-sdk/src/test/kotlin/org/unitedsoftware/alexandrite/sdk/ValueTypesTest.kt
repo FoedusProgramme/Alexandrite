@@ -1,7 +1,6 @@
 package org.unitedsoftware.alexandrite.sdk
 
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
-import org.unitedsoftware.alexandrite.sdk.agent.rebuild
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
@@ -10,8 +9,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Key
-import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
-import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
 import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinkGroup
@@ -23,14 +20,6 @@ import kotlin.test.assertTrue
 
 class ValueTypesTest {
     private data class Sample(val name: String)
-
-    @Test
-    fun `stop requests are built by kind`() {
-        assertEquals(
-            listOf(StopKind.SHUTDOWN, StopKind.RESTART, StopKind.FAILURE),
-            listOf(StopRequest.shutdown("why"), StopRequest.restart("why"), StopRequest.failure("why")).map { it.kind },
-        )
-    }
 
     @Test
     fun `values keep copies of the collections they are built from`() {
@@ -50,7 +39,6 @@ class ValueTypesTest {
         assertEquals(listOf(ChatAddress(chat.instance, "2")), group.members)
         assertEquals(listOf("fs.*"), profile.toolsAllow)
         assertEquals(listOf(ChannelMessageRef(chat, "1")), delivered.messages)
-        assertEquals(profile, profile.rebuild { }.toBuilder().build())
     }
 
     @Test

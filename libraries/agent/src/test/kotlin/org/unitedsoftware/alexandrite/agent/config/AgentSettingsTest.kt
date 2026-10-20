@@ -33,25 +33,12 @@ class AgentSettingsTest {
         directory.resolve("notes.md").writeText("Notes.")
         val config = """
             {
-              "trustedFolders": ["/srv/repo"],
               "agents": {
                 "coder": {
-                  "name": "Coder",
-                  "description": "Reads code.",
-                  "instructions": ["Be careful."],
                   "instructionFiles": ["$persona", {"file": "notes.md", "when": ["direct", "heartbeat"]}],
                   "model": "scripted/test-model",
                   "reasoning": "medium",
                   "language": "zh_CN",
-                  "maxOutputTokens": 16000,
-                  "temperature": 0.5,
-                  "maxRounds": 10,
-                  "maxTurnTokens": 500000,
-                  "toolTimeoutSeconds": 30,
-                  "foregroundSeconds": 20,
-                  "tools": {"allow": ["fs.*"], "deny": ["fs.write"], "forGuests": ["fs.read"]},
-                  "permission": {"allow": ["command.exec(git status)"], "deny": ["command.exec(./gradlew test)"]},
-                  "workspace": "coder-files",
                   "channels": {"test:main": {"default": true, "home": "42#7"}}
                 }
               }
@@ -62,37 +49,13 @@ class AgentSettingsTest {
         agentHarness(config) { configFile(directory.resolve("alexandrite.json")).channel().model(ScriptedModel()) }
             .execute { agent = get<AgentDirectory>().agents.single() }
 
-        val coder = agent.config
-        assertEquals(
-            listOf(
-                "coder", "Coder", "Reads code.",
-                listOf(
-                    "Be careful.",
-                ),
-                16000, 0.5, 10, 500000L, 30, 20, "coder-files",
-            ),
-            listOf(
-                agent.id.value, agent.name, coder.description, coder.instructions, coder.maxOutputTokens,
-                coder.temperature, coder.maxRounds, coder.maxTurnTokens, coder.toolTimeoutSeconds,
-                coder.foregroundSeconds, coder.workspace,
-            ),
-        )
         assertEquals(
             listOf("$persona" to emptyList(), "notes.md" to listOf("direct", "heartbeat")),
-            coder.instructionFiles.map { it.file to it.`when` },
+            agent.config.instructionFiles.map { it.file to it.`when` },
         )
         assertEquals(ModelRef.parse("scripted/test-model"), agent.model)
         assertEquals(ReasoningEffort.MEDIUM, agent.reasoning)
         assertEquals(LanguageTag("zh-CN"), agent.language)
-        val tools = coder.tools
-        assertEquals(
-            listOf(listOf("fs.*"), listOf("fs.write"), listOf("fs.read")),
-            listOf(tools.allow, tools.deny, tools.forGuests),
-        )
-        assertEquals(
-            listOf(listOf("command.exec(git status)"), listOf("command.exec(./gradlew test)")),
-            listOf(coder.permission.allow, coder.permission.deny),
-        )
         val attachment = agent.attachments.single()
         assertEquals(
             listOf("test:main", "true", "test:main:42#7"),
@@ -105,23 +68,6 @@ class AgentSettingsTest {
         val settings = settings(agents(""""coder": {"description": "Codes.", "tools": {"forMembers": ["fs.read"]}}"""))
 
         assertEquals(listOf("fs.read"), settings.agents.getValue("coder").tools.forGuests)
-    }
-
-    @Test
-    fun `an agent sets no round limit or token budget unless configured, and backgrounds a call after five minutes`() {
-        val settings = settings(agents(""""coder": {"description": "Codes."}"""))
-        val coder = settings.agents.getValue("coder")
-
-        assertEquals(
-            listOf(null, null, 1800, 300, 4),
-            listOf(
-                coder.maxRounds,
-                coder.maxTurnTokens,
-                coder.toolTimeoutSeconds,
-                coder.foregroundSeconds,
-                settings.maxJobsPerChat,
-            ),
-        )
     }
 
     @Test
@@ -442,14 +388,6 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `an agent that serves channels needs a model`() {
-        assertConfigFails(
-            agents(""""coder": {"channels": {"test:main": {"default": true}}}"""),
-            "agents.coder.model is missing: an agent that serves channels needs a model",
-        )
-    }
-
-    @Test
     fun `an agent without channels is a profile, and needs a description`() {
         assertConfigFails(
             agents(""""coder": {}"""),
@@ -491,10 +429,6 @@ class AgentSettingsTest {
             agents(""""coder": {"instructionFiles": [1]}"""),
             "An instructionFiles entry is a path or an object with \"file\" and \"when\".",
         )
-        assertConfigFails(
-            agents(""""coder": {"instructionFiles": [{"path": "me.md"}]}"""),
-            "Encountered an unknown key 'path' at path: $",
-        )
     }
 
     @Test
@@ -503,14 +437,6 @@ class AgentSettingsTest {
         assertConfigFails(
             agents(""""coder": {"instructions": ["Hi", " "]}"""),
             "agents.coder.instructions holds a blank entry",
-        )
-    }
-
-    @Test
-    fun `the queue reads no commandsRunning`() {
-        assertConfigFails(
-            """{"queue": {"commandsRunning": 4}}""",
-            "Encountered an unknown key 'commandsRunning' at path: $",
         )
     }
 

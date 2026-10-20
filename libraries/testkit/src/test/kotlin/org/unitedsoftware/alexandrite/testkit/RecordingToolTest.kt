@@ -39,7 +39,7 @@ class RecordingToolTest {
     }
 
     @Test
-    fun `a held tool runs its calls once released`() {
+    fun `a held tool runs its calls once released, and records a call cancelled while held as cancelled`() {
         val tool = recordingTool().hold()
 
         val results = blocking {
@@ -56,21 +56,16 @@ class RecordingToolTest {
         assertEquals(List(2) { ToolResult("done") }, results.first)
         assertEquals(listOf(ToolCallId("c1"), ToolCallId("c2")), results.second.map { it.call })
         assertEquals(ToolResult("done"), blocking { tool.execute(arguments, testToolContext()) })
-    }
 
-    @Test
-    fun `a call cancelled while the tool is held is recorded as cancelled`() {
-        val tool = recordingTool().hold()
-
+        val held = recordingTool().hold()
         blocking {
             coroutineScope {
-                val call = launch(start = CoroutineStart.UNDISPATCHED) { tool.execute(arguments, testToolContext()) }
-                tool.awaitCalls(1)
+                val call = launch(start = CoroutineStart.UNDISPATCHED) { held.execute(arguments, testToolContext()) }
+                held.awaitCalls(1)
                 call.cancelAndJoin()
             }
         }
-
-        assertEquals(tool.calls, tool.cancelled)
-        assertEquals(1, tool.calls.size)
+        assertEquals(1, held.calls.size)
+        assertEquals(held.calls, held.cancelled)
     }
 }

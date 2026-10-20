@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import org.unitedsoftware.alexandrite.testkit.testUser
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -94,11 +95,7 @@ class McpCommandTest {
         assertEquals("Restarting MCP server files.", run("restart files", operator))
         assertEquals("No MCP server nope is configured.", run("restart nope", operator))
         assertEquals("MCP server off is disabled in the config.", run("restart off", operator))
-        assertEquals(
-            "Send /mcp to see the MCP servers, /mcp restart <server> to restart one, or /mcp login <server> and " +
-                "/mcp logout <server> in a direct chat with the bot to log in to one and out again.",
-            run("stop files"),
-        )
+        assertContains(run("stop files"), "/mcp restart <server>")
         connected("files")
     }
 

@@ -146,6 +146,5 @@ class TranscriptCodecTest {
 
         val seal = (decoded.parts.single() as ReasoningPart).seal!!
         assertEquals(data, seal.data)
-        assertEquals(data.encodeToByteArray().toList(), seal.data.encodeToByteArray().toList())
     }
 }

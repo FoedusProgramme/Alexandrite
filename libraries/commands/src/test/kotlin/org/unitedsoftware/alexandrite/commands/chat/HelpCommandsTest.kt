@@ -108,9 +108,7 @@ class HelpCommandsTest {
     }
 
     @Test
-    fun `help with arguments answers its usage, and lists nothing when the issuer may run nothing`() = runTest {
-        assertEquals("Send /help without anything after it.", help().answer(testCommand("help", "me", issuer = GUEST)))
-
+    fun `help lists nothing when the issuer may run nothing`() = runTest {
         guestRules.putAll(listOf("help", "cancel", "notes").associateWith { false to false })
 
         assertEquals("You may run no command in this chat.", help().answer(testCommand("help", issuer = GUEST)))
