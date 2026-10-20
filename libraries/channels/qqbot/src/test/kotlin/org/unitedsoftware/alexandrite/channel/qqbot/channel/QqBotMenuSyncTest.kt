@@ -1,6 +1,9 @@
 package org.unitedsoftware.alexandrite.channel.qqbot.channel
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.channel.qqbot.auth.QqBotTokens
 import org.unitedsoftware.alexandrite.channel.qqbot.net.QqBotApi
 import org.unitedsoftware.alexandrite.channel.qqbot.net.QqBotHttp
@@ -212,6 +215,39 @@ class QqBotMenuSyncTest {
         } finally {
             platform.close()
         }
+    }
+
+    @Test
+    fun `a description is cut to the units the platform counts`() {
+        val chinese = CommandSpec.builder("model", "x").build()
+        val english = CommandSpec.builder("whoami", "x").build()
+
+        fun description(handler: CommandHandler, spec: CommandSpec): String {
+            val panel = QqBotMenuSync.panelBody("c2c", listOf(handler to spec), null)["panel"] as JsonObject
+            val item = (panel["items"] as JsonArray)[0] as JsonObject
+            return (item["desc"] as JsonPrimitive).content
+        }
+
+        val chineseHandler = handler(
+            listOf(chinese),
+            "说明".repeat(20),
+        )
+        assertEquals(15, description(chineseHandler, chinese).length, description(chineseHandler, chinese))
+
+        val englishHandler = handler(listOf(english), "x".repeat(40))
+        assertEquals(30, description(englishHandler, english).length, description(englishHandler, english))
+    }
+
+    private fun handler(commands: List<CommandSpec>, text: String): CommandHandler = object : CommandHandler {
+        override val commands: List<CommandSpec> = commands
+
+        override fun description(
+            command: String,
+            language: org.unitedsoftware.alexandrite.sdk.chat.LanguageTag?,
+        ): String = text
+
+        override suspend fun handle(invocation: CommandInvocation, context: CommandContext) =
+            throw UnsupportedOperationException("not used")
     }
 
     /** Twelve commands, so that the menu takes fewer than there are. */

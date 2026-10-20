@@ -168,6 +168,30 @@ internal class QqBotMenuSync(
         /** How many items the platform's command panel takes, as its documentation says. */
         private const val PANEL_ITEMS = 20
 
+        /** How many units the platform takes in a menu item's name, in a panel item's name, and in its description. */
+        private const val MENU_NAME_UNITS = 10
+        private const val PANEL_NAME_UNITS = 14
+        private const val DESCRIPTION_UNITS = 30
+
+        /**
+         * [text] cut to [units] of the platform, which counts a character that is not ASCII as two: a Chinese
+         * description of more than fifteen characters is refused as one over the limit, and refused as a number of
+         * items, which is why the count it names is never the fault.
+         */
+        private fun cut(text: String, units: Int): String {
+            var counted = 0
+            var index = 0
+            while (index < text.length) {
+                val codePoint = text.codePointAt(index)
+                counted += if (codePoint < ASCII) 1 else 2
+                if (counted > units) return text.substring(0, index)
+                index += Character.charCount(codePoint)
+            }
+            return text
+        }
+
+        private const val ASCII = 0x80
+
         /** How many items to try when the platform refuses the number without naming its limit. */
         private const val MENU_FALLBACK = 5
         private const val PANEL_FALLBACK = 5
@@ -190,7 +214,7 @@ internal class QqBotMenuSync(
                                 add(
                                     buildJsonObject {
                                         put("type", JsonPrimitive("send_message"))
-                                        put("name", JsonPrimitive(command.name.take(10)))
+                                        put("name", JsonPrimitive(cut(command.name, MENU_NAME_UNITS)))
                                         put("send_message", JsonPrimitive("/${command.name}"))
                                     },
                                 )
@@ -223,8 +247,8 @@ internal class QqBotMenuSync(
                                 add(
                                     buildJsonObject {
                                         put("type", JsonPrimitive("command"))
-                                        put("name", JsonPrimitive("/${command.name}".take(14)))
-                                        put("desc", JsonPrimitive(description.take(30)))
+                                        put("name", JsonPrimitive(cut("/${command.name}", PANEL_NAME_UNITS)))
+                                        put("desc", JsonPrimitive(cut(description, DESCRIPTION_UNITS)))
                                     },
                                 )
                             }
