@@ -524,6 +524,17 @@ internal class AgentTurnRunner(
             return prompt.delegated(turn, delegation.profile, delegation.delegator)
         }
 
+        /**
+         * Whether the agent vouches for [turn]'s reply: its actor is trusted, its conversation clean, and its message
+         * brings in nothing that [markUntrusted] would mark.
+         */
+        private fun vouched(turn: TurnInfo): Boolean {
+            val message = plan.input.message
+            val actor = turn.actor ?: return false
+            return trust.isTrusted(turn.agent, actor) && !taint.tainted && message?.forwarded == null &&
+                message?.quote?.trust?.content != false
+        }
+
         /** Opens the reply of a turn that replies to its chat, false when the chat's channel is not open. */
         private suspend fun openReply(turn: TurnInfo): Boolean {
             if (turn.replyTarget != ReplyTarget.CHAT) return true
@@ -533,7 +544,7 @@ internal class AgentTurnRunner(
                 return false
             }
             val capabilities = channel.capabilities(turn.chat)
-            val sink = channel.openReply(ReplyRequest(turn, plan.trigger))
+            val sink = channel.openReply(ReplyRequest(turn, plan.trigger, vouched = vouched(turn)))
             this.capabilities = capabilities
             this.sink = sink
             if (capabilities.streaming) {

@@ -46,14 +46,14 @@ internal sealed interface Inbound {
 
 /**
  * Reads the messages that the bot [bot] of [instance] receives, whose operators are [admins], with the content of each
- * file from [files]; [answeredAdmin] tells which of the bot's messages answered an admin.
+ * file from [files]; [vouchedReply] tells which of the bot's messages the agent vouched for.
  */
 internal class UpdateReader(
     private val instance: ChannelInstanceId,
     private val admins: Set<Long>,
     private val bot: BotIdentity,
     private val approvals: ApprovalMessages,
-    private val answeredAdmin: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
+    private val vouchedReply: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
     /** Whether every message of a group is meant for the bot, not only those that name it. */
     private val everyGroupMessage: Boolean = false,
     /** The users whose own messages the bot's agents trust. */
@@ -296,7 +296,7 @@ internal class UpdateReader(
 
     /**
      * How far a quote of [replied], from this chat, is trusted: its content when an admin or a trusted user wrote it
-     * themselves or it is the bot's clean answer to an admin, which [byBot] sent; its author whenever Telegram names the
+     * themselves or it is the bot's answer that the agent vouched for, which [byBot] sent; its author whenever Telegram names the
      * user who sent it.
      */
     private fun trustOf(replied: Message, byBot: Boolean): QuoteTrust {
@@ -304,7 +304,7 @@ internal class UpdateReader(
         val own = replied.forwardOrigin == null && replied.viaBot == null
         val vouched = own &&
             if (byBot) {
-                answeredAdmin(replied.chat.id, replied.messageId)
+                vouchedReply(replied.chat.id, replied.messageId)
             } else {
                 author.id in admins ||
                     author.id in trusted

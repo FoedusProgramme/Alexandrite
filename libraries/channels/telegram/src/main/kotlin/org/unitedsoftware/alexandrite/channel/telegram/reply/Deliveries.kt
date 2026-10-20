@@ -38,7 +38,7 @@ internal class Deliveries(
         val target = targetOf(request.turn.chat) ?: return Undelivered(Delivery.NotDelivered(DeliveryFailure.CHAT_GONE))
         val style = styles.of(request.turn.chat)
         val shownIn: (Collection<Long>) -> Unit =
-            if (request.turn.actorIsOperator) ({ vouched.note(target.chat, it) }) else ({})
+            if (request.vouched) ({ vouched.note(target.chat, it) }) else ({})
         val reply = TelegramReply(
             request,
             target,

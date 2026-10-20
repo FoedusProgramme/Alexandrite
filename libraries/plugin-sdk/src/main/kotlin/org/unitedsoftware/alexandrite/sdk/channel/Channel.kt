@@ -113,6 +113,11 @@ public class ReplyRequest(
     public val trigger: ChannelMessageRef?,
     /** The background run of [turn] whose activity alone this reply shows, null for the turn's own reply. */
     public val run: DelegatedRun? = null,
+    /**
+     * Whether the agent vouches for the reply's words — the turn is an operator's or a trusted person's in a clean
+     * conversation — so that a channel may tell a quote of them as trusted content.
+     */
+    public val vouched: Boolean = false,
 )
 
 /** Why a reply ended without a final message. */
