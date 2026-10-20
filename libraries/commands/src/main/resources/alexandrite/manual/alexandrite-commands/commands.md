@@ -48,7 +48,8 @@ arguments. A bot's `commands` config can change the rules (see alexandrite-chann
   `/trust command.exec(git)` trusts the output of some calls for the conversation, `/trust` in reply to someone or
   naming them with @ trusts that person.
 - `/untrust <folder>`, `/untrust <rule>`, or in reply or with @ — stops trusting.
-- `/untaint` — clears the conversation's taint; `/untaint heartbeat` clears the heartbeat conversation's.
+- `/untaint` — clears the taint of every agent's conversation in this chat (each agent has its own here);
+  `/untaint <agent>` clears one agent's; `/untaint heartbeat [<agent>]` clears an agent's heartbeat conversation.
 
 ## Other plugins
 

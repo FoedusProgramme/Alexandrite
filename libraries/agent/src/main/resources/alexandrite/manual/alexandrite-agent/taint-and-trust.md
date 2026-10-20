@@ -6,7 +6,8 @@ What makes a conversation tainted, what a taint changes, the question asked befo
 
 A conversation is tainted once it took in content that nobody trusts, which might carry instructions planted by
 someone else. The mark stays for the rest of the conversation: `/new` starts a clean one, and an operator's `/untaint`
-clears it once they checked what came in (`/untaint heartbeat` clears the agent's heartbeat conversation).
+clears it once they checked what came in: in a chat, every agent's conversation there, or one agent's with
+`/untaint <agent>`; `/untaint heartbeat [<agent>]` clears an agent's heartbeat conversation.
 permission.status and `/settings` show whether the conversation is tainted, since when and why.
 
 ## What taints

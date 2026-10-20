@@ -103,6 +103,33 @@ class BeatsTest {
     }
 
     @Test
+    fun `updated plans beat on their own grid from the start at once, and a removed plan's running beat ends`() =
+        runTest {
+            val events = Recorder()
+            val beats = mutableListOf<Pair<String, Instant>>()
+            val runner = Beats(listOf(BeatPlan("a", 30.minutes, UTC), BeatPlan("b", 1.hours, UTC)), { id ->
+                beats += id to now()
+                if (id == "b") delay(4.hours)
+            }, events, virtualTime())
+            backgroundScope.launch { runner.run() }
+            advance(70.minutes)
+
+            runner.update(listOf(BeatPlan("a", 1.hours, UTC), BeatPlan("c", 40.minutes, UTC)))
+            advance(2.hours)
+            runner.update(listOf(BeatPlan("a", 1.hours, UTC), BeatPlan("b", 1.hours, UTC)))
+            advance(1.hours)
+
+            assertEquals(
+                listOf(
+                    "a" to 30, "b" to 60, "a" to 60, "c" to 80, "a" to 120, "c" to 120, "c" to 160, "a" to 180,
+                    "a" to 240,
+                ),
+                beats.map { (id, at) -> id to (at.epochSecond - ORIGIN.epochSecond).toInt() / 60 },
+            )
+            assertEquals(listOf("BUSY b ${at(240.minutes)}"), events.log)
+        }
+
+    @Test
     fun `active hours contain their start and not their end`() {
         val day = ActiveHours.parse("08:00-23:00")
         assertTrue(LocalTime.of(8, 0) in day)

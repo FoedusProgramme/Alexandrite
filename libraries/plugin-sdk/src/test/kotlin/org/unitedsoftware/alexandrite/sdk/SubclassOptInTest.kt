@@ -306,10 +306,12 @@ class SubclassOptInTest {
             override suspend fun untaint(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+                agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?,
             ) = TODO()
             override suspend fun untaintHeartbeat(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+                agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?,
             ) = TODO()
         }
 

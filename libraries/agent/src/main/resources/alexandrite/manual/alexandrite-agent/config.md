@@ -25,9 +25,9 @@ person whatever the mode.
 
 ## Restart or live
 
-Only the hard floor, `agent.floor`, applies at once. Every other change is written to the file and takes effect when
-Alexandrite restarts, which an operator does (`alexandrite restart`, or a CLI change with `--restart`). Tell the user
-when a change waits for a restart.
+Only the hard floor, `agent.floor`, and the heartbeats, `automations.heartbeat.agents`, apply at once. Every other
+change is written to the file and takes effect when Alexandrite restarts, which an operator does (`alexandrite restart`,
+or a CLI change with `--restart`). Tell the user when a change waits for a restart.
 
 ## Secrets
 

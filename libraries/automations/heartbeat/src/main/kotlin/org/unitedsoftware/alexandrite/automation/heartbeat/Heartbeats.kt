@@ -21,7 +21,7 @@ internal class Heartbeat(
     val plan: BeatPlan<AgentId> get() = BeatPlan(agent, every, zone, activeHours)
 }
 
-/** The configured heartbeats. */
+/** The configured heartbeats, which follow `automations.heartbeat` while the runtime runs. */
 @Singleton
 internal class Heartbeats(
     config: HeartbeatConfig,
@@ -29,12 +29,20 @@ internal class Heartbeats(
     private val catalog: AgentCatalog?,
     private val channels: ChannelDirectory,
 ) {
+    private val zone = clock.zone
+
     /** In config order. */
-    val all: List<Heartbeat> = config.heartbeats(clock.zone)
+    @Volatile
+    var all: List<Heartbeat> = read(config)
+        private set
 
-    private val byAgent = all.associateBy { it.agent }
+    fun of(agent: AgentId): Heartbeat? = all.firstOrNull { it.agent == agent }
 
-    fun of(agent: AgentId): Heartbeat? = byAgent[agent]
+    fun read(config: HeartbeatConfig): List<Heartbeat> = config.heartbeats(zone)
+
+    fun replace(heartbeats: List<Heartbeat>) {
+        all = heartbeats
+    }
 
     /** Whether [agent] has no home chat on any channel instance, false when no agent can tell. */
     fun homeless(agent: AgentId): Boolean {

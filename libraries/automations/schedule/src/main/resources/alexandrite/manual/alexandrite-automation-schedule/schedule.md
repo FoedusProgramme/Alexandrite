@@ -35,3 +35,10 @@ and its gated calls go to an operator. A task that becomes tainted while it runs
 If the host was down when a task came due, its latest missed run still runs when it is no older than
 `automations.schedule.missedWindowHours` (24); otherwise the chat is told that it was missed. A run cut off by a
 restart is reported too, and overlapping runs of one task are skipped.
+
+## Scheduled task or heartbeat?
+
+A task belongs to a chat: it runs in the chat's conversation, its answer is posted there, and it suits reminders and
+timed reports. An agent's heartbeat, set in the config at `automations.heartbeat.agents.<id>`, beats at a fixed
+interval within its active hours in a conversation of no chat, runs as nobody, reaches people only through chat.send,
+and suits autonomous check-ins (see alexandrite-automation-heartbeat/heartbeat).

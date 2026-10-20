@@ -311,8 +311,9 @@ class TaintTurnsTest {
             ask()
             ask()
 
-            assertTrue(cleared?.reason.orEmpty().endsWith("reported untrusted content: a pasted page"), "$cleared")
-            assertEquals(null, again)
+            val reason = cleared[key.agent]?.reason.orEmpty()
+            assertTrue(reason.endsWith("reported untrusted content: a pasted page"), "$cleared")
+            assertEquals(emptyMap(), again)
             assertEquals(conversation, store.conversations.current(key).id)
             assertEquals(emptyList(), channel().approvals)
             assertEquals(List(3) { ToolOutcome.Succeeded }, results().map { it.outcome })

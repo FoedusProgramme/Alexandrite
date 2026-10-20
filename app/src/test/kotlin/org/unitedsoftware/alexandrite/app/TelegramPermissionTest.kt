@@ -164,7 +164,7 @@ class TelegramPermissionTest {
 
         app.run(app.builder(directory)) {
             app.send(app.ada, app.adaChat, "/untaint")
-            val answer = app.message(app.adaChat, "This conversation is not tainted.")
+            val answer = app.message(app.adaChat, "No conversation in this chat is tainted.")
             idle()
             app.fake.send(app.ada, app.adaChat, "Test.", replyTo = answer.id)
             app.message(app.adaChat, "Fine.")

@@ -6,6 +6,7 @@ import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
@@ -21,6 +22,7 @@ import java.nio.file.Path
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class TrustCommandsTest {
     private val control = RecordingAgent()
@@ -118,22 +120,29 @@ class TrustCommandsTest {
     }
 
     @Test
-    fun `untaint clears the taint of the chat's conversation and says what it was, or that there was none`() = runTest {
+    fun `untaint clears the chat's conversations, or one agent's, and says what they were`() = runTest {
         val untaint = testCommand("untaint", issuer = OPERATOR)
+        val neko = testCommand("untaint", "neko", issuer = OPERATOR)
         control.taints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
 
         assertEquals(
-            "This conversation is no longer tainted (it was since 2026-01-01: a web page). Its next turns run as in " +
-                "a clean conversation until something taints it again; what it took in is still in its history.",
+            "The conversation of main here is no longer tainted (it was since 2026-01-01: a web page). Its next " +
+                "turns run as in a clean conversation until something taints it again; what it took in is still in " +
+                "its history.",
             commands.answer(untaint),
         )
-        assertEquals("This conversation is not tainted.", commands.answer(untaint))
+        assertEquals("No conversation in this chat is tainted.", commands.answer(untaint))
+        assertEquals("The conversation of neko here is not tainted.", commands.answer(neko))
+        val usage = commands.answer(testCommand("untaint", "two words", issuer = OPERATOR))
+        assertTrue(usage.startsWith("Send /untaint"), usage)
         assertEquals(
-            "Send /untaint alone to clear the taint of this conversation, or /untaint heartbeat to clear that of the " +
-                "agent's heartbeat conversation.",
-            commands.answer(testCommand("untaint", "now", issuer = OPERATOR)),
+            listOf(
+                Call.Untaint(untaint.chat, OPERATOR),
+                Call.Untaint(untaint.chat, OPERATOR),
+                Call.Untaint(untaint.chat, OPERATOR, AgentId("neko")),
+            ),
+            control.calls,
         )
-        assertEquals(List(2) { Call.Untaint(untaint.chat, OPERATOR) }, control.calls)
     }
 
     @Test
@@ -142,12 +151,12 @@ class TrustCommandsTest {
         control.heartbeatTaints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
 
         assertEquals(
-            "The agent's heartbeat conversation is no longer tainted (it was since 2026-01-01: a web page). Its next " +
+            "The heartbeat conversation of main is no longer tainted (it was since 2026-01-01: a web page). Its next " +
                 "beats run as in a clean conversation until something taints it again; what it took in is still in " +
                 "its history.",
             commands.answer(untaint),
         )
-        assertEquals("The agent's heartbeat conversation is not tainted.", commands.answer(untaint))
+        assertEquals("The heartbeat conversation of main is not tainted.", commands.answer(untaint))
         assertEquals(List(2) { Call.UntaintHeartbeat(untaint.chat, OPERATOR) }, control.calls)
         val spec = commands.commands.single { it.name == "untaint" }
         assertEquals(CommandForms.ALL, spec.operatorsOnly)

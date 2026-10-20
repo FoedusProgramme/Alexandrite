@@ -4,9 +4,12 @@ import org.unitedsoftware.alexandrite.commands.support.Replies
 import org.unitedsoftware.alexandrite.commands.support.TextKeys
 import org.unitedsoftware.alexandrite.commands.support.commandWord
 import org.unitedsoftware.alexandrite.commands.support.description
+import org.unitedsoftware.alexandrite.commands.support.isKeyword
 import org.unitedsoftware.alexandrite.commands.support.refusing
 import org.unitedsoftware.alexandrite.commands.support.replies
 import org.unitedsoftware.alexandrite.commands.support.spec
+import org.unitedsoftware.alexandrite.commands.support.words
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -81,32 +84,69 @@ internal class TrustCommands(
         }
     }
 
-    /** `/untaint` clears the chat's conversation, `/untaint heartbeat` the heartbeat conversation of its agent. */
+    /**
+     * `/untaint` clears the conversations of every agent in the chat, `/untaint <agent>` one agent's, and
+     * `/untaint heartbeat [<agent>]` the heartbeat conversation of the chat's agent or of the one named.
+     */
     private suspend fun untaint(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val heartbeat = when (invocation.arguments.trim().lowercase()) {
-            "" -> false
-
-            HEARTBEAT -> true
-
-            else -> {
-                context.reply(replies.usage(UNTAINT))
+        val words = words(invocation.arguments)
+        val heartbeat = words.firstOrNull()?.isKeyword(HEARTBEAT) == true
+        val named = words.drop(if (heartbeat) 1 else 0)
+        if (named.size > 1) {
+            context.reply(replies.usage(UNTAINT))
+            return
+        }
+        val agent = named.singleOrNull()?.let { word ->
+            try {
+                AgentId(word)
+            } catch (e: IllegalArgumentException) {
+                context.reply(replies.text(TextKeys.AGENT_MALFORMED, "text" to word))
                 return
             }
         }
-        val cleared = context.refusing {
-            if (heartbeat) {
-                conversations.untaintHeartbeat(invocation.chat, invocation.issuer)
-            } else {
-                conversations.untaint(invocation.chat, invocation.issuer)
+        if (heartbeat) {
+            val shown = agent ?: context.turn.agent
+            val cleared = context.refusing {
+                conversations.untaintHeartbeat(invocation.chat, invocation.issuer, agent)
             }
+            val text = if (cleared == null) {
+                replies.text(TextKeys.UNTAINT_HEARTBEAT_CLEAN, "agent" to shown)
+            } else {
+                replies.text(
+                    TextKeys.UNTAINT_HEARTBEAT_DONE,
+                    "agent" to shown,
+                    "reason" to cleared.reason,
+                    "date" to dateOf(cleared.at, replies),
+                )
+            }
+            context.reply(text)
+            return
         }
+        val cleared = context.refusing { conversations.untaint(invocation.chat, invocation.issuer, agent) } ?: return
         val text = when {
-            cleared == null -> replies.text(if (heartbeat) TextKeys.UNTAINT_HEARTBEAT_CLEAN else TextKeys.UNTAINT_CLEAN)
+            cleared.isEmpty() && agent != null -> replies.text(TextKeys.UNTAINT_AGENT_CLEAN, "agent" to agent)
+
+            cleared.isEmpty() -> replies.text(TextKeys.UNTAINT_CLEAN)
+
+            cleared.size == 1 -> cleared.entries.single().let { (id, taint) ->
+                replies.text(
+                    TextKeys.UNTAINT_DONE,
+                    "agent" to id,
+                    "reason" to taint.reason,
+                    "date" to dateOf(taint.at, replies),
+                )
+            }
 
             else -> replies.text(
-                if (heartbeat) TextKeys.UNTAINT_HEARTBEAT_DONE else TextKeys.UNTAINT_DONE,
-                "reason" to cleared.reason,
-                "date" to dateOf(cleared.at, replies),
+                TextKeys.UNTAINT_DONE_MANY,
+                "list" to cleared.entries.joinToString("\n") { (id, taint) ->
+                    replies.text(
+                        TextKeys.UNTAINT_ITEM,
+                        "agent" to id,
+                        "reason" to taint.reason,
+                        "date" to dateOf(taint.at, replies),
+                    )
+                },
             )
         }
         context.reply(text)

@@ -3,10 +3,16 @@ package org.unitedsoftware.alexandrite.automation.heartbeat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.runtime.RuntimeStartException
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
+import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
@@ -18,6 +24,8 @@ import org.unitedsoftware.alexandrite.testkit.RecordingTurnInitiator
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import org.unitedsoftware.alexandrite.testkit.testCommandContext
+import java.nio.file.Path
+import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.test.Test
@@ -56,6 +64,8 @@ class HeartbeatPluginTest {
         assertEquals(beats, initiator.initiated.size, "beats at ${time.now()}")
         if (beats > before) delay(WIND_DOWN)
     }
+
+    private fun at(offset: Duration): Instant = ORIGIN.plus(offset.toJavaDuration())
 
     private suspend fun PluginHarness.Running.heartbeat(arguments: String = ""): String {
         val handler = getAll<CommandHandler>().single { handler -> handler.commands.any { it.name == "heartbeat" } }
@@ -211,6 +221,47 @@ class HeartbeatPluginTest {
             runBlocking { harness("""{"agents": {"Coder!": {"every": "1h"}}}""").run {} }
         }
         assertContains(error.problems.single().message, "agents.Coder! is no agent id")
+    }
+
+    @Test
+    fun `a changed, added or removed heartbeat takes effect at once and needs no restart`(@TempDir root: Path) {
+        val main = AgentId("main")
+        val changes = mutableListOf<ConfigChanges>()
+
+        heartbeatHarness("""{"agents": {"coder": {"every": "30m"}}}""") {
+            plugin(TimePlugin(time)).turnInitiator(initiator).agent(control).channel()
+            configFile(root.resolve("alexandrite.json"))
+        }.execute {
+            val host = get<HostConfig>()
+            time.settle(1)
+            step(30.minutes, 1)
+
+            changes += host.edit { set("automations.heartbeat.agents.coder.every", JsonPrimitive("45m")) }
+            time.sleeping(at(45.minutes))
+            assertContains(heartbeat(), "every 45 min")
+            step(15.minutes, 2)
+            step(30.minutes, 2)
+            step(15.minutes, 3)
+
+            changes += host.edit {
+                set("automations.heartbeat.agents.main", Json.parseToJsonElement("""{"every": "1h"}"""))
+            }
+            time.sleeping(at(2.hours), at(135.minutes))
+            changes += host.edit { remove("automations.heartbeat.agents.coder") }
+            time.sleeping(at(2.hours))
+            step(30.minutes, 4)
+            step(15.minutes, 4)
+
+            val refused = assertFailsWith<ConfigEditException> {
+                host.edit { set("automations.heartbeat.agents.main.every", JsonPrimitive("2m")) }
+            }
+            assertContains(refused.message.orEmpty(), "agents.main.every must be 5m at least")
+            step(45.minutes, 5)
+        }
+
+        val live = { path: String -> ConfigChanges(listOf("automations.heartbeat.agents.$path"), emptyList()) }
+        assertEquals(listOf(live("coder.every"), live("main"), live("coder")), changes)
+        assertEquals(listOf(coder, coder, coder, main, main), initiator.initiated.map { it.turn.agent })
     }
 
     // The home chat.

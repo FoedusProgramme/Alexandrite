@@ -110,7 +110,10 @@ public class RecordingAgent(
     @Volatile
     public var compaction: CompactionReport = CompactionReport(0, 0, 0)
 
-    /** The taint of the conversation at each chat, which [ConversationControl.untaint] clears and returns. */
+    /**
+     * The taint of the conversation at each chat, which [ConversationControl.untaint] clears and returns as the named
+     * agent's, else as [AgentId.MAIN]'s.
+     */
     public val taints: MutableMap<ChatAddress, ConversationTaint> = mutableMapOf()
 
     /**
@@ -290,15 +293,19 @@ public class RecordingAgent(
             )
         }
 
-        override suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint? = synchronized(lock) {
-            recorded += Call.Untaint(chat, by)
+        override suspend fun untaint(
+            chat: ChatAddress,
+            by: ChatUser?,
+            agent: AgentId?,
+        ): Map<AgentId, ConversationTaint> = synchronized(lock) {
+            recorded += Call.Untaint(chat, by, agent)
             refuseQueued()
-            taints.remove(chat)
+            taints.remove(chat)?.let { mapOf((agent ?: AgentId.MAIN) to it) }.orEmpty()
         }
 
-        override suspend fun untaintHeartbeat(chat: ChatAddress, by: ChatUser?): ConversationTaint? =
+        override suspend fun untaintHeartbeat(chat: ChatAddress, by: ChatUser?, agent: AgentId?): ConversationTaint? =
             synchronized(lock) {
-                recorded += Call.UntaintHeartbeat(chat, by)
+                recorded += Call.UntaintHeartbeat(chat, by, agent)
                 refuseQueued()
                 heartbeatTaints.remove(chat)
             }
@@ -644,10 +651,18 @@ public class RecordingAgent(
         public class Compact(public val chat: ChatAddress, public val focus: String?, public val by: ChatUser?) : Call
 
         @Poko
-        public class Untaint(public val chat: ChatAddress, public val by: ChatUser?) : Call
+        public class Untaint(
+            public val chat: ChatAddress,
+            public val by: ChatUser?,
+            public val agent: AgentId? = null,
+        ) : Call
 
         @Poko
-        public class UntaintHeartbeat(public val chat: ChatAddress, public val by: ChatUser?) : Call
+        public class UntaintHeartbeat(
+            public val chat: ChatAddress,
+            public val by: ChatUser?,
+            public val agent: AgentId? = null,
+        ) : Call
 
         @Poko
         public class UpdateSettings(
