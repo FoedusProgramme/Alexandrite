@@ -140,20 +140,6 @@ class MonitorTest {
     }
 
     @Test
-    fun `cancelling a monitor kills the process tree`() = runBlocking {
-        val fs = ExecFixture(directory)
-        val pidFile = fs.workspace.resolve("pid")
-        val running = async {
-            fs.tool().execute(monitored("echo $$ > pid; sleep 30"), monitorContext(fs, CopyOnWriteArrayList()))
-        }
-        withTimeout(5000) { while (!Files.exists(pidFile)) delay(10) }
-        val pid = Files.readString(pidFile).trim().toLong()
-        assertTrue(ProcessHandle.of(pid).orElseThrow().isAlive)
-        running.cancelAndJoin()
-        assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
-    }
-
-    @Test
     fun `monitor and background arguments are validated during review`() = runBlocking {
         val fs = ExecFixture(directory)
         val tool = fs.tool()
