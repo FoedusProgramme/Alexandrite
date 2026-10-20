@@ -5,6 +5,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.AccessGate
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
+import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
@@ -56,17 +57,25 @@ internal class Deliveries(
     }
 
     /** Sends [message] to [chat], its files after what the chat's open replies have shown so far. */
-    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = when {
-        stopped -> STOPPED
+    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery {
+        val delivery = when {
+            stopped -> STOPPED
 
-        !gate.isPaired(chat) -> NOT_PAIRED
+            !gate.isPaired(chat) -> NOT_PAIRED
 
-        message.files.isEmpty() -> outbox.send(chat, message)
+            message.files.isEmpty() -> outbox.send(chat, message)
 
-        else -> {
-            flush(chat)
-            outbox.sendFiles(chat, message)
+            else -> {
+                flush(chat)
+                outbox.sendFiles(chat, message)
+            }
         }
+        // A notice is Alexandrite's own text, such as a command's answer, which a quote may bring back as trusted
+        val target = targetOf(chat)
+        if (message.kind == MessageKind.NOTICE && delivery is Delivery.Delivered && target != null) {
+            vouched.note(target.chat, delivery.messages.mapNotNull { it.id.toLongOrNull() })
+        }
+        return delivery
     }
 
     /** Shows what the open replies in [chat] hold so far, so that a message sent beside them follows it. */

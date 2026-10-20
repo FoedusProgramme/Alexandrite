@@ -157,6 +157,24 @@ class TelegramPermissionTest {
         assertNull(afterAnswer)
     }
 
+    @Test
+    fun `a reply to a command's answer leaves the conversation untainted`() {
+        app.model.reply { text("Fine.") }
+        var taint: ConversationTaint? = ConversationTaint(java.time.Instant.EPOCH, "unread")
+
+        app.run(app.builder(directory)) {
+            app.send(app.ada, app.adaChat, "/untaint")
+            val answer = app.message(app.adaChat, "This conversation is not tainted.")
+            idle()
+            app.fake.send(app.ada, app.adaChat, "Test.", replyTo = answer.id)
+            app.message(app.adaChat, "Fine.")
+            idle()
+            taint = get<ConversationStore>().taint(get<ConversationStore>().current(app.key(app.adaChat)).id)
+        }
+
+        assertNull(taint)
+    }
+
     /** The framing of the message [text] as the model read it. */
     private fun framing(text: String): String = app.model.requests.first { it.asked == text }.history
         .filterIsInstance<UserEntry>()
