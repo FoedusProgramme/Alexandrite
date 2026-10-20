@@ -69,7 +69,8 @@ class ApprovalDeskPartialFailureTest {
             val limiter = SendLimiter(chatInterval = Duration.ZERO)
             val session = BotSession(instance, config, api, TelegramBots(), RecordingControl())
             val outbox = Outbox(instance, api, limiter, texts, null, session)
-            val gate = AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null)
+            val gate =
+                AccessGate(instance, config, TelegramPairingDesk(Clock.systemUTC(), testRecords()), outbox, null, null)
             gate.onStart()
             val messages = ApprovalMessages()
             val desk = ApprovalDesk(instance, config, gate, outbox, limiter, api, texts, null, ChatTitles(), messages)
@@ -88,7 +89,6 @@ class ApprovalDeskPartialFailureTest {
                 """{"path":"notes.md"}""",
                 diff,
                 "the chat is in ask mode",
-                null,
             )
             fake.fail("sendMessage", 500, "boom", nth = 2)
 

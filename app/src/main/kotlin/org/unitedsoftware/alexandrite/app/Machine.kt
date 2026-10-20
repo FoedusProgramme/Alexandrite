@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.app
 
+import org.unitedsoftware.alexandrite.app.tui.Console
+import org.unitedsoftware.alexandrite.app.tui.JLineConsole
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -9,6 +11,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import kotlin.time.toJavaDuration
+import java.io.Console as JavaConsole
 import kotlin.time.Duration as KotlinDuration
 
 /** The exit code of a program and what it printed. */
@@ -21,6 +24,9 @@ internal class Fetched(val status: Int, val body: String)
 internal interface Machine {
     /** Whether a person answers at a terminal. */
     val interactive: Boolean
+
+    /** Whether the output goes to a terminal that shows glyphs. */
+    val styled: Boolean get() = false
 
     /** The Java that runs the command. */
     val java: Runtime.Version
@@ -47,6 +53,9 @@ internal interface Machine {
 
     /** Whether a follow of a log goes on. */
     fun following(): Boolean = true
+
+    /** The terminal to draw prompts on, null when there is none. */
+    fun console(): Console? = null
 }
 
 /** The machine the app runs on. */
@@ -58,7 +67,18 @@ internal object LocalMachine : Machine {
 
     private val input by lazy { BufferedReader(InputStreamReader(System.`in`)) }
 
-    override val interactive: Boolean get() = System.console() != null
+    override val interactive: Boolean get() = System.console()?.let(::isTerminal) ?: false
+
+    override val styled: Boolean get() = interactive && System.out.charset() == Charsets.UTF_8
+
+    override fun console(): Console? = if (interactive) JLineConsole.open() else null
+
+    /** Whether [console] is a terminal, which Java 22 and later tell apart from redirected streams. */
+    private fun isTerminal(console: JavaConsole): Boolean = try {
+        JavaConsole::class.java.getMethod("isTerminal").invoke(console) as Boolean
+    } catch (e: NoSuchMethodException) {
+        true
+    }
 
     override val java: Runtime.Version get() = Runtime.version()
 

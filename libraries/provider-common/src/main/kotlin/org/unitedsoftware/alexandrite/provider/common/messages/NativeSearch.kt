@@ -1,15 +1,13 @@
 package org.unitedsoftware.alexandrite.provider.common.messages
 
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
 import org.unitedsoftware.alexandrite.provider.common.modelException
+import org.unitedsoftware.alexandrite.provider.common.protocol
 import org.unitedsoftware.alexandrite.provider.common.string
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
@@ -51,20 +49,8 @@ internal suspend fun nativeSearch(
             )
             put("tool_choice", buildJsonObject { put("type", "auto") })
         }
-        var message: JsonObject? = null
         val headers = if (betas.isEmpty()) emptyMap() else mapOf("anthropic-beta" to betas.joinToString(","))
-        core.post("/v1/messages", body.toString(), headers, { false }, classify) { response ->
-            if (response.mediaType != null && response.mediaType != "application/json") {
-                throw core.unreadable(response.mediaType, false)
-            }
-            val text = response.text(HttpTransport.DEFAULT_LIMIT)
-            message = try {
-                Json.parseToJsonElement(text) as? JsonObject
-            } catch (_: SerializationException) {
-                protocol("Native web search returned invalid JSON.")
-            }
-        }
-        val parsed = message ?: protocol("Native web search returned no message.")
+        val parsed = core.postJson("/v1/messages", body.toString(), headers, classify)
         val content = parsed["content"] as? JsonArray ?: protocol("Native web search returned no content.")
         var searched = false
         content.forEach { element ->
@@ -103,5 +89,3 @@ internal suspend fun nativeSearch(
     }
     protocol("Native web search exceeded its continuation limit.")
 }
-
-private fun protocol(message: String): Nothing = throw modelException(ModelErrorKind.PROTOCOL, message, false)

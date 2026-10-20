@@ -29,6 +29,7 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
@@ -264,12 +265,13 @@ public class PluginHarness private constructor(
         private val watched = mutableListOf<ScriptedModel>()
         private val tools = mutableListOf<Tool>()
         private val sources = mutableListOf<ToolSource>()
+        private val environments = mutableListOf<ExecutionEnvironment>()
         private val hooks = mutableListOf<Hook>()
         private val handlers = mutableListOf<CommandHandler>()
         private val channels = LinkedHashMap<ChannelType, LinkedHashMap<String, RecordingChannelConfig>>()
         private var submitter: RecordingTurnSubmitter? = null
         private var initiator: RecordingTurnInitiator? = null
-        private var control: RecordingAgentControl? = null
+        private var agent: RecordingAgent? = null
         private var states: TestChatStates? = null
         private var records: TestRecords? = null
         private var store: MemoryStore? = null
@@ -301,9 +303,9 @@ public class PluginHarness private constructor(
         public fun dataRoot(directory: Path): Builder = apply { dataRoot = directory }
 
         /**
-         * The config file that each run writes the harness's config into and reads, none unless set.
+         * The config file that each run writes the harness's config into afresh and reads, none unless set.
          *
-         * A run keeps a file that no harness wrote, as [writeConfigFile] does.
+         * A run keeps a file that no harness wrote, as [keptConfigFile] does.
          */
         public fun configFile(file: Path): Builder = apply {
             configFile = file
@@ -311,11 +313,11 @@ public class PluginHarness private constructor(
         }
 
         /**
-         * Keeps the config in [file]: a run writes the harness's config there when the file does not exist, else
-         * splices in the sections of the harness's recording channels, and reads the file, so what the plugins write
-         * reaches later runs.
+         * The config file that runs keep: a run writes the harness's config there only when the file does not exist,
+         * else splices in the sections of the harness's recording channels, and reads the file, so what the plugins
+         * write reaches later runs.
          */
-        public fun writeConfigFile(file: Path): Builder = apply {
+        public fun keptConfigFile(file: Path): Builder = apply {
             configFile = file
             keepsConfig = true
         }
@@ -362,6 +364,10 @@ public class PluginHarness private constructor(
         /** Contributes [source], whose tools come and go while the run lasts, through the plugin `testkit`. */
         public fun toolSource(source: ToolSource): Builder = apply { sources += source }
 
+        /** Contributes [environment] through the plugin `testkit`. */
+        public fun executionEnvironment(environment: ExecutionEnvironment): Builder =
+            apply { environments += environment }
+
         /** Contributes [hook] through the plugin `testkit`. */
         public fun hook(hook: Hook): Builder = apply { hooks += hook }
 
@@ -390,8 +396,8 @@ public class PluginHarness private constructor(
         /** Hands [initiator] every turn that a plugin's TurnInitiator starts, with the plugin's id. */
         public fun turnInitiator(initiator: RecordingTurnInitiator): Builder = apply { this.initiator = initiator }
 
-        /** Binds [control] as the runtime's AgentControl and ChatSettings. */
-        public fun agentControl(control: RecordingAgentControl): Builder = apply { this.control = control }
+        /** Binds the doubles of [agent] as the runtime's agent host APIs. */
+        public fun agent(agent: RecordingAgent): Builder = apply { this.agent = agent }
 
         /** Keeps every plugin's chat states in [states]. */
         public fun chatStates(states: TestChatStates): Builder = apply { this.states = states }
@@ -432,12 +438,13 @@ public class PluginHarness private constructor(
                 handlers,
                 submitter,
                 initiator,
-                control,
+                agent,
                 store,
                 store?.chatStates ?: states?.store,
                 store?.records ?: records?.store,
                 floor,
                 hostFloor,
+                environments,
             )
             val recording = channels.map { (type, instances) -> RecordingChannelPlugin(type, instances.toMap()) }
             val owned = tree(recording.associate { it.configRoot to it.config() })

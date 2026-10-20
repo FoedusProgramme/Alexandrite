@@ -11,11 +11,10 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
@@ -25,8 +24,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ConversationCommandsTest {
-    private val control = RecordingAgentControl()
-    private val commands = ConversationCommands(control, commandTexts())
+    private val control = RecordingAgent()
+    private val commands = ConversationCommands(control.turns, control.conversations, control.links, commandTexts())
     private val chat = testChat()
 
     // /new.
@@ -41,8 +40,8 @@ class ConversationCommandsTest {
 
     @Test
     fun `new in a linked chat says that the other chats share the new conversation`() = runTest {
-        control.link(AgentId.MAIN, testChat("anchor"), chat, OPERATOR)
-        control.link(AgentId.MAIN, testChat("anchor"), testChat("third"), OPERATOR)
+        control.links.link(AgentId.MAIN, testChat("anchor"), chat, OPERATOR)
+        control.links.link(AgentId.MAIN, testChat("anchor"), testChat("third"), OPERATOR)
 
         val reply = commands.answer(testCommand("New", issuer = GUEST))
 

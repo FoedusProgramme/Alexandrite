@@ -94,7 +94,7 @@ internal class SqliteMediaStore(private val database: StoreDatabase, private val
     }
 
     /** Deletes the media rows that no entry refers to and are older than a day, then the files that no row names. */
-    suspend fun sweep() {
+    private suspend fun sweep() {
         database.transaction {
             val rows = execute(
                 "DELETE FROM media WHERE created_at < ? AND id NOT IN (SELECT media_id FROM entry_media)",

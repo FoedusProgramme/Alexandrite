@@ -9,10 +9,10 @@ import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import java.time.Duration
 import kotlin.test.Test
@@ -20,8 +20,8 @@ import kotlin.test.assertEquals
 
 class ModeCommandsTest {
     private val clock = TestClock()
-    private val control = RecordingAgentControl(clock = clock).apply { scriptAgent(AgentId.MAIN, "Main") }
-    private val commands = ModeCommands(control, commandTexts(), clock)
+    private val control = RecordingAgent(clock = clock).apply { scriptAgent(AgentId.MAIN, "Main") }
+    private val commands = ModeCommands(control.settings, commandTexts(), clock)
 
     private val modes = "Modes: plan, manual, ask, allowedit, auto, bypass."
 
@@ -124,8 +124,8 @@ class ModeCommandsTest {
             .text(PLUGIN, CHINESE, "duration.hours", "{hours} 小时")
             .text(PLUGIN, CHINESE, "mode.set_bypass", "权限模式现在是 bypass，持续 {left}，之后为 {after}。")
             .build()
-        val commands = ModeCommands(control, commandTexts(catalog), clock)
-        control.updateSettings(
+        val commands = ModeCommands(control.settings, commandTexts(catalog), clock)
+        control.settings.update(
             testCommand("mode").chat,
             ChatSettingsUpdate.builder().language(CHINESE).build(),
             OPERATOR,

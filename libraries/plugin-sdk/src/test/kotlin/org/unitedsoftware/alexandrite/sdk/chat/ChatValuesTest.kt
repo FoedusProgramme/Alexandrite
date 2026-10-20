@@ -40,7 +40,6 @@ class ChatValuesTest {
         assertEquals(chat, linked.chat)
         assertEquals(linked, linked.toBuilder().build())
         assertEquals(AgentChatKey(AgentId("helper"), chat), turn().build().rebuild { agent(AgentId("helper")) }.key)
-        assertEquals(anchor, linked.rebuild { chat(ChatAddress(work, "-300")) }.key)
         assertFailsWith<IllegalArgumentException> { linked.rebuild { agent(AgentId("helper")) } }
     }
 
@@ -58,16 +57,20 @@ class ChatValuesTest {
         val turn = turn().actor(operator).language(LanguageTag("en")).build()
 
         val delegated = turn.rebuild {
-            kind(TurnKind.DELEGATED)
             lineage(lineage)
             replyTarget(ReplyTarget.CALLER)
         }
+        val renamed = turn.toBuilder(TurnId("t2"), ConversationId("c2")).build()
 
         assertEquals(turn, turn.toBuilder().build())
         assertEquals(
-            turn().actor(operator).language(LanguageTag("en")).kind(TurnKind.DELEGATED).lineage(lineage)
-                .replyTarget(ReplyTarget.CALLER).build(),
+            turn().actor(operator).language(LanguageTag("en")).lineage(lineage).replyTarget(ReplyTarget.CALLER).build(),
             delegated,
+        )
+        assertEquals(
+            TurnInfo.builder(TurnId("t2"), chat, ConversationId("c2"), TurnKind.MESSAGE).actor(operator)
+                .language(LanguageTag("en")).build(),
+            renamed,
         )
         assertFailsWith<IllegalArgumentException> {
             TurnLineage(RunId("r"), TurnId("p"), ConversationId("c"), null, TurnId("p"), ConversationId("c"), 0)

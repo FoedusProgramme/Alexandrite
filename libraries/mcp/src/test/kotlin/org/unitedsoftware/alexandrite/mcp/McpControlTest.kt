@@ -19,9 +19,17 @@ class McpControlTest {
         val servers = McpControl(hub).servers()
 
         assertEquals(listOf("files", "off"), servers.map { it.name })
-        assertEquals(listOf("stdio", "stdio"), servers.map { it.transport })
-        assertEquals(listOf("connected", "disabled"), servers.map { it.state })
+        assertEquals(listOf(McpTransport.STDIO, McpTransport.STDIO), servers.map { it.transport })
+        assertEquals(listOf(McpServerState.CONNECTED, McpServerState.DISABLED), servers.map { it.state })
         assertEquals(8, servers.first().tools)
+    }
+
+    @Test
+    fun `transports and states look up each known id and keep an unknown one`() {
+        assertEquals(McpTransport.entries, McpTransport.entries.map { McpTransport.of(it.id) })
+        assertEquals(McpServerState.entries, McpServerState.entries.map { McpServerState.of(it.id) })
+        assertEquals("websocket", McpTransport.of("websocket").id)
+        assertEquals("paused", McpServerState.of("paused").id)
     }
 
     @Test
@@ -29,7 +37,7 @@ class McpControlTest {
         withHub(McpConfig(mapOf("fake" to ServerConfigBuilder(url = fake.url).build()))) {
             until("waiting for a login") { server("fake").status.value.state == ServerState.NEEDS_LOGIN }
             val control = McpControl(hub)
-            assertEquals("needs_login", control.servers().first().state)
+            assertEquals(McpServerState.NEEDS_LOGIN, control.servers().first().state)
 
             val login = control.login("fake")
             control.completeLogin("fake", fake.approve(login.url))

@@ -8,20 +8,20 @@ import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class AgentCommandsTest {
-    private val control = RecordingAgentControl().apply {
+    private val control = RecordingAgent().apply {
         scriptAgent(AgentId.MAIN, "Main")
         scriptAgent(CODER, "Coder", "Writes code")
     }
-    private val commands = AgentCommands(control, commandTexts())
+    private val commands = AgentCommands(control.settings, control.catalog, commandTexts())
     private val chat = testChat()
 
     // /agent.
@@ -49,7 +49,7 @@ class AgentCommandsTest {
         val reply = commands.answer(testCommand("agent", "coder", issuer = OPERATOR))
 
         assertEquals("This chat now talks to coder \"Coder\". The conversation with the agent before is kept.", reply)
-        assertEquals(CODER, control.settings(chat).agent)
+        assertEquals(CODER, control.settings.snapshot(chat).agent)
         assertEquals(
             listOf(Call.UpdateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).build(), OPERATOR)),
             control.calls,
@@ -61,7 +61,11 @@ class AgentCommandsTest {
         control.scriptAgent(CODER, "Coder", language = CHINESE)
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "agent.switched", "现在由 {agent}「{name}」回答。").build()
 
-        val reply = AgentCommands(control, commandTexts(catalog)).answer(testCommand("agent", "coder"))
+        val reply = AgentCommands(
+            control.settings,
+            control.catalog,
+            commandTexts(catalog),
+        ).answer(testCommand("agent", "coder"))
 
         assertEquals("现在由 coder「Coder」回答。", reply)
     }
@@ -131,7 +135,7 @@ class AgentCommandsTest {
         val reply = commands.answer(testCommand("home", "reset", issuer = OPERATOR))
 
         assertEquals("main uses its configured home chat test:main:home on test:main again.", reply)
-        assertEquals(home, control.agents(chat.instance).first().home)
+        assertEquals(home, control.catalog.agents(chat.instance).first().home)
         assertEquals(
             Call.UpdateSettings(chat, ChatSettingsUpdate.builder().resetHome().build(), OPERATOR),
             control.calls.last(),
@@ -145,7 +149,7 @@ class AgentCommandsTest {
         val reply = commands.answer(testCommand("home", "reset", chat = testChat("other"), issuer = OPERATOR))
 
         assertEquals("main has no home chat on test:main again, as configured.", reply)
-        assertEquals(null, control.agents(chat.instance).first().home)
+        assertEquals(null, control.catalog.agents(chat.instance).first().home)
     }
 
     @Test
@@ -160,8 +164,8 @@ class AgentCommandsTest {
 
     @Test
     fun `a refused home replies with the agent's message`() = runTest {
-        control.updateSettings(chat, ChatSettingsUpdate.builder().agent(CODER).home().build(), OPERATOR)
-        control.updateSettings(chat, ChatSettingsUpdate.builder().agent(AgentId.MAIN).build(), OPERATOR)
+        control.settings.update(chat, ChatSettingsUpdate.builder().agent(CODER).home().build(), OPERATOR)
+        control.settings.update(chat, ChatSettingsUpdate.builder().agent(AgentId.MAIN).build(), OPERATOR)
 
         val reply = commands.answer(testCommand("home"))
 

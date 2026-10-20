@@ -117,7 +117,7 @@ class PluginHarnessTest {
             assertEquals("hello", get<Greeter>().greeting)
             assertEquals("carpe diem", get<String>("motto"))
             assertEquals("echo", tool.definition.name)
-            val turn = testToolContext().turn.rebuild { conversation(ConversationId("c1")) }
+            val turn = testToolContext().turn.let { it.toBuilder(it.id, ConversationId("c1")).build() }
             assertEquals(ToolResult("c1"), tool.execute(JsonObject(emptyMap()), testToolContext(turn)))
             assertEquals(ZoneOffset.UTC, get<Clock>().zone)
             assertEquals(probe.info, get<PluginInfo>("probe"))
@@ -203,7 +203,7 @@ class PluginHarnessTest {
     fun `a plugin edits its own config in the harness's config file, which later runs start from`() {
         val file = directory.resolve("config/alexandrite.json")
         val harness =
-            PluginHarness.builder(folders).dataRoot(directory).writeConfigFile(file).config("""{"home": "1"}""").build()
+            PluginHarness.builder(folders).dataRoot(directory).keptConfigFile(file).config("""{"home": "1"}""").build()
         val edited = Folders(trusted = listOf("/srv/repo"))
 
         harness.execute {
@@ -232,7 +232,7 @@ class PluginHarnessTest {
         Files.writeString(file, text)
         val harness = PluginHarness.builder(folders)
             .dataRoot(directory)
-            .writeConfigFile(file)
+            .keptConfigFile(file)
             .config("""{"home": "1"}""")
             .environment(mapOf("HOME" to home))
             .build()
@@ -304,7 +304,7 @@ class PluginHarnessTest {
         val text = "{\n\t\"plugins\": {\n\t\t\"probe\": {\"greeting\": \"h\\u0069\"}\n\t}\n}\n"
         Files.writeString(file, text)
 
-        harness { writeConfigFile(file).channel(operators = setOf("ada")) }.execute {
+        harness { keptConfigFile(file).channel(operators = setOf("ada")) }.execute {
             assertTrue(channel().user("ada").isOperator)
         }
 
@@ -317,7 +317,7 @@ class PluginHarnessTest {
     fun `a kept config file the test wrote gets the sections of the harness's recording channels`() {
         val file = directory.resolve("alexandrite.json")
         Files.writeString(file, "{\"plugins\": {\"probe\": {\"greeting\": \"hi\"}}}\n")
-        val harness = harness { writeConfigFile(file).channel(operators = setOf("ada")) }
+        val harness = harness { keptConfigFile(file).channel(operators = setOf("ada")) }
 
         harness.execute {
             assertTrue(channel().user("ada").isOperator)

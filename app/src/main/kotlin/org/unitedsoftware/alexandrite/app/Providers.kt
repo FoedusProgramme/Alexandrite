@@ -6,12 +6,11 @@ import kotlinx.serialization.json.JsonObject
 import java.io.IOException
 
 /**
- * A model provider: its config [id] below `providers`, its [title], the [endpoint] it is named by default, its
- * [defaultUrl] (null when the operator names one), the path of its models request and the variable of its key.
+ * A model provider: its config [id] below `providers`, the [endpoint] it is named by default, its [defaultUrl] (null
+ * when the operator names one), the path of its models request and the variable of its key.
  */
 internal class ProviderKind(
     val id: String,
-    val title: String,
     val endpoint: String,
     val defaultUrl: String?,
     val modelsPath: String,
@@ -20,23 +19,24 @@ internal class ProviderKind(
     val keyRequired: Boolean,
     /** Whether its models request is signed as the Anthropic API signs it. */
     val anthropic: Boolean = false,
+    /** The path of a request that only a valid key gets an answer to, where the models request needs none. */
+    val keyPath: String? = null,
 )
 
 /** The providers in the order `init` offers them. */
 internal val PROVIDER_KINDS: List<ProviderKind> = listOf(
-    ProviderKind("deepseek", "DeepSeek", "deepseek", "https://api.deepseek.com", "/models", "DEEPSEEK_API_KEY", true),
+    ProviderKind("deepseek", "deepseek", "https://api.deepseek.com", "/models", "DEEPSEEK_API_KEY", true),
     ProviderKind(
         "openrouter",
-        "OpenRouter",
         "openrouter",
         "https://openrouter.ai/api/v1",
         "/models",
         "OPENROUTER_API_KEY",
         true,
+        keyPath = "/key",
     ),
     ProviderKind(
         "openai-compatible",
-        "OpenAI-compatible",
         "compatible",
         null,
         "/models",
@@ -45,7 +45,6 @@ internal val PROVIDER_KINDS: List<ProviderKind> = listOf(
     ),
     ProviderKind(
         "anthropic-compatible",
-        "Anthropic-compatible",
         "anthropic",
         "https://api.anthropic.com",
         "/v1/models",
@@ -53,10 +52,9 @@ internal val PROVIDER_KINDS: List<ProviderKind> = listOf(
         false,
         anthropic = true,
     ),
-    ProviderKind("lmstudio", "LM Studio", "lmstudio", "http://localhost:1234/v1", "/models", "LMSTUDIO_API_KEY", false),
+    ProviderKind("lmstudio", "lmstudio", "http://localhost:1234/v1", "/models", "LMSTUDIO_API_KEY", false),
     ProviderKind(
         "openai-responses",
-        "OpenAI Responses",
         "openai",
         "https://api.openai.com/v1",
         "/models",
@@ -85,27 +83,52 @@ internal fun keyHeaders(kind: ProviderKind, key: String?): Map<String, String> =
 internal sealed interface Listing {
     class Models(val ids: List<String>) : Listing
 
+    /** The endpoint refuses the key, or wants one. */
     class Refused(val reason: Text) : Listing
+
+    /** The endpoint gave no answer that tells whether it takes the key. */
+    class Unchecked(val reason: Text) : Listing
 }
 
-/** The models the endpoint of [kind] at [base] lists for [key]. */
+/** The models the endpoint of [kind] at [base] lists for [key], after the request of [ProviderKind.keyPath]. */
 internal fun listModels(cli: Cli, kind: ProviderKind, base: String, key: String?): Listing {
-    val fetched = try {
-        cli.machine.get("${base.trimEnd('/')}${kind.modelsPath}", keyHeaders(kind, key))
-    } catch (e: IOException) {
-        val reason = (e.message ?: "$e").let { if (key != null && key.length >= 4) it.replace(key, "***") else it }
-        return Listing.Refused(Text("models.unreachable", "base" to base, "reason" to reason))
+    if (key != null && kind.keyPath != null) {
+        val checked = fetch(cli, kind, base, kind.keyPath, key)
+        if (checked !is Fetch.Answered) return (checked as Fetch.Failed).listing
     }
-    if (fetched.status == 401 || fetched.status == 403) {
-        return Listing.Refused(Text("models.key_refused", "base" to base, "status" to fetched.status))
-    }
-    if (fetched.status !in 200..299) {
-        return Listing.Refused(Text("models.http", "base" to base, "status" to fetched.status))
+    val fetched = when (val answer = fetch(cli, kind, base, kind.modelsPath, key)) {
+        is Fetch.Answered -> answer.fetched
+        is Fetch.Failed -> return answer.listing
     }
     val data = try {
         (Json.parseToJsonElement(fetched.body) as? JsonObject)?.get("data") as? JsonArray
     } catch (e: IllegalArgumentException) {
         null
-    } ?: return Listing.Refused(Text("models.no_list", "base" to base))
+    } ?: return Listing.Unchecked(Text("models.no_list", "base" to base))
     return Listing.Models(data.mapNotNull { (it as? JsonObject)?.get("id").text }.distinct())
+}
+
+private sealed interface Fetch {
+    class Answered(val fetched: Fetched) : Fetch
+
+    class Failed(val listing: Listing) : Fetch
+}
+
+/** The successful answer of the endpoint at [base] to [path], signed with [key]. */
+private fun fetch(cli: Cli, kind: ProviderKind, base: String, path: String, key: String?): Fetch {
+    val fetched = try {
+        cli.machine.get("${base.trimEnd('/')}$path", keyHeaders(kind, key))
+    } catch (e: IOException) {
+        val reason = (e.message ?: "$e").let { if (key != null && key.length >= 4) it.replace(key, "***") else it }
+        return Fetch.Failed(Listing.Unchecked(Text("models.unreachable", "base" to base, "reason" to reason)))
+    }
+    if (fetched.status == 401 || fetched.status == 403) {
+        val text = if (key == null) "models.key_wanted" else "models.key_refused"
+        return Fetch.Failed(Listing.Refused(Text(text, "base" to base, "status" to fetched.status)))
+    }
+    if (fetched.status !in 200..299) {
+        val text = if (path == kind.keyPath) "models.key_http" else "models.http"
+        return Fetch.Failed(Listing.Unchecked(Text(text, "base" to base, "status" to fetched.status)))
+    }
+    return Fetch.Answered(fetched)
 }

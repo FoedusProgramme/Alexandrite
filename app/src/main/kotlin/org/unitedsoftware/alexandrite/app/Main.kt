@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.app.control.ControlAnswers
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.RunningApp
 import org.unitedsoftware.alexandrite.app.control.RunningInstances
+import org.unitedsoftware.alexandrite.app.control.agentApis
 import org.unitedsoftware.alexandrite.app.control.serveControl
 import org.unitedsoftware.alexandrite.mcp.McpControl
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
@@ -27,7 +28,8 @@ import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import java.io.FileDescriptor
+import java.io.FileOutputStream
 import java.io.IOException
 import java.io.PrintStream
 import java.nio.file.Files
@@ -69,7 +71,26 @@ fun main(args: Array<String>) {
     if (parseArguments(args.toList()) !is Command.Run && System.getProperty(LOG_LEVEL) == null) {
         System.setProperty(LOG_LEVEL, "ERROR")
     }
-    exitProcess(run(args.toList(), System.getenv()))
+    val environment = System.getenv()
+    if (utf8Wanted(environment) && System.getProperty("stdout.encoding") != Charsets.UTF_8.name()) {
+        // The console reads the property when it is first asked for; the streams are already open.
+        System.setProperty("stdout.encoding", Charsets.UTF_8.name())
+        System.setProperty("stderr.encoding", Charsets.UTF_8.name())
+        System.setOut(PrintStream(FileOutputStream(FileDescriptor.out), true, Charsets.UTF_8))
+        System.setErr(PrintStream(FileOutputStream(FileDescriptor.err), true, Charsets.UTF_8))
+    }
+    exitProcess(run(args.toList(), environment))
+}
+
+/**
+ * Whether the locale variables ask for UTF-8. The JVM writes ASCII when the named locale is not installed, as in most
+ * containers, so Chinese text would come out as question marks.
+ */
+internal fun utf8Wanted(environment: Map<String, String>): Boolean {
+    val locale = listOf("LC_ALL", "LC_CTYPE", "LANG").firstNotNullOfOrNull {
+        environment[it]?.takeIf(String::isNotEmpty)
+    }
+    return locale != null && Regex("utf-?8", RegexOption.IGNORE_CASE).containsMatchIn(locale)
 }
 
 /** Runs the host for [args] and returns its exit code. */
@@ -126,6 +147,7 @@ internal fun run(
                 locale,
                 zone,
                 claimCode,
+                command.options.plain,
             )
             return try {
                 command.action.run(cli)
@@ -249,7 +271,7 @@ private fun host(
                 val app = HostedApp(this, locations, Instant.now())
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
-                    val answers = ControlAnswers(alexandriteVersion, { services.getOrNull<AgentControl>() }, app) {
+                    val answers = ControlAnswers(alexandriteVersion, { agentApis(services) }, app) {
                         services.get<ContributedDesks>().desks
                     }
                     launch { serveControl(locations.dataDir, answers::answer) }

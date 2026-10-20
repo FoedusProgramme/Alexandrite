@@ -69,7 +69,7 @@ class TurnPointsTest {
             channel(operators = setOf("operator")).model(model).tool(read).commandHandler(commands)
             points.forEach { hook(recorder(it, fired)) }
         }.execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val operator = channel().user("operator")
             (channel().receive("Hi", sender = operator) as Admission.Accepted).ticket.outcome()
             (channel().receiveCommand("compact", issuer = operator) as Admission.Accepted).ticket.outcome()

@@ -35,9 +35,9 @@ class ExampleConfigTest {
     fun `the example config shows an MCP server run as a command and one reached over HTTP, both off`() {
         val servers = ConfigFile.read(example, emptyMap()).tree("mcp.servers").orEmpty()
 
-        assertEquals(listOf("files", "docs"), servers.keys.toList())
-        val (files, docs) = servers.values.map { it.jsonObject }
-        assertEquals(listOf(true, false), listOf("command" in files, "url" in files))
+        assertEquals(listOf("git", "docs"), servers.keys.toList())
+        val (git, docs) = servers.values.map { it.jsonObject }
+        assertEquals(listOf(true, false), listOf("command" in git, "url" in git))
         assertEquals(listOf(false, true), listOf("command" in docs, "url" in docs))
         assertTrue(servers.values.all { it.jsonObject["enabled"] == JsonPrimitive(false) })
     }

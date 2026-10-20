@@ -11,18 +11,20 @@ public class StopRequest private constructor(
     /** The plugin that requested the stop, null when a host or the runtime did. */
     public val plugin: String?,
 ) {
-    public constructor(kind: StopKind, reason: String) : this(kind, reason, null)
-
     /** This request as made by [plugin]. */
     @InternalAlexandriteApi
     public fun from(plugin: String): StopRequest = StopRequest(kind, reason, plugin)
 
+    /** This request with [reason] in place of its own. */
+    @InternalAlexandriteApi
+    public fun withReason(reason: String): StopRequest = StopRequest(kind, reason, plugin)
+
     public companion object {
-        public fun shutdown(reason: String): StopRequest = StopRequest(StopKind.SHUTDOWN, reason)
+        public fun shutdown(reason: String): StopRequest = StopRequest(StopKind.SHUTDOWN, reason, null)
 
-        public fun restart(reason: String): StopRequest = StopRequest(StopKind.RESTART, reason)
+        public fun restart(reason: String): StopRequest = StopRequest(StopKind.RESTART, reason, null)
 
-        public fun failure(reason: String): StopRequest = StopRequest(StopKind.FAILURE, reason)
+        public fun failure(reason: String): StopRequest = StopRequest(StopKind.FAILURE, reason, null)
     }
 }
 

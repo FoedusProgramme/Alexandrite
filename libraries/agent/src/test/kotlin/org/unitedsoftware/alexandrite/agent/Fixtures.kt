@@ -271,5 +271,7 @@ object QuietHooks : Hooks {
 
 /** [tool], whose review asks every call to start as a background job. */
 fun startingInBackground(tool: Tool): ReviewedTool = object : ReviewedTool, Tool by tool {
-    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(background = true)
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
+        .background(true)
+        .build()
 }

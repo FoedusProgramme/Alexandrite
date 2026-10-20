@@ -17,6 +17,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
+import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
+import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
@@ -54,7 +56,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             "'timeoutSeconds'. Refuses calls that reach protected places. Set background to true to start " +
             "immediately as a job. A monitor starts a background job " +
             "and wakes you with filtered output batches until the program exits or its lifetime expires. " +
-            "Monitor buffers are bounded and excess output can be dropped with a count.",
+            "Monitor buffers are bounded and excess output can be dropped with a count. When your agent has a " +
+            "sandbox, programs run in it: they write only in your workspace, the conversation's directory, trusted " +
+            "folders and temp, and reach only allowed hosts through a proxy; name more hosts in 'network', or set " +
+            "'sandbox' to false to run outside it, which needs approval more often.",
         parameters = schema {
             property("background", "boolean", "Start immediately as a background job (default false).")
             putJsonObject("monitor") {
@@ -89,6 +94,20 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                     "(~ is home). Default your workspace.",
             )
             property(
+                "sandbox",
+                "boolean",
+                "Whether the program runs in your agent's sandbox, when it has one (default true).",
+            )
+            putJsonObject("network") {
+                put("type", "array")
+                putJsonObject("items") { put("type", "string") }
+                put(
+                    "description",
+                    "Hosts the sandboxed program may reach beside the allowed ones, such as \"example.com\" or " +
+                        "\"127.0.0.1:8080\"; asking for them needs approval.",
+                )
+            }
+            property(
                 "timeoutSeconds",
                 "integer",
                 "How long the program may run, in seconds: at most ${config.maxTimeoutSeconds}, which is the default.",
@@ -102,20 +121,25 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
         when (val inspection = inspect(arguments, context, running = false)) {
-            is Inspection.Problem -> CallReview(problem = inspection.text)
+            is Inspection.Problem -> CallReview.builder().problem(inspection.text).build()
 
-            is Inspection.Refused -> CallReview(refusal = inspection.text)
+            is Inspection.Refused -> CallReview.builder().refusal(inspection.text).build()
 
             is Inspection.Ready -> with(inspection.call) {
-                CallReview(
-                    risk = if (readOnly) ToolRisk.READ_ONLY else ToolRisk.EXEC,
-                    preview = ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)),
-                    snapshot = snapshot,
-                    rule = rule,
-                    background = startsInBackground(arguments),
-                    untrusted = !vetted,
-                    person = asks.takeIf { it.isNotEmpty() }?.joinToString("; "),
-                )
+                CallReview.builder()
+                    .risk(if (readOnly) ToolRisk.READ_ONLY else ToolRisk.EXEC)
+                    .preview(ReviewPreview.Command(argv, cwd, executable, opaque, segments(this)))
+                    .snapshot(snapshot)
+                    .rule(rule)
+                    .background(inspection.background)
+                    .untrusted(!vetted)
+                    .person(asks.takeIf { it.isNotEmpty() }?.joinToString("; "))
+                    .contained(
+                        inspection.sandbox?.let { sandbox ->
+                            Contained(sandbox.environment.name, sandbox.boundary(directories(this)), inspection.hosts)
+                        },
+                    )
+                    .build()
             }
         }
 
@@ -159,6 +183,21 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             context.untrusted("command.exec ran ${unvetted.map { it.program }.distinct().joinToString(", ")}")
         }
         val planner = ready.planner
+        val sandbox = ready.sandbox
+        val lease = try {
+            sandbox?.open(sandbox.boundary(directories(call)), ready.hosts)
+        } catch (e: IOException) {
+            return ToolResult(
+                "$named was not started: the sandbox's network proxy could not listen " +
+                    "(${e.message ?: e.javaClass.simpleName}).",
+                isError = true,
+            )
+        }
+        val launch: (ProcessBuilder) -> Process = if (sandbox == null || lease == null) {
+            ProcessBuilder::start
+        } else {
+            { builder -> sandbox.environment.launch(builder, lease.boundary) }
+        }
         var finalMonitorOutput = "[monitor ended]"
         val outcome = try {
             suspend fun runWithLines(onLine: ((String) -> Unit)?): ProgramOutcome = runSteps(
@@ -168,6 +207,7 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                 monitor?.lifetime ?: call.timeout,
                 config.maxOutputChars,
                 onLine,
+                launch,
             )
             if (monitor == null) {
                 runWithLines(null)
@@ -189,7 +229,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
                 "$named could not be started: ${e.message ?: e.javaClass.simpleName}",
                 isError = true,
             )
+        } finally {
+            lease?.close()
         }
+        val refused = lease?.refused.orEmpty()
         val output = if (monitor == null) {
             outcome.output.trimEnd().ifEmpty { "[no output]" }
         } else {
@@ -198,16 +241,19 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val exitCode = outcome.exitCode ?: return if (monitor != null) {
             ToolResult(
                 "The monitor ended at its lifetime of ${monitor.lifetime.inWholeSeconds} s and stopped the program " +
-                    "with the processes it started.\n$output",
+                    "with the processes it started.\n$output" + sandboxNote(sandbox, refused, failed = false),
             )
         } else {
             ToolResult(
                 "The program timed out after ${call.timeout.inWholeSeconds} s and was stopped with the processes it " +
-                    "started. Its output until then:\n$output",
+                    "started. Its output until then:\n$output" + sandboxNote(sandbox, refused, failed = false),
                 isError = true,
             )
         }
-        return ToolResult("Exit code: $exitCode\n$output", isError = exitCode != 0)
+        return ToolResult(
+            "Exit code: $exitCode\n$output" + sandboxNote(sandbox, refused, failed = exitCode != 0),
+            isError = exitCode != 0,
+        )
     }
 
     /** What the call would run, or why it cannot run, with the workspace created only when it is [running]. */
@@ -225,7 +271,14 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         val call = runInterruptible(Dispatchers.IO) {
             planner.plan(request, cwd, missingAllowed = missing, homeDirectory())
         }
-        Inspection.Ready(call, planner, monitor)
+        val sandbox = context.sandbox
+        if (sandbox != null && !parsed.contained && sandbox.strict) {
+            throw CallProblem("Your agent runs every program in its sandbox, so 'sandbox' may not be false.")
+        }
+        val contained = sandbox?.takeIf { parsed.contained }
+        contained?.hostProblem(parsed.hosts)?.let { throw CallProblem(it) }
+        val hosts = if (contained == null) emptyList() else parsed.hosts
+        Inspection.Ready(call, planner, monitor, contained, hosts, parsed.background || monitor != null)
     } catch (e: CallProblem) {
         Inspection.Problem(e.message)
     } catch (e: FloorRefusal) {
@@ -247,11 +300,10 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun request(arguments: JsonObject): ParsedRequest {
-        arguments.optional("background")?.let { value ->
-            if ((value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) {
-                throw CallProblem("'background' must be a boolean.")
-            }
-        }
+        val background = arguments.optional("background")?.let { value ->
+            (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                ?: throw CallProblem("'background' must be a boolean.")
+        } ?: false
         val command = arguments.optional("command")?.let { value ->
             (value as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: throw CallProblem("'command' must be a string.")
@@ -288,15 +340,19 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         if (seconds > config.maxTimeoutSeconds) {
             throw CallProblem("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
         }
-        return ParsedRequest(words, cwd, seconds.seconds)
+        val contained = arguments.optional("sandbox")?.let { value ->
+            (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                ?: throw CallProblem("'sandbox' must be a boolean.")
+        } ?: true
+        val hosts = arguments.optional("network")?.let { value ->
+            val items = value as? JsonArray ?: throw CallProblem("'network' must be an array of strings.")
+            items.map { item ->
+                (item as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    ?: throw CallProblem("'network' must be an array of strings.")
+            }
+        }.orEmpty()
+        return ParsedRequest(words, cwd, seconds.seconds, contained, hosts.distinct(), background)
     }
-
-    /**
-     * Whether the call asks to start as a background job, with `background` (checked by [request]) or a `monitor`
-     * (checked by [monitorOptions]).
-     */
-    private fun startsInBackground(arguments: JsonObject): Boolean =
-        (arguments["background"] as? JsonPrimitive)?.booleanOrNull == true || arguments["monitor"] is JsonObject
 
     private fun monitorOptions(arguments: JsonObject, timeout: Duration): MonitorOptions? {
         val value = arguments.optional("monitor") ?: return null
@@ -328,11 +384,49 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
 
         class Refused(val text: String) : Inspection
 
-        class Ready(val call: PlannedCall, val planner: Planner, val monitor: MonitorOptions?) : Inspection
+        /** [sandbox] is the one the call runs in, null on the host, and [hosts] those it asks the sandbox for. */
+        class Ready(
+            val call: PlannedCall,
+            val planner: Planner,
+            val monitor: MonitorOptions?,
+            val sandbox: Sandbox?,
+            val hosts: List<String>,
+            /** Whether the call starts as a background job. */
+            val background: Boolean,
+        ) : Inspection
     }
 
     /** The call's arguments before 'cwd' is resolved against the workspace. */
-    private class ParsedRequest(val argv: List<String>, val cwd: String?, val timeout: Duration)
+    private class ParsedRequest(
+        val argv: List<String>,
+        val cwd: String?,
+        val timeout: Duration,
+        /** Whether the program runs in the agent's sandbox when it has one. */
+        val contained: Boolean,
+        val hosts: List<String>,
+        val background: Boolean,
+    )
+}
+
+/** The directories that the steps of [call] work in. */
+private fun directories(call: PlannedCall): List<Path> = (listOf(call.cwd) + call.steps.map { it.cwd }).distinct()
+
+/** What the model is told of a run in [sandbox] whose proxy [refused] hosts, and that may have [failed] for its bounds. */
+private fun sandboxNote(sandbox: Sandbox?, refused: List<String>, failed: Boolean): String {
+    sandbox ?: return ""
+    val notes = mutableListOf<String>()
+    if (refused.isNotEmpty()) {
+        val hosts = refused.joinToString(", ") { "\"$it\"" }
+        notes += "The sandbox's proxy refused ${refused.joinToString()}: call again with \"network\": [$hosts] to " +
+            "ask for them."
+    }
+    if (failed) {
+        notes += "It ran in a sandbox that lets it write only in your workspace, the conversation's directory, " +
+            "trusted folders and temp, and reach the network only through a proxy, which programs that ignore " +
+            "HTTP_PROXY, such as ssh or database clients, cannot use." +
+            if (sandbox.strict) "" else " If it failed for that, call again with \"sandbox\": false."
+    }
+    return notes.joinToString("") { "\n[$it]" }
 }
 
 /** The steps of [call] as an approver is shown them, none when it runs its own program. */

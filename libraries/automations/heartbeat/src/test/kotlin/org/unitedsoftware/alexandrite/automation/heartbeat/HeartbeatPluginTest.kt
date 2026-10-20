@@ -13,7 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.ReplyRoute
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnInitiator
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
@@ -34,10 +34,10 @@ class HeartbeatPluginTest {
     private val coder = AgentId("coder")
     private val time = ManualTime()
     private val initiator = RecordingTurnInitiator(outcome = TurnOutcome.Completed(null))
-    private val control = RecordingAgentControl(coder).apply { scriptAgent(coder, name = "Coder") }
+    private val control = RecordingAgent(coder).apply { scriptAgent(coder, name = "Coder") }
 
     private fun harness(config: String?, initiator: RecordingTurnInitiator = this.initiator): PluginHarness =
-        heartbeatHarness(config) { plugin(TimePlugin(time)).turnInitiator(initiator).agentControl(control).channel() }
+        heartbeatHarness(config) { plugin(TimePlugin(time)).turnInitiator(initiator).agent(control).channel() }
 
     /**
      * Moves time on by [by], then waits until [sleepers] beat loops sleep again and [beats] turns were initiated, and

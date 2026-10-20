@@ -24,6 +24,10 @@ dependencies {
     implementation(project(":libraries:stores:sqlite"))
     implementation(project(":libraries:automations:heartbeat"))
     implementation(project(":libraries:automations:schedule"))
+    implementation(project(":libraries:sandboxes:seatbelt"))
+    implementation(project(":libraries:sandboxes:bubblewrap"))
+    implementation(libs.jline.terminal)
+    runtimeOnly(libs.jline.terminal.jni)
     runtimeOnly(libs.logback.classic)
 
     testImplementation(project(":libraries:testkit"))
@@ -36,6 +40,7 @@ dependencies {
 
 application {
     mainClass = "org.unitedsoftware.alexandrite.app.MainKt"
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 val versionResource = tasks.register<WriteProperties>("versionResource") {

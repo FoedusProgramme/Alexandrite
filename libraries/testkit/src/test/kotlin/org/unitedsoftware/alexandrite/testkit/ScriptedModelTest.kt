@@ -215,7 +215,7 @@ class ScriptedModelTest {
         model.reply { text("anything") }
 
         val texts = listOf(
-            request(model, 0, turn = testTurn { id(other) }),
+            request(model, 0, turn = testTurn(id = other)),
             request(model, 1),
             request(model, 0),
             request(model, 0),

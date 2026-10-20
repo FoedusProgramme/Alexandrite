@@ -6,7 +6,9 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
+import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -24,6 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
 import org.unitedsoftware.alexandrite.sdk.store.ChatStateStore
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.MediaStore
@@ -32,13 +35,19 @@ import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnInitiator
 import org.unitedsoftware.alexandrite.testkit.RecordingTurnSubmitter
@@ -64,13 +73,14 @@ internal class DoublesPlugin(
     handlers: List<CommandHandler>,
     submitter: RecordingTurnSubmitter?,
     initiator: RecordingTurnInitiator?,
-    control: RecordingAgentControl?,
+    agent: RecordingAgent?,
     store: MemoryStore?,
     chatStates: ChatStateStore?,
     records: RecordStore?,
     floor: HardFloor?,
     /** Whether to bind the test floor over the run's host paths. */
     hostFloor: Boolean,
+    environments: List<ExecutionEnvironment>,
 ) : HarnessPlugin(ID, "Test doubles") {
     private val bindings = buildList {
         if (models.isNotEmpty()) {
@@ -84,6 +94,9 @@ internal class DoublesPlugin(
             add(instanceBinding(key<ToolSource>(), it, ID, "ToolSource ${it.namespace}", multi = true))
         }
         hooks.forEach { add(instanceBinding(key<Hook>(), it, ID, "Hook ${it.javaClass.name}", multi = true)) }
+        environments.forEach {
+            add(instanceBinding(key<ExecutionEnvironment>(), it, ID, "ExecutionEnvironment ${it.name}", multi = true))
+        }
         handlers.forEach {
             add(instanceBinding(key<CommandHandler>(), it, ID, "CommandHandler ${it.javaClass.name}", multi = true))
         }
@@ -94,9 +107,15 @@ internal class DoublesPlugin(
             }
             add(instanceBinding(key<TurnInitiation>(), initiation, ID, "RecordingTurnInitiator"))
         }
-        control?.let {
-            add(instanceBinding(key<AgentControl>(), it, ID, "RecordingAgentControl"))
-            add(instanceBinding(key<ChatSettings>(), it, ID, "RecordingAgentControl"))
+        agent?.let {
+            add(instanceBinding(key<TurnControl>(), it.turns, ID, "RecordingAgent.turns"))
+            add(instanceBinding(key<ConversationControl>(), it.conversations, ID, "RecordingAgent.conversations"))
+            add(instanceBinding(key<ChatSettings>(), it.settings, ID, "RecordingAgent.settings"))
+            add(instanceBinding(key<ChatLinks>(), it.links, ID, "RecordingAgent.links"))
+            add(instanceBinding(key<TrustedFolders>(), it.folders, ID, "RecordingAgent.folders"))
+            add(instanceBinding(key<PermissionRules>(), it.rules, ID, "RecordingAgent.rules"))
+            add(instanceBinding(key<AgentCatalog>(), it.catalog, ID, "RecordingAgent.catalog"))
+            add(instanceBinding(key<UsageReports>(), it.usage, ID, "RecordingAgent.usage"))
         }
         store?.let {
             add(instanceBinding(key<ConversationStore>(), it.conversations, ID, "MemoryStore.conversations"))
@@ -130,11 +149,7 @@ internal class DoublesPlugin(
 internal class RecordingChannelConfig(
     val operators: Set<String> = emptySet(),
     val partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
-) {
-    init {
-        require(partLength > 0) { "partLength must be positive, was $partLength" }
-    }
-}
+)
 
 /** The plugin `<type>-channel`, whose channel of [type] is a [RecordingChannel] per instance of [instances]. */
 internal class RecordingChannelPlugin(
@@ -222,4 +237,17 @@ internal class StopWatch(private val channel: RecordingChannel) : Lifecycle {
     override fun onStop() {
         channel.stopped = true
     }
+}
+
+/** The deliveries scripted for the next sends, to one chat or to any. */
+internal class ScriptedDeliveries {
+    private val queues = HashMap<ChatAddress?, ArrayDeque<Delivery>>()
+
+    /** Queues [deliveries] for [chat], or for any chat when it is null. */
+    fun script(deliveries: Array<out Delivery>, chat: ChatAddress? = null) {
+        queues.getOrPut(chat) { ArrayDeque() }.addAll(deliveries)
+    }
+
+    /** The next delivery scripted for [chat], else for any chat, null when none is left. */
+    fun next(chat: ChatAddress): Delivery? = queues[chat]?.removeFirstOrNull() ?: queues[null]?.removeFirstOrNull()
 }

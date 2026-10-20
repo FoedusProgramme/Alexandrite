@@ -44,6 +44,9 @@ internal abstract class DeclarationReader(
         val dependencies = callee?.parameters?.mapNotNull(::dependency)
         val binds = extraKeys(BINDS, type, qualifier, provider, channelInstanceScoped)
         val contributes = extraKeys(CONTRIBUTE, type, qualifier, provider, channelInstanceScoped)
+        if (contributes.any { it.className == type.className } && (binds.isNotEmpty() || contributes.size > 1)) {
+            report(Messages.ownContributionWithOthers(label, type.className))
+        }
         if (failed || callee == null || dependencies == null) return null
         use(type)
         markers += symbols.optInMarkers(callee)
@@ -153,12 +156,13 @@ internal abstract class DeclarationReader(
         return annotation.types().mapNotNull { listedType ->
             val boundClass = listedType.declaration.actual
             val boundName = boundClass.name
+            val itself = annotationName == CONTRIBUTE && boundName == type.className
             val match = supertypes.firstOrNull { it.declaration.actual.name == boundName }
-            val supertype = match?.expand()
+            val supertype = if (itself) type else match?.expand()
             val problem = when {
                 !listed.add(boundName) -> Messages.listedTwice(label, annotationLabel, boundName)
 
-                match == null -> Messages.notSupertype(label, annotationLabel, boundName, provider)
+                match == null && !itself -> Messages.notSupertype(label, annotationLabel, boundName, provider)
 
                 supertype == null || supertype.hasTypeParameter ->
                     Messages.unknownArguments(label, annotationLabel, boundName, provider)

@@ -13,6 +13,9 @@ import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
@@ -20,11 +23,9 @@ import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel.Companion.modelInfo
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
@@ -38,7 +39,7 @@ import kotlin.test.assertFailsWith
 
 class SettingCommandsTest {
     private val clock = TestClock()
-    private val control = RecordingAgentControl(clock = clock).apply {
+    private val control = RecordingAgent(clock = clock).apply {
         scriptAgent(AgentId.MAIN, "Main")
         scriptModels(EndpointId("big"), (1..45).map { modelInfo("m-%02d".format(it)) }.shuffled())
         scriptModels(EndpointId("slow"), emptyList())
@@ -46,14 +47,14 @@ class SettingCommandsTest {
     }
 
     /** [control], whose listing of `slow` never ends and of `broken` fails. */
-    private val listing = object : AgentControl by control {
+    private val listing = object : AgentCatalog by control.catalog {
         override suspend fun models(endpoint: EndpointId): List<ModelInfo> = when (endpoint.value) {
             "slow" -> awaitCancellation()
             "broken" -> throw IOException("connection refused")
-            else -> control.models(endpoint)
+            else -> control.catalog.models(endpoint)
         }
     }
-    private val commands = SettingCommands(listing, commandTexts(), clock)
+    private val commands = SettingCommands(control.settings, control.links, listing, commandTexts(), clock)
     private val chat = testChat()
 
     // /model.
@@ -132,8 +133,8 @@ class SettingCommandsTest {
 
     @Test
     fun `an endpoint that lists no models or does not exist is reported`() = runTest {
-        val bare = RecordingAgentControl()
-        val commands = SettingCommands(bare, commandTexts(), clock)
+        val bare = RecordingAgent()
+        val commands = SettingCommands(bare.settings, bare.links, bare.catalog, commandTexts(), clock)
 
         assertEquals(
             "There is no endpoint 'nowhere'. Endpoints: none.",
@@ -180,9 +181,9 @@ class SettingCommandsTest {
     }
 
     @Test
-    fun `an error of the control port that is no refusal is no reply`() = runTest {
-        val failing = object : AgentControl by control {
-            override suspend fun updateSettings(
+    fun `an error of the chat settings that is no refusal is no reply`() = runTest {
+        val failing = object : ChatSettings by control.settings {
+            override suspend fun update(
                 chat: ChatAddress,
                 update: ChatSettingsUpdate,
                 by: ChatUser?,
@@ -190,7 +191,13 @@ class SettingCommandsTest {
         }
 
         assertFailsWith<IllegalArgumentException> {
-            SettingCommands(failing, commandTexts(), clock).answer(testCommand("model", "big/m-01"))
+            SettingCommands(
+                failing,
+                control.links,
+                listing,
+                commandTexts(),
+                clock,
+            ).answer(testCommand("model", "big/m-01"))
         }
     }
 
@@ -260,7 +267,7 @@ class SettingCommandsTest {
         val catalog = TextCatalog.builder()
             .text(PLUGIN, CHINESE, "language.set", "这个聊天的语言现在是 {language}。")
             .build()
-        val commands = SettingCommands(listing, commandTexts(catalog), clock)
+        val commands = SettingCommands(control.settings, control.links, listing, commandTexts(catalog), clock)
 
         assertEquals("Language: default (the host's language).", commands.answer(testCommand("language")))
         assertEquals("这个聊天的语言现在是 zh-CN。", commands.answer(testCommand("language", "zh_cn")))
@@ -373,15 +380,15 @@ class SettingCommandsTest {
     fun `settings shows the chat's own settings, the home elsewhere and the linked chats`() = runTest {
         val coder = AgentId("coder")
         control.scriptAgent(coder, "Coder", model = ModelRef.parse("big/m-02"))
-        control.updateSettings(testChat("home"), ChatSettingsUpdate.builder().agent(coder).home().build(), OPERATOR)
-        control.updateSettings(
+        control.settings.update(testChat("home"), ChatSettingsUpdate.builder().agent(coder).home().build(), OPERATOR)
+        control.settings.update(
             chat,
             ChatSettingsUpdate.builder().agent(coder).reasoning(ReasoningEffort.HIGH).language(CHINESE).build(),
             OPERATOR,
         )
         val bypass = ChatSettingsUpdate.builder().mode(PermissionMode.BYPASS, clock.now + Duration.ofMinutes(90))
-        control.updateSettings(chat, bypass.build(), OPERATOR)
-        control.link(coder, testChat("other"), chat, OPERATOR)
+        control.settings.update(chat, bypass.build(), OPERATOR)
+        control.links.link(coder, testChat("other"), chat, OPERATOR)
         clock.now += Duration.ofMinutes(15)
 
         assertEquals(
@@ -403,7 +410,7 @@ class SettingCommandsTest {
 
     @Test
     fun `settings shows a home chat as the source of its agent`() = runTest {
-        control.updateSettings(chat, ChatSettingsUpdate.builder().home().build(), OPERATOR)
+        control.settings.update(chat, ChatSettingsUpdate.builder().home().build(), OPERATOR)
 
         val lines = commands.answer(testCommand("settings")).lines()
 

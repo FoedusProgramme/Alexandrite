@@ -6,6 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
+import org.unitedsoftware.alexandrite.app.tui.Mark
 import java.io.IOException
 import java.nio.file.Files
 import java.time.ZoneId
@@ -97,7 +98,15 @@ internal fun status(cli: Cli, json: Boolean): Int {
             },
         )
     } else {
-        cli.out.println(statusText(cli, status, service, state))
+        val text = statusText(cli, status, service, state)
+        val style = cli.style
+        if (style == null) {
+            cli.out.println(text)
+        } else {
+            val lines = text.lines()
+            cli.out.println("${style.mark(if (status == null) Mark.FAIL else Mark.OK)} ${style.bold(lines.first())}")
+            lines.drop(1).forEach { cli.out.println("  $it") }
+        }
     }
     return if (status == null) ExitCode.UNAVAILABLE else ExitCode.OK
 }

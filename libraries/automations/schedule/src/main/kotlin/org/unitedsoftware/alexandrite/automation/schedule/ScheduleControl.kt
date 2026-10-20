@@ -51,44 +51,12 @@ public class ScheduleControl internal constructor(
         prompt: String,
         by: ChatUser,
         mandate: Mandate?,
-    ): ScheduledTask {
-        try {
-            return make(key, chat, schedule, zone, prompt, by, mandate)
-        } catch (e: Throwable) {
-            if (mandate != null) withRevoked(mandate)
-            throw e
-        }
-    }
-
-    /** The tasks of [key], in the order they were made. */
-    public suspend fun list(key: AgentChatKey): List<ScheduledTask> {
-        tasks.awaitLoaded()
-        return tasks.all().filter { it.second.key == key }.map { (id, record) -> view(id, record) }
-    }
-
-    /** Cancels task [id] of [key] for [by], null for the host, and returns false when [key] has no such task. */
-    public suspend fun cancel(key: AgentChatKey, id: String, by: ChatUser?): Boolean {
-        tasks.awaitLoaded()
-        if (tasks.live(id)?.key != key) return false
-        val cancelled = scheduling.scheduler().cancel(id)
-        if (cancelled) logger.info("Task {} of {} cancelled by {}", id, key, by?.address ?: "the host")
-        return cancelled
-    }
-
-    private suspend fun make(
-        key: AgentChatKey,
-        chat: ChatAddress,
-        schedule: When,
-        zone: ZoneId,
-        prompt: String,
-        by: ChatUser,
-        mandate: Mandate?,
-    ): ScheduledTask {
+    ): ScheduledTask = revokedOnFailure(mandate) {
         val text = prompt.trim()
         if (text.isEmpty()) refuse("The prompt is empty.")
         if (text.length > MAX_PROMPT) refuse("The prompt has more than $MAX_PROMPT characters.")
         tasks.awaitLoaded()
-        return lock.withLock {
+        lock.withLock {
             val all = tasks.all().map { it.second }
             if (all.count { it.key == key } >= config.maxPerChat) {
                 refuse("This chat has ${config.maxPerChat} tasks, as many as it may: cancel one first.")
@@ -125,6 +93,21 @@ public class ScheduleControl internal constructor(
         }
     }
 
+    /** The tasks of [key], in the order they were made. */
+    public suspend fun list(key: AgentChatKey): List<ScheduledTask> {
+        tasks.awaitLoaded()
+        return tasks.all().filter { it.second.key == key }.map { (id, record) -> view(id, record) }
+    }
+
+    /** Cancels task [id] of [key] for [by], null for the host, and returns false when [key] has no such task. */
+    public suspend fun cancel(key: AgentChatKey, id: String, by: ChatUser?): Boolean {
+        tasks.awaitLoaded()
+        if (tasks.live(id)?.key != key) return false
+        val cancelled = scheduling.scheduler().cancel(id)
+        if (cancelled) logger.info("Task {} of {} cancelled by {}", id, key, by?.address ?: "the host")
+        return cancelled
+    }
+
     private fun check(schedule: When, zone: ZoneId, now: Instant) {
         if (schedule.next(now, zone) == null) refuse("It is not due after now.")
         val minimum = minInterval
@@ -149,6 +132,14 @@ public class ScheduleControl internal constructor(
             val id = "t-" + String(CharArray(ID_LENGTH) { ID_ALPHABET[random.nextInt(ID_ALPHABET.length)] })
             if (tasks.find(id) == null) return id
         }
+    }
+
+    /** What [block] returns, with [mandate] revoked when it fails. */
+    private suspend inline fun <T> revokedOnFailure(mandate: Mandate?, block: () -> T): T = try {
+        block()
+    } catch (e: Throwable) {
+        if (mandate != null) withRevoked(mandate)
+        throw e
     }
 
     private suspend fun withRevoked(mandate: Mandate) {

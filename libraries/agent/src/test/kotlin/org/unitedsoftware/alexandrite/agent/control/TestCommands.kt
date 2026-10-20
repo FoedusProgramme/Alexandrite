@@ -2,27 +2,34 @@ package org.unitedsoftware.alexandrite.agent.control
 
 import kotlinx.coroutines.CompletableDeferred
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Commands that call the agent's [control] as a command plugin does: `/new`, `/cancel` (which runs alongside),
+ * Commands that call the agent's host APIs as a command plugin does: `/new`, `/cancel` (which runs alongside),
  * `/compact [focus]`, `/agent <id>`, `/tune <model> <effort> <language>`, `/home`, `/nohome`, `/wait <gate>` and
  * `/boom`, which throws.
  */
 internal class TestCommands : CommandHandler {
-    lateinit var control: AgentControl
+    lateinit var turns: TurnControl
+        private set
+    lateinit var conversations: ConversationControl
+        private set
+    lateinit var settings: ChatSettings
+        private set
 
     private val gates = ConcurrentHashMap<String, CompletableDeferred<Unit>>()
 
@@ -34,6 +41,12 @@ internal class TestCommands : CommandHandler {
     override val commands: List<CommandSpec> = "new cancel compact agent tune home nohome wait boom".split(' ')
         .map { CommandSpec.builder(it, "Test command /$it.").runsAlongside(it == "cancel").build() }
 
+    fun connect(turns: TurnControl, conversations: ConversationControl, settings: ChatSettings) {
+        this.turns = turns
+        this.conversations = conversations
+        this.settings = settings
+    }
+
     /** The gate that `/wait <name>` waits for. */
     fun gate(name: String): CompletableDeferred<Unit> = gates.computeIfAbsent(name) { CompletableDeferred() }
 
@@ -43,14 +56,14 @@ internal class TestCommands : CommandHandler {
         val by = invocation.issuer
         val words = invocation.arguments.split(' ')
         when (invocation.name.lowercase()) {
-            "new" -> context.reply("Started ${control.newConversation(chat, by)}.")
+            "new" -> context.reply("Started ${conversations.newConversation(chat, by)}.")
 
-            "cancel" -> context.reply(if (control.cancel(chat, by)) "Cancelled." else "Nothing runs.")
+            "cancel" -> context.reply(if (turns.cancel(chat, by)) "Cancelled." else "Nothing runs.")
 
             "compact" -> {
                 val focus = invocation.arguments.ifBlank { null }
                 val report = try {
-                    control.compact(chat, focus, by)
+                    conversations.compact(chat, focus, by)
                 } catch (e: ControlRefusedException) {
                     context.reply("Refused: ${e.message}")
                     return
@@ -76,7 +89,7 @@ internal class TestCommands : CommandHandler {
                             .language(LanguageTag.of(words[2]))
                     }
                 }
-                snapshots += control.updateSettings(chat, update.build(), by)
+                snapshots += settings.update(chat, update.build(), by)
             }
         }
     }

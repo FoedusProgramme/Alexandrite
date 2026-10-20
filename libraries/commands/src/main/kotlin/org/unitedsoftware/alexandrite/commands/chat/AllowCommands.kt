@@ -12,12 +12,12 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -25,8 +25,11 @@ import java.time.LocalDate
 /** `/allow`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class AllowCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
-    CommandHandler {
+internal class AllowCommands(
+    private val permissionRules: PermissionRules,
+    private val texts: Texts,
+    private val clock: Clock,
+) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(texts.spec(ALLOW))
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
@@ -47,7 +50,7 @@ internal class AllowCommands(private val control: AgentControl, private val text
     }
 
     private suspend fun list(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val rules = context.refusing { control.allowRules(invocation.chat) } ?: return
+        val rules = context.refusing { permissionRules.allowRules(invocation.chat) } ?: return
         val text = if (rules.isEmpty()) {
             replies.text(TextKeys.ALLOW_NONE)
         } else {
@@ -57,8 +60,9 @@ internal class AllowCommands(private val control: AgentControl, private val text
     }
 
     private suspend fun revoke(number: Int, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val revocation = context.refusing { control.revokeAllowRule(invocation.chat, number, invocation.issuer) }
-            ?: return
+        val revocation =
+            context.refusing { permissionRules.revokeAllowRule(invocation.chat, number, invocation.issuer) }
+                ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.ALLOW_REVOKED_DECLARED
             revocation.declared -> TextKeys.ALLOW_DECLARED_KEPT

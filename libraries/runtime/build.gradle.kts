@@ -5,6 +5,8 @@ plugins {
     id("alexandrite.built-in-list")
 }
 
+description = "The embeddable Alexandrite engine: plugin loading, configuration, lifecycle and hooks"
+
 dependencies {
     api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))

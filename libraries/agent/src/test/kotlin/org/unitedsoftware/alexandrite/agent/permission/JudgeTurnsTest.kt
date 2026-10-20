@@ -192,14 +192,16 @@ class JudgeTurnsTest {
         val exec = object : ReviewedTool {
             override val definition: ToolDefinition = testToolDefinition("command.exec", ToolRisk.EXEC)
 
-            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
-                preview = ReviewPreview.Command(
-                    listOf("sh", "-c", "ls | wc -l"),
-                    Path.of("/srv"),
-                    Path.of("/bin/sh"),
-                    opaque = true,
-                ),
-            )
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
+                .preview(
+                    ReviewPreview.Command(
+                        listOf("sh", "-c", "ls | wc -l"),
+                        Path.of("/srv"),
+                        Path.of("/bin/sh"),
+                        opaque = true,
+                    ),
+                )
+                .build()
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
                 cleared += context.clearance

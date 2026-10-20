@@ -215,6 +215,19 @@ private fun isMagic(path: CanonicalPath): Boolean {
     }
 }
 
+/**
+ * The places of the [StandardPlaces.CREDENTIALS] group: the credential stores of [home] and those [environment] moves,
+ * with the `.claude*` entries that [home] holds now.
+ */
+public fun credentialPlaces(home: Path?, environment: Map<String, String>): List<Path> {
+    val claude = try {
+        home?.toFile()?.listFiles { file -> file.name.startsWith(CLAUDE_PREFIX) }.orEmpty().map { it.toPath() }
+    } catch (e: SecurityException) {
+        emptyList()
+    }
+    return standardRoots(home, environment, setOf(StandardPlaces.CREDENTIALS)).map { it.path } + claude.sorted()
+}
+
 private fun standardRoots(
     home: Path?,
     environment: Map<String, String>,
@@ -224,7 +237,9 @@ private fun standardRoots(
         home?.let { addAll(CREDENTIAL_STORES.map { (name, kind) -> DenyRoot(home.resolve(name), kind) }) }
         addAll(movedStores(environment))
     }
-    if (StandardPlaces.SYSTEM in standard) add(DenyRoot(Path.of("/dev"), "devices"))
+    // The device tree is a root where the host has one: on a host whose paths the host separates otherwise, `/dev`
+    // names no root of its own, so no check can canonicalize it and the floor cannot be built of it.
+    if (StandardPlaces.SYSTEM in standard && File.separatorChar == '/') add(DenyRoot(Path.of("/dev"), "devices"))
 }
 
 /** The credential stores at the absolute places that the variables of [environment] name. */

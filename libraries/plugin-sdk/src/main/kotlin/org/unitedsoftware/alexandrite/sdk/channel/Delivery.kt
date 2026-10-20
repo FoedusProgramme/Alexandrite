@@ -9,7 +9,11 @@ import kotlin.time.Duration
 public sealed interface Delivery {
     /** The message reached the chat as [messages]. */
     @Poko
-    public class Delivered(public val messages: List<ChannelMessageRef>) : Delivery
+    public class Delivered private constructor(public val messages: List<ChannelMessageRef>) : Delivery {
+        public companion object {
+            public operator fun invoke(messages: List<ChannelMessageRef>): Delivered = Delivered(messages.toList())
+        }
+    }
 
     @Poko
     public class NotDelivered(

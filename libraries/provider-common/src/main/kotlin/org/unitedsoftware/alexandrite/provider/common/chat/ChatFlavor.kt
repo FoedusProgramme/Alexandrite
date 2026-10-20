@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.provider.common.CHAT_CALL_IDS
 import org.unitedsoftware.alexandrite.provider.common.ModelListing
 import org.unitedsoftware.alexandrite.provider.common.long
 import org.unitedsoftware.alexandrite.provider.common.obj
+import org.unitedsoftware.alexandrite.provider.common.putToolChoice
 import org.unitedsoftware.alexandrite.provider.common.unsupportedEffort
 import org.unitedsoftware.alexandrite.provider.common.wireToolName
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
@@ -16,7 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
-import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Warning
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
@@ -114,23 +114,10 @@ public open class ChatTools {
     public open val acceptsParallelToolCalls: Boolean = true
 
     /** Adds the field that asks for [request]'s tool choice to [body], or returns why it adds none. */
-    public open fun toolChoice(request: ModelRequest, body: JsonObjectBuilder): Warning? {
-        when (val choice = request.toolChoice) {
-            ToolChoice.Auto -> Unit
-
-            ToolChoice.None -> body.put("tool_choice", "none")
-
-            ToolChoice.Required -> body.put("tool_choice", "required")
-
-            is ToolChoice.Named -> body.putJsonObject("tool_choice") {
-                put("type", "function")
-                putJsonObject("function") { put("name", wireName(choice.name)) }
-            }
-
-            else -> return Warning("unsupported_option", "The tool choice $choice is unknown, so the model decides.")
+    public open fun toolChoice(request: ModelRequest, body: JsonObjectBuilder): Warning? =
+        body.putToolChoice(request.toolChoice) { choice ->
+            putJsonObject("function") { put("name", wireName(choice.name)) }
         }
-        return null
-    }
 
     /** The tool that a call naming [wire] calls, given the [offered] tools: the inverse of [wireName]. */
     public open fun callName(wire: String, offered: List<ToolDefinition>): String =

@@ -21,8 +21,8 @@ class StreamingCommandTest {
     private val choices = StreamingChoices(TestChatStates().of("alexandrite-channel-telegram"))
     private val home = ChannelInstanceId(WORK.type, "home")
     private val bots = TelegramBots().apply {
-        started(WORK, StreamingConfig(mode = StreamingMode.EDIT, quote = true))
-        started(home, StreamingConfig(mode = StreamingMode.NATURAL, quote = false))
+        streamingStarted(WORK, StreamingConfig(mode = StreamingMode.EDIT, quote = true))
+        streamingStarted(home, StreamingConfig(mode = StreamingMode.NATURAL, quote = false))
     }
     private val command = StreamingCommand(choices, bots, testTexts("alexandrite-channel-telegram"))
     private val chat = ChatAddress(WORK, "1001")

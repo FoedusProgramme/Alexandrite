@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.testkit.store
 
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -10,6 +11,7 @@ import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.MediaStore
 import org.unitedsoftware.alexandrite.sdk.store.RecordStore
 import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
+import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.testUser
 import java.nio.file.Path
@@ -44,6 +46,10 @@ internal class Ports(
         kind: TurnKind = TurnKind.MESSAGE,
         lineage: TurnLineage? = null,
     ): TurnInfo = newTurn(conversation, kind, lineage).also { conversations.startTurn(it) }
+
+    /** Stores [entries] in a new turn of the current conversation of [key]. */
+    suspend fun appendInCurrentConversation(key: AgentChatKey, vararg entries: TranscriptEntry): List<TranscriptEntry> =
+        transcripts.append(startTurn(conversations.current(key)).id, entries.toList())
 
     /** A new turn of [kind] in [conversation], not yet recorded. */
     fun newTurn(conversation: ConversationInfo, kind: TurnKind = TurnKind.MESSAGE, lineage: TurnLineage? = null) =

@@ -17,6 +17,8 @@ import org.unitedsoftware.alexandrite.commands.support.spec
 import org.unitedsoftware.alexandrite.commands.support.updateSettings
 import org.unitedsoftware.alexandrite.commands.support.words
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -25,8 +27,8 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
@@ -40,8 +42,13 @@ import kotlin.time.Duration.Companion.seconds
 /** `/model`, `/reasoning`, `/language`, `/timezone` and `/settings`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class SettingCommands(private val control: AgentControl, private val texts: Texts, private val clock: Clock) :
-    CommandHandler {
+internal class SettingCommands(
+    private val settings: ChatSettings,
+    private val links: ChatLinks,
+    private val catalog: AgentCatalog,
+    private val texts: Texts,
+    private val clock: Clock,
+) : CommandHandler {
     override val commands: List<CommandSpec> = listOf(MODEL, REASONING, LANGUAGE, TIMEZONE, SETTINGS).map(texts::spec)
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
@@ -89,7 +96,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
     }
 
     private suspend fun model(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val model = replies.model(snapshot)
         val lines = listOfNotNull(
             replies.text(TextKeys.MODEL_CURRENT, "model" to model.value, "source" to model.source),
@@ -108,7 +115,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
         context: CommandContext,
         replies: Replies,
     ) {
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val model = snapshot.models.getOrNull(number - 1)
         if (model == null) {
             val text = if (snapshot.models.isEmpty()) {
@@ -119,7 +126,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
             context.reply(text)
             return
         }
-        val updated = context.updateSettings(control, invocation) { model(model) } ?: return
+        val updated = context.updateSettings(settings, invocation) { model(model) } ?: return
         context.reply(texts.replies(updated.effectiveLanguage).text(TextKeys.MODEL_SET, "model" to model))
     }
 
@@ -140,7 +147,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
         context: CommandContext,
         replies: Replies,
     ) {
-        val endpoint = control.endpoints().firstOrNull { it.value == endpointId }
+        val endpoint = catalog.endpoints().firstOrNull { it.value == endpointId }
         if (endpoint == null) {
             val text = replies.text(
                 TextKeys.MODEL_NO_ENDPOINT,
@@ -150,7 +157,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
             context.reply(text)
             return
         }
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val models = listing(endpoint)
         if (models == null) {
             context.reply(replies.text(TextKeys.MODEL_LIST_FAILED, "endpoint" to endpoint))
@@ -175,7 +182,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
     /** The models of [endpoint] as the agent lists them, null when it cannot list them in time. */
     private suspend fun listing(endpoint: EndpointId): List<ModelInfo>? {
         val models = try {
-            withTimeoutOrNull(LISTING_TIMEOUT) { control.models(endpoint) }
+            withTimeoutOrNull(LISTING_TIMEOUT) { catalog.models(endpoint) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -197,19 +204,19 @@ internal class SettingCommands(private val control: AgentControl, private val te
             context.reply(replies.usage(MODEL))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { model(model) } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { model(model) } ?: return
         context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.MODEL_SET, "model" to model))
     }
 
     private suspend fun resetModel(invocation: CommandInvocation, context: CommandContext) {
-        val snapshot = context.updateSettings(control, invocation) { resetModel() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetModel() } ?: return
         val replies = texts.replies(snapshot.effectiveLanguage)
         val model = replies.model(snapshot)
         context.reply(replies.text(TextKeys.MODEL_RESET, "model" to model.value, "source" to model.source))
     }
 
     private suspend fun reasoning(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val effort = replies.reasoning(snapshot)
         val text = replies.text(
             TextKeys.REASONING_CURRENT,
@@ -231,19 +238,19 @@ internal class SettingCommands(private val control: AgentControl, private val te
             context.reply(replies.text(TextKeys.REASONING_UNKNOWN, "text" to text, "efforts" to EFFORTS))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { reasoning(effort) } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { reasoning(effort) } ?: return
         context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.REASONING_SET, "effort" to effort))
     }
 
     private suspend fun resetReasoning(invocation: CommandInvocation, context: CommandContext) {
-        val snapshot = context.updateSettings(control, invocation) { resetReasoning() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetReasoning() } ?: return
         val replies = texts.replies(snapshot.effectiveLanguage)
         val effort = replies.reasoning(snapshot)
         context.reply(replies.text(TextKeys.REASONING_RESET, "effort" to effort.value, "source" to effort.source))
     }
 
     private suspend fun language(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val language = replies.language(snapshot)
         val text = replies.text(TextKeys.LANGUAGE_CURRENT, "language" to language.value, "source" to language.source)
         context.reply(text)
@@ -261,12 +268,12 @@ internal class SettingCommands(private val control: AgentControl, private val te
             context.reply(replies.text(TextKeys.LANGUAGE_MALFORMED, "text" to text))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { language(language) } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { language(language) } ?: return
         context.reply(texts.replies(snapshot.effectiveLanguage).text(TextKeys.LANGUAGE_SET, "language" to language))
     }
 
     private suspend fun resetLanguage(invocation: CommandInvocation, context: CommandContext) {
-        val snapshot = context.updateSettings(control, invocation) { resetLanguage() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetLanguage() } ?: return
         val replies = texts.replies(snapshot.effectiveLanguage)
         val language = replies.language(snapshot)
         val text = replies.text(TextKeys.LANGUAGE_RESET, "language" to language.value, "source" to language.source)
@@ -274,7 +281,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
     }
 
     private suspend fun zone(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val snapshot = context.refusing { control.settings(invocation.chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(invocation.chat) } ?: return
         val zone = replies.zone(snapshot, clock.zone)
         context.reply(
             replies.text(
@@ -297,13 +304,13 @@ internal class SettingCommands(private val control: AgentControl, private val te
             context.reply(replies.text(TextKeys.TIMEZONE_MALFORMED, "text" to text))
             return
         }
-        val snapshot = context.updateSettings(control, invocation) { zone(zone) } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { zone(zone) } ?: return
         val set = texts.replies(snapshot.effectiveLanguage)
         context.reply(set.text(TextKeys.TIMEZONE_SET, "zone" to shown(zone), "time" to now(zone)))
     }
 
     private suspend fun resetZone(invocation: CommandInvocation, context: CommandContext) {
-        val snapshot = context.updateSettings(control, invocation) { resetZone() } ?: return
+        val snapshot = context.updateSettings(settings, invocation) { resetZone() } ?: return
         val replies = texts.replies(snapshot.effectiveLanguage)
         val zone = replies.zone(snapshot, clock.zone)
         val text = replies.text(
@@ -320,11 +327,11 @@ internal class SettingCommands(private val control: AgentControl, private val te
 
     private suspend fun settings(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val chat = invocation.chat
-        val snapshot = context.refusing { control.settings(chat) } ?: return
+        val snapshot = context.refusing { settings.snapshot(chat) } ?: return
         val agent = snapshot.agent
         val instance = chat.instance
-        val summary = control.agents(instance).firstOrNull { it.id == agent }
-        val group = control.groupOf(agent, chat)
+        val summary = catalog.agents(instance).firstOrNull { it.id == agent }
+        val group = links.groupOf(agent, chat)
         val model = replies.model(snapshot)
         val effort = replies.reasoning(snapshot)
         val language = replies.language(snapshot)
@@ -378,7 +385,7 @@ internal class SettingCommands(private val control: AgentControl, private val te
     }
 
     private fun endpointIds(replies: Replies): String =
-        control.endpoints().joinToString(", ") { it.value }.ifEmpty { replies.text(TextKeys.VALUE_NONE) }
+        catalog.endpoints().joinToString(", ") { it.value }.ifEmpty { replies.text(TextKeys.VALUE_NONE) }
 
     private companion object {
         const val MODEL = "model"

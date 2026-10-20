@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.internal.pairing.PairingCodes
 import org.unitedsoftware.alexandrite.internal.pairing.isPairingCode
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
@@ -23,11 +24,8 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 /** A [PairingDesk] over the channel instances of a channel plugin, offering an unpaired chat one code per lifetime. */
-public open class Pairings(
-    private val clock: Clock,
-    records: Records,
-    public val codeLifetime: Duration = 10.minutes,
-) : PairingDesk {
+public class Pairings(private val clock: Clock, records: Records, public val codeLifetime: Duration = 10.minutes) :
+    PairingDesk {
     private val approvals = records.collection<Approval>(COLLECTION)
     private val codes = PairingCodes<ChatAddress, ChatAddress>(clock, codeLifetime, capacity = CAPACITY)
     private val lock = Any()
@@ -35,9 +33,7 @@ public open class Pairings(
     private val requests = LinkedHashMap<ChatAddress, PairingRequest>()
 
     /** When each chat that was offered a code may get the next one. */
-    private val offered = object : LinkedHashMap<ChatAddress, Instant>() {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, Instant>) = size > OFFERED
-    }
+    private val offered = BoundedMap<ChatAddress, Instant>(OFFERED, accessOrder = false)
     private val deciding = Mutex()
 
     /** Opens the pairing of [instance], whose config declares the chats [declared] paired. */
@@ -64,17 +60,17 @@ public open class Pairings(
         }
     }
 
-    final override fun pending(): List<PairingRequest> = synchronized(lock) {
+    override fun pending(): List<PairingRequest> = synchronized(lock) {
         purge(clock.instant())
         requests.values.sortedBy { it.issuedAt }
     }
 
-    final override fun holds(code: String): Boolean = synchronized(lock) { codes.holds(PURPOSE, code) }
+    override fun holds(code: String): Boolean = synchronized(lock) { codes.holds(PURPOSE, code) }
 
-    final override suspend fun approve(code: String, by: ChatUser?): PairingDecision =
+    override suspend fun approve(code: String, by: ChatUser?): PairingDecision =
         decide(code) { request, pairing -> pair(request, pairing, by) }
 
-    final override suspend fun deny(code: String, by: ChatUser?): PairingDecision = decide(code) { request, _ ->
+    override suspend fun deny(code: String, by: ChatUser?): PairingDecision = decide(code) { request, _ ->
         logger.info("The request of chat {} to be paired is denied by {}", request.chat, who(by))
         PairingDecision.Denied(request)
     }
@@ -95,7 +91,7 @@ public open class Pairings(
         return PairingDecision.Approved(request)
     }
 
-    final override suspend fun paired(): List<PairedChat> {
+    override suspend fun paired(): List<PairedChat> {
         val recorded = approvals.list().mapNotNull(::byChat)
         return synchronized(lock) {
             val running = instances.values.flatMap { pairing ->
@@ -110,7 +106,7 @@ public open class Pairings(
         }
     }
 
-    final override suspend fun unpair(chat: ChatAddress): Unpairing = deciding.withLock {
+    override suspend fun unpair(chat: ChatAddress): Unpairing = deciding.withLock {
         val key = chat.parent
         val pairing = synchronized(lock) { instances[key.instance] }
         val declared = pairing != null && key in pairing.declared

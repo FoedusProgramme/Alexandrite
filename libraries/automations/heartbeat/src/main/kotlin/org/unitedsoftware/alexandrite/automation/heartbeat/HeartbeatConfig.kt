@@ -6,7 +6,6 @@ import org.unitedsoftware.alexandrite.automation.common.parseDuration
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
-import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.time.Duration
@@ -40,9 +39,14 @@ internal class AgentHeartbeatConfig(
 ) {
     /** The heartbeat of agent [id] at [path], in [hostZone] when it names no zone. */
     fun read(path: String, id: String, hostZone: ZoneId): Heartbeat {
-        require(PluginIds.PATTERN.matches(id)) {
-            "$path is no agent id: an id is lowercase words of letters and digits, each starting with a letter, " +
-                "joined by single hyphens, such as \"coder\""
+        val agent = try {
+            AgentId(id)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException(
+                "$path is no agent id: an id is lowercase words of letters and digits, each starting with a letter, " +
+                    "joined by single hyphens, such as \"coder\"",
+                e,
+            )
         }
         val interval = try {
             parseDuration(every)
@@ -66,7 +70,7 @@ internal class AgentHeartbeatConfig(
                 "$path.zone is no time zone: write a region id such as \"Asia/Shanghai\" or an offset such as \"+08:00\""
             }
         }
-        return Heartbeat(AgentId(id), interval, prompt ?: DEFAULT_PROMPT, hours, zoneId ?: hostZone)
+        return Heartbeat(agent, interval, prompt ?: DEFAULT_PROMPT, hours, zoneId ?: hostZone)
     }
 }
 

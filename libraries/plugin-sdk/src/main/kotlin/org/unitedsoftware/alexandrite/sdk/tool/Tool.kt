@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.ContributedSpi
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
+import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutputPart
@@ -26,36 +27,48 @@ public interface Tool {
 
 /** What the model and the permission layer know about a [Tool]. */
 @Poko
-public class ToolDefinition(
+public class ToolDefinition private constructor(
     public val name: String,
     public val description: String,
     /** JSON Schema of the arguments. */
     public val parameters: JsonObject,
-    public val risk: ToolRisk = ToolRisk.EXEC,
+    public val risk: ToolRisk,
     /**
      * A tool that bounds its own calls declares the longest; the agent then waits that long plus a grace instead of
      * its default.
      */
-    public val timeout: Duration? = null,
+    public val timeout: Duration?,
     /** What kind of effect a call has, for a channel to show as it runs. */
-    public val activity: ToolActivity = ToolActivity.OTHER,
+    public val activity: ToolActivity,
     /** The arguments that title a call: every one present, in order, joined with a space, an array with spaces too. */
-    public val titleArguments: List<String> = emptyList(),
+    public val titleArguments: List<String>,
 ) {
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(name: String, description: String, parameters: JsonObject, risk: ToolRisk) :
-        this(name, description, parameters, risk, null, ToolActivity.OTHER, emptyList())
-
-    @Deprecated(message = "Kept for binary compatibility.", level = DeprecationLevel.HIDDEN)
-    public constructor(name: String, description: String, parameters: JsonObject, risk: ToolRisk, timeout: Duration?) :
-        this(name, description, parameters, risk, timeout, ToolActivity.OTHER, emptyList())
-
     init {
         require(ToolNames.PATTERN.matches(name)) {
             "Malformed tool name '$name': it must be lowercase words of letters, digits and '_', each starting with " +
                 "a letter, joined by dots, 64 characters at most, such as \"notes.add\"."
         }
         require(timeout == null || timeout.isPositive()) { "Tool '$name' declares a timeout that is not positive." }
+    }
+
+    public companion object {
+        public operator fun invoke(
+            name: String,
+            description: String,
+            parameters: JsonObject,
+            risk: ToolRisk = ToolRisk.EXEC,
+            timeout: Duration? = null,
+            activity: ToolActivity = ToolActivity.OTHER,
+            titleArguments: List<String> = emptyList(),
+        ): ToolDefinition = ToolDefinition(
+            name,
+            description,
+            parameters,
+            risk,
+            timeout,
+            activity,
+            titleArguments.toList(),
+        )
     }
 }
 
@@ -113,6 +126,9 @@ public interface ToolContext {
      * until the plugin revokes it ([TurnInitiator.revoke]).
      */
     public suspend fun mandate(): Mandate? = null
+
+    /** The sandbox that the call's commands run in, null when they run on the host. */
+    public val sandbox: Sandbox? get() = null
 }
 
 /** A tool call that runs as a background job from its start, whose results come in later turns. */
@@ -127,6 +143,11 @@ public interface BackgroundCall {
 
 /** What a tool call returns to the model. */
 @Poko
-public class ToolResult(public val content: List<ToolOutputPart>, public val isError: Boolean = false) {
+public class ToolResult private constructor(public val content: List<ToolOutputPart>, public val isError: Boolean) {
     public constructor(text: String, isError: Boolean = false) : this(listOf(TextPart(text)), isError)
+
+    public companion object {
+        public operator fun invoke(content: List<ToolOutputPart>, isError: Boolean = false): ToolResult =
+            ToolResult(content.toList(), isError)
+    }
 }

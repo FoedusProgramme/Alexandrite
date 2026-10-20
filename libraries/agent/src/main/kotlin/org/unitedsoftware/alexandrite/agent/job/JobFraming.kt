@@ -1,14 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.job
 
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.JOB_HEADER
-import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.textResult
-import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
@@ -58,61 +52,39 @@ internal fun jobFraming(job: EndedJob, text: String, zone: ZoneId): String = bui
     append("[/alexandrite:job]")
 }
 
-/** The unstored entry that tells the model that a restart interrupted [jobs]. */
-internal fun interruptedEntry(jobs: List<InterruptedJob>): UserEntry = UserEntry(
-    null,
-    listOf(ContextPart(JOB_SOURCE, interruptedFraming(jobs))),
-    UserOrigin.SystemWritten(JOB_SOURCE),
-)
+/** The unstored entry that tells the model that a restart interrupted [jobs] and [messages]. */
+internal fun interruptedEntry(jobs: List<InterruptedJob>, messages: List<InterruptedMessage> = emptyList()): UserEntry =
+    UserEntry(
+        null,
+        listOf(ContextPart(JOB_SOURCE, interruptedFraming(jobs, messages))),
+        UserOrigin.SystemWritten(JOB_SOURCE),
+    )
 
-/** The tool whose recorded calls are agent messages awaiting a reply, which a restart reports as such. */
-internal const val AGENT_MESSAGE_TOOL: String = "agent.send"
-
-/** Interrupted jobs framing v1: the background jobs that a restart interrupted, none of which ran again. */
-internal fun interruptedFraming(jobs: List<InterruptedJob>): String = buildString {
-    appendLine("[alexandrite:job]")
-    for (job in jobs) {
-        if (job.tool == AGENT_MESSAGE_TOOL) {
-            appendLine(
-                "$JOB_HEADER: your message to agent ${job.title} was interrupted by a restart, so no reply will come.",
-            )
-        } else {
+/**
+ * Interrupted jobs framing v1: the background jobs that a restart interrupted, none of which ran again, and the agent
+ * messages whose reply it interrupted.
+ */
+internal fun interruptedFraming(jobs: List<InterruptedJob>, messages: List<InterruptedMessage> = emptyList()): String =
+    buildString {
+        appendLine("[alexandrite:job]")
+        for (job in jobs) {
             appendLine(
                 "$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. It was interrupted by a restart and " +
                     "was not run again, so no result will come.",
             )
         }
+        for (message in messages) {
+            appendLine(
+                "$JOB_HEADER: your message to agent ${message.agent} was interrupted by a restart, so no reply will " +
+                    "come.",
+            )
+        }
+        append("[/alexandrite:job]")
     }
-    append("[/alexandrite:job]")
-}
 
 /** The tool of [job] and the call's title, such as `command.exec ./gradlew test`. */
 internal fun described(job: BackgroundJob): String = described(job.call.name, job.title)
 
 internal fun described(tool: String, title: String): String = if (title.isEmpty()) tool else "$tool $title"
-
-/** The main argument of a call with [arguments], such as its command line or path, empty when it has none. */
-internal fun callTitle(arguments: JsonObject): String {
-    val main = TITLE_ARGUMENTS.firstNotNullOfOrNull { arguments[it]?.title() }
-        ?: arguments.values.firstNotNullOfOrNull { it.title() }
-        ?: return ""
-    return cutWithEllipsis(oneLine(main).trim(), MAX_TITLE_CHARS)
-}
-
-/** A string, or the strings of an array joined by spaces, null for anything else or blank text. */
-private fun JsonElement.title(): String? = when (this) {
-    is JsonPrimitive -> content.takeIf { isString && it.isNotBlank() }
-
-    is JsonArray -> mapNotNull { item -> (item as? JsonPrimitive)?.takeIf { it.isString }?.content }
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString(" ")
-
-    else -> null
-}
-
-/** The arguments that name what a call works on, in the order they are looked for. */
-private val TITLE_ARGUMENTS = listOf("command", "argv", "path", "url", "query", "pattern", "profile")
-
-private const val MAX_TITLE_CHARS = 80
 
 private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mmXXX", Locale.ROOT)

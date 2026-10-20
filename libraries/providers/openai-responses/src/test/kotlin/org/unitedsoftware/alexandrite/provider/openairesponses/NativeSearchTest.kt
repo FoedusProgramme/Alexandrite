@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.unitedsoftware.alexandrite.provider.common.read
 import org.unitedsoftware.alexandrite.provider.common.responses.ResponsesEndpoint
 import org.unitedsoftware.alexandrite.provider.common.responses.ResponsesFlavor
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
@@ -23,8 +24,11 @@ class NativeSearchTest {
     private val ref = ModelRef(EndpointId("test"), "selected-model")
 
     private fun endpoint(server: FakeModelServer, enabled: Boolean = false): ResponsesEndpoint {
-        val config = EndpointConfig(baseUrl = "${server.baseUrl}/v1", discover = false, nativeSearch = enabled)
-        return ResponsesEndpoint(ref.endpoint, config.settings(), ResponsesFlavor.STANDARD, config.responses())
+        val config =
+            EndpointSerializer.read(
+                """{"baseUrl": "${server.baseUrl}/v1", "discover": false, "nativeSearch": $enabled}""",
+            )
+        return ResponsesEndpoint(ref.endpoint, config.settings, ResponsesFlavor.STANDARD, config.options)
     }
 
     @Test

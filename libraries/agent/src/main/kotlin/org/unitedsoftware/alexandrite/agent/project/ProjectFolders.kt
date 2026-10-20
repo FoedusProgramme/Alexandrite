@@ -12,13 +12,13 @@ import java.nio.file.Path
 import java.nio.file.attribute.BasicFileAttributes
 
 /** An instruction file found at [found], to be read at [canonical]. */
-internal class InstructionFile(val found: Path, val canonical: Path)
+internal class FoundInstructionFile(val found: Path, val canonical: Path)
 
 /**
  * A project [folder] (canonical), the instruction files found from it down to the touched paths and the `SKILL.md`
  * files (canonical) of its skill directories.
  */
-internal class Project(val folder: Path, val files: List<InstructionFile>, val skills: List<Path> = emptyList())
+internal class Project(val folder: Path, val files: List<FoundInstructionFile>, val skills: List<Path> = emptyList())
 
 /** Finds the projects that the paths a tool call touched lie in. */
 internal class ProjectFolders(
@@ -36,7 +36,7 @@ internal class ProjectFolders(
     private inner class Search(private val agent: AgentId) {
         /** The nearest marked directory at or above a directory, null when the walk up met none. */
         private val marks = HashMap<Path, Path?>()
-        private val found = HashMap<Path, List<InstructionFile>>()
+        private val found = HashMap<Path, List<FoundInstructionFile>>()
 
         fun projects(touched: List<Path>): List<Project> {
             val starts = touched.filter { it.isAbsolute }.mapNotNull(::start).distinct()
@@ -91,11 +91,11 @@ internal class ProjectFolders(
             return mark
         }
 
-        private fun files(directory: Path): List<InstructionFile> =
+        private fun files(directory: Path): List<FoundInstructionFile> =
             found.getOrPut(directory) { NAMES.mapNotNull { file(directory.resolve(it)) } }
 
         /** The instruction file at [path], null when there is none, it is refused or it is no single-link file. */
-        private fun file(path: Path): InstructionFile? {
+        private fun file(path: Path): FoundInstructionFile? {
             if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
             val canonical = allowed(path) ?: return null
             val single = try {
@@ -105,7 +105,7 @@ internal class ProjectFolders(
             } catch (e: IOException) {
                 false
             }
-            return if (single) InstructionFile(path, canonical) else null
+            return if (single) FoundInstructionFile(path, canonical) else null
         }
 
         private fun allowed(path: Path): Path? = (floor.checkRead(path, agent) as? FloorCheck.Allowed)?.canonical

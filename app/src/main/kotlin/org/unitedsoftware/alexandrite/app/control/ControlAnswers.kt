@@ -9,9 +9,13 @@ import org.unitedsoftware.alexandrite.channel.common.pairing.PairingRequest
 import org.unitedsoftware.alexandrite.channel.common.pairing.Unpairing
 import org.unitedsoftware.alexandrite.mcp.McpControl
 import org.unitedsoftware.alexandrite.mcp.McpLoginException
+import org.unitedsoftware.alexandrite.runtime.RuntimeServices
+import org.unitedsoftware.alexandrite.runtime.get
+import org.unitedsoftware.alexandrite.runtime.getOrNull
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
@@ -19,7 +23,8 @@ import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import java.nio.file.Path
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -55,10 +60,19 @@ internal interface RunningApp {
     fun mcp(): McpControl?
 }
 
-/** Answers the requests of the control socket of the app [version] over what [desks], [control] and [app] give. */
+/** The agent's host APIs that the control socket reads. */
+internal class AgentApis(val settings: ChatSettings, val catalog: AgentCatalog, val links: ChatLinks)
+
+/** The agent's host APIs that [services] resolves, null when no agent runs. */
+internal fun agentApis(services: RuntimeServices): AgentApis? {
+    val settings = services.getOrNull<ChatSettings>() ?: return null
+    return AgentApis(settings, services.get(), services.get())
+}
+
+/** Answers the requests of the control socket of the app [version] over what [desks], [agents] and [app] give. */
 internal class ControlAnswers(
     private val version: String,
-    private val control: () -> AgentControl? = { null },
+    private val agents: () -> AgentApis? = { null },
     private val app: RunningApp? = null,
     private val desks: () -> PairingDesks,
 ) {
@@ -97,7 +111,7 @@ internal class ControlAnswers(
         ControlRequest.McpServers -> withMcp { mcp ->
             ControlReply.McpServers(
                 mcp.servers().map {
-                    McpServerView(it.name, it.transport, it.state, it.tools, it.lastError, it.widerScopes)
+                    McpServerView(it.name, it.transport.id, it.state.id, it.tools, it.lastError, it.widerScopes)
                 },
             )
         }
@@ -144,7 +158,7 @@ internal class ControlAnswers(
     private suspend fun chatView(paired: PairedChat): ChatView {
         val approval = paired.approval
         val settings = try {
-            control()?.settings(paired.chat)
+            agents()?.settings?.snapshot(paired.chat)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -178,9 +192,11 @@ internal class ControlAnswers(
     /** The reply that [chat] is unpaired, naming the agents that still keep it as a home chat or linked. */
     private fun unpaired(chat: ChatAddress): ControlReply {
         val (homeOf, linkedAt) = try {
-            val control = control() ?: return ControlReply.Unpaired("$chat")
-            val homes = control.agents(chat.instance).filter { it.home?.parent == chat }.map { "${it.id}" }
-            val links = control.links().filter { group -> (group.members + group.anchor).any { it.parent == chat } }
+            val agents = agents() ?: return ControlReply.Unpaired("$chat")
+            val homes = agents.catalog.agents(chat.instance).filter { it.home?.parent == chat }.map { "${it.id}" }
+            val links = agents.links.groups().filter { group ->
+                (group.members + group.anchor).any { it.parent == chat }
+            }
             homes to links.map { "${it.agent}" }.distinct()
         } catch (e: CancellationException) {
             throw e

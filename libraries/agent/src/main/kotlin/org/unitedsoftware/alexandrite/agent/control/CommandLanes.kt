@@ -29,7 +29,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
-import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginScope
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
@@ -282,13 +281,8 @@ internal class CommandLanes(
             ?: throw IllegalStateException("No agent serves ${command.chat}.")
         val key = served.key
         val agent = directory.agent(key.agent)
-        return TurnInfo.builder(invocation.turn, command.chat, conversations.current(key).id, TurnKind.COMMAND)
-            .actor(command.issuer)
-            .language(states.language(key) ?: agent?.language)
-            .zone(states.effectiveZone(key, agent, clock))
-            .agent(key.agent)
-            .key(key)
-            .build()
+        val conversation = conversations.current(key).id
+        return states.commandTurn(invocation.turn, key, command.chat, conversation, command.issuer, agent, clock)
     }
 
     /**

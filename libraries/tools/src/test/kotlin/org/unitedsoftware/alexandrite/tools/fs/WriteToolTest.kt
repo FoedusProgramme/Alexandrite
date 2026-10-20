@@ -59,10 +59,10 @@ class WriteToolTest {
         val result = write(file, "a\nb\n")
 
         assertEquals(
-            CallReview(
-                preview = ReviewPreview.Diff(file, "--- /dev/null\n+++ $file\n@@ -0,0 +1,2 @@\n+a\n+b\n"),
-                snapshot = "absent",
-            ),
+            CallReview.builder()
+                .preview(ReviewPreview.Diff(file, "--- /dev/null\n+++ $file\n@@ -0,0 +1,2 @@\n+a\n+b\n"))
+                .snapshot("absent")
+                .build(),
             review,
         )
         assertEquals("Created $file: +2 -0 lines." to "a\nb\n", result to file.readText())

@@ -63,3 +63,32 @@ jobs:
             **/build/reports/tests/
             **/build/test-results/
           if-no-files-found: ignore
+
+  maven-central:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Released in the Central Portal by hand unless the repository variable MAVEN_CENTRAL_RELEASE is true
+      - name: Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+          RELEASE: ${{ vars.MAVEN_CENTRAL_RELEASE }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          task=publishToMavenCentral
+          if [ "$RELEASE" = true ]; then task=publishAndReleaseToMavenCentral; fi
+          ./gradlew "$task" -Palexandrite.version="$version" --no-configuration-cache --console=plain

@@ -19,7 +19,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.testkit.StoreCheck
 import org.unitedsoftware.alexandrite.testkit.testChat
@@ -50,7 +49,7 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
         }
     },
     StoreCheck("entries outlive the store") {
-        val stored = open { append(message("kept")) }
+        val stored = open { appendInCurrentConversation(main, message("kept")) }
 
         open {
             val conversation = stored.single().record?.conversation ?: fail("The entry came back without a record.")
@@ -73,7 +72,7 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
     },
     StoreCheck("the entries after an entry are those its conversation stored later") {
         open {
-            val stored = append(message("a"), message("b"), message("c"))
+            val stored = appendInCurrentConversation(main, message("a"), message("b"), message("c"))
             val elsewhere = transcripts.append(startTurn(conversations.current(coder)).id, listOf(message("x")))
             val conversation = stored.first().record?.conversation ?: fail("An entry came back without a record.")
             val (a, b, c) = stored.map { it.record?.id ?: fail("An entry came back without a record.") }
@@ -101,7 +100,10 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
             listOf(ReasoningPart("r", null, ReasoningSeal(model, anthropic, SealKind.REDACTED, data))),
             model,
         )
-        val id = open { append(reply).single().record?.id ?: fail("The entry came back without a record.") }
+        val id = open {
+            appendInCurrentConversation(main, reply).single().record?.id
+                ?: fail("The entry came back without a record.")
+        }
 
         open {
             val read = transcripts.entry(id) as? AssistantEntry ?: fail("Entry $id is no longer the reply.")
@@ -111,16 +113,16 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
     },
     StoreCheck("ids grow with every entry and are never used again") {
         open {
-            val first = append(message("a"), message("b"))
+            val first = appendInCurrentConversation(main, message("a"), message("b"))
             transcripts.deleteMessage(ChannelMessageRef(chat, "m-b"))
-            val second = append(message("c"))
+            val second = appendInCurrentConversation(main, message("c"))
 
             expectIncreasing((first + second).map { it.record?.id ?: fail("An entry came back without a record.") })
         }
     },
     StoreCheck("a tail holds the last entries in order") {
         open {
-            val stored = append(message("a"), message("b"), message("c"))
+            val stored = appendInCurrentConversation(main, message("a"), message("b"), message("c"))
             val conversation = stored.first().record?.conversation ?: fail("An entry came back without a record.")
 
             expectEqual(stored.drop(1), transcripts.tail(conversation, 2), "the tail of two entries")
@@ -133,7 +135,7 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
     StoreCheck("the entries of a message are found by its reference") {
         open {
             val (heartbeat, written) = samples(media.put(png, MediaKind.IMAGE, "image/png")).subList(1, 3)
-            val stored = append(message("a"), message("b"), heartbeat, written)
+            val stored = appendInCurrentConversation(main, message("a"), message("b"), heartbeat, written)
 
             expectEqual(listOf(stored[1]), transcripts.entries(ChannelMessageRef(chat, "m-b")), "the entries of m-b")
             expectEqual(emptyList(), transcripts.entries(ChannelMessageRef(chat, "m-x")), "the entries of m-x")
@@ -146,9 +148,11 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
     },
     StoreCheck("an entry with a record is refused") {
         open {
-            val stored = append(message("a")).single()
+            val stored = appendInCurrentConversation(main, message("a")).single()
 
-            expectThrows<IllegalArgumentException>("Appending an entry with a record") { append(message("b"), stored) }
+            expectThrows<IllegalArgumentException>("Appending an entry with a record") {
+                appendInCurrentConversation(main, message("b"), stored)
+            }
             expectEqual(listOf(stored), transcripts.entries(stored.record!!.conversation), "the entries stored")
         }
     },
@@ -181,7 +185,7 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
                 ToolOutcome.Succeeded,
             )
 
-            val appended = append(media.storeInline(entry)).single() as ToolResultEntry
+            val appended = appendInCurrentConversation(main, media.storeInline(entry)).single() as ToolResultEntry
 
             val part = appended.content[1] as MediaPart
             val source = part.source as? StoredMedia ?: fail("The stored part holds ${part.source}.")
@@ -228,7 +232,7 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
             val shared = media.put(byteArrayOf(1, 2, 3), MediaKind.FILE, "application/octet-stream")
             val deleted = UserEntry(null, listOf(mediaPart(own), mediaPart(shared)), message("d").origin)
             val kept = ToolResultEntry(null, ToolCallId("c"), "read", listOf(mediaPart(shared)), ToolOutcome.Succeeded)
-            val stored = append(message("before"), deleted, kept)
+            val stored = appendInCurrentConversation(main, message("before"), deleted, kept)
 
             expectEqual(1, transcripts.deleteMessage(ChannelMessageRef(chat, "m-d")), "the entries deleted")
 
@@ -244,10 +248,6 @@ internal val TRANSCRIPT_CHECKS: List<StoreCheck> = listOf(
         }
     },
 )
-
-/** Stores [entries] in a new turn of the current conversation of [main]. */
-private suspend fun Ports.append(vararg entries: TranscriptEntry): List<TranscriptEntry> =
-    transcripts.append(startTurn(conversations.current(main)).id, entries.toList())
 
 private fun expectIncreasing(ids: List<EntryId>) {
     expect(ids.zipWithNext().all { (first, next) -> first.value < next.value }) {

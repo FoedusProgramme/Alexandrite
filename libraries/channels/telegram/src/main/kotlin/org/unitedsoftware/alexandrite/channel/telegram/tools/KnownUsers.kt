@@ -1,7 +1,7 @@
 package org.unitedsoftware.alexandrite.channel.telegram.tools
 
-import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
 import org.unitedsoftware.alexandrite.channel.telegram.api.User
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import java.util.Locale
 

@@ -1,8 +1,5 @@
 package org.unitedsoftware.alexandrite.agent.job
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
@@ -29,8 +26,6 @@ class JobFramingTest {
 
     private fun ended(text: String, outcome: ToolOutcome): EndedJob =
         EndedJob(job, ToolResultEntry(null, call.id, call.name, listOf(TextPart(text)), outcome), emptyList(), null)
-
-    private fun arguments(json: String): JsonObject = Json.parseToJsonElement(json).jsonObject
 
     @Test
     fun `a job that ended makes the entry of the golden file, where its result cannot close the frame`() {
@@ -72,31 +67,5 @@ class JobFramingTest {
         )
         assertEquals(ToolOutcome.Detached(RunId("j-7kq2mx")), result.outcome)
         assertEquals(call.id to call.name, result.callId to result.toolName)
-    }
-
-    @Test
-    fun `a call's title is its command line, its path or its first text argument, on one line and cut short`() {
-        val long = "x".repeat(79) + "😀" + "y"
-
-        assertEquals(
-            listOf(
-                "./gradlew test",
-                "git log --oneline",
-                "/srv/repo/README.md",
-                "first line second line",
-                "TODO",
-                "",
-                "x".repeat(79) + "…",
-            ),
-            listOf(
-                """{"cwd": "/srv", "command": "./gradlew test"}""",
-                """{"argv": ["git", "log", "--oneline"], "timeoutSeconds": 60}""",
-                """{"limit": 3, "path": "/srv/repo/README.md"}""",
-                """{"text": "first line\nsecond line"}""",
-                """{"count": 3, "word": " ", "needle": "TODO"}""",
-                """{"count": 3}""",
-                """{"path": "$long"}""",
-            ).map { callTitle(arguments(it)) },
-        )
     }
 }

@@ -21,8 +21,9 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -85,7 +86,7 @@ class AllowRulesTurnsTest {
                 results(),
             )
             assertEquals(listOf(ClearanceKind.HUMAN, ClearanceKind.RULE), exec.cleared.toList())
-            val rule = get<AgentControl>().allowRules(channel().chat()).single()
+            val rule = get<PermissionRules>().allowRules(channel().chat()).single()
             assertEquals(
                 listOf(1, test, false, operator),
                 listOf(rule.number, rule.subject, rule.declared, rule.grantedBy),
@@ -104,13 +105,13 @@ class AllowRulesTurnsTest {
             )
             run("make", "test", chat = "other")
             run("make", "test")
-            get<AgentControl>().newConversation(channel().chat("other"), operator)
+            get<ConversationControl>().newConversation(channel().chat("other"), operator)
             run("make", "test", chat = "other")
 
             assertEquals(3, channel().approvals.size)
             assertEquals(listOf(ClearanceKind.HUMAN), exec.cleared.toList())
-            assertEquals(emptyList(), get<AgentControl>().allowRules(channel().chat("other")))
-            assertEquals(emptyList(), get<AgentControl>().allowRules(channel().chat()))
+            assertEquals(emptyList(), get<PermissionRules>().allowRules(channel().chat("other")))
+            assertEquals(emptyList(), get<PermissionRules>().allowRules(channel().chat()))
         }
     }
 
@@ -130,10 +131,10 @@ class AllowRulesTurnsTest {
     }
 
     @Test
-    fun `the control port lists the declared rules and the granted ones, and revokes a granted one`() {
+    fun `the permission rules list the declared rules and the granted ones, and revokes a granted one`() {
         harness("""{"allow": ["command.exec(git status)"]}""").execute {
             val operator = channel().user("operator")
-            val control = get<AgentControl>()
+            val control = get<PermissionRules>()
             channel().scriptApprovals(ApprovalAnswer.Allowed(operator, always = true), ApprovalAnswer.Denied(operator))
             run("make", "test")
             val listed = control.allowRules(channel().chat())
@@ -202,7 +203,7 @@ class AllowRulesTurnsTest {
             assertEquals(listOf(null, emptyList<RuleSubject>()), listOf(asked.always, asked.alwaysRules))
             assertEquals("${ASKED}notes is in a place the floor asks about", asked.reason)
             assertEquals(listOf(ClearanceKind.HUMAN, ClearanceKind.HUMAN), exec.cleared.toList())
-            assertEquals(1, get<AgentControl>().allowRules(channel().chat()).size)
+            assertEquals(1, get<PermissionRules>().allowRules(channel().chat()).size)
         }
     }
 
@@ -215,11 +216,11 @@ class AllowRulesTurnsTest {
         override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
             val argv = argv(arguments)
             val tokens = argv.take(2)
-            return CallReview(
-                preview = ReviewPreview.Command(argv, Path.of("/srv"), null, false),
-                rule = RuleSubject("command.exec", tokens, tokens.joinToString(" ")),
-                person = argv.firstOrNull { it.startsWith(ASKED) }?.let { "$it is in a place the floor asks about" },
-            )
+            return CallReview.builder()
+                .preview(ReviewPreview.Command(argv, Path.of("/srv"), null, false))
+                .rule(RuleSubject("command.exec", tokens, tokens.joinToString(" ")))
+                .person(argv.firstOrNull { it.startsWith(ASKED) }?.let { "$it is in a place the floor asks about" })
+                .build()
         }
 
         override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {

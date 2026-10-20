@@ -284,10 +284,10 @@ class EditToolTest {
         val review = review(call(file, Edit("b", "B")))
 
         assertEquals(
-            CallReview(
-                preview = ReviewPreview.Diff(file, "--- $file\n+++ $file\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"),
-                snapshot = hashOf(file),
-            ),
+            CallReview.builder()
+                .preview(ReviewPreview.Diff(file, "--- $file\n+++ $file\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"))
+                .snapshot(hashOf(file))
+                .build(),
             review,
         )
         assertEquals("a\nb\nc\n", file.readText())

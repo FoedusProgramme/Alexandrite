@@ -52,11 +52,11 @@ internal class BotSession(
             bots.release(bot, instance.id)
             throw e
         }
-        bots.started(instance.id, config.streaming)
+        bots.streamingStarted(instance.id, config.streaming)
     }
 
     override fun onStop() {
-        bots.stopped(instance.id)
+        bots.streamingStopped(instance.id)
         bots.release(bot, instance.id)
     }
 
@@ -150,6 +150,9 @@ internal class BotSession(
         const val TRIES = 3
     }
 }
+
+/** The bot as Telegram knows it. */
+internal class BotIdentity(val id: Long, val username: String)
 
 /** Whether [url] is plain http to a host other than this one. */
 private fun sendsTokenInClear(url: String): Boolean {

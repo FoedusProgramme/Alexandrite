@@ -88,7 +88,7 @@ class SideModelJudgeTest {
         val part = ToolCallPart(ToolCallId("call-1"), tool.definition.name, arguments)
         val gate =
             GateCall(turn, part, tool, part.parseArguments()!!, 5.seconds, taint, testToolContext(turn), Words(words))
-        return CheckedCall(gate, CallReview(preview = preview), tool.definition.risk, required)
+        return CheckedCall(gate, CallReview.builder().preview(preview).build(), tool.definition.risk, required)
     }
 
     private fun answers(vararg replies: String) {

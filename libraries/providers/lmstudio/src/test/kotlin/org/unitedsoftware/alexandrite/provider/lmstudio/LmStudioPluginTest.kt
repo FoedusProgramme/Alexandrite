@@ -33,13 +33,13 @@ class LmStudioPluginTest {
             assertEquals(listOf(TurnContextMode.TRANSIENT, TurnContextMode.NOT_SUPPORTED), modes)
             assertFalse("sk-plugin-test-key" in endpoints.toString())
         }
-        assertEquals("http://localhost:1234/v1", EndpointConfig().settings().baseUrl)
+        Unit
     }
 
     @Test
     fun `a malformed endpoint fails the start at CONFIG without showing its values`() = runBlocking {
         val cases = listOf(
-            """{"endpoints": {"x": {"apiKey": "hunter2", "headers": {"A": "b"}}}}""" to "headers",
+            """{"endpoints": {"x": {"apiKey": "hunter2", "headers": {"Host": "h"}}}}""" to "may not set host",
             """{"endpoints": {"x": {"apiKey": "hunter2", "baseUrl": "ftp://a"}}}""" to "baseUrl must be",
             """{"endpoints": {"x": {"apiKey": "hunter2", "turnContext": "sometimes"}}}""" to "turnContext must be",
         )

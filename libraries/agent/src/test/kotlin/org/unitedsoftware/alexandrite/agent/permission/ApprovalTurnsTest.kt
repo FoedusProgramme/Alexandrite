@@ -8,6 +8,8 @@ import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -26,8 +28,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -182,10 +182,10 @@ class ApprovalTurnsTest {
         val exec = object : ReviewedTool {
             override val definition: ToolDefinition = testToolDefinition("command.exec", ToolRisk.EXEC)
 
-            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
-                preview = ReviewPreview.Command(listOf("rm", "a\u202Eb"), Path.of("/srv/a\u200Bb"), null, true),
-                snapshot = "sha256:1",
-            )
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
+                .preview(ReviewPreview.Command(listOf("rm", "a\u202Eb"), Path.of("/srv/a\u200Bb"), null, true))
+                .snapshot("sha256:1")
+                .build()
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Ran.")
         }
@@ -194,7 +194,7 @@ class ApprovalTurnsTest {
 
         harness { tool(exec) }.execute {
             ask().ticket.outcome()
-            get<AgentControl>().updateSettings(
+            get<ChatSettings>().update(
                 channel().chat(),
                 ChatSettingsUpdate.builder().mode(PermissionMode.MANUAL).build(),
                 channel().user("operator"),
@@ -212,7 +212,6 @@ class ApprovalTurnsTest {
                     "{\"a\":\"x\\u2066y\",\"z\":1}",
                     ReviewPreview.Command(listOf("rm", "a\\u202Eb"), Path.of("/srv/a\\u200Bb"), null, true),
                     "the chat is in ask mode",
-                    null,
                 ),
                 first,
             )
@@ -229,16 +228,18 @@ class ApprovalTurnsTest {
         val send = object : ReviewedTool {
             override val definition: ToolDefinition = testToolDefinition("files.send", ToolRisk.EXTERNAL_ACTION)
 
-            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
-                preview = ReviewPreview.OutgoingFile(
-                    Path.of("/srv/a\u200Bb.pdf"),
-                    12,
-                    "ab".repeat(32),
-                    context.turn.chat,
-                    "See\u202Ethis\nfile",
-                ),
-                snapshot = "sha256:${"ab".repeat(32)}",
-            )
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
+                .preview(
+                    ReviewPreview.OutgoingFile(
+                        Path.of("/srv/a\u200Bb.pdf"),
+                        12,
+                        "ab".repeat(32),
+                        context.turn.chat,
+                        "See\u202Ethis\nfile",
+                    ),
+                )
+                .snapshot("sha256:${"ab".repeat(32)}")
+                .build()
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Sent.")
         }

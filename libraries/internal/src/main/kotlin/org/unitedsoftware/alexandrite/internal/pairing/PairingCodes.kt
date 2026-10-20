@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.internal.pairing
 
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import java.security.SecureRandom
 import java.time.Clock
 import java.time.Instant
@@ -21,10 +22,7 @@ public class PairingCodes<K : Any, P : Any>(
     private val lock = Any()
     private val codes = LinkedHashMap<String, Live<K, P>>()
     private val owned = HashMap<Pair<String, K>, String>()
-    private val failures = object : LinkedHashMap<Pair<String, K>, MutableList<Instant>>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<String, K>, MutableList<Instant>>) =
-            size > ATTEMPTERS
-    }
+    private val failures = BoundedMap<Pair<String, K>, MutableList<Instant>>(ATTEMPTERS)
 
     init {
         for ((name, value) in listOf("ttl" to ttl, "failure window" to failureWindow)) {

@@ -10,7 +10,7 @@ import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.FAST_MODEL
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.GROUP
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.AfterTest
@@ -157,7 +157,7 @@ class TelegramChatTest {
             app.send(app.bob, app.group, "$BOT_MENTION and after the restart?")
             app.message(app.group, "Still on Friday.")
             idle()
-            val group = get<AgentControl>().links().single()
+            val group = get<ChatLinks>().groups().single()
             assertEquals(
                 listOf(app.address(app.adaChat), app.address(app.group)),
                 listOf(group.anchor) + group.members,

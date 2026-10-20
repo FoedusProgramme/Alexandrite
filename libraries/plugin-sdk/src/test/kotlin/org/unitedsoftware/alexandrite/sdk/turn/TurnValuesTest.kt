@@ -4,19 +4,24 @@ import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatInfo
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
+import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -48,6 +53,11 @@ class TurnValuesTest {
 
     private fun invocation(name: String = "new"): CommandInvocation.Builder = CommandInvocation.builder(chat, name, ada)
 
+    @Test
+    fun `a mandate names a grant`() {
+        assertFailsWith<IllegalArgumentException> { Mandate("") }
+    }
+
     // Commands.
 
     @Test
@@ -75,7 +85,8 @@ class TurnValuesTest {
         val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isOperator = false)
 
         assertFailsWith<IllegalArgumentException> { invocation().trigger(elsewhere).build() }
-        val error = assertFailsWith<IllegalArgumentException> { invocation().issuer(stranger).build() }
+        val error =
+            assertFailsWith<IllegalArgumentException> { CommandInvocation.builder(chat, "new", stranger).build() }
         assertEquals("The issuer telegram:home@1 is no user of channel instance telegram:work.", error.message)
     }
 
@@ -125,10 +136,7 @@ class TurnValuesTest {
     @Test
     fun `the message of a command submission is the invocation's trigger, sent by its issuer`() {
         val untriggered = invocation().build()
-        val bobs = untriggered.rebuild {
-            trigger(ref)
-            issuer(bob)
-        }
+        val bobs = CommandInvocation.builder(chat, "new", bob).trigger(ref).build()
 
         assertFailsWith<IllegalArgumentException> { Submission.Command(untriggered, message()) }
         assertFailsWith<IllegalArgumentException> { Submission.Command(bobs, message()) }

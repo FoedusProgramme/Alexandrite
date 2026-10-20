@@ -62,8 +62,11 @@ internal class Component(
     /** The opt-in markers that the generated bindings need. */
     val markers: Set<String>,
 ) {
-    /** [key] and the keys of [binds]. */
-    val singleKeys: List<Key> get() = listOf(key) + binds.map { it.key }
+    /** The contribution to [key] itself, which binds the component only as that contribution. */
+    val ownContribution: Bound? get() = contributes.firstOrNull { it.key == key }
+
+    /** [key] unless the component contributes to it, and the keys of [binds]. */
+    val singleKeys: List<Key> get() = listOfNotNull(key.takeIf { ownContribution == null }) + binds.map { it.key }
 }
 
 internal class Section(

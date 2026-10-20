@@ -21,20 +21,30 @@ internal fun Tx.indexAllText() {
         val batch = query("SELECT id, format, body FROM entries WHERE id > ? ORDER BY id LIMIT ?", after, BATCH) {
             Stored(getLong(1), getInt(2), getString(3))
         }
-        for (stored in batch) stored.entry()?.let { indexText(stored.id, it) }
+        for (stored in batch) decodeStoredEntry(stored.format, stored.body)?.let { indexText(stored.id, it) }
         after = batch.lastOrNull()?.id ?: return
     }
 }
 
-private class Stored(val id: Long, val format: Int, val body: String) {
-    fun entry(): TranscriptEntry? {
-        if (format > TranscriptCodec.FORMAT_VERSION) return null
-        return try {
-            TranscriptCodec.decode(body)
-        } catch (e: IllegalArgumentException) {
-            null
-        }
+/**
+ * The entry stored as [body] in [format], null when this version does not read it.
+ *
+ * [unreadable] hears why a body in a known format does not decode.
+ */
+internal fun decodeStoredEntry(
+    format: Int,
+    body: String,
+    unreadable: (IllegalArgumentException) -> Unit = {},
+): TranscriptEntry? {
+    if (format > TranscriptCodec.FORMAT_VERSION) return null
+    return try {
+        TranscriptCodec.decode(body)
+    } catch (e: IllegalArgumentException) {
+        unreadable(e)
+        null
     }
 }
+
+private class Stored(val id: Long, val format: Int, val body: String)
 
 private const val BATCH = 500

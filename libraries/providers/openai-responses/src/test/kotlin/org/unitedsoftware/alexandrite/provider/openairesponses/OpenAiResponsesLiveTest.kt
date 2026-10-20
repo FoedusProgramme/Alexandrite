@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.provider.openairesponses
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -8,10 +9,10 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.unitedsoftware.alexandrite.provider.common.ModelConfig
+import org.unitedsoftware.alexandrite.provider.common.read
 import org.unitedsoftware.alexandrite.provider.common.responses.ResponsesEndpoint
 import org.unitedsoftware.alexandrite.provider.common.responses.ResponsesFlavor
 import org.unitedsoftware.alexandrite.provider.common.responses.events
-import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
@@ -52,8 +53,14 @@ class OpenAiResponsesLiveTest {
             inputMedia = setOf("image"),
             reasoningEfforts = setOf(ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH),
         )
-        val config = EndpointConfig(apiKey = Secret(apiKey!!), discover = false, models = mapOf(model to reasoning))
-        return ResponsesEndpoint(EndpointId("live"), config.settings(), ResponsesFlavor.STANDARD, config.responses())
+        val config = EndpointSerializer.read(
+            buildJsonObject {
+                put("apiKey", apiKey)
+                put("discover", false)
+                putJsonObject("models") { put(model, Json.encodeToJsonElement(ModelConfig.serializer(), reasoning)) }
+            },
+        )
+        return ResponsesEndpoint(EndpointId("live"), config.settings, ResponsesFlavor.STANDARD, config.options)
     }
 
     private fun request(history: List<TranscriptEntry>, round: Int, block: ModelRequest.Builder.() -> Unit) =

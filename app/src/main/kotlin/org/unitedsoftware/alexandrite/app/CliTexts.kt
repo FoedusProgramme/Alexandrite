@@ -11,6 +11,10 @@ internal const val CHINESE_TEXTS = "zh-CN"
 
 private val PLACEHOLDER = Regex("\\{([A-Za-z][A-Za-z0-9_]*)}")
 
+private fun han(char: Char): Boolean = Character.UnicodeScript.of(char.code) == Character.UnicodeScript.HAN ||
+    Character.UnicodeBlock.of(char) == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION ||
+    Character.UnicodeBlock.of(char) == Character.UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS
+
 /** A text of [key] filled with [args], told in the language of the texts that resolve it. */
 internal class Text(val key: String, vararg val args: Pair<String, Any?>)
 
@@ -20,17 +24,36 @@ internal class CliTexts private constructor(
     private val texts: Map<String, String>,
     private val english: Map<String, String>,
 ) {
-    /** The text of [key] with its `{name}` placeholders filled from [args]. */
+    /**
+     * The text of [key] with its `{name}` placeholders filled from [args]. In Chinese, a value joins a Chinese
+     * character beside it without the space between them when it meets it with a Chinese character.
+     */
     operator fun invoke(key: String, vararg args: Pair<String, Any?>): String {
         val template = texts[key] ?: english[key] ?: error("The command has no text $key")
-        return PLACEHOLDER.replace(template) { match ->
-            val name = match.groupValues[1]
-            val arg = args.firstOrNull { it.first == name } ?: return@replace match.value
-            when (val value = arg.second) {
-                is Text -> invoke(value.key, *value.args)
-                else -> "$value"
+        val out = StringBuilder()
+        var end = 0
+        for (match in PLACEHOLDER.findAll(template)) {
+            out.append(template, end, match.range.first)
+            end = match.range.last + 1
+            val arg = args.firstOrNull { it.first == match.groupValues[1] }
+            if (arg == null) {
+                out.append(match.value)
+                continue
             }
+            val value = when (val given = arg.second) {
+                is Text -> invoke(given.key, *given.args)
+                else -> "$given"
+            }
+            if (chinese && value.isNotEmpty()) {
+                if (out.endsWith(' ') && out.length > 1 && han(out[out.length - 2]) && han(value.first())) {
+                    out.setLength(out.length - 1)
+                }
+                val next = template.getOrNull(end + 1)
+                if (template.getOrNull(end) == ' ' && next != null && han(next) && han(value.last())) end++
+            }
+            out.append(value)
         }
+        return "${out.append(template, end, template.length)}"
     }
 
     operator fun invoke(text: Text): String = invoke(text.key, *text.args)

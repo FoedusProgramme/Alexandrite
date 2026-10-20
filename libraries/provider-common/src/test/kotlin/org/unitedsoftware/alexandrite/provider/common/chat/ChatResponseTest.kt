@@ -19,6 +19,7 @@ import org.unitedsoftware.alexandrite.sdk.model.FinishKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
+import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
@@ -587,7 +588,7 @@ class ChatResponseTest {
         val history = listOf(testUserEntry(turn, "Hi"), message, testUserEntry(turn, "Bye"))
         val next = ChatRequest(
             ModelRequest.builder(message.producedBy, history, 2, request().ids).build(),
-            chatEndpoint(server, ChatFlavor.STANDARD).use { it.describe("chat-model") },
+            ModelInfo.builder("chat-model", ChatFlavor.OPENAI_CHAT).build(),
             ChatFlavor.STANDARD,
             false,
         ).body

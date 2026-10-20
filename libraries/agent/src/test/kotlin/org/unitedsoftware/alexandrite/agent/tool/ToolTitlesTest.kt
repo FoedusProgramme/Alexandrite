@@ -47,6 +47,36 @@ class ToolTitlesTest {
     }
 
     @Test
+    fun `a job is titled by the call's title arguments, on one line and cut short`() {
+        val exec = definition(listOf("command", "argv"))
+        val long = "x".repeat(79) + "😀" + "y"
+
+        assertEquals(
+            listOf("./gradlew test", "git log", "", "x".repeat(79) + "…"),
+            listOf(
+                callTitle(exec, args("cwd" to "/srv", "command" to "./gradlew test")),
+                callTitle(exec, JsonObject(mapOf("argv" to JsonArray(listOf("git", "log").map(::JsonPrimitive))))),
+                callTitle(exec, args("cwd" to "/srv")),
+                callTitle(definition(listOf("path")), args("path" to long)),
+            ),
+        )
+    }
+
+    @Test
+    fun `a job of a tool that declares no title arguments is titled by its first text argument`() {
+        val untitled = definition(emptyList())
+
+        assertEquals(
+            listOf("first line second line", "TODO", ""),
+            listOf(
+                callTitle(untitled, args("text" to "first line\nsecond line")),
+                callTitle(untitled, JsonObject(mapOf("count" to JsonPrimitive(3), "needle" to JsonPrimitive("TODO")))),
+                callTitle(untitled, JsonObject(mapOf("count" to JsonPrimitive(3)))),
+            ),
+        )
+    }
+
+    @Test
     fun `a token that is the workspace becomes a dot, one inside it loses that prefix`() {
         val workspace = Path.of("/srv/workspaces/main")
 

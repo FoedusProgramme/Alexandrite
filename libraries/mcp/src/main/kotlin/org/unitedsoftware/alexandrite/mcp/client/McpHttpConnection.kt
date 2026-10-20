@@ -57,6 +57,10 @@ internal class McpHttpConnection(
     @Volatile
     override var protocolVersion: String? = null
 
+    override val mirrorsParams: Boolean = true
+
+    override val listensLegacy: Boolean = true
+
     private val legacy: Boolean get() = McpVersions.isLegacy(protocolVersion)
 
     override suspend fun request(

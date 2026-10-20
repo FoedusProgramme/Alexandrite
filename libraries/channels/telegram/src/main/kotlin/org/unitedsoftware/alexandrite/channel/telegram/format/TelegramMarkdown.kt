@@ -133,7 +133,13 @@ private class Blocks(private val out: Out, private val quoted: Boolean) {
     }
 }
 
-private class Fence(private val indent: Int, private val marker: Char, private val length: Int, val language: String?) {
+/** A code fence opened by a run of [length] [marker]s. */
+internal class Fence(
+    private val indent: Int,
+    private val marker: Char,
+    private val length: Int,
+    val language: String?,
+) {
     fun closedBy(line: String): Boolean {
         val trimmed = line.trim()
         return trimmed.length >= length && trimmed.all { it == marker }
@@ -147,7 +153,8 @@ private class Fence(private val indent: Int, private val marker: Char, private v
     }
 }
 
-private fun fenceOpening(line: String): Fence? {
+/** The fence [line] opens, null when it opens none. */
+internal fun fenceOpening(line: String): Fence? {
     val match = FENCE.matchEntire(line) ?: return null
     val (indent, marker, info) = match.destructured
     if (marker[0] == '`' && '`' in info) return null

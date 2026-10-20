@@ -95,6 +95,22 @@ class DoctorTest {
     }
 
     @Test
+    fun `an OpenRouter key is checked by the request only a valid key gets an answer to`() {
+        cli.config(
+            """{"providers": {"openrouter": {"endpoints": {"openrouter": {"apiKey": "sk-or-made-up"}}}}}""",
+        )
+        cli.machine.web["https://openrouter.ai/api/v1/models"] = Fetched(200, "{}")
+        cli.machine.web["https://openrouter.ai/api/v1/key"] = Fetched(401, "{}")
+
+        val printed = cli("doctor")
+
+        assertEquals(
+            "FAIL  endpoint openrouter: https://openrouter.ai/api/v1 refuses the key (HTTP 401).",
+            line(printed, "endpoint openrouter"),
+        )
+    }
+
+    @Test
     fun `variables that nothing sets are named, and the config's problems listed`() {
         cli.environment = mapOf("DEEPSEEK_KEY" to "sk-deepseek")
         val unset = cli("doctor")
@@ -116,5 +132,28 @@ class DoctorTest {
 
         assertEquals(1, printed.code)
         assertContains(line(printed, "config"), "There is no config file at ${cli.configFile}.")
+    }
+
+    @Test
+    fun `on a terminal doctor and status mark their lines with coloured glyphs, and NO_COLOR keeps the glyphs alone`() {
+        cli.machine.styled = true
+
+        val doctor = cli("doctor")
+        val status = cli("status")
+        cli.environment += "NO_COLOR" to "1"
+        val uncoloured = cli("doctor")
+        val plain = cli("doctor", "--plain")
+
+        assertContains(doctor.out, "\u001B[32m✓\u001B[0m \u001B[1mjava")
+        assertContains(status.out, "\u001B[31m✗\u001B[0m \u001B[1mAlexandrite is not running.\u001B[0m")
+        assertFalse("\u001B[" in uncoloured.out)
+        val java = uncoloured.out.lines().first { it.startsWith("✓ java") }
+        assertEquals("✓ java" + " ".repeat("endpoint deepseek".length - 4) + "  Java ${Runtime.version()}.", java)
+        assertContains(
+            uncoloured.out.lines(),
+            "! service" + " ".repeat("endpoint deepseek".length - 7) + "  No background service is installed.",
+        )
+        assertContains(uncoloured.out.lines(), "✓ Nothing is wrong.")
+        assertContains(plain.out, "ok    java: Java")
     }
 }

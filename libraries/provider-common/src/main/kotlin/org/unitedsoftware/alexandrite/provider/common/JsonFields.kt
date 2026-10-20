@@ -1,11 +1,15 @@
 package org.unitedsoftware.alexandrite.provider.common
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+/** This element's string, null when it is absent or no string. */
+public fun JsonElement?.stringContent(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+
 /** The string field [name], null when it is absent or no string. */
-public fun JsonObject.string(name: String): String? = (this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
+public fun JsonObject.string(name: String): String? = this[name].stringContent()
 
 /** The number field [name], null when it is absent or no positive integer. */
 public fun JsonObject.positiveInt(name: String): Int? =
@@ -24,4 +28,4 @@ public fun JsonObject.obj(name: String): JsonObject? = this[name] as? JsonObject
 
 /** The strings of the array field [name], null when it is absent or no array. */
 public fun JsonObject.strings(name: String): List<String>? =
-    (this[name] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+    (this[name] as? JsonArray)?.mapNotNull { it.stringContent() }

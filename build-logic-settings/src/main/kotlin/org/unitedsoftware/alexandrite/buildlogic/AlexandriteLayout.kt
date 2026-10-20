@@ -40,6 +40,9 @@ enum class Layer {
     /** The timing that automations share. */
     AUTOMATION_COMMON,
 
+    /** OS sandboxes that commands run in. */
+    SANDBOX,
+
     /** Doubles for plugin authors. */
     TESTKIT,
 
@@ -48,6 +51,9 @@ enum class Layer {
 
     /** Sample third-party plugins. */
     EXAMPLE,
+
+    /** The platform that aligns the versions of the published modules. */
+    BOM,
 
     /** Entry executable. */
     APP,
@@ -167,8 +173,15 @@ object AlexandriteLayout {
             packagePrefix = "$PACKAGE.automation.",
         ),
         Location.Slot("libraries/automation-common", Layer.AUTOMATION_COMMON),
+        Location.Family(
+            "libraries/sandboxes",
+            Layer.SANDBOX,
+            jarPrefix = "alexandrite-sandbox-",
+            packagePrefix = "$PACKAGE.sandbox.",
+        ),
         Location.Slot("libraries/testkit", Layer.TESTKIT),
         Location.Slot("build-ksp-plugin", Layer.KSP, jarName = "alexandrite-ksp"),
+        Location.Slot("bom", Layer.BOM),
         Location.Family(
             "examples",
             Layer.EXAMPLE,
@@ -202,8 +215,10 @@ object AlexandriteLayout {
         Layer.STORE to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.AUTOMATION to setOf(Layer.SDK, Layer.INTERNAL, Layer.AUTOMATION_COMMON),
         Layer.AUTOMATION_COMMON to emptySet(),
+        Layer.SANDBOX to setOf(Layer.SDK, Layer.INTERNAL),
         Layer.TESTKIT to setOf(Layer.SDK, Layer.INTERNAL, Layer.RUNTIME),
         Layer.EXAMPLE to setOf(Layer.SDK, Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON),
+        Layer.BOM to emptySet(),
         Layer.APP to setOf(
             Layer.SDK,
             Layer.INTERNAL,
@@ -218,6 +233,7 @@ object AlexandriteLayout {
             Layer.STORE,
             Layer.AUTOMATION,
             Layer.AUTOMATION_COMMON,
+            Layer.SANDBOX,
         ),
     )
 
@@ -231,6 +247,7 @@ object AlexandriteLayout {
         Layer.PROVIDER_COMMON to setOf(Layer.TESTKIT),
         Layer.STORE to setOf(Layer.TESTKIT),
         Layer.AUTOMATION to setOf(Layer.TESTKIT),
+        Layer.SANDBOX to setOf(Layer.TESTKIT),
         Layer.KSP to setOf(Layer.SDK),
         Layer.EXAMPLE to setOf(Layer.TESTKIT),
         Layer.APP to setOf(Layer.TESTKIT, Layer.EXAMPLE),
@@ -238,6 +255,18 @@ object AlexandriteLayout {
 
     /** Layers compiled without the SDK's internal API, as third-party plugins are */
     val THIRD_PARTY_LAYERS: Set<Layer> = setOf(Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON, Layer.EXAMPLE)
+
+    /** Layers whose modules are published to Maven Central */
+    val PUBLISHED_LAYERS: Set<Layer> = setOf(
+        Layer.SDK,
+        Layer.INTERNAL,
+        Layer.RUNTIME,
+        Layer.CHANNEL_COMMON,
+        Layer.PROVIDER_COMMON,
+        Layer.TESTKIT,
+        Layer.KSP,
+        Layer.BOM,
+    )
 
     /** Layers whose modules get a generated `PluginIndex` */
     val INDEXED_LAYERS: Set<Layer> = setOf(
@@ -248,6 +277,7 @@ object AlexandriteLayout {
         Layer.PROVIDER,
         Layer.STORE,
         Layer.AUTOMATION,
+        Layer.SANDBOX,
         Layer.EXAMPLE,
         Layer.APP,
     )
@@ -256,6 +286,10 @@ object AlexandriteLayout {
     val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
 
     private val slots: List<Location.Slot> = LOCATIONS.filterIsInstance<Location.Slot>()
+
+    /** The modules of [PUBLISHED_LAYERS] */
+    val publishedModules: List<AlexandriteModule>
+        get() = slots.filter { it.layer in PUBLISHED_LAYERS }.mapNotNull { moduleIn(it.directory) }
 
     /** The simple name of the index of [moduleName]. */
     fun indexClassName(moduleName: String): String =
@@ -335,7 +369,7 @@ object AlexandriteLayout {
         return "Modules are out of place:\n" +
             problems.joinToString("\n") { "  - $it" } + "\n" +
             "Modules may live only at:\n" + locationList() + "\n" +
-            "Every slot must hold its module; a channel, provider, store, automation or example is added by " +
+            "Every slot must hold its module; a channel, provider, store, automation, sandbox or example is added by " +
             "creating its directory. A new kind of module needs a new slot or family in the location map, with its " +
             "layer's dependency rules, in $LAYOUT_LOCATION."
     }

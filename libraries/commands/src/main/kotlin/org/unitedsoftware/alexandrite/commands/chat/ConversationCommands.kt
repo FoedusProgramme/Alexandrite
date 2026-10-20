@@ -12,17 +12,24 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.rebuild
 
 /** `/new` and `/cancel`. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class ConversationCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+internal class ConversationCommands(
+    private val turns: TurnControl,
+    private val conversations: ConversationControl,
+    private val links: ChatLinks,
+    private val texts: Texts,
+) : CommandHandler {
     override val commands: List<CommandSpec> =
         listOf(texts.spec(NEW), texts.spec(CANCEL).rebuild { runsAlongside(true) })
 
@@ -41,8 +48,8 @@ internal class ConversationCommands(private val control: AgentControl, private v
     private suspend fun new(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val chat = invocation.chat
         val agent = context.turn.agent
-        context.refusing { control.newConversation(chat, invocation.issuer) } ?: return
-        val group = control.groupOf(agent, chat)
+        context.refusing { conversations.newConversation(chat, invocation.issuer) } ?: return
+        val group = links.groupOf(agent, chat)
         val text = if (group == null) {
             replies.text(TextKeys.NEW_DONE, "agent" to agent)
         } else {
@@ -52,7 +59,7 @@ internal class ConversationCommands(private val control: AgentControl, private v
     }
 
     private suspend fun cancel(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val cancelled = control.cancel(invocation.chat, invocation.issuer)
+        val cancelled = turns.cancel(invocation.chat, invocation.issuer)
         context.reply(replies.text(if (cancelled) TextKeys.CANCEL_DONE else TextKeys.CANCEL_NONE))
     }
 

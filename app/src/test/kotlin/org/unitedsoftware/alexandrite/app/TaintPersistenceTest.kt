@@ -13,7 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.store.sqlite.AlexandriteStoreSqliteIndex
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
@@ -100,7 +100,7 @@ class TaintPersistenceTest {
                 "fs.read reached ${page.parent}, a folder that is not trusted",
                 get<ConversationStore>().taint(tainted)?.reason,
             )
-            get<AgentControl>().newConversation(channel().chat(), channel().user("operator"))
+            get<ConversationControl>().newConversation(channel().chat(), channel().user("operator"))
             ask()
 
             assertEquals(listOf(ToolOutcome.Succeeded), outcomes())

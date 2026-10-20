@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformWhile
+import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.internal.http.HttpResponseStream
 import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
@@ -22,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 
 /** What an endpoint of the Messages API does beyond its [EndpointSettings]. */
+@Serializable
 public class MessagesSettings(
     /** Whether requests mark cache breakpoints. */
     public val promptCaching: Boolean = true,

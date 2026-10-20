@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.profile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
@@ -11,13 +10,17 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
-import org.unitedsoftware.alexandrite.agent.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.requiredText
+import org.unitedsoftware.alexandrite.agent.tool.stringArrayProperty
 import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -30,7 +33,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import java.nio.file.Path
 
 @Singleton
@@ -101,9 +103,9 @@ internal class ProfileCreateTool(private val profiles: Profiles) :
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val profile = profiles.plannedCreate(draft(arguments))
-        CallReview(preview = ReviewPreview.Text(profileText(profile)))
+        CallReview.builder().preview(ReviewPreview.Text(profileText(profile))).build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
@@ -151,9 +153,9 @@ internal class ProfileEditTool(private val profiles: Profiles) :
         val (current, updated) = profiles.plannedEdit(id, edit(arguments))
         if (current == updated) throw ToolRefusal("The edit changes nothing in profile '$id'.")
         val preview = ReviewPreview.Diff(syntheticPath(id), diff(current, updated).text)
-        CallReview(preview = preview, snapshot = hash(current))
+        CallReview.builder().preview(preview).snapshot(hash(current)).build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
@@ -208,9 +210,9 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
         val id = AgentId(arguments.requiredText("id"))
         val profile = profiles.plannedRemove(id)
         val preview = ReviewPreview.Text("Removing profile $id:\n\n${profileText(profile)}")
-        CallReview(preview = preview, snapshot = hash(profile))
+        CallReview.builder().preview(preview).snapshot(hash(profile)).build()
     } catch (e: ToolRefusal) {
-        CallReview(problem = e.message)
+        CallReview.builder().problem(e.message).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
@@ -303,24 +305,6 @@ private fun idOnlySchema(description: String): JsonObject = buildJsonObject {
     put("required", JsonArray(listOf(JsonPrimitive("id"))))
     put("additionalProperties", false)
 }
-
-private fun JsonObjectBuilder.property(name: String, type: String, description: String) {
-    putJsonObject(name) {
-        put("type", type)
-        put("description", description)
-    }
-}
-
-private fun JsonObjectBuilder.stringArrayProperty(name: String, description: String) {
-    putJsonObject(name) {
-        put("type", "array")
-        putJsonObject("items") { put("type", "string") }
-        put("description", description)
-    }
-}
-
-private fun JsonObject.requiredText(name: String): String =
-    text(name)?.takeIf { it.isNotEmpty() } ?: throw ToolRefusal("Give '$name' as a non-empty string.")
 
 private fun JsonObject.strings(name: String): List<String>? {
     val value = this[name] ?: return null

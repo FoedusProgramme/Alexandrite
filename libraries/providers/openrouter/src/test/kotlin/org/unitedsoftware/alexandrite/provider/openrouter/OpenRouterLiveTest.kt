@@ -9,7 +9,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.unitedsoftware.alexandrite.provider.common.chat.ChatEndpoint
 import org.unitedsoftware.alexandrite.provider.common.chat.events
-import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.provider.common.read
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
@@ -39,9 +39,13 @@ class OpenRouterLiveTest {
 
     private fun live(): ChatEndpoint {
         assumeTrue(apiKey != null && model != null, "No live OpenRouter key and model are configured.")
-        val key = Secret(apiKey!!)
-        val config = baseUrl?.let { EndpointConfig(key, it) } ?: EndpointConfig(key)
-        return ChatEndpoint(EndpointId("live"), config.settings(), OPENROUTER_FLAVOR)
+        val config = EndpointSerializer.read(
+            buildJsonObject {
+                put("apiKey", apiKey)
+                baseUrl?.let { put("baseUrl", it) }
+            },
+        )
+        return ChatEndpoint(EndpointId("live"), config.settings, OPENROUTER_FLAVOR)
     }
 
     private fun request(history: List<TranscriptEntry>, round: Int, block: ModelRequest.Builder.() -> Unit) =

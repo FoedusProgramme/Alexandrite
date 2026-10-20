@@ -21,8 +21,9 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -51,11 +52,11 @@ class TrustTurnsTest {
 
         override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
             val argv = arguments.getValue("argv").jsonArray.map { it.jsonPrimitive.content }
-            return CallReview(
-                preview = ReviewPreview.Command(argv, outside, null, opaque = false),
-                rule = RuleSubject("command.exec", argv.take(2), argv.take(2).joinToString(" ")),
-                untrusted = true,
-            )
+            return CallReview.builder()
+                .preview(ReviewPreview.Command(argv, outside, null, opaque = false))
+                .rule(RuleSubject("command.exec", argv.take(2), argv.take(2).joinToString(" ")))
+                .untrusted(true)
+                .build()
         }
 
         override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
@@ -148,19 +149,20 @@ class TrustTurnsTest {
             .reply { toolCall("command.exec", running("git", "status")) }.reply { text("Done again.") }
 
         harness().execute {
-            val control = get<AgentControl>()
             val operator = channel().user("operator")
             val chat = channel().chat()
-            val trusted = control.trust(chat, "command.exec(git)", operator)
-            assertEquals(listOf("command.exec(git)"), control.trustRules(chat).map { it.rule })
+            val trusted = get<PermissionRules>().trust(chat, "command.exec(git)", operator)
+            assertEquals(listOf("command.exec(git)"), get<PermissionRules>().trustRules(chat).map { it.rule })
             assertEquals(false to operator, trusted.declared to trusted.grantedBy)
-            assertFailsWith<ControlRefusedException> { control.trust(chat, "git", operator) }
-            assertFailsWith<ControlRefusedException> { control.trust(chat, "command.exec(a && b)", operator) }
+            assertFailsWith<ControlRefusedException> { get<PermissionRules>().trust(chat, "git", operator) }
+            assertFailsWith<ControlRefusedException> {
+                get<PermissionRules>().trust(chat, "command.exec(a && b)", operator)
+            }
             channel().scriptApprovals(ApprovalAnswer.Allowed(operator), ApprovalAnswer.Allowed(operator))
             ask()
             assertNull(mark())
-            control.newConversation(chat, operator)
-            assertEquals(emptyList(), control.trustRules(chat))
+            get<ConversationControl>().newConversation(chat, operator)
+            assertEquals(emptyList(), get<PermissionRules>().trustRules(chat))
             ask()
             assertEquals("command.exec ran git", reported())
         }

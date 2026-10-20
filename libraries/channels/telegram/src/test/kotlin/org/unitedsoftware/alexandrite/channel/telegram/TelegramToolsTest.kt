@@ -51,7 +51,7 @@ class TelegramToolsTest {
         chat: ChatAddress,
         turn: TurnId = TurnId("test-turn"),
     ): String {
-        val context = testToolContext(testTurn(chat = chat) { id(turn) })
+        val context = testToolContext(testTurn(chat = chat, id = turn))
         val review = tool(name).review(Json.parseToJsonElement(arguments).jsonObject, context)
         return review.problem ?: assertIs<ReviewPreview.Text>(review.preview).text
     }

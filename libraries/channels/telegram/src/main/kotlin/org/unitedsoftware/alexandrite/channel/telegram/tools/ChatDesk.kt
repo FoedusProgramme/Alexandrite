@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
 import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Target
 import org.unitedsoftware.alexandrite.channel.telegram.reply.targetOf
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -64,11 +65,11 @@ internal class ChatDesk(
         desks.close(this)
     }
 
-    /** The Telegram chat of [chat], a [ToolProblem] when it names none or is not paired. */
+    /** The Telegram chat of [chat], a [ToolRefusal] when it names none or is not paired. */
     fun target(chat: ChatAddress): Target {
         val target = targetOf(chat)?.takeIf { chat.instance == instance }
-            ?: throw ToolProblem("$chat is no chat of this bot.")
-        if (!gate.isPaired(chat)) throw ToolProblem("$chat is not paired with this bot.")
+            ?: throw ToolRefusal("$chat is no chat of this bot.")
+        if (!gate.isPaired(chat)) throw ToolRefusal("$chat is not paired with this bot.")
         return target
     }
 
@@ -84,31 +85,27 @@ internal class ChatDesk(
         chosen.toLongOrNull()?.takeIf { it > 0 }?.let { return it }
         val started = turns.of(turn.lineage?.rootTurn ?: turn.id)
         return when (chosen) {
-            THIS -> started?.message ?: throw ToolProblem("This turn started from no message the bot can name.")
+            THIS -> started?.message ?: throw ToolRefusal("This turn started from no message the bot can name.")
 
             QUOTED ->
                 started?.replied
-                    ?: throw ToolProblem("The message that started this turn replies to no message: give a message id.")
+                    ?: throw ToolRefusal("The message that started this turn replies to no message: give a message id.")
 
-            else -> throw ToolProblem("Give 'message' as \"$THIS\", \"$QUOTED\" or a message id.")
+            else -> throw ToolRefusal("Give 'message' as \"$THIS\", \"$QUOTED\" or a message id.")
         }
     }
 
     /** The id of [user] in [chat]: a user id, or the @username of someone who wrote there lately. */
     fun user(chat: Long, user: String): Long = user.trim().toLongOrNull()?.takeIf { it > 0 }
         ?: users.id(chat, user)
-        ?: throw ToolProblem("No one named $user wrote here lately: give their user id.")
+        ?: throw ToolRefusal("No one named $user wrote here lately: give their user id.")
 
     /** The paired chats of this bot. */
     suspend fun paired(): List<PairedChat> = pairings.paired().filter { it.chat.instance == instance }
 
-    /** Calls [method] with [params] for [target] at the chat's pace, a [ToolProblem] when Telegram refuses it. */
-    suspend fun act(target: Target, method: String, params: JsonObject): JsonElement = try {
-        outbox.paced(target) { api.act(method, params) }
-    } catch (e: BotApiException) {
-        outbox.checkToken(e)
-        throw ToolProblem(e.message ?: "$method failed.")
-    }
+    /** Calls [method] with [params] for [target] at the chat's pace, a [ToolRefusal] when Telegram refuses it. */
+    suspend fun act(target: Target, method: String, params: JsonObject): JsonElement =
+        call(method, params) { outbox.paced(target, it) }
 
     /** Sends what [method] with [params] posts in [chat], after what the chat's open replies hold so far. */
     suspend fun post(chat: ChatAddress, method: String, params: JsonObject): JsonElement {
@@ -116,12 +113,19 @@ internal class ChatDesk(
         return act(target(chat), method, params)
     }
 
-    /** Calls the read [method] with [params] at the bot's pace, a [ToolProblem] when Telegram refuses it. */
-    suspend fun read(method: String, params: JsonObject): JsonElement = try {
-        limiter.message(null) { api.act(method, params) }
+    /** Calls the read [method] with [params] at the bot's pace, a [ToolRefusal] when Telegram refuses it. */
+    suspend fun read(method: String, params: JsonObject): JsonElement =
+        call(method, params) { limiter.message(null, it) }
+
+    private suspend fun call(
+        method: String,
+        params: JsonObject,
+        pacing: suspend (suspend () -> JsonElement) -> JsonElement,
+    ): JsonElement = try {
+        pacing { api.act(method, params) }
     } catch (e: BotApiException) {
         outbox.checkToken(e)
-        throw ToolProblem(e.message ?: "$method failed.")
+        throw ToolRefusal(e.message ?: "$method failed.")
     }
 
     companion object {
@@ -129,6 +133,3 @@ internal class ChatDesk(
         const val QUOTED = "quoted"
     }
 }
-
-/** Why a Telegram tool cannot do what it is asked, told to the model. */
-internal class ToolProblem(message: String) : Exception(message)

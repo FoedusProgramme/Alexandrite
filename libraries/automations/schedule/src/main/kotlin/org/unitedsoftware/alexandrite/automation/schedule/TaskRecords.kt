@@ -84,6 +84,7 @@ internal class TaskRecords(records: Records, private val initiator: TurnInitiato
         val read = LinkedHashMap<String, TaskRecord>()
         for (stored in collection.list()) {
             val task = try {
+                stored.value.checkCreated()
                 stored.value.task(stored.key)
             } catch (e: IllegalArgumentException) {
                 logger.warn("Skipping scheduled task {}, which cannot be read: {}", stored.key, e.message)
@@ -160,13 +161,13 @@ internal data class TaskRecord(
     val nextInstant: Instant? get() = next?.let(Instant::parse)
 
     /** Throws [IllegalArgumentException] when a field cannot be read. */
-    fun task(id: String): Task<String> = try {
-        Instant.parse(createdAt)
+    fun task(id: String): Task<String> = readable {
         Task(id, schedule.toWhen(), zoneId, nextInstant, pending?.toPending())
-    } catch (e: IllegalArgumentException) {
-        throw e
-    } catch (e: RuntimeException) {
-        throw IllegalArgumentException(e.message, e)
+    }
+
+    /** Throws [IllegalArgumentException] when [createdAt] cannot be read. */
+    fun checkCreated() {
+        readable { createdInstant }
     }
 
     fun with(task: Task<String>): TaskRecord = copy(
@@ -217,3 +218,12 @@ internal data class PendingForm(val due: String, val lateMillis: Long, val repla
 }
 
 private val logger = LoggerFactory.getLogger(TaskRecords::class.java)
+
+/** What [block] returns, any failure of it an [IllegalArgumentException]. */
+private inline fun <T> readable(block: () -> T): T = try {
+    block()
+} catch (e: IllegalArgumentException) {
+    throw e
+} catch (e: RuntimeException) {
+    throw IllegalArgumentException(e.message, e)
+}

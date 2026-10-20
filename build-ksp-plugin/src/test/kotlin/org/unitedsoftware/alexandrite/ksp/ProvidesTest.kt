@@ -159,7 +159,7 @@ class ProvidesTest {
         build(index).use { root ->
             assertEquals(Instant.parse("2026-10-01T12:00:00Z"), root.get(key<Clock>()).instant())
             assertEquals("Hello from sample-plugin", root.get(key<String>("greeting")))
-            assertEquals("store in /data/sample-plugin at 2026-10-01T12:00:00Z", root.get(key<Probe>("store")).report())
+            assertEquals("store in ${files.dataDir} at 2026-10-01T12:00:00Z", root.get(key<Probe>("store")).report())
             assertEquals(listOf("echo Hello from sample-plugin"), root.getAll(key<Probe>()).map { it.report() })
             val error = assertFailsWith<DiException> { root.get(key<Probe>("connection")) }
             assertEquals(DiProblemKind.SCOPE, error.problems.single().kind)
@@ -216,6 +216,49 @@ class ProvidesTest {
                 key<ChatStates>("weather"),
             )
             assertEquals(expected, binding.dependencies.map { it.key })
+        }
+    }
+
+    @Test
+    fun `a component that contributes its own type is bound only as that contribution`() {
+        val profiles = source(
+            "Profiles.kt",
+            """
+            package sample
+
+            import org.unitedsoftware.alexandrite.sdk.di.Contribute
+            import org.unitedsoftware.alexandrite.sdk.di.Provides
+            import org.unitedsoftware.alexandrite.sdk.di.Singleton
+
+            class Profile(val name: String)
+
+            @Provides
+            @Contribute(Profile::class)
+            fun reviewer(): Profile = Profile("reviewer")
+
+            @Provides
+            @Contribute(Profile::class)
+            fun writer(): Profile = Profile("writer")
+
+            @Singleton
+            @Contribute(Marker::class)
+            class Marker
+            """,
+        )
+        compile(workingDir.resolve("itself"), profiles, entry("sample")).use { compiled ->
+            compiled.assertSucceeded()
+
+            val index = compiled.indexes().single()
+            assertEquals(
+                mapOf(
+                    "Marker" to listOf("sample.Marker SINGLETON multi <- "),
+                    "reviewer()" to listOf("sample.Profile SINGLETON multi <- "),
+                    "writer()" to listOf("sample.Profile SINGLETON multi <- "),
+                ),
+                index.bindings().filter { it.origin != "sample.SamplePlugin" }
+                    .groupBy({ simpleOrigin(it.origin, "sample") }, ::describe),
+            )
+            Container.build(listOf(index.pluginBindings()), emptyList()).close()
         }
     }
 

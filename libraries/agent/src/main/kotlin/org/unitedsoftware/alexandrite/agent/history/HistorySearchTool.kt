@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.history
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -14,6 +13,8 @@ import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.stringOrNull
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
@@ -58,10 +59,7 @@ internal class HistorySearchTool(
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
-                putJsonObject("query") {
-                    put("type", "string")
-                    put("description", "Words that a found entry holds, each anywhere in its text, ignoring case.")
-                }
+                property("query", "string", "Words that a found entry holds, each anywhere in its text, ignoring case.")
                 putJsonObject("limit") {
                     put("type", "integer")
                     put("minimum", 1)
@@ -83,7 +81,7 @@ internal class HistorySearchTool(
     )
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
-        val query = string(arguments["query"])?.takeIf { searchWords(it).isNotEmpty() }
+        val query = arguments.stringOrNull("query")?.takeIf { searchWords(it).isNotEmpty() }
             ?: return problem("Give 'query', the words to search for.")
         val limit = when (val given = arguments["limit"]) {
             null -> DEFAULT_LIMIT
@@ -91,7 +89,7 @@ internal class HistorySearchTool(
             else -> (given as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..MAX_LIMIT }
                 ?: return problem("'limit' is a whole number from 1 to $MAX_LIMIT.")
         }
-        val all = when (arguments["scope"]?.let(::string) ?: CHAT) {
+        val all = when (arguments.stringOrNull("scope") ?: CHAT) {
             CHAT -> false
             ALL -> true
             else -> return problem("'scope' is \"$CHAT\" or \"$ALL\".")
@@ -168,8 +166,6 @@ internal class HistorySearchTool(
     private fun name(displayName: String): String = cutWithEllipsis(oneLine(displayName), MAX_NAME_CHARS)
 
     private fun quoted(query: String): String = "\"${cutWithEllipsis(oneLine(query), MAX_QUERY_CHARS)}\""
-
-    private fun string(value: JsonElement?): String? = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
 
     private fun problem(text: String): ToolResult = ToolResult(text, isError = true)
 

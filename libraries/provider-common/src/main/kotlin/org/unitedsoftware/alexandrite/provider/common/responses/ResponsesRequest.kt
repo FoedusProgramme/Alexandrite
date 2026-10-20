@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import org.unitedsoftware.alexandrite.provider.common.IMAGE_TYPES
+import org.unitedsoftware.alexandrite.provider.common.ToolCallIndex
 import org.unitedsoftware.alexandrite.provider.common.callText
 import org.unitedsoftware.alexandrite.provider.common.resultHeading
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
@@ -44,12 +45,7 @@ internal class ResponsesRequest(
 
     private val items = mutableListOf<Item>()
 
-    private val offersTools = request.tools.isNotEmpty()
-
-    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
-
-    private val called = request.history.filterIsInstance<AssistantEntry>()
-        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+    private val toolCalls = ToolCallIndex(request)
 
     private val effort = request.options.reasoning?.takeIf { it in info.reasoningEfforts }
 
@@ -64,7 +60,7 @@ internal class ResponsesRequest(
 
                 is AssistantEntry -> assistant(entry)
 
-                is ToolResultEntry -> if (offersTools && entry.callId in called) {
+                is ToolResultEntry -> if (toolCalls.sendsResult(entry.callId)) {
                     items += Item.Plain(output(entry))
                 } else {
                     user(resultText(entry))
@@ -175,7 +171,7 @@ internal class ResponsesRequest(
                         Item.Plain(it)
                 }
 
-                is ToolCallPart -> if (offersTools && part.id in answered) {
+                is ToolCallPart -> if (toolCalls.sendsCall(part.id)) {
                     items += Item.Plain(call(part))
                 } else {
                     assistantText(callText(part, flavor.tools.wireName(part.name)))

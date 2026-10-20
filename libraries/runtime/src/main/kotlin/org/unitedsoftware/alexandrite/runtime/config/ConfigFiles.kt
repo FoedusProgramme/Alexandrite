@@ -110,7 +110,7 @@ internal fun checkSecrets(
         for (base in bases) {
             val path = listOf(base, section.path).filter(String::isNotEmpty).joinToString(".")
             val tree = source.tree(listOf(root, path).filter(String::isNotEmpty).joinToString(".")) ?: continue
-            secretsIn(section.deserializer.descriptor, tree, path, secrets)
+            withSecrets(section.deserializer.descriptor, tree, path) { at, value -> value.also { secrets += at to it } }
         }
     }
     val set = changes.filter { it.value != null }.map { it.path.joinToString(".") }
@@ -143,39 +143,55 @@ internal fun maskedSecrets(members: List<PluginSet.Member>, written: JsonObject)
             for (base in bases) {
                 val keys = root + base + path
                 val tree = masked.at(keys) ?: continue
-                masked = masked.with(keys, masked(section.deserializer.descriptor, tree))
+                val hidden = withSecrets(section.deserializer.descriptor, tree, "") { _, value ->
+                    if (isReference(value)) value else JsonPrimitive(HostConfig.HIDDEN_SECRET)
+                }
+                masked = masked.with(keys, hidden)
             }
         }
     }
     return masked
 }
 
-/** [element] as [descriptor] decodes it, each [Secret] in it that is no reference shown as hidden. */
-private fun masked(descriptor: SerialDescriptor, element: JsonElement): JsonElement = when {
-    descriptor.serialName.removeSuffix("?") == SECRET_NAME ->
-        if (isReference(element)) element else JsonPrimitive(HostConfig.HIDDEN_SECRET)
+/** [element] as [descriptor] decodes it at [path], each [Secret] in it replaced by what [secret] makes of it. */
+private fun withSecrets(
+    descriptor: SerialDescriptor,
+    element: JsonElement,
+    path: String,
+    secret: (path: String, value: JsonElement) -> JsonElement,
+): JsonElement {
+    fun child(key: String) = if (path.isEmpty()) key else "$path.$key"
+    return when {
+        descriptor.serialName.removeSuffix("?") == SECRET_NAME -> secret(path, element)
 
-    descriptor.isInline -> masked(descriptor.getElementDescriptor(0), element)
+        descriptor.isInline -> withSecrets(descriptor.getElementDescriptor(0), element, path, secret)
 
-    element is JsonObject && descriptor.kind == StructureKind.CLASS -> JsonObject(
-        element.mapValues { (key, value) ->
-            val index = descriptor.getElementIndex(key)
-            if (index == CompositeDecoder.UNKNOWN_NAME) value else masked(descriptor.getElementDescriptor(index), value)
-        },
-    )
+        element is JsonObject && descriptor.kind == StructureKind.CLASS -> JsonObject(
+            element.mapValues { (key, value) ->
+                val index = descriptor.getElementIndex(key)
+                if (index == CompositeDecoder.UNKNOWN_NAME) {
+                    value
+                } else {
+                    withSecrets(descriptor.getElementDescriptor(index), value, child(key), secret)
+                }
+            },
+        )
 
-    element is JsonObject && descriptor.kind == StructureKind.MAP ->
-        JsonObject(element.mapValues { masked(descriptor.getElementDescriptor(1), it.value) })
+        element is JsonObject && descriptor.kind == StructureKind.MAP -> JsonObject(
+            element.mapValues { (key, value) ->
+                withSecrets(descriptor.getElementDescriptor(1), value, child(key), secret)
+            },
+        )
 
-    element is JsonArray && descriptor.kind == StructureKind.LIST ->
-        JsonArray(element.map { masked(descriptor.getElementDescriptor(0), it) })
+        element is JsonArray && descriptor.kind == StructureKind.LIST -> JsonArray(
+            element.mapIndexed { index, value ->
+                withSecrets(descriptor.getElementDescriptor(0), value, "$path[$index]", secret)
+            },
+        )
 
-    else -> element
+        else -> element
+    }
 }
-
-/** The value at [keys], null when there is none. */
-private fun JsonObject.at(keys: List<String>): JsonElement? =
-    keys.fold(this as JsonElement?) { element, key -> (element as? JsonObject)?.get(key) }
 
 /** This object with [value] at [keys], whose objects on the way exist. */
 private fun JsonObject.with(keys: List<String>, value: JsonElement): JsonObject {
@@ -207,38 +223,6 @@ private fun writableTarget(file: Path?): Path {
 
 private fun isReference(value: JsonElement): Boolean =
     value == JsonNull || (value is JsonPrimitive && value.isString && REFERENCE.matches(value.content))
-
-/** Adds the place of each [Secret] that [descriptor] decodes from [element] at [path] to [found]. */
-private fun secretsIn(
-    descriptor: SerialDescriptor,
-    element: JsonElement,
-    path: String,
-    found: MutableList<Pair<String, JsonElement>>,
-) {
-    fun child(key: String) = if (path.isEmpty()) key else "$path.$key"
-    when {
-        descriptor.serialName.removeSuffix("?") == SECRET_NAME -> found += path to element
-
-        descriptor.isInline -> secretsIn(descriptor.getElementDescriptor(0), element, path, found)
-
-        element is JsonObject && descriptor.kind == StructureKind.CLASS -> {
-            for (index in 0 until descriptor.elementsCount) {
-                val key = descriptor.getElementName(index)
-                element[key]?.let { secretsIn(descriptor.getElementDescriptor(index), it, child(key), found) }
-            }
-        }
-
-        element is JsonObject && descriptor.kind == StructureKind.MAP -> {
-            for ((key, value) in element) secretsIn(descriptor.getElementDescriptor(1), value, child(key), found)
-        }
-
-        element is JsonArray && descriptor.kind == StructureKind.LIST -> {
-            element.forEachIndexed { index, value ->
-                secretsIn(descriptor.getElementDescriptor(0), value, "$path[$index]", found)
-            }
-        }
-    }
-}
 
 /** Puts [next] in the place of [target] through its backup, which then keeps [previous]. */
 private fun replace(target: Path, previous: ByteArray, next: ByteArray) {

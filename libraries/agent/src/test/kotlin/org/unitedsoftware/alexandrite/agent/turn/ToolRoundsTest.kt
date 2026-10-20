@@ -707,7 +707,7 @@ private class OneAtATime(private val store: MediaStore) : MediaStore by store {
 private class ReviewingTool(private val inner: RecordingTool) : ReviewedTool {
     override val definition: ToolDefinition get() = inner.definition
 
-    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview()
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder().build()
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
         inner.execute(arguments, context)

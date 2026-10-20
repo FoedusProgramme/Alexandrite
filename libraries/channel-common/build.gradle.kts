@@ -4,6 +4,8 @@ plugins {
     id("alexandrite.poko")
 }
 
+description = "Shared building blocks for Alexandrite chat channels"
+
 dependencies {
     api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))

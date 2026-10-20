@@ -8,28 +8,12 @@
   },
   "mcp": {
     "servers": {
-      "files": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@modelcontextprotocol/server-filesystem",
-          "/srv/projects"
-        ],
+      "git": {
+        "command": "uvx",
+        "args": ["mcp-server-git", "--repository", "/srv/projects/app"],
         "env": {},
-        "tools": {
-          "allow": [
-            "*"
-          ],
-          "deny": [
-            "move_file"
-          ]
-        },
-        "risk": {
-          "read_*": "read_only",
-          "list_*": "read_only",
-          "search_files": "read_only",
-          "*": "workspace_write"
-        },
+        "tools": {"allow": ["*"], "deny": ["git_reset"]},
+        "risk": {"git_status": "read_only", "git_diff*": "read_only", "git_log": "read_only", "git_show": "read_only", "git_branch": "read_only", "*": "workspace_write"},
         "trustAnnotations": false,
         "trusted": false,
         "timeoutSeconds": 60,

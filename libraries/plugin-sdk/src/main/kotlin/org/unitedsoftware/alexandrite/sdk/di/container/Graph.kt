@@ -19,7 +19,7 @@ internal class Node(
     val key: Key<*> get() = binding.key
     val plugin: String get() = binding.plugin
     val origin: String get() = binding.origin
-    val label: String get() = Problems.label(binding)
+    val label: String get() = binding.label
 
     fun mayDependOn(target: Node): Boolean = level == Scope.CHANNEL_INSTANCE || target.level == Scope.SINGLETON
 }

@@ -13,5 +13,9 @@ public sealed interface ConfigLiteral {
     public class Reference(public val written: String) : ConfigLiteral
 
     @Poko
-    public class Items(public val items: List<ConfigLiteral>) : ConfigLiteral
+    public class Items private constructor(public val items: List<ConfigLiteral>) : ConfigLiteral {
+        public companion object {
+            public operator fun invoke(items: List<ConfigLiteral>): Items = Items(items.toList())
+        }
+    }
 }

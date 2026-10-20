@@ -16,8 +16,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.store.sqlite.AlexandriteStoreSqliteIndex
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RequestMatch
@@ -93,10 +93,10 @@ class CompactionPersistenceTest {
             ask("Second.")
             (channel().receiveCommand("compact", issuer = channel().user("operator")) as Admission.Accepted).ticket
                 .outcome()
-            before = get<AgentControl>().context(channel().chat())
+            before = get<ConversationControl>().context(channel().chat())
         }
         started {
-            after = get<AgentControl>().context(channel().chat())
+            after = get<ConversationControl>().context(channel().chat())
             ask("Third.")
         }
 

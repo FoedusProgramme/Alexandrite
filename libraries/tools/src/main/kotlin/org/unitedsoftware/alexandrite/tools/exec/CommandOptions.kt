@@ -33,7 +33,7 @@ internal data class ParsedOption(val name: String, val value: String?)
 internal object CommandOptions {
     /** [argv] parsed by its program's option table, or by none unless [withTable]. */
     fun parse(argv: List<String>, withTable: Boolean = true): ParsedCommand {
-        val program = argv.firstOrNull()?.substringAfterLast('/').orEmpty()
+        val program = argv.firstOrNull()?.let(::baseName).orEmpty()
         val table = if (withTable) TABLES[program] else null
         val options = mutableListOf<ParsedOption>()
         val operands = mutableListOf<String>()

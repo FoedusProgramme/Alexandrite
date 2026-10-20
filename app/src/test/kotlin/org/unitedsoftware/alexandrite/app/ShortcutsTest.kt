@@ -154,7 +154,7 @@ class ShortcutsTest {
 
     @Test
     fun `MCP servers are added as commands or addresses, listed from the file and removed`() {
-        val command = cli("mcp", "add", "files", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/srv")
+        val command = cli("mcp", "add", "files", "--", "uvx", "mcp-server-git", "--repository", "/srv")
         val url = cli("mcp", "add", "docs", "--url", "https://mcp.example.com/mcp")
         val listed = cli("mcp", "list")
         val removed = cli("mcp", "remove", "docs")
@@ -162,7 +162,7 @@ class ShortcutsTest {
         assertEquals(0, command.code, command.err)
         assertEquals(0, url.code, url.err)
         assertEquals(
-            """{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/srv"]}""",
+            """{"command":"uvx","args":["mcp-server-git","--repository","/srv"]}""",
             "${file().at("mcp.servers.files")}",
         )
         assertEquals("files  stdio, configured\ndocs  http, configured\n", listed.out)

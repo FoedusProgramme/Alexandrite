@@ -13,6 +13,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.tool.AgentScopedTool
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
@@ -149,11 +150,11 @@ private suspend fun reviewed(
     }
     val what = if (value == null) "Remove $path" else "Set $path to ${shown(value)}"
     val effect = changes?.let { "\n${effect(it)}" }.orEmpty()
-    return CallReview(
-        preview = ReviewPreview.Text("$what$effect"),
-        snapshot = snapshot(current),
-        person = FLOOR_CHANGE.takeIf { touchesFloor(config, path, value) },
-    )
+    return CallReview.builder()
+        .preview(ReviewPreview.Text("$what$effect"))
+        .snapshot(snapshot(current))
+        .person(FLOOR_CHANGE.takeIf { touchesFloor(config, path, value) })
+        .build()
 }
 
 /**
@@ -231,9 +232,9 @@ private fun checkedPath(path: String): String {
 private suspend fun reviewing(block: suspend () -> CallReview): CallReview = try {
     block()
 } catch (e: Refused) {
-    CallReview(problem = e.message)
+    CallReview.builder().problem(e.message).build()
 } catch (e: ConfigEditException) {
-    CallReview(problem = e.message ?: "The config file refuses this change.")
+    CallReview.builder().problem(e.message ?: "The config file refuses this change.").build()
 }
 
 /** What [block] returns, or the failed result of what it refuses. */
@@ -250,13 +251,6 @@ private fun schema(vararg required: String, properties: JsonObjectBuilder.() -> 
     putJsonObject("properties", properties)
     if (required.isNotEmpty()) put("required", JsonArray(required.map(::JsonPrimitive)))
     put("additionalProperties", false)
-}
-
-private fun JsonObjectBuilder.property(name: String, type: String, description: String) {
-    putJsonObject(name) {
-        put("type", type)
-        put("description", description)
-    }
 }
 
 private val FLOOR = listOf("agent", "floor")

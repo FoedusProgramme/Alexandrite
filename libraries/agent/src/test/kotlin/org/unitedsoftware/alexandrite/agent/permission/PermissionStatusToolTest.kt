@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -29,7 +30,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
@@ -71,7 +71,10 @@ class PermissionStatusToolTest {
     private suspend fun grant(turn: TurnInfo, vararg argv: String) {
         val subject = RuleSubject("command.exec", argv.toList(), argv.joinToString(" "))
         val review =
-            CallReview(preview = ReviewPreview.Command(argv.toList(), Path.of("/srv"), null, false), rule = subject)
+            CallReview.builder()
+                .preview(ReviewPreview.Command(argv.toList(), Path.of("/srv"), null, false))
+                .rule(subject)
+                .build()
         val call = ToolCallPart(ToolCallId("call-1"), "command.exec", "{}")
         val context = testToolContext(turn)
         val taint = TurnTaint(turn.id, turn.key)
@@ -121,7 +124,7 @@ class PermissionStatusToolTest {
             grant(operator, "make", "test")
             clock.now += Duration.ofMinutes(5)
             grant(operator, "./gradlew", "build")
-            grant(testTurn { actor(operatorUser).conversation(ConversationId("other")) }, "make", "clean")
+            grant(testTurn(conversation = ConversationId("other")) { actor(operatorUser) }, "make", "clean")
 
             assertEquals(
                 listOf(
@@ -207,7 +210,7 @@ class PermissionStatusToolTest {
     @Test
     fun `outside a call of the agent the store says whether the conversation is tainted`() = runTest {
         val conversation = store.conversations.current(operator.key)
-        val turn = testTurn { actor(testUser("operator", isOperator = true)).conversation(conversation.id) }
+        val turn = testTurn(conversation = conversation.id) { actor(testUser("operator", isOperator = true)) }
         store.conversations.markTainted(conversation.id, forwarded.reason, forwarded.at)
 
         val line = status(turn = turn, context = testToolContext(turn)).last()

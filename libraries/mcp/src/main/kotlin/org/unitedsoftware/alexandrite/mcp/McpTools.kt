@@ -27,11 +27,11 @@ internal fun mcpServerTool(definition: ToolDefinition, serverTool: String, serve
 
         override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
             val shown = PRETTY.encodeToString(JsonObject.serializer(), arguments)
-            return CallReview(
-                preview = ReviewPreview.Text("MCP server ${server.spec.name}, tool $serverTool\n\n$shown"),
-                rule = RuleSubject(definition.name, emptyList(), definition.name),
-                untrusted = !server.spec.trusted,
-            )
+            return CallReview.builder()
+                .preview(ReviewPreview.Text("MCP server ${server.spec.name}, tool $serverTool\n\n$shown"))
+                .rule(RuleSubject(definition.name, emptyList(), definition.name))
+                .untrusted(!server.spec.trusted)
+                .build()
         }
 
         override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =

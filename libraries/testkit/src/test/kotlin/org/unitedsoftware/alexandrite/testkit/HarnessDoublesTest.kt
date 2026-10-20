@@ -29,15 +29,21 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -160,15 +166,36 @@ class HarnessDoublesTest {
     }
 
     @Test
-    fun `the harness binds the agent control it was given, also as the chat settings`() {
-        val control = RecordingAgentControl()
+    fun `the harness binds each host API of the recording agent it was given`() {
+        val agent = RecordingAgent()
 
-        PluginHarness.builder(probe).agentControl(control).execute {
-            get<AgentControl>().cancel(testChat(), null)
-            assertSame(control, get<ChatSettings>())
+        PluginHarness.builder(probe).agent(agent).execute {
+            get<TurnControl>().cancel(testChat(), null)
+            assertEquals(
+                listOf(
+                    agent.turns,
+                    agent.conversations,
+                    agent.settings,
+                    agent.links,
+                    agent.folders,
+                    agent.rules,
+                    agent.catalog,
+                    agent.usage,
+                ),
+                listOf(
+                    get<TurnControl>(),
+                    get<ConversationControl>(),
+                    get<ChatSettings>(),
+                    get<ChatLinks>(),
+                    get<TrustedFolders>(),
+                    get<PermissionRules>(),
+                    get<AgentCatalog>(),
+                    get<UsageReports>(),
+                ),
+            )
         }
 
-        assertEquals(listOf(RecordingAgentControl.Call.Cancel(testChat(), null)), control.calls)
+        assertEquals(listOf(RecordingAgent.Call.Cancel(testChat(), null)), agent.calls)
     }
 
     @Test

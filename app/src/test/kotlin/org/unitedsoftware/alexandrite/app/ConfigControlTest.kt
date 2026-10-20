@@ -5,6 +5,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.app.control.agentApis
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotApi
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
 import org.unitedsoftware.alexandrite.runtime.getOrNull
@@ -13,6 +14,11 @@ import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -82,6 +88,24 @@ class ConfigControlTest {
             },
         )
         assertEquals(0, code, err.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun `the running app resolves each host API of the agent from its services`() {
+        var apis: List<Any?> = emptyList()
+
+        app {
+            apis = listOf(
+                services.getOrNull<TurnControl>(),
+                services.getOrNull<ConversationControl>(),
+                services.getOrNull<TrustedFolders>(),
+                services.getOrNull<PermissionRules>(),
+                services.getOrNull<UsageReports>(),
+                agentApis(services),
+            )
+        }
+
+        assertEquals(6, apis.filterNotNull().size)
     }
 
     @Test

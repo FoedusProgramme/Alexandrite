@@ -13,8 +13,8 @@ import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.turn.JobStatus
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
@@ -22,9 +22,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class JobCommandsTest {
-    private val control = RecordingAgentControl()
+    private val control = RecordingAgent()
     private val clock = TestClock(TEST_TIME.plusSeconds(3725))
-    private val commands = JobCommands(control, commandTexts(), clock)
+    private val commands = JobCommands(control.turns, commandTexts(), clock)
     private val chat = testChat()
     private val build = JobStatus(RunId("j-7kq2mx"), chat, "command.exec", "./gradlew build", TEST_TIME, OPERATOR)
     private val wait = JobStatus(RunId("j-0a1b2c"), chat, "notes.wait", "", TEST_TIME.plusSeconds(3600), null)
@@ -77,7 +77,7 @@ class JobCommandsTest {
     @Test
     fun `jobs answers in the language of the chat`() = runTest {
         val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "jobs.none", "没有后台任务。").build()
-        val chinese = JobCommands(control, commandTexts(catalog), clock)
+        val chinese = JobCommands(control.turns, commandTexts(catalog), clock)
         val invocation = testCommand("jobs", issuer = OPERATOR)
 
         assertEquals("没有后台任务。", chinese.answer(invocation, commandContext(invocation, language = CHINESE)))

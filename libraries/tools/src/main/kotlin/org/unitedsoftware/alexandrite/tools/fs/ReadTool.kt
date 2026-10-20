@@ -41,7 +41,7 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.requiredString("path"), context)
     } catch (e: Refusal) {
-        CallReview()
+        CallReview.builder().build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.provider.common.IMAGE_TYPES
+import org.unitedsoftware.alexandrite.provider.common.ToolCallIndex
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
 import org.unitedsoftware.alexandrite.provider.common.callText
 import org.unitedsoftware.alexandrite.provider.common.obj
@@ -69,12 +70,7 @@ internal class MessagesRequest(
 
     private val breakpoint = flavor.caching.breakpoint.takeIf { settings.promptCaching }
 
-    private val offersTools = request.tools.isNotEmpty()
-
-    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
-
-    private val called = request.history.filterIsInstance<AssistantEntry>()
-        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+    private val toolCalls = ToolCallIndex(request)
 
     private val effort = if (request.tools.isEmpty()) request.options.reasoning else flavor.tools.effort(request, info)
 
@@ -130,7 +126,7 @@ internal class MessagesRequest(
                 is SummaryEntry -> user(listOf(text(entry.text)))
 
                 is ToolResultEntry ->
-                    user(if (offersTools && entry.callId in called) listOf(toolResult(entry)) else resultText(entry))
+                    user(if (toolCalls.sendsResult(entry.callId)) listOf(toolResult(entry)) else resultText(entry))
 
                 is AssistantEntry -> {
                     val current = entry.record?.let { it.turn == request.ids.turn } ?: (index >= request.turnStart)
@@ -233,7 +229,7 @@ internal class MessagesRequest(
             when (part) {
                 is TextPart -> part.text.takeIf { it.isNotEmpty() }?.let(::text)
                 is ReasoningPart -> flavor.reasoning.replay(part, request, flavor.dialect).takeIf { current || !unkept }
-                is ToolCallPart -> if (offersTools && part.id in answered) toolUse(part) else callBlock(part)
+                is ToolCallPart -> if (toolCalls.sendsCall(part.id)) toolUse(part) else callBlock(part)
                 is OpaquePart -> part.json.takeIf { part.dialect == flavor.dialect }
                 else -> null
             }

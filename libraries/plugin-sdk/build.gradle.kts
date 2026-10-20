@@ -4,6 +4,8 @@ plugins {
     id("alexandrite.poko")
 }
 
+description = "The Alexandrite plugin SDK: the annotations, contracts and types a plugin compiles against"
+
 dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)

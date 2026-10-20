@@ -163,7 +163,7 @@ class StdioClientTest {
             assertTrue(failed.isError)
             val error =
                 assertFailsWith<McpRpcException> { client.callTool("nothing", JsonObject(emptyMap()), 10.seconds) }
-            assertEquals(JsonRpc.INVALID_PARAMS, error.code)
+            assertEquals(-32602, error.code)
             assertContains(error.rpcMessage, "Unknown tool")
         } finally {
             client.close()

@@ -311,11 +311,8 @@ class PairingsTest {
     }
 
     @Test
-    fun `a subclass of the desk cannot replace how it decides`() {
-        val decisions = Pairings::class.java.declaredMethods.filter { it.name in PairingDesk::class.java.methodNames() }
-
-        assertEquals(PairingDesk::class.java.methodNames(), decisions.map { it.name }.toSet())
-        assertEquals(emptyList(), decisions.filterNot { Modifier.isFinal(it.modifiers) }.map { it.name })
+    fun `the desk cannot be subclassed to replace how it decides`() {
+        assertTrue(Modifier.isFinal(Pairings::class.java.modifiers))
     }
 
     @Test
@@ -328,5 +325,3 @@ class PairingsTest {
         const val PLUGIN = "chat-channel"
     }
 }
-
-private fun Class<*>.methodNames(): Set<String> = declaredMethods.mapTo(HashSet()) { it.name }

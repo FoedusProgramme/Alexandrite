@@ -15,13 +15,18 @@ public interface ModelEvent {
     /** The backend accepted the request. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class ResponseStarted(
+    public class ResponseStarted private constructor(
         /** The backend's id of the response. */
         public val responseId: String?,
         /** The model the backend says answers. */
         public val model: String?,
         public val warnings: List<Warning>,
-    ) : ModelEvent
+    ) : ModelEvent {
+        public companion object {
+            public operator fun invoke(responseId: String?, model: String?, warnings: List<Warning>): ResponseStarted =
+                ResponseStarted(responseId, model, warnings.toList())
+        }
+    }
 
     @OptIn(InternalAlexandriteApi::class)
     @Poko

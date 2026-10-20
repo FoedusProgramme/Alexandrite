@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginScope
+import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import java.time.Clock
 import java.time.ZoneId
 import kotlin.time.Duration.Companion.seconds
@@ -41,8 +42,14 @@ internal class Notices(
     }
 
     /** The language and zone of [chat]. */
-    suspend fun wording(chat: ChatAddress): Wording =
-        Wording(texts, settings?.language(chat), settings?.zone(chat) ?: clock.zone)
+    suspend fun wording(chat: ChatAddress): Wording {
+        val snapshot = try {
+            settings?.snapshot(chat)
+        } catch (_: ControlRefusedException) {
+            null
+        }
+        return Wording(texts, snapshot?.effectiveLanguage, snapshot?.effectiveZone ?: clock.zone)
+    }
 
     private suspend fun deliver(chat: ChatAddress, compose: (Wording) -> String) {
         val channel = channel(chat) ?: return

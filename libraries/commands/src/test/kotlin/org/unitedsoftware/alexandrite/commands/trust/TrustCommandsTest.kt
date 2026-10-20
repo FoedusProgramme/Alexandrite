@@ -8,12 +8,12 @@ import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
 import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import java.nio.file.Path
@@ -22,8 +22,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class TrustCommandsTest {
-    private val control = RecordingAgentControl()
-    private val commands = TrustCommands(control, commandTexts(), TestClock())
+    private val control = RecordingAgent()
+    private val commands =
+        TrustCommands(control.conversations, control.folders, control.rules, commandTexts(), TestClock())
 
     @Test
     fun `trust lists the trusted folders and trusts the folder it is given`() = runTest {
@@ -51,7 +52,7 @@ class TrustCommandsTest {
     @Test
     fun `the list tells the folders the config file declares from those trusted by the host`() = runTest {
         control.declareFolder(Path.of("/srv/config"))
-        control.trustFolder(Path.of("/srv/host"), null)
+        control.folders.trust(Path.of("/srv/host"), null)
 
         assertEquals(
             "Trusted folders, each with the folders below it:\n- /srv/config (declared in the config file)\n" +
@@ -68,7 +69,14 @@ class TrustCommandsTest {
     fun `a folder that the config file declares and a grant trusts too is listed with both, and untrust says so`() =
         runTest {
             val both = TrustedFolder(Path.of("/srv/both"), true, TEST_TIME, OPERATOR)
-            val commands = TrustCommands(DeclaredAndGranted(control, both), commandTexts(), TestClock())
+            val commands =
+                TrustCommands(
+                    control.conversations,
+                    DeclaredAndGranted(control.folders, both),
+                    control.rules,
+                    commandTexts(),
+                    TestClock(),
+                )
 
             assertEquals(
                 "Trusted folders, each with the folders below it:\n- /srv/both (declared in the config file, and " +
@@ -84,7 +92,7 @@ class TrustCommandsTest {
 
     @Test
     fun `untrust stops trusting a trusted folder`() = runTest {
-        control.trustFolder(Path.of("/srv/repo"), OPERATOR)
+        control.folders.trust(Path.of("/srv/repo"), OPERATOR)
 
         assertEquals("/srv/repo is no longer trusted.", commands.answer(untrust("\"/srv/repo\"")))
         assertEquals("/srv/repo is not a trusted folder.", commands.answer(untrust("/srv/repo")))
@@ -207,13 +215,13 @@ class TrustCommandsTest {
 
     private fun untrust(folder: String = "") = testCommand("untrust", folder, issuer = OPERATOR)
 
-    /** [control] where [folder] is declared and granted, and an untrust drops a grant of a declared folder. */
+    /** [folders] where [folder] is declared and granted, and an untrust drops a grant of a declared folder. */
     @OptIn(InternalAlexandriteApi::class)
-    private class DeclaredAndGranted(control: AgentControl, private val folder: TrustedFolder) :
-        AgentControl by control {
-        override fun trustedFolders(): List<TrustedFolder> = listOf(folder)
+    private class DeclaredAndGranted(folders: TrustedFolders, private val folder: TrustedFolder) :
+        TrustedFolders by folders {
+        override fun list(): List<TrustedFolder> = listOf(folder)
 
-        override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation =
+        override suspend fun untrust(folder: Path, by: ChatUser?): Revocation =
             Revocation(removed = true, declared = true)
     }
 }

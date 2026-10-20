@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.delegation
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -18,6 +17,10 @@ import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
 import org.unitedsoftware.alexandrite.agent.tool.InTurnTool
 import org.unitedsoftware.alexandrite.agent.tool.RenderedTool
+import org.unitedsoftware.alexandrite.agent.tool.flag
+import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.stringOrNull
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -67,23 +70,20 @@ internal class DelegateTool(
         ToolResult("$NAME runs only in a turn of the agent.", isError = true)
 
     override suspend fun call(arguments: JsonObject, context: AgentToolContext): InTurnResult {
-        val background = arguments["background"]?.let {
-            (it as? JsonPrimitive)?.takeIf { value -> !value.isString }?.content?.let { value ->
-                when (value) {
-                    "true" -> true
-                    "false" -> false
-                    else -> null
-                }
-            } ?: return problem("'background' must be a boolean.")
-        } ?: false
-        val resume = arguments["resume"]?.let {
-            string(it)?.let(::runId) ?: return problem("'resume' must be the id of an earlier run, such as r-abc123.")
+        val background = try {
+            arguments.flag("background") ?: false
+        } catch (e: ToolRefusal) {
+            return problem(e.message)
         }
-        val profile = string(arguments["profile"])
+        val resume = arguments["resume"]?.let {
+            arguments.nonBlank("resume")?.let(::runId)
+                ?: return problem("'resume' must be the id of an earlier run, such as r-abc123.")
+        }
+        val profile = arguments.nonBlank("profile")
             ?: if (resume == null) return problem("Give 'profile', the id of a profile.") else null
-        val task = string(arguments["task"]) ?: return problem("Give 'task', the whole brief of the sub-agent.")
+        val task = arguments.nonBlank("task") ?: return problem("Give 'task', the whole brief of the sub-agent.")
         if (resume != null && "context" in arguments) return problem("A resumed run goes on from its own history.")
-        val fork = when (arguments["context"]?.let { string(it).orEmpty() } ?: FRESH) {
+        val fork = when (arguments["context"]?.let { arguments.nonBlank("context").orEmpty() } ?: FRESH) {
             FRESH -> false
             FORK -> true
             else -> return problem("'context' is \"$FRESH\" or \"$FORK\".")
@@ -97,33 +97,24 @@ internal class DelegateTool(
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
-                putJsonObject("background") {
-                    put("type", "boolean")
-                    put(
-                        "description",
-                        "Run independently and report later. Defaults to false; synchronous calls run serially.",
-                    )
-                }
-                putJsonObject("profile") {
-                    put("type", "string")
-                    put("description", "The id of the profile that runs the task, one of those listed.")
-                }
-                putJsonObject("resume") {
-                    put("type", "string")
-                    put(
-                        "description",
-                        "The id of an earlier run that ended, from its [alexandrite:run …] line, to go on with its " +
-                            "own history and the new task instead of starting fresh; its profile is then implied.",
-                    )
-                }
-                putJsonObject("task") {
-                    put("type", "string")
-                    put(
-                        "description",
-                        "The whole brief: the sub-agent sees nothing else, so say what to do, what you know that it " +
-                            "needs (paths, names, constraints) and what to report back.",
-                    )
-                }
+                property(
+                    "background",
+                    "boolean",
+                    "Run independently and report later. Defaults to false; synchronous calls run serially.",
+                )
+                property("profile", "string", "The id of the profile that runs the task, one of those listed.")
+                property(
+                    "resume",
+                    "string",
+                    "The id of an earlier run that ended, from its [alexandrite:run …] line, to go on with its " +
+                        "own history and the new task instead of starting fresh; its profile is then implied.",
+                )
+                property(
+                    "task",
+                    "string",
+                    "The whole brief: the sub-agent sees nothing else, so say what to do, what you know that it " +
+                        "needs (paths, names, constraints) and what to report back.",
+                )
                 putJsonObject("context") {
                     put("type", "string")
                     put("enum", JsonArray(listOf(JsonPrimitive(FRESH), JsonPrimitive(FORK))))
@@ -158,9 +149,8 @@ internal class DelegateTool(
     }
 }
 
-/** A string argument that is not blank, null for anything else. */
-private fun string(element: JsonElement?): String? =
-    (element as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+/** The string argument [name] when it is not blank, null for anything else. */
+private fun JsonObject.nonBlank(name: String): String? = stringOrNull(name)?.takeIf { it.isNotBlank() }
 
 private fun problem(text: String): InTurnResult = InTurnResult(text, ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS))
 

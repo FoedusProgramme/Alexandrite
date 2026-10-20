@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.provider.anthropiccompatible
 
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -11,8 +12,8 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.unitedsoftware.alexandrite.provider.common.ModelConfig
 import org.unitedsoftware.alexandrite.provider.common.messages.MessagesEndpoint
 import org.unitedsoftware.alexandrite.provider.common.messages.MessagesFlavor
+import org.unitedsoftware.alexandrite.provider.common.read
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
-import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.FinishKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
@@ -54,16 +55,17 @@ class AnthropicCompatibleLiveTest {
     private fun live(listedOnly: Boolean = false): MessagesEndpoint {
         assumeTrue(baseUrl != null && apiKey != null && model != null, "No live endpoint is configured.")
         val efforts = setOf(ReasoningEffort.NONE, ReasoningEffort.LOW, ReasoningEffort.MEDIUM, ReasoningEffort.HIGH)
-        val config = EndpointConfig(
-            apiKey = Secret(apiKey!!),
-            baseUrl = baseUrl!!,
-            models = if (listedOnly) {
-                emptyMap()
-            } else {
-                mapOf(model!! to ModelConfig(nativeTools = true, reasoningEfforts = efforts))
+        val config = EndpointSerializer.read(
+            buildJsonObject {
+                put("apiKey", apiKey)
+                put("baseUrl", baseUrl)
+                putJsonObject("models") {
+                    val thinks = ModelConfig(nativeTools = true, reasoningEfforts = efforts)
+                    if (!listedOnly) put(model!!, Json.encodeToJsonElement(ModelConfig.serializer(), thinks))
+                }
             },
         )
-        return MessagesEndpoint(EndpointId("live"), config.settings(), MessagesFlavor.STANDARD, config.messages())
+        return MessagesEndpoint(EndpointId("live"), config.settings, MessagesFlavor.STANDARD, config.options)
     }
 
     private fun request(

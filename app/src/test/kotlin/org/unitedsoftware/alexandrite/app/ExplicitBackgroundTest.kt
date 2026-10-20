@@ -15,7 +15,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import java.nio.file.Files
 import java.nio.file.Path
@@ -47,7 +47,7 @@ class ExplicitBackgroundTest {
             app.send(app.ada, app.adaChat, "Start the background command.")
             app.message(app.adaChat, "Command detached.")
             assertTrue(started.elapsedNow().inWholeSeconds < 10)
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             val job = control.jobs(app.address(app.adaChat)).single()
             val result = app.model.requests.last().history.filterIsInstance<ToolResultEntry>().single()
             assertEquals(ToolOutcome.Detached(job.id), result.outcome)
@@ -72,7 +72,7 @@ class ExplicitBackgroundTest {
                 .parts.filterIsInstance<ContextPart>().joinToString("\n") { it.text }
             assertTrue(frame.contains("Monitor matched output:\nMATCH event"), frame)
             assertEquals(listOf("Monitoring."), app.fake.botMessages(app.adaChat.id).body().drop(1).map { it.text })
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             assertTrue(
                 control.stopJob(app.address(app.adaChat), control.jobs(app.address(app.adaChat)).single().id, null),
             )
@@ -94,7 +94,7 @@ class ExplicitBackgroundTest {
             assertTrue(ProcessHandle.of(pid).orElseThrow().isAlive)
             app.send(app.ada, app.adaChat, "/cancel")
             withTimeout(10000) {
-                while (get<AgentControl>().jobs(app.address(app.adaChat)).isNotEmpty() ||
+                while (get<TurnControl>().jobs(app.address(app.adaChat)).isNotEmpty() ||
                     ProcessHandle.of(pid).map { it.isAlive }.orElse(false)
                 ) {
                     delay(10)
@@ -124,7 +124,7 @@ class ExplicitBackgroundTest {
             val notices = app.model.requests.last().history.filterIsInstance<UserEntry>()
                 .flatMap { entry -> entry.parts.filterIsInstance<ContextPart>().map { it.text } }
             assertTrue(notices.any { "interrupted by a restart" in it && "command.exec" in it }, notices.toString())
-            assertEquals(emptyList(), get<AgentControl>().jobs(app.address(app.adaChat)))
+            assertEquals(emptyList(), get<TurnControl>().jobs(app.address(app.adaChat)))
         }
         assertEquals(1, Files.readAllLines(pidFile).size)
     }
@@ -146,7 +146,7 @@ class ExplicitBackgroundTest {
             assertTrue(results[0].outcome is ToolOutcome.Detached)
             assertEquals(ToolOutcome.NotRun(NotRunReason.BACKGROUND_FULL), results[1].outcome)
             assertFalse(Files.exists(marker))
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             assertEquals(1, control.jobs(app.address(app.adaChat)).size)
             assertTrue(
                 control.stopJob(app.address(app.adaChat), control.jobs(app.address(app.adaChat)).single().id, null),

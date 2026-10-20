@@ -129,13 +129,20 @@ public interface TurnOutcome {
     /** The turn ran to its end. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class Completed(
+    public class Completed private constructor(
         /** The model's final response, null when the turn ended on a notice or ran a command. */
         public val reply: AssistantEntry?,
         /** How the reply reached each chat it was sent to. */
-        public val deliveries: Map<ChatAddress, Delivery> = emptyMap(),
+        public val deliveries: Map<ChatAddress, Delivery>,
     ) : TurnOutcome {
         override val replayable: Boolean get() = false
+
+        public companion object {
+            public operator fun invoke(
+                reply: AssistantEntry?,
+                deliveries: Map<ChatAddress, Delivery> = emptyMap(),
+            ): Completed = Completed(reply, deliveries.toMap())
+        }
     }
 
     /** The message joined the running turn [into] as a follow-up. */

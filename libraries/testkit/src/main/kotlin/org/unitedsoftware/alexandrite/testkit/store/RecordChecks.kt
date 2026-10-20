@@ -1,7 +1,6 @@
 package org.unitedsoftware.alexandrite.testkit.store
 
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.store.StoredRecord
@@ -157,7 +156,7 @@ private fun parsed(record: StoredRecord<String>, what: String): StoredRecord<Jso
 }
 
 private fun json(value: String, what: String): JsonElement = try {
-    Json.parseToJsonElement(value)
+    jsonElement(value)
 } catch (e: SerializationException) {
     fail("$what: expected a JSON value, was <$value>.", e)
 }

@@ -1,6 +1,6 @@
 package org.unitedsoftware.alexandrite.channel.telegram.intake
 
-import org.unitedsoftware.alexandrite.channel.telegram.BoundedMap
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 

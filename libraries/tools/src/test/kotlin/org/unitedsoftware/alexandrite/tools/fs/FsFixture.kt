@@ -54,7 +54,7 @@ class FsFixture(directory: Path) {
         conversationDirectory: Path = this.conversation,
         clearance: Clearance? = null,
     ): TestToolContext = testToolContext(
-        testTurn { conversation(ConversationId(conversation)) },
+        testTurn(conversation = ConversationId(conversation)),
         workspace = workspace,
         conversationDirectory = conversationDirectory,
         clearance = clearance,

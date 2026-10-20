@@ -205,6 +205,16 @@ internal fun channelAddTelegram(
     variable: String?,
     apiBaseUrl: String?,
     restart: Boolean,
+): Int = cli.onTerminal { addTelegram(cli, name, admins, agentId, variable, apiBaseUrl, restart) }
+
+private fun addTelegram(
+    cli: Cli,
+    name: String,
+    admins: List<Long>,
+    agentId: String?,
+    variable: String?,
+    apiBaseUrl: String?,
+    restart: Boolean,
 ): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (config.at("$TELEGRAM_INSTANCES.$name") != null) {
@@ -242,8 +252,8 @@ internal fun channelAddTelegram(
         }
         return code
     }
-    cli.out.println(cli.t("channel.saved", "name" to secret, "file" to cli.secrets))
-    if (agent == null) cli.out.println(cli.t("channel.no_agent", "instance" to name))
+    cli.ui.good(cli.t("channel.saved", "name" to secret, "file" to cli.secrets))
+    if (agent == null) cli.ui.warn(cli.t("channel.no_agent", "instance" to name))
     return ExitCode.OK
 }
 
@@ -261,7 +271,7 @@ internal fun telegramChanges(
     apiBaseUrl: String?,
 ): List<ConfigChangeView> {
     val instance = buildJsonObject {
-        put("botToken", "\${env:$secret}")
+        put("botToken", envReference(secret))
         put("adminUserIds", buildJsonArray { admins.forEach { add(it) } })
         put("allowedChats", buildJsonArray { admins.forEach { add(it) } })
         apiBaseUrl?.let { put("apiBaseUrl", it) }
@@ -275,14 +285,15 @@ internal fun telegramChanges(
 
 /** The token typed after a prompt and the bot Telegram says it belongs to, null after printing why there is none. */
 internal fun askBot(cli: Cli, base: String, given: String? = null): Pair<BotCheck.Bot, String>? {
-    val token = (given ?: cli.machine.askSecret(cli.t("channel.token_prompt")))?.trim()?.takeIf { it.isNotEmpty() }
+    val prompt = cli.t(if (cli.ui.rich) "channel.token_title" else "channel.token_prompt")
+    val token = (given ?: cli.ui.secret(prompt))?.trim()?.takeIf { it.isNotEmpty() }
         ?: run {
             cli.fail(cli.t("channel.no_token"))
             return null
         }
-    return when (val checked = telegramBot(cli, base, token)) {
+    return when (val checked = cli.ui.busy({ cli.t("bot.checking") }) { telegramBot(cli, base, token) }) {
         is BotCheck.Bot -> {
-            cli.out.println(cli.t("bot.belongs", "bot" to described(cli, checked)))
+            cli.ui.good(cli.t("bot.belongs", "bot" to described(cli, checked)))
             checked to token
         }
 
@@ -302,12 +313,10 @@ internal fun configuredBot(cli: Cli, config: JsonObject, token: String): String?
     }
     return config.objectAt(TELEGRAM_INSTANCES).entries.firstOrNull { (_, value) ->
         val written = (value as? JsonObject)?.get("botToken").text ?: return@firstOrNull false
-        val variable = REFERENCE.matchEntire(written)?.groupValues?.get(1)
+        val variable = referencedVariable(written)
         (if (variable != null) environment[variable] else written) == token
     }?.key
 }
-
-private val REFERENCE = Regex("\\$\\{env:([A-Za-z_][A-Za-z0-9_]*)}")
 
 // MCP servers.
 
@@ -415,13 +424,4 @@ private fun mcpAnswered(cli: Cli, server: String, request: ControlRequest): Int 
         else -> cli.fail(cli.t("unexpected_answer"))
     }
 
-/** The running app's answer to [request], null after printing that none runs or why it failed. */
-private fun mcpAsk(cli: Cli, request: ControlRequest): ControlReply? = try {
-    cli.ask(request) ?: run {
-        cli.fail(cli.t("mcp.not_running"), ExitCode.UNAVAILABLE)
-        null
-    }
-} catch (e: IOException) {
-    cli.fail(cli.t("unreachable", "reason" to (e.message ?: e)))
-    null
-}
+private fun mcpAsk(cli: Cli, request: ControlRequest): ControlReply? = cli.askOrFail(request, cli.t("mcp.not_running"))

@@ -19,6 +19,7 @@ import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -44,7 +45,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
@@ -85,7 +85,7 @@ class CallRulesTest {
                 TurnHooks(
                     Proceeding,
                 ),
-                registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock,
+                registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock, NotContained,
             )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */
@@ -114,17 +114,17 @@ class CallRulesTest {
 
     private suspend fun operator(): TurnInfo {
         val conversation = conversation()
-        return testTurn { actor(operator).conversation(conversation) }
+        return testTurn(conversation = conversation) { actor(operator) }
     }
 
     private suspend fun guest(): TurnInfo {
         val conversation = conversation()
-        return testTurn { conversation(conversation) }
+        return testTurn(conversation = conversation)
     }
 
     private suspend fun automation(): TurnInfo {
         val conversation = conversation()
-        return testTurn(TurnKind.HEARTBEAT) { conversation(conversation) }
+        return testTurn(TurnKind.HEARTBEAT, conversation = conversation)
     }
 
     private suspend fun setMode(mode: PermissionMode) {
@@ -178,7 +178,7 @@ class CallRulesTest {
         val turn = operator()
 
         val decided = listOf(
-            setup.decide(read, CallReview(), turn),
+            setup.decide(read, CallReview.builder().build(), turn),
             setup.decide(exec, run("/usr/bin/git", "push", executable = "/usr/bin/git"), turn),
             setup.decide(exec, run("/usr/bin/git", "pull", executable = "/usr/bin/git"), turn),
         )
@@ -245,12 +245,14 @@ class CallRulesTest {
     fun `a declared tool allows the calls that offer a subject, never an opaque program`() = runTest {
         val setup = Setup("""{"allow": ["deploy.run", "command.exec"]}""")
         val subject = RuleSubject("deploy.run", listOf("staging"), "staging")
-        val opaque = CallReview(preview = ReviewPreview.Command(listOf("sh", "-c", "make"), CWD, null, true))
+        val opaque = CallReview.builder()
+            .preview(ReviewPreview.Command(listOf("sh", "-c", "make"), CWD, null, true))
+            .build()
         val turn = operator()
 
         val decided = listOf(
-            setup.decide(deploy, CallReview(rule = subject), turn),
-            setup.decide(deploy, CallReview(), turn),
+            setup.decide(deploy, CallReview.builder().rule(subject).build(), turn),
+            setup.decide(deploy, CallReview.builder().build(), turn),
             setup.decide(exec, run("make", "install"), turn),
             setup.decide(exec, opaque, turn),
             setup.decide(exec, opaque.withRule(RuleSubject("command.exec", listOf("sh"), "sh")), turn),
@@ -266,8 +268,8 @@ class CallRulesTest {
         val subject = RuleSubject("notes.keep", listOf("todo"), "todo")
         val turn = operator()
 
-        val decided = setup.decide(notes, CallReview(rule = subject), turn, tainted = true)
-        val lowered = checked(turn, notes, CallReview(rule = subject), ToolRisk.EXEC)
+        val decided = setup.decide(notes, CallReview.builder().rule(subject).build(), turn, tainted = true)
+        val lowered = checked(turn, notes, CallReview.builder().rule(subject).build(), ToolRisk.EXEC)
 
         assertEquals("ask", decided)
         assertEquals(listOf<RuleSubject?>(null), setup.approvals.offered)
@@ -286,7 +288,7 @@ class CallRulesTest {
             rules.grantable(checked(guest(), exec, review)),
             rules.grantable(checked(automation(), exec, review)),
             rules.grantable(checked(operator(), exec, foreign)),
-            rules.grantable(checked(operator(), exec, CallReview())),
+            rules.grantable(checked(operator(), exec, CallReview.builder().build())),
         ).also { setMode(PermissionMode.MANUAL) } + listOf(rules.grantable(checked(operator(), exec, review)))
 
         assertEquals(listOf(listOf(subject)) + List(5) { emptyList() }, offered)
@@ -299,7 +301,7 @@ class CallRulesTest {
         val setup = Setup()
         val test = run("make", "test")
         val elsewhere = store.conversations.current(AgentChatKey(AgentId.MAIN, testChat("other"))).id
-        val other = testTurn(chat = testChat("other")) { actor(operator).conversation(elsewhere) }
+        val other = testTurn(chat = testChat("other"), conversation = elsewhere) { actor(operator) }
         val before = setup.decide(exec, test, operator())
 
         setup.rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
@@ -456,18 +458,24 @@ class CallRulesTest {
     private fun run(vararg argv: String, executable: String? = null): CallReview {
         val program = if ('/' in argv[0]) executable ?: argv[0] else argv[0]
         val tokens = listOfNotNull(program, argv.drop(1).firstOrNull { !it.startsWith("-") })
-        return CallReview(
-            preview = ReviewPreview.Command(argv.toList(), CWD, executable?.let(Path::of), false),
-            rule = RuleSubject("command.exec", tokens, tokens.joinToString(" ")),
-        )
+        return CallReview.builder()
+            .preview(ReviewPreview.Command(argv.toList(), CWD, executable?.let(Path::of), false))
+            .rule(RuleSubject("command.exec", tokens, tokens.joinToString(" ")))
+            .build()
     }
 
-    private fun CallReview.withRule(rule: RuleSubject): CallReview =
-        CallReview(risk, refusal, preview, snapshot, rule, problem)
+    private fun CallReview.withRule(rule: RuleSubject): CallReview = CallReview.builder()
+        .risk(risk)
+        .refusal(refusal)
+        .preview(preview)
+        .snapshot(snapshot)
+        .rule(rule)
+        .problem(problem)
+        .build()
 
     /** A tool whose calls are reviewed as [review] says. */
     private class ScriptedTool(name: String, val risk: ToolRisk) : ReviewedTool {
-        var review: CallReview = CallReview()
+        var review: CallReview = CallReview.builder().build()
 
         override val definition: ToolDefinition = testToolDefinition(name, risk)
 

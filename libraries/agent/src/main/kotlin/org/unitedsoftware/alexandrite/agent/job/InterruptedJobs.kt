@@ -1,109 +1,99 @@
 package org.unitedsoftware.alexandrite.agent.job
 
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
-import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.PendingRecords
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 
-/** The jobs of each active conversation that a restart interrupted, not yet shown to the model. */
+/** The jobs and agent messages of each active conversation that a restart interrupted, not yet shown to the model. */
 @Singleton
 @Contribute(ConversationSeals::class)
 internal class InterruptedJobs(records: Records, private val conversations: ConversationStore) :
     Lifecycle,
     ConversationSeals {
-    private val pending = records.collection<InterruptedRecord>(COLLECTION)
-    private val writing = Mutex()
+    private val pending = PendingRecords(records.collection<InterruptedRecord>(COLLECTION), "interrupted jobs") {
+        it.jobs.isEmpty() && it.messages.isEmpty()
+    }
 
     override suspend fun onStart() {
-        for (record in pending.list()) {
-            val state = conversations.conversation(ConversationId(record.key))?.state
-            if (state != ConversationState.ACTIVE) pending.remove(record.key)
-        }
+        pending.prune(conversations)
     }
 
     /** Records that a restart interrupted [job] of [conversation], once. */
     suspend fun add(conversation: ConversationId, job: InterruptedJob) {
-        writing.withLock {
-            val jobs = read(conversation)
-            if (jobs.any { it.id == job.id }) return@withLock
-            pending.put(conversation.value, InterruptedRecord(jobs + job), null)
+        pending.change(conversation) { current ->
+            val record = current ?: InterruptedRecord()
+            if (record.jobs.any { it.id == job.id }) record else record.copy(jobs = record.jobs + job)
         }
     }
 
-    /** The jobs interrupted in [conversation], null when there are none or they cannot be read. */
-    suspend fun pending(conversation: ConversationId): InterruptedComparison? {
-        val jobs = try {
-            read(conversation)
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("Cannot read the interrupted jobs of conversation {}: {}", conversation, e.toString())
-            return null
-        }
-        return jobs.takeIf { it.isNotEmpty() }?.let(::InterruptedComparison)
-    }
-
-    /** Clears the jobs of [comparison] from [conversation], keeping any recorded since it was read. */
-    suspend fun clear(conversation: ConversationId, comparison: InterruptedComparison) {
-        writing.withLock {
-            try {
-                val remainder = read(conversation).filter { job -> comparison.jobs.none { it.id == job.id } }
-                if (remainder.isEmpty()) {
-                    pending.remove(conversation.value)
-                } else {
-                    pending.put(conversation.value, InterruptedRecord(remainder), null)
-                }
-            } catch (e: Exception) {
-                currentCoroutineContext().ensureActive()
-                logger.warn(
-                    "Cannot clear the interrupted jobs shown to conversation {}: {}",
-                    conversation,
-                    e.toString(),
+    /** Records that a restart interrupted [message] of [conversation], once. */
+    suspend fun add(conversation: ConversationId, message: InterruptedMessage) {
+        pending.change(conversation) { current ->
+            val record = current ?: InterruptedRecord()
+            if (record.messages.any { it.id == message.id }) {
+                record
+            } else {
+                record.copy(
+                    messages =
+                    record.messages + message,
                 )
             }
         }
     }
 
-    /** Forgets the interrupted jobs of [conversation], which was sealed. */
-    override suspend fun sealed(conversation: ConversationId) {
-        try {
-            pending.remove(conversation.value)
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("Cannot forget the interrupted jobs of sealed conversation {}: {}", conversation, e.toString())
+    /** What was interrupted in [conversation], null when nothing was or it cannot be read. */
+    suspend fun pending(conversation: ConversationId): InterruptedComparison? =
+        pending.get(conversation)?.let { InterruptedComparison(it.jobs, it.messages) }
+
+    /** Clears what [comparison] holds from [conversation], keeping anything recorded since it was read. */
+    suspend fun clear(conversation: ConversationId, comparison: InterruptedComparison) {
+        pending.change(conversation) { current ->
+            current?.let { record ->
+                InterruptedRecord(
+                    record.jobs.filter { job -> comparison.jobs.none { it.id == job.id } },
+                    record.messages.filter { message -> comparison.messages.none { it.id == message.id } },
+                )
+            }
         }
     }
 
-    private suspend fun read(conversation: ConversationId): List<InterruptedJob> =
-        pending.get(conversation.value)?.value?.jobs.orEmpty()
+    override suspend fun sealed(conversation: ConversationId) {
+        pending.forget(conversation)
+    }
 
     private companion object {
         const val COLLECTION = "interrupted_jobs"
     }
 }
 
-/** The jobs interrupted in a conversation, with the unstored entry that tells the model about them. */
-internal class InterruptedComparison(val jobs: List<InterruptedJob>) {
-    val notice: UserEntry = interruptedEntry(jobs)
+/** The jobs and messages interrupted in a conversation, with the unstored entry that tells the model about them. */
+internal class InterruptedComparison(
+    val jobs: List<InterruptedJob>,
+    val messages: List<InterruptedMessage> = emptyList(),
+) {
+    val notice: UserEntry = interruptedEntry(jobs, messages)
 }
 
 @Serializable
-internal data class InterruptedRecord(val jobs: List<InterruptedJob> = emptyList())
+internal data class InterruptedRecord(
+    val jobs: List<InterruptedJob> = emptyList(),
+    val messages: List<InterruptedMessage> = emptyList(),
+)
 
 /** The job [id], a call of [tool] with [title], that a restart interrupted. */
 @Serializable
 internal data class InterruptedJob(val id: RunId, val tool: String, val title: String)
 
-private val logger = LoggerFactory.getLogger(InterruptedJobs::class.java)
+/** The message [id] to [agent], whose reply a restart interrupted. */
+@Serializable
+internal data class InterruptedMessage(val id: RunId, val agent: AgentId)

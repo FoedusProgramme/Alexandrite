@@ -4,14 +4,14 @@ import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.agentState
 import org.unitedsoftware.alexandrite.sdk.chat.state
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import java.time.Instant

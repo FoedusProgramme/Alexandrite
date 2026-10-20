@@ -6,9 +6,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import org.unitedsoftware.alexandrite.runtime.ConfigFile
-import org.unitedsoftware.alexandrite.runtime.ConfigFileException
-import org.unitedsoftware.alexandrite.runtime.configProblems
+import org.unitedsoftware.alexandrite.app.tui.Mark
+import org.unitedsoftware.alexandrite.app.tui.columns
+import org.unitedsoftware.alexandrite.app.tui.pad
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -19,14 +19,17 @@ import java.nio.file.attribute.PosixFilePermissions
 import java.util.Locale
 
 /** How a check of `doctor` came out. */
-internal enum class Verdict(val label: String) { OK("ok"), WARN("warn"), FAIL("FAIL"), SKIP("skip") }
+internal enum class Verdict(val label: String, val mark: Mark) {
+    OK("ok", Mark.OK),
+    WARN("warn", Mark.WARN),
+    FAIL("FAIL", Mark.FAIL),
+    SKIP("skip", Mark.SKIP),
+}
 
 internal class Finding(val check: String, val verdict: Verdict, val detail: String)
 
 private const val GIB = 1024L * 1024 * 1024
 private const val MIB = 1024L * 1024
-
-private val REFERENCE = Regex("\\$\\{env:([A-Za-z_][A-Za-z0-9_]*)}")
 
 /** Checks what Alexandrite needs to run and prints each finding. */
 internal fun doctor(cli: Cli, json: Boolean): Int {
@@ -50,16 +53,28 @@ internal fun doctor(cli: Cli, json: Boolean): Int {
             },
         )
     } else {
-        for (finding in findings) {
-            cli.out.println("${finding.verdict.label.padEnd(5)} ${finding.check}: ${finding.detail}")
-        }
         val failed = findings.count { it.verdict == Verdict.FAIL }
         val summary = when (failed) {
             0 -> cli.t("doctor.fine")
             1 -> cli.t("doctor.one_fails")
             else -> cli.t("doctor.fail", "count" to failed)
         }
-        cli.out.println(summary)
+        val style = cli.style
+        if (style == null) {
+            for (finding in findings) {
+                cli.out.println("${finding.verdict.label.padEnd(5)} ${finding.check}: ${finding.detail}")
+            }
+            cli.out.println(summary)
+        } else {
+            val width = findings.maxOf { columns(it.check) }
+            for (finding in findings) {
+                cli.out.println(
+                    "${style.mark(finding.verdict.mark)} ${style.bold(pad(finding.check, width))}  ${finding.detail}",
+                )
+            }
+            cli.out.println()
+            cli.out.println("${style.mark(if (failed == 0) Mark.OK else Mark.FAIL)} $summary")
+        }
     }
     return if (findings.any { it.verdict == Verdict.FAIL }) ExitCode.FAILURE else ExitCode.OK
 }
@@ -124,7 +139,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
     } catch (e: IOException) {
         null
     }
-    val unset = raw?.let { strings(it) }.orEmpty().flatMap { text -> REFERENCE.findAll(text).map { it.groupValues[1] } }
+    val unset = raw?.let { strings(it) }.orEmpty().flatMap { referencedVariables(it) }
         .filter { it !in environment }.distinct()
     if (unset.isNotEmpty()) {
         findings += Finding(
@@ -139,11 +154,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
         )
         return raw
     }
-    val problems = try {
-        configProblems(plugins(cli), ConfigFile.read(file, environment)).map { it.message }
-    } catch (e: ConfigFileException) {
-        listOf(e.message.orEmpty())
-    }
+    val problems = configFileProblems(cli, environment)
     findings += if (problems.isEmpty()) {
         Finding("config", Verdict.OK, cli.t("doctor.config_passes", "file" to file))
     } else {
@@ -234,24 +245,25 @@ private fun disk(cli: Cli): Finding {
     }
 }
 
-/** One models request to each configured endpoint, which checks that it answers and takes its key. */
+/** One request to each configured endpoint that checks that it answers and takes its key. */
 private fun endpoints(cli: Cli, raw: JsonObject, environment: Map<String, String>): List<Finding> =
     raw.objectAt("providers").flatMap { (name, value) ->
         val provider = providerKind(name) ?: return@flatMap emptyList()
         ((value as? JsonObject)?.get("endpoints") as? JsonObject).orEmpty().map { (id, endpoint) ->
             val config = endpoint as? JsonObject ?: JsonObject(emptyMap())
             val check = "endpoint $id"
-            val base = config["baseUrl"].text?.let { resolved(it, environment) } ?: provider.defaultUrl
+            val base = config["baseUrl"].text?.let { resolveReferences(it, environment) } ?: provider.defaultUrl
                 ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_base_url"))
-            val key = config["apiKey"].text?.let { resolved(it, environment) }
+            val key = config["apiKey"].text?.let { resolveReferences(it, environment) }
             val headers = buildMap {
                 (config["headers"] as? JsonObject)?.forEach { (header, text) ->
-                    text.text?.let { resolved(it, environment) }?.let { put(header, it) }
+                    text.text?.let { resolveReferences(it, environment) }?.let { put(header, it) }
                 }
                 putAll(keyHeaders(provider, key))
             }
             val secrets = listOfNotNull(key) + headers.values
-            reached(cli, check, "${base.trimEnd('/')}${provider.modelsPath}", headers, secrets, base)
+            val path = provider.keyPath?.takeIf { key != null } ?: provider.modelsPath
+            reached(cli, check, "${base.trimEnd('/')}$path", headers, secrets, base)
         }
     }
 
@@ -296,9 +308,9 @@ private fun telegram(cli: Cli, raw: JsonObject, environment: Map<String, String>
     raw.objectAt("channels.telegram.instances").map { (name, value) ->
         val config = value as? JsonObject ?: JsonObject(emptyMap())
         val check = "telegram:$name"
-        val token = config["botToken"].text?.let { resolved(it, environment) }
+        val token = config["botToken"].text?.let { resolveReferences(it, environment) }
             ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_token"))
-        val base = config["apiBaseUrl"].text?.let { resolved(it, environment) } ?: TELEGRAM_API
+        val base = config["apiBaseUrl"].text?.let { resolveReferences(it, environment) } ?: TELEGRAM_API
         when (val bot = telegramBot(cli, base, token)) {
             is BotCheck.Bot -> Finding(check, Verdict.OK, cli.t("bot.belongs", "bot" to described(cli, bot)))
             is BotCheck.Refused -> Finding(check, Verdict.FAIL, cli.texts(bot.reason))
@@ -310,22 +322,6 @@ private fun service(cli: Cli): Finding {
         ?: return Finding("service", Verdict.WARN, cli.t("doctor.no_service"))
     val state = service.state() ?: cli.t("service.state_unknown")
     return Finding("service", Verdict.OK, cli.t("doctor.service", "service" to service.description, "state" to state))
-}
-
-/** [text] with its `${env:NAME}` references replaced from [environment], null when one is unset. */
-private fun resolved(text: String, environment: Map<String, String>): String? {
-    val parts = text.split("$\${")
-    return parts.map { part ->
-        var missing = false
-        val replaced = REFERENCE.replace(part) { match ->
-            environment[match.groupValues[1]] ?: run {
-                missing = true
-                ""
-            }
-        }
-        if (missing) return null
-        replaced
-    }.joinToString("\${")
 }
 
 private fun JsonObject?.orEmpty(): JsonObject = this ?: JsonObject(emptyMap())

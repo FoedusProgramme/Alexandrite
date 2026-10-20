@@ -123,7 +123,8 @@ class McpHubTest {
 
         server("files").restart()
         until("restarted") {
-            "mcp.files.added" !in names && server("files").status.value.state == ServerState.CONNECTED
+            "mcp.files.added" !in names && names.isNotEmpty() &&
+                server("files").status.value.state == ServerState.CONNECTED
         }
         assertEquals(8, names.size)
     }

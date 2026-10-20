@@ -6,16 +6,16 @@ import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl.Call
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class AllowCommandsTest {
-    private val control = RecordingAgentControl()
-    private val commands = AllowCommands(control, commandTexts(), TestClock())
+    private val control = RecordingAgent()
+    private val commands = AllowCommands(control.rules, commandTexts(), TestClock())
 
     private val status = RuleSubject("command.exec", listOf("git", "status"), "git status")
     private val gradle = RuleSubject("command.exec", listOf("/srv/repo/gradlew", "test"), "/srv/repo/gradlew test")

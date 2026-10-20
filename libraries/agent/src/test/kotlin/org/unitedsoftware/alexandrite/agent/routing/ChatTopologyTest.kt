@@ -10,8 +10,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
-import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.testTexts

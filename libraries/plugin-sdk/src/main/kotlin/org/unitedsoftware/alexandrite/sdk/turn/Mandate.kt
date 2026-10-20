@@ -10,5 +10,9 @@ import kotlinx.serialization.Serializable
 @JvmInline
 @Serializable
 public value class Mandate(public val value: String) {
+    init {
+        require(value.isNotEmpty()) { "A mandate id may not be empty." }
+    }
+
     override fun toString(): String = value
 }

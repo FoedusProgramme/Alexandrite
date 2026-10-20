@@ -52,11 +52,9 @@ public class BeatPlan<K : Any>(
         require(every.isPositive()) { "A beat interval must be positive, not $every." }
     }
 
-    /** The first beat after [now] of the beats every [every] from [start]. */
-    public fun dueAfter(start: Instant, now: Instant): Instant {
-        val step = every.toJavaDuration()
-        return start.plus(step.multipliedBy(java.time.Duration.between(start, now).dividedBy(step) + 1))
-    }
+    /** The first beat after [now] of the beats every [every] from [start], [Instant.MAX] past the end of time. */
+    public fun dueAfter(start: Instant, now: Instant): Instant =
+        stepAfter(start, every.toJavaDuration(), now) ?: Instant.MAX
 
     /** Whether a beat due at [due] falls within the active hours. */
     public fun isActive(due: Instant): Boolean = activeHours == null || LocalTime.ofInstant(due, zone) in activeHours

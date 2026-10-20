@@ -13,7 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
-import org.unitedsoftware.alexandrite.testkit.RecordingAgentControl
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import org.unitedsoftware.alexandrite.testkit.testUser
@@ -22,9 +22,9 @@ import kotlin.test.assertEquals
 
 class CommandRulesTest {
     private val kinds = listOf(ChatKind.DIRECT, ChatKind.GROUP, ChatKind.BROADCAST, ChatKind.UNKNOWN)
-    private val control = RecordingAgentControl()
+    private val control = RecordingAgent()
     private val rules =
-        CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("purge", "heartbeat")), control)
+        CommandRules(listOf(ClaimedCommands(*DEFAULT_COMMANDS), ClaimedCommands("purge", "heartbeat")), control.links)
 
     /** The refusal of `/[command] [arguments]` in [chat] of [kind] for a member and for an admin. */
     private fun refusals(
@@ -101,7 +101,7 @@ class CommandRulesTest {
 
     @Test
     fun `anyone lists the scheduled tasks, only admins cancel one`() {
-        val rules = CommandRules(listOf(ClaimedCommands("schedule")), control)
+        val rules = CommandRules(listOf(ClaimedCommands("schedule")), control.links)
         val member = testUser("bob")
         val admin = testUser("ada", isOperator = true)
 
@@ -118,7 +118,7 @@ class CommandRulesTest {
 
     @Test
     fun `anyone sees the MCP servers, only admins restart one`() {
-        val rules = CommandRules(listOf(ClaimedCommands("mcp")), control)
+        val rules = CommandRules(listOf(ClaimedCommands("mcp")), control.links)
         val member = testUser("bob")
         val admin = testUser("ada", isOperator = true)
 
@@ -150,7 +150,7 @@ class CommandRulesTest {
     @Test
     fun `the bot's config opens a plugin's command by name, in the form it names`() {
         val opened = mapOf("purge" to Who.ANYONE, "notes" to Who.DIRECT)
-        val rules = CommandRules(listOf(ClaimedCommands("purge", "notes", "audit")), control, opened)
+        val rules = CommandRules(listOf(ClaimedCommands("purge", "notes", "audit")), control.links, opened)
         val member = testUser("bob")
 
         for (arguments in listOf("", "all")) {
@@ -173,7 +173,7 @@ class CommandRulesTest {
 
             override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
         }
-        val rules = CommandRules(listOf(purge), control, mapOf("purge" to Who.ANYONE))
+        val rules = CommandRules(listOf(purge), control.links, mapOf("purge" to Who.ANYONE))
         val member = testUser("bob")
 
         for (kind in kinds) {
@@ -236,7 +236,7 @@ class CommandRulesTest {
         runTest {
             val group = testChat("-100")
             val linked = testChat("42")
-            control.link(AgentId.MAIN, group, linked, testUser("ada", isOperator = true))
+            control.links.link(AgentId.MAIN, group, linked, testUser("ada", isOperator = true))
 
             for (chat in listOf(linked, testChat("42", "7"))) {
                 for ((command, arguments) in listOf(

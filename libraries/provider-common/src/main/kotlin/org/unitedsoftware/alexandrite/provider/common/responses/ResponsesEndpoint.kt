@@ -16,7 +16,7 @@ import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
-import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
+import org.unitedsoftware.alexandrite.provider.common.turnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
@@ -30,6 +30,7 @@ import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 
 /** What an endpoint of the Responses API does beyond its [EndpointSettings]. */
+@Serializable
 public class ResponsesSettings(
     /** Whether requests carry the agent's cache key. */
     public val promptCacheKey: Boolean = true,
@@ -96,17 +97,11 @@ public class ResponsesEndpoint(
     }
 
     override fun turnContextMode(model: String, options: ModelOptions, trust: Trust): TurnContextMode =
-        if (settings.turnContext == TurnContextSetting.TRANSIENT) {
-            TurnContextMode.TRANSIENT
-        } else {
-            TurnContextMode.NOT_SUPPORTED
-        }
+        settings.turnContextMode()
 
     override fun close() {
         core.close()
     }
-
-    internal fun describe(model: String): ModelInfo = core.describe(model)
 
     private fun classify(detail: ErrorDetail): ModelErrorKind? =
         flavor.errors.kind(detail.type, detail.code, detail.message)

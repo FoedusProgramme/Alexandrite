@@ -38,9 +38,14 @@ public interface HostConfig {
 
 /** What a [HostConfig] change wrote. */
 @Poko
-public class ConfigChanges(
+public class ConfigChanges private constructor(
     /** The paths whose values changed, in file order. */
     public val changed: List<String>,
     /** The paths of [changed] that take effect only once the runtime starts again, the others having taken effect. */
     public val restart: List<String>,
-)
+) {
+    public companion object {
+        public operator fun invoke(changed: List<String>, restart: List<String>): ConfigChanges =
+            ConfigChanges(changed.toList(), restart.toList())
+    }
+}

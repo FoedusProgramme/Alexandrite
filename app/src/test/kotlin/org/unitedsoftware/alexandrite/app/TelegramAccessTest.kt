@@ -16,13 +16,14 @@ import org.unitedsoftware.alexandrite.app.control.controlSocket
 import org.unitedsoftware.alexandrite.app.control.serveControl
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesk
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesks
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
+import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -61,9 +62,8 @@ class TelegramAccessTest {
     @Test
     fun `a home chat or linked chat that the agent keeps but that is not paired is warned of at start`() {
         app.run(app.builder(directory)) {
-            val control = get<AgentControl>()
-            control.updateSettings(app.address(app.group), ChatSettingsUpdate.builder().home().build(), null)
-            control.link(CODER, app.address(app.adaChat), app.address(app.bobChat), null)
+            get<ChatSettings>().update(app.address(app.group), ChatSettingsUpdate.builder().home().build(), null)
+            get<ChatLinks>().link(CODER, app.address(app.adaChat), app.address(app.bobChat), null)
         }
 
         Files.delete(configFile())

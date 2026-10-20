@@ -13,6 +13,9 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.control.ControlAnswers
 import org.unitedsoftware.alexandrite.app.control.controlSocket
 import org.unitedsoftware.alexandrite.app.control.serveControl
+import org.unitedsoftware.alexandrite.app.tui.Key
+import org.unitedsoftware.alexandrite.app.tui.ScriptedConsole
+import org.unitedsoftware.alexandrite.app.tui.typed
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesks
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotApi
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeUser
@@ -212,7 +215,7 @@ class InitTest {
         assertEquals(0, printed.code, printed.out + printed.err)
         assertContains(printed.out, "No ALEXANDRITE_TELEGRAM_TOKEN is set, so Telegram is left out.")
         assertContains(printed.out, "No Telegram bot is set up, so there is no admin to claim.")
-        assertContains(printed.out, "Skipped telegram: set it up later with alexandrite init --only telegram")
+        assertContains(printed.out, "Skipped Telegram: set it up later with alexandrite init --only telegram")
         assertEquals("\"deepseek/deepseek-chat\"", "${file().at("agent.agents.main.model")}")
         assertEquals("""{"language":"de-DE","zone":"Europe/Berlin"}""", "${file().at("app")}")
         assertEquals("DEEPSEEK_API_KEY=sk-env\n", Files.readString(cli.secrets))
@@ -236,6 +239,43 @@ class InitTest {
         assertContains(refused.err, "refuses the key (HTTP 401).")
         assertFalse(Files.exists(cli.configFile))
         assertFalse(Files.exists(cli.secrets))
+    }
+
+    @Test
+    fun `an OpenRouter key is checked by a request only a valid key gets an answer to`() {
+        models.enqueue(FakeResponse.builder(401).body("{}").build(), "/key")
+        models.enqueue(FakeResponse.builder().body("""{"data": {"label": "test"}}""").build(), "/key")
+        cli.environment = mapOf(API_KEY_VARIABLE to "sk-made-up")
+        val scripted = cli("init", "--non-interactive", "--provider", "openrouter", "--base-url", models.baseUrl)
+        cli.environment = emptyMap()
+        cli.machine.answers += listOf("", "sk-or-real", "1")
+
+        val asked = cli("init", "--only", "model", "--provider", "openrouter", "--base-url", models.baseUrl)
+
+        assertEquals(1, scripted.code)
+        assertContains(scripted.err, "${models.baseUrl} refuses the key (HTTP 401).")
+        assertEquals(0, asked.code, asked.out + asked.err)
+        assertContains(asked.out, "${models.baseUrl} takes the key and lists 2 models.")
+        assertEquals(
+            listOf("/key" to "Bearer sk-made-up", "/key" to "Bearer sk-or-real", "/models" to "Bearer sk-or-real"),
+            models.requests.map { it.path to it.header("authorization") },
+        )
+        assertEquals("OPENROUTER_API_KEY=sk-or-real\n", Files.readString(cli.secrets))
+    }
+
+    @Test
+    fun `a key that cannot be checked is kept when the person says so, and the model is typed`() {
+        models.enqueue(FakeResponse.builder(503).body("{}").build(), "/key")
+        cli.machine.answers += listOf("", "sk-or-unchecked", "y", "vendor/model-a")
+
+        val printed = cli("init", "--only", "model", "--provider", "openrouter", "--base-url", models.baseUrl)
+
+        assertEquals(0, printed.code, printed.out + printed.err)
+        assertContains(printed.err, "${models.baseUrl} answers the key check with HTTP 503.")
+        assertContains(cli.machine.prompts, "The key could not be checked. Keep it anyway? [Y/n] ")
+        assertContains(cli.machine.prompts, "Model name (the endpoint gave no list): ")
+        assertEquals("\"openrouter/vendor/model-a\"", "${file().at("agent.agents.main.model")}")
+        assertEquals("OPENROUTER_API_KEY=sk-or-unchecked\n", Files.readString(cli.secrets))
     }
 
     @Test
@@ -308,14 +348,102 @@ class InitTest {
         cli.environment = mapOf("LANG" to "zh_CN.UTF-8")
 
         val printed = cli("init", "--non-interactive", "--only", "language", "--zone", "Asia/Shanghai")
+        val skipped = cli("init", "--non-interactive", "--force", "--only", "admin", "--only", "telegram")
         val status = cli("status")
         val usage = cli("init", "--only", "nothing")
 
         assertEquals(0, printed.code, printed.err)
         assertContains(printed.out, "正在设置 Alexandrite")
         assertContains(printed.out, "智能体用 zh-CN 回答，并按 Asia/Shanghai 报时。")
+        assertContains(skipped.out, "已跳过 Telegram：之后可以用 alexandrite init --only telegram 设置")
+        assertContains(skipped.out, "已跳过管理员：之后可以用 alexandrite init --only admin 认领机器人的管理员。")
         assertContains(status.out, "Alexandrite 没有在运行。")
         assertContains(usage.err, "'nothing' 不是 init 的步骤")
         assertContains(usage.err, "用法：alexandrite init")
+    }
+
+    // On the terminal.
+
+    @Test
+    fun `init draws its prompts on the terminal, with the key masked and a summary at the end`() {
+        val console = ScriptedConsole(
+            listOf(Key.Enter, Key.Enter) + typed("sk-test") + Key.Enter +
+                listOf(Key.Down, Key.Space, Key.Up, Key.Space, Key.Enter) +
+                listOf(Key.Enter) + typed("zh-CN") + Key.Enter + Key.Enter,
+            width = 200,
+        )
+        cli.machine.console = console
+
+        val printed = cli("init", "--only", "model", "--only", "language", "--base-url", models.baseUrl)
+
+        assertEquals(0, printed.code, printed.out + printed.err + console.screen.lines())
+        assertEquals("", printed.out + printed.err)
+        assertTrue(cli.machine.prompts.isEmpty(), "${cli.machine.prompts}")
+        val screen = console.screen.lines()
+        val expected = listOf(
+            "┌   Alexandrite setup",
+            "│",
+            "│  Setting Alexandrite up, with the config file ${cli.configFile}.",
+            "│",
+            "◈  Step 1 of 6: the model.",
+            "│",
+            "◇  Set up a model provider now?",
+            "│  Yes",
+            "│",
+            "◇  Model provider",
+            "│  DeepSeek",
+            "│",
+            "◇  API key for DeepSeek",
+            "│  ▪▪▪▪▪▪▪",
+            "│",
+            "✓  ${models.baseUrl} takes the key and lists 2 models.",
+            "│",
+            "◇  Models",
+            "│  deepseek-reasoner, deepseek-chat",
+            "│",
+            "✓  The agent main uses deepseek/deepseek-reasoner, deepseek/deepseek-chat.",
+        )
+        assertEquals(expected, screen.take(expected.size))
+        assertTrue(screen.any { it.startsWith("│  Provider            DeepSeek · ${models.baseUrl}  ") }, "$screen")
+        assertTrue(screen.any { it.startsWith("│  Language and zone   zh-CN · Europe/Berlin  ") }, "$screen")
+        assertEquals("└  Done.", screen.last())
+        assertFalse("sk-test" in "${console.written}")
+        assertTrue(console.closed)
+        assertEquals(
+            """["deepseek/deepseek-reasoner","deepseek/deepseek-chat"]""",
+            "${file().at("agent.agents.main.models")}",
+        )
+        assertEquals("""{"language":"zh-CN","zone":"Europe/Berlin"}""", "${file().at("app")}")
+    }
+
+    @Test
+    fun `a cancelled prompt stops init without writing`() {
+        val console = ScriptedConsole(listOf(Key.Enter, Key.Interrupt))
+        cli.machine.console = console
+
+        val printed = cli("init", "--only", "model", "--base-url", models.baseUrl)
+
+        assertEquals(1, printed.code)
+        assertContains(console.screen.lines(), "■  Model provider")
+        assertEquals("└  Stopped at your request.", console.screen.lines().last())
+        assertFalse(Files.exists(cli.configFile))
+    }
+
+    @Test
+    fun `--plain, a dumb terminal or no terminal keep the plain prompts`() {
+        val console = ScriptedConsole()
+        cli.machine.console = console
+        cli.machine.answers += listOf("", "fr", "")
+
+        val plain = cli("init", "--plain", "--only", "language")
+        cli.environment = mapOf("TERM" to "dumb")
+        cli.machine.answers += listOf("y", "", "", "")
+        val dumb = cli("init", "--only", "language")
+
+        assertEquals(0, plain.code, plain.err)
+        assertEquals(0, dumb.code, dumb.err)
+        assertContains(plain.out, "Step 4 of 6: language and time zone.")
+        assertContains(cli.machine.prompts, "Language of the agent's answers [en]: ")
+        assertEquals("", "${console.written}")
     }
 }

@@ -15,6 +15,9 @@ import org.unitedsoftware.alexandrite.sdk.model.rebuild
 internal fun modelException(kind: ModelErrorKind, message: String, outputStarted: Boolean): ModelException =
     ModelException(ModelError.builder(kind, message).outputStarted(outputStarted).build())
 
+/** Throws a [ModelErrorKind.PROTOCOL] failure with [message] before any output started. */
+internal fun protocol(message: String): Nothing = throw modelException(ModelErrorKind.PROTOCOL, message, false)
+
 /**
  * This failure as the model error it means for a call that had [outputStarted], its kind the one [classify] gives the
  * error body where it gives one.

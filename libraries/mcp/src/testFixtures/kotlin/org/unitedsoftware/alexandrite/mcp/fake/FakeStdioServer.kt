@@ -6,12 +6,21 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.net.InetSocketAddress
+import java.net.ProxySelector
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.system.exitProcess
 
 /**
  * A stdio MCP server run as a real child process by the tests, in the mode its first argument names: `modern`,
- * `legacy`, `legacy-old`, `silent-legacy`, `unsupported`, `ancient`, `crash`, `noisy` or `stubborn`.
+ * `legacy`, `legacy-old`, `silent-legacy`, `unsupported`, `ancient`, `crash`, `noisy`, `stubborn` or `sandboxed`, which
+ * also offers the tools `write` and `fetch`.
  */
 public fun main(args: Array<String>) {
     FakeStdioServer(args.firstOrNull() ?: "modern").run()
@@ -219,8 +228,9 @@ private class FakeStdioServer(private val mode: String) {
 
     private fun toolsList(id: JsonElement, cursor: String?) {
         val first = listOf("echo", "kinds", "fail")
-        val second =
-            listOf("ask", "env", "hang", "change", "exit") + if (generation > 0) listOf("added") else emptyList()
+        val second = listOf("ask", "env", "hang", "change", "exit") +
+            (if (generation > 0) listOf("added") else emptyList()) +
+            if (mode == "sandboxed") listOf("write", "fetch") else emptyList()
         result(
             id,
             buildJsonObject {
@@ -345,6 +355,10 @@ private class FakeStdioServer(private val mode: String) {
                 exitProcess(4)
             }
 
+            "write" -> result(id, text(attempt { Files.writeString(Path.of(arguments.string("path")!!), "written") }))
+
+            "fetch" -> result(id, text(attempt { fetch(arguments.string("url")!!) }))
+
             else -> error(id, -32602, "Unknown tool: $name")
         }
     }
@@ -396,6 +410,28 @@ private class FakeStdioServer(private val mode: String) {
             )
         },
     )
+
+    /** "done", the text [action] returns, or the failure it threw. */
+    private fun attempt(action: () -> Any): String = try {
+        (action() as? String) ?: "done"
+    } catch (e: Exception) {
+        "failed: $e"
+    }
+
+    /** The body at [url], through the proxy that `HTTP_PROXY` names when set. */
+    private fun fetch(url: String): String {
+        val builder = HttpClient.newBuilder().version(
+            HttpClient.Version.HTTP_1_1,
+        ).connectTimeout(Duration.ofSeconds(10))
+        System.getenv("HTTP_PROXY")?.let {
+            URI(it)
+        }?.let { builder.proxy(ProxySelector.of(InetSocketAddress(it.host, it.port))) }
+        val response = builder.build().send(
+            HttpRequest.newBuilder(URI(url)).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        return "${response.statusCode()} ${response.body().trim()}"
+    }
 
     private fun notification(method: String, params: JsonObject) = buildJsonObject {
         put("jsonrpc", "2.0")

@@ -16,7 +16,7 @@ internal class Chain(val steps: List<ChainStep>, val errexit: Boolean)
  * than words, quotes without expansions, `&&`, `||`, `;`, line breaks and `cd <dir>`.
  */
 internal fun shellChain(argv: List<String>, home: String?): Chain? {
-    val program = argv.first().substringAfterLast('/')
+    val program = baseName(argv.first())
     val arguments = when {
         program in POSIX_SHELLS -> argv.drop(1)
         program == "busybox" && argv.getOrNull(1) == "sh" -> argv.drop(2)

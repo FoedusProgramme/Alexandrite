@@ -6,7 +6,7 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.AlexandriteAgentIndex
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.store.sqlite.AlexandriteStoreSqliteIndex
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
@@ -58,7 +58,7 @@ class ProfilesPersistenceTest {
         started { create("reviewer") }
 
         started {
-            val profiles = get<AgentControl>().profiles()
+            val profiles = get<AgentCatalog>().profiles()
 
             assertEquals(listOf("general", "reviewer"), profiles.map { it.profile.id.value }.sorted())
             val reviewer = profiles.single { it.profile.id.value == "reviewer" }

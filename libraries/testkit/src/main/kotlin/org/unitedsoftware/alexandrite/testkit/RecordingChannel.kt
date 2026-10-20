@@ -34,6 +34,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
+import org.unitedsoftware.alexandrite.testkit.plugin.ScriptedDeliveries
 
 /**
  * A channel of the instance [instance] that records what the agent shows and sends, answers approval requests as the
@@ -58,7 +59,7 @@ public class RecordingChannel(
     /** The replies by their turn and the background run whose activity alone they show, null for the turn's own. */
     private val opened = LinkedHashMap<Pair<TurnId, RunId?>, RecordedReply>()
     private val capabilities = HashMap<ChatAddress?, ChannelCapabilities>()
-    private val deliveries = HashMap<ChatAddress?, ArrayDeque<Delivery>>()
+    private val deliveries = ScriptedDeliveries()
     private val violationList = mutableListOf<String>()
     private var sentParts = 0
     private var inbound = 0
@@ -122,7 +123,7 @@ public class RecordingChannel(
      * delivery reaches the chat as one platform message per part.
      */
     public fun scriptDeliveries(vararg deliveries: Delivery, chat: ChatAddress? = null) {
-        synchronized(lock) { this.deliveries.getOrPut(chat) { ArrayDeque() }.addAll(deliveries) }
+        synchronized(lock) { this.deliveries.script(deliveries, chat) }
     }
 
     /** Answers the next approval requests with [answers], in order, once each is let through. */
@@ -265,11 +266,7 @@ public class RecordingChannel(
 
     private fun carried(name: String, arguments: String, chat: ChatAddress, issuer: ChatUser): Submission.Command {
         val message = message("/$name $arguments".trimEnd(), chat, issuer)
-        val invocation = CommandInvocation.builder(chat, name, issuer)
-            .arguments(arguments)
-            .trigger(message.ref)
-            .chatKind(message.chatInfo.kind)
-            .build()
+        val invocation = testCommand(name, arguments, chat, issuer, message.ref, message.chatInfo.kind)
         return Submission.Command(invocation, message)
     }
 
@@ -281,8 +278,7 @@ public class RecordingChannel(
 
     /** How [message] reaches [chat], a reply of a turn when [replying]. */
     private fun delivery(chat: ChatAddress, message: OutboundMessage, replying: Boolean): Delivery {
-        deliveries[chat]?.removeFirstOrNull()?.let { return it }
-        deliveries[null]?.removeFirstOrNull()?.let { return it }
+        deliveries.next(chat)?.let { return it }
         val parts = parts(message.text)
         val limit = (capabilities[chat] ?: capabilities[null] ?: DEFAULT_CAPABILITIES).maxPartsPerReply
         if (replying && limit != null && parts > limit) {

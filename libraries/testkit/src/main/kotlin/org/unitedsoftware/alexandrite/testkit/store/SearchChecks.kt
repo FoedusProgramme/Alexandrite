@@ -21,7 +21,7 @@ import org.unitedsoftware.alexandrite.testkit.testChat
 internal val SEARCH_CHECKS: List<StoreCheck> = listOf(
     StoreCheck("a search finds the entries whose text holds every word, ignoring case") {
         open {
-            val stored = appendTo(
+            val stored = appendInCurrentConversation(
                 main,
                 message("Deploy the Rocket today"),
                 AssistantEntry(null, listOf(TextPart("The rocket launched.")), model),
@@ -61,11 +61,11 @@ internal val SEARCH_CHECKS: List<StoreCheck> = listOf(
     StoreCheck("a search looks in every conversation of the keys it is given, sealed ones included") {
         open {
             val other = AgentChatKey(AgentId.MAIN, testChat("other"))
-            val sealed = appendTo(main, message("alpha one"))
+            val sealed = appendInCurrentConversation(main, message("alpha one"))
             conversations.newConversation(main)
-            val current = appendTo(main, message("alpha two"))
-            appendTo(coder, message("alpha three"))
-            val elsewhere = appendTo(other, message("alpha four", chat = other.chat))
+            val current = appendInCurrentConversation(main, message("alpha two"))
+            appendInCurrentConversation(coder, message("alpha three"))
+            val elsewhere = appendInCurrentConversation(other, message("alpha four", chat = other.chat))
 
             expectEqual(
                 (sealed + current).ids(),
@@ -79,7 +79,7 @@ internal val SEARCH_CHECKS: List<StoreCheck> = listOf(
     },
     StoreCheck("a search finds at most its limit") {
         open {
-            val stored = appendTo(main, *(1..5).map { message("beta $it") }.toTypedArray())
+            val stored = appendInCurrentConversation(main, *(1..5).map { message("beta $it") }.toTypedArray())
 
             val found = transcripts.search("beta", setOf(main), 2).entries()
 
@@ -89,22 +89,18 @@ internal val SEARCH_CHECKS: List<StoreCheck> = listOf(
     },
     StoreCheck("a deleted message is no longer found") {
         open {
-            appendTo(main, message("gamma", id = "m-d"), message("other"))
+            appendInCurrentConversation(main, message("gamma", id = "m-d"), message("other"))
             transcripts.deleteMessage(ChannelMessageRef(chat, "m-d"))
 
             expectEqual(emptyList(), transcripts.search("gamma", setOf(main), 10), "the entries found")
         }
     },
     StoreCheck("entries are found after the store reopens") {
-        val stored = open { appendTo(main, message("delta kept")) }
+        val stored = open { appendInCurrentConversation(main, message("delta kept")) }
 
         open { expectEqual(stored, transcripts.search("delta", setOf(main), 10).entries(), "the entries found") }
     },
 )
-
-/** Stores [entries] in a new turn of the current conversation of [key]. */
-private suspend fun Ports.appendTo(key: AgentChatKey, vararg entries: TranscriptEntry): List<TranscriptEntry> =
-    transcripts.append(startTurn(conversations.current(key)).id, entries.toList())
 
 private fun List<TranscriptMatch>.entries(): List<TranscriptEntry> = map { it.entry }
 

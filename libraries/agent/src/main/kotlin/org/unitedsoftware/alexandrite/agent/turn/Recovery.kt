@@ -7,16 +7,19 @@ import org.unitedsoftware.alexandrite.agent.delegation.DELEGATE_TOOL
 import org.unitedsoftware.alexandrite.agent.delegation.RUN_INTERRUPTED_RESULT
 import org.unitedsoftware.alexandrite.agent.delivery.Notices
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
-import org.unitedsoftware.alexandrite.agent.job.AGENT_MESSAGE_TOOL
 import org.unitedsoftware.alexandrite.agent.job.InterruptedJob
 import org.unitedsoftware.alexandrite.agent.job.InterruptedJobs
+import org.unitedsoftware.alexandrite.agent.job.InterruptedMessage
 import org.unitedsoftware.alexandrite.agent.job.JobRecord
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.job.described
+import org.unitedsoftware.alexandrite.agent.messaging.MessageRecord
+import org.unitedsoftware.alexandrite.agent.messaging.MessageRecords
 import org.unitedsoftware.alexandrite.agent.permission.AwaitingCalls
 import org.unitedsoftware.alexandrite.agent.permission.Refusals
 import org.unitedsoftware.alexandrite.agent.tool.CANCELLED_RESULT
 import org.unitedsoftware.alexandrite.agent.tool.textResult
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
@@ -41,6 +44,7 @@ internal class Recovery(
     private val notices: Notices,
     private val awaiting: AwaitingCalls,
     private val jobs: JobRecords,
+    private val messages: MessageRecords,
     private val interruptedJobs: InterruptedJobs,
 ) {
     /**
@@ -52,43 +56,58 @@ internal class Recovery(
         for (turn in conversations.unendedTurns()) recover(turn, waited)
         if (waited.isNotEmpty()) awaiting.clear()
         for ((id, job) in jobs.all()) interrupted(id, job)
+        for ((id, message) in messages.all()) interrupted(id, message)
     }
 
     private suspend fun interrupted(id: RunId, job: JobRecord) {
         val call = described(job.tool, job.title)
         job.delegated?.let { sealRun(id, it) }
+        val noted = noted("Job $id ($call)", "it is not run again", job.conversation, job.turn, job.chat) {
+            interruptedJobs.add(job.conversation, InterruptedJob(id, job.tool, job.title))
+            notices.text(job.key, TextKeys.JOB_INTERRUPTED, "job" to id, "call" to call)
+        }
+        if (noted) jobs.remove(id)
+    }
+
+    private suspend fun interrupted(id: RunId, message: MessageRecord) {
+        val what = "Message $id to agent ${message.agent}"
+        val noted = noted(what, "no reply will come", message.conversation, message.turn, message.chat) {
+            interruptedJobs.add(message.conversation, InterruptedMessage(id, message.agent))
+            notices.text(message.key, TextKeys.MESSAGE_INTERRUPTED, "agent" to message.agent)
+        }
+        if (noted) messages.remove(id)
+    }
+
+    /** Notes at [turn] of an active [conversation] the interruption that [note] records and words, false on failure. */
+    private suspend fun noted(
+        what: String,
+        consequence: String,
+        conversation: ConversationId,
+        turn: TurnId,
+        chat: ChatAddress,
+        note: suspend () -> String,
+    ): Boolean {
         try {
-            if (conversations.conversation(job.conversation)?.state == ConversationState.ACTIVE) {
-                interruptedJobs.add(job.conversation, InterruptedJob(id, job.tool, job.title))
-                val text = if (job.tool == AGENT_MESSAGE_TOOL) {
-                    notices.text(job.key, TextKeys.MESSAGE_INTERRUPTED, "agent" to job.title)
-                } else {
-                    notices.text(job.key, TextKeys.JOB_INTERRUPTED, "job" to id, "call" to call)
+            if (conversations.conversation(conversation)?.state == ConversationState.ACTIVE) {
+                val text = note()
+                if (transcripts.turnEntries(turn).none { it is NoticeEntry && it.text == text }) {
+                    transcripts.append(turn, listOf(NoticeEntry(null, text, NoticeKind.INTERRUPTED)))
                 }
-                if (transcripts.turnEntries(job.turn).none { it is NoticeEntry && it.text == text }) {
-                    transcripts.append(job.turn, listOf(NoticeEntry(null, text, NoticeKind.INTERRUPTED)))
-                }
-                logger.info("Job {} ({}) of {} was interrupted by a restart: it is not run again", id, call, job.chat)
+                logger.info("{} of {} was interrupted by a restart: {}", what, chat, consequence)
             } else {
                 logger.info(
-                    "Job {} ({}) of {} was interrupted by a restart, after its conversation {} was sealed",
-                    id,
-                    call,
-                    job.chat,
-                    job.conversation,
+                    "{} of {} was interrupted by a restart, after its conversation {} was sealed",
+                    what,
+                    chat,
+                    conversation,
                 )
             }
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
-            logger.warn(
-                "Job {} ({}) was interrupted by a restart, which could not be noted: {}",
-                id,
-                call,
-                e.toString(),
-            )
-            return
+            logger.warn("{} was interrupted by a restart, which could not be noted: {}", what, e.toString())
+            return false
         }
-        jobs.remove(id)
+        return true
     }
 
     /** Seals [conversation] of the background run [id], which may have waited for a permit and never started. */

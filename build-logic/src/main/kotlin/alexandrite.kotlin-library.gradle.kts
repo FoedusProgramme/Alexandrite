@@ -1,5 +1,6 @@
 import org.unitedsoftware.alexandrite.buildlogic.AlexandriteLayout
 import org.unitedsoftware.alexandrite.buildlogic.Layer
+import org.unitedsoftware.alexandrite.buildlogic.alexandriteVersion
 
 plugins {
     `java-library`
@@ -10,7 +11,7 @@ plugins {
 val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
 
 group = module.group
-version = providers.gradleProperty("alexandrite.version").getOrElse("0.1.0-SNAPSHOT")
+version = alexandriteVersion
 
 val libs = the<VersionCatalogsExtension>().named("libs")
 
@@ -51,6 +52,26 @@ if (module.layer !in AlexandriteLayout.THIRD_PARTY_LAYERS) {
 
 if (module.builtIn && module.layer in AlexandriteLayout.INDEXED_LAYERS) {
     apply(plugin = "alexandrite.ksp")
+}
+
+if (module.layer in AlexandriteLayout.PUBLISHED_LAYERS) {
+    apply(plugin = "alexandrite.publish")
+}
+
+// Examples ask for published modules as a third-party plugin does, and get this build's projects
+if (module.layer == Layer.EXAMPLE) {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            for (published in AlexandriteLayout.publishedModules.filter { findProject(it.path) != null }) {
+                val requested = module("${published.group}:${published.jarName}")
+                if (published.layer == Layer.BOM) {
+                    substitute(platform(requested)).using(platform(project(published.path)))
+                } else {
+                    substitute(requested).using(project(published.path))
+                }
+            }
+        }
+    }
 }
 
 dependencies {

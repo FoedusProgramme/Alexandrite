@@ -161,7 +161,7 @@ class PendingCommandsTest {
         }.reply { text("Noted.") }
 
         harness().execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             val channel = channel()
             val operator = channel.user("operator")
             val running = assertIs<Admission.Accepted>(channel.receive("Hi", sender = operator))
@@ -188,7 +188,7 @@ class PendingCommandsTest {
         var sealed: ConversationId? = null
 
         harness().execute {
-            commands.control = get()
+            commands.connect(get(), get(), get())
             runCommand("echo", "Hi!")
             sealed = conversation()
             runCommand("new")

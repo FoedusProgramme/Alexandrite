@@ -17,7 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.di.container.binding
 import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.runtime.RuntimeControl
 import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
-import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -32,7 +31,7 @@ class ExitCodeTest {
     lateinit var dataDir: Path
 
     private fun stopped(kind: StopKind): Termination =
-        runBlocking { AlexandriteRuntime.run(spec(dataDir)) { stop(StopRequest(kind, "test")) } }
+        runBlocking { AlexandriteRuntime.run(spec(dataDir)) { stop(stopRequest(kind, "test")) } }
 
     private fun failed(spec: RuntimeSpec): RuntimeStartException = assertFailsWith<RuntimeStartException> {
         runBlocking { AlexandriteRuntime.run(spec) { fail("the block ran") } }
@@ -71,7 +70,7 @@ class ExitCodeTest {
     }
 
     private class Stopping(private val control: RuntimeControl, private val kind: StopKind) : Lifecycle {
-        override suspend fun onStart() = control.stop(StopRequest(kind, "test"))
+        override suspend fun onStart() = control.stop(stopRequest(kind, "test"))
     }
 
     private fun stoppedWhileStarting(kind: StopKind): RuntimeStartException {

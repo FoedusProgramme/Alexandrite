@@ -60,19 +60,22 @@ internal suspend fun <T> blocking(block: () -> T): T = runInterruptible(Dispatch
 
 /** [argument] as an absolute path: a relative one resolved against the workspace, a leading `~` as the home directory. */
 internal suspend fun ToolContext.absolute(argument: String): Path {
-    val path = try {
-        Path.of(expandHome(argument))
-    } catch (e: InvalidPathException) {
-        throw Refusal("'$argument' is no valid path.")
-    }
-    if (path.isAbsolute) return path.normalize()
-    if (workspace == null) {
-        throw Refusal(
-            "'$argument' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
-        )
-    }
-    return openWorkspace().resolve(path).normalize()
+    val path = pathOf(argument) ?: throw Refusal("'$argument' is no valid path.")
+    return resolved(path) { if (workspace == null) null else openWorkspace() } ?: throw Refusal(
+        "'$argument' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
+    )
 }
+
+/** The path [argument] names, a leading `~` as the home directory, null when it is no valid path. */
+private fun pathOf(argument: String): Path? = try {
+    Path.of(expandHome(argument))
+} catch (e: InvalidPathException) {
+    null
+}
+
+/** [path] made absolute against the [workspace], null when it is relative and there is no workspace. */
+private inline fun resolved(path: Path, workspace: () -> Path?): Path? =
+    (if (path.isAbsolute) path else workspace()?.resolve(path))?.normalize()
 
 /** Where a search goes: [argument] as an absolute path, or the workspace when it is null or empty. */
 internal suspend fun ToolContext.searched(argument: String?): Path {
@@ -116,16 +119,12 @@ internal fun checkPerson(path: Path, check: FloorCheck.Ask, context: ToolContext
 
 /** The review of a call that reads [argument], the workspace when it is null or empty, asking where the floor asks. */
 internal suspend fun HardFloor.readReview(argument: String?, context: ToolContext): CallReview {
-    val path = try {
-        when {
-            argument.isNullOrEmpty() -> context.workspace
-            else -> Path.of(expandHome(argument)).let { if (it.isAbsolute) it else context.workspace?.resolve(it) }
-        }?.normalize()
-    } catch (e: InvalidPathException) {
-        null
-    } ?: return CallReview()
+    val path = when {
+        argument.isNullOrEmpty() -> context.workspace?.normalize()
+        else -> pathOf(argument)?.let { path -> resolved(path) { context.workspace } }
+    } ?: return CallReview.builder().build()
     val check = blocking { checkRead(path, context.turn.agent, context.turn.rootConversation) }
-    return CallReview(person = (check as? FloorCheck.Ask)?.let { askedPlace(path, it) })
+    return CallReview.builder().person((check as? FloorCheck.Ask)?.let { askedPlace(path, it) }).build()
 }
 
 /** The attributes of [path] itself, a link not followed. */

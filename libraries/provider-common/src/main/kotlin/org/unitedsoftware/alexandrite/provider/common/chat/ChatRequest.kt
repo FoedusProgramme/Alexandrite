@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.provider.common.ToolCallIndex
 import org.unitedsoftware.alexandrite.provider.common.callText
 import org.unitedsoftware.alexandrite.provider.common.resultHeading
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
@@ -45,12 +46,7 @@ internal class ChatRequest(
 
     private val messages = mutableListOf<Message>()
 
-    private val offersTools = request.tools.isNotEmpty()
-
-    private val answered = request.history.filterIsInstance<ToolResultEntry>().mapTo(HashSet()) { it.callId }
-
-    private val called = request.history.filterIsInstance<AssistantEntry>()
-        .flatMapTo(HashSet()) { entry -> entry.parts.filterIsInstance<ToolCallPart>().map { it.id } }
+    private val toolCalls = ToolCallIndex(request)
 
     val body: JsonObject = build()
 
@@ -72,7 +68,7 @@ internal class ChatRequest(
 
                 is AssistantEntry -> messages += Message.Plain(assistant(entry))
 
-                is ToolResultEntry -> if (offersTools && entry.callId in called) {
+                is ToolResultEntry -> if (toolCalls.sendsResult(entry.callId)) {
                     messages += Message.Plain(tool(entry))
                 } else {
                     user(resultText(entry))
@@ -192,7 +188,7 @@ internal class ChatRequest(
     private fun assistant(entry: AssistantEntry): JsonObject = buildJsonObject {
         put("role", "assistant")
         val parts = entry.parts
-        val (calls, unsent) = parts.filterIsInstance<ToolCallPart>().partition { offersTools && it.id in answered }
+        val (calls, unsent) = parts.filterIsInstance<ToolCallPart>().partition { toolCalls.sendsCall(it.id) }
         val texts = parts.filterIsInstance<TextPart>().map { it.text }
         put("content", (texts + unsent.map { callText(it, flavor.tools.wireName(it.name)) }).joinToString(SEPARATOR))
         flavor.reasoning.replay(parts.filterIsInstance<ReasoningPart>(), request, this)

@@ -33,8 +33,9 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.JobLifecycle
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
@@ -138,8 +139,8 @@ class JobTurnsTest {
                 listOf("job.started:fs.slow", "tool.backgrounded:fs.slow", "job.started:test.watch"),
                 points.toList(),
             )
-            get<AgentControl>().jobs(channel().chat()).forEach {
-                get<AgentControl>().stopJob(channel().chat(), it.id, null)
+            get<TurnControl>().jobs(channel().chat()).forEach {
+                get<TurnControl>().stopJob(channel().chat(), it.id, null)
             }
         }
     }
@@ -154,7 +155,7 @@ class JobTurnsTest {
             val admission = ask()
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             val id = job()
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             val status = control.jobs(channel().chat()).single()
             assertEquals(
                 listOf(id, "fs.slow", "/srv/big", channel().user("operator")),
@@ -200,7 +201,7 @@ class JobTurnsTest {
             val admission = ask()
             read.awaitCalls(1)
             finish.complete(Unit)
-            until { get<AgentControl>().jobs(channel().chat()).isEmpty() }
+            until { get<TurnControl>().jobs(channel().chat()).isEmpty() }
             read.release()
 
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
@@ -251,7 +252,7 @@ class JobTurnsTest {
                 val results = stored().filterIsInstance<ToolResultEntry>()
                 assertIs<ToolOutcome.Detached>(results[0].outcome)
                 assertEquals(ToolOutcome.Succeeded to "Quick done.", results[1].outcome to text(results[1]))
-                assertEquals(1, get<AgentControl>().jobs(channel().chat()).size)
+                assertEquals(1, get<TurnControl>().jobs(channel().chat()).size)
             }
         }
 
@@ -272,7 +273,7 @@ class JobTurnsTest {
 
         harness().execute {
             ask().ticket.outcome()
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             val operator = channel().user("operator")
 
             assertTrue(control.cancel(channel().chat(), operator))
@@ -287,14 +288,14 @@ class JobTurnsTest {
     }
 
     @Test
-    fun `a job is stopped by its id from its own chat only, through the control port or the agent's own tool`() {
+    fun `a job is stopped by its id from its own chat only, through the turn control or the agent's own tool`() {
         model.reply { toolCall("fs.slow", """{"path": "a"}""") }.reply { text("First.") }
             .reply { toolCall("fs.slow", """{"path": "b"}""") }.reply { text("Second.") }
 
         harness().execute {
             ask().ticket.outcome()
             ask().ticket.outcome()
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             val (first, second) = control.jobs(channel().chat()).map { it.id }
             model.reply { toolCall("agent.jobs") }.reply { toolCall("agent.stop", """{"job": "$second"}""") }
                 .reply { text("Stopped it.") }
@@ -389,7 +390,7 @@ class JobTurnsTest {
             harness().execute {
                 ask().ticket.outcome()
                 val id = job()
-                get<AgentControl>().newConversation(channel().chat(), channel().user("operator"))
+                get<ConversationControl>().newConversation(channel().chat(), channel().user("operator"))
                 finish.complete(Unit)
 
                 val sent = channel().awaitEvent { it is Event.Sent } as Event.Sent
@@ -430,7 +431,7 @@ class JobTurnsTest {
         harness { tool(startingInBackground(monitor)) }.execute {
             val ticket = ask().ticket
             withTimeout(5.seconds) { blocked.await() }
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             val id = control.jobs(channel().chat()).single().id
             emit.complete(Unit)
             withTimeout(5.seconds) { emitted.await() }

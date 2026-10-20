@@ -91,4 +91,15 @@ class SecretCommandsTest {
         assertEquals(mapOf("A" to "from the file", "B" to "from the environment"), merged)
         assertEquals(emptyMap(), readSecrets(directory.resolve("none.env")))
     }
+
+    @Test
+    fun `a reference names its variable when it is the whole text, and resolves anywhere in a text`() {
+        val environment = mapOf("HOST" to "example.com", "TOKEN" to "t")
+
+        assertEquals("TOKEN", referencedVariable(envReference("TOKEN")))
+        assertEquals(null, referencedVariable("Bearer ${envReference("TOKEN")}"))
+        assertEquals(listOf("HOST", "TOKEN"), referencedVariables("https://\${env:HOST}/\${env:TOKEN}").toList())
+        assertEquals("https://example.com/t", resolveReferences("https://\${env:HOST}/\${env:TOKEN}", environment))
+        assertEquals(null, resolveReferences("\${env:UNSET}", environment))
+    }
 }

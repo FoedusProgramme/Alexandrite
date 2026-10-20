@@ -39,8 +39,11 @@ public value class ClearanceKind internal constructor(public val id: String) {
         /** A write in the turn's own conversation directory. */
         public val SCRATCH: ClearanceKind = ClearanceKind("scratch")
 
+        /** A call that runs inside the agent's sandbox. */
+        public val SANDBOX: ClearanceKind = ClearanceKind("sandbox")
+
         /** The values this version knows. */
-        public val entries: List<ClearanceKind> = listOf(NONE, MODE, RULE, JUDGE, HUMAN, SCRATCH)
+        public val entries: List<ClearanceKind> = listOf(NONE, MODE, RULE, JUDGE, HUMAN, SCRATCH, SANDBOX)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): ClearanceKind = ClearanceKind(id)

@@ -196,7 +196,7 @@ internal class CommandMenu(
  * The two-letter code of each language a menu may be published in, with the language its descriptions are in: those
  * of [chats] first, then every ISO 639-1 language by itself.
  */
-internal fun candidates(chats: Collection<LanguageTag>): List<Pair<String, LanguageTag>> {
+private fun candidates(chats: Collection<LanguageTag>): List<Pair<String, LanguageTag>> {
     val codes = LinkedHashMap<String, LanguageTag>()
     for (language in chats.sortedBy { it.value }) {
         val code = language.value.substringBefore('-').lowercase(Locale.ROOT)

@@ -5,8 +5,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
@@ -374,6 +376,8 @@ class AgentMessagesTest {
                 assertIs<Admission.Accepted>(channel().receive("Go.", channel().chat(), channel().user("operator")))
             assertIs<TurnOutcome.Completed>(admission.ticket.outcome())
             model.awaitRequests(3)
+            assertEquals(listOf(AgentId("reviewer")), get<MessageRecords>().all().values.map { it.agent })
+            assertEquals(emptyMap(), get<JobRecords>().all())
         }
         model.reply(sender) { text("The reviewer was interrupted.") }
         agentHarness(config, store) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {

@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
+import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -59,10 +60,7 @@ internal class StopJobTool(private val jobs: Jobs) : CompanionTool {
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
-                putJsonObject("job") {
-                    put("type", "string")
-                    put("description", "The id of the job, such as j-7kq2mx.")
-                }
+                property("job", "string", "The id of the job, such as j-7kq2mx.")
             }
             put("required", JsonArray(listOf(JsonPrimitive("job"))))
             put("additionalProperties", false)

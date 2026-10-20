@@ -33,7 +33,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
@@ -294,7 +294,7 @@ class TaintTurnsTest {
         harness().execute {
             ask()
             val tainted = store.conversations.current(key).id
-            get<AgentControl>().newConversation(channel().chat(), channel().user("operator"))
+            get<ConversationControl>().newConversation(channel().chat(), channel().user("operator"))
             ask()
 
             assertEquals(listOf(ToolOutcome.Succeeded), results().map { it.outcome })
@@ -313,7 +313,7 @@ class TaintTurnsTest {
         harness().execute {
             ask()
             val conversation = store.conversations.current(key).id
-            val control = get<AgentControl>()
+            val control = get<ConversationControl>()
 
             val cleared = control.untaint(channel().chat(), channel().user("operator"))
             val again = control.untaint(channel().chat(), channel().user("operator"))

@@ -6,6 +6,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.Scope
+import org.unitedsoftware.alexandrite.sdk.di.container.label
 import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.problem.Problem
@@ -17,7 +18,7 @@ internal class PluginChannel(val type: ChannelType?, val problems: List<Problem>
 internal fun pluginChannel(id: String, bindings: List<Binding<*>>): PluginChannel {
     val channels = bindings.filter { it.key == CHANNEL && it.multi }
     val problems = channels.filter { it.scope != Scope.CHANNEL_INSTANCE }.mapTo(mutableListOf()) {
-        problem(id, "Singleton channel: ${label(it)} contributes a Channel, which is channel-instance-scoped.")
+        problem(id, "Singleton channel: ${it.label} contributes a Channel, which is channel-instance-scoped.")
     }
     val channel = channels.singleOrNull()
     val name = channel?.name
@@ -32,7 +33,7 @@ internal fun pluginChannel(id: String, bindings: List<Binding<*>>): PluginChanne
 
         name == null -> problems += problem(
             id,
-            "Unnamed channel: ${label(channel)} contributes a Channel without a name, which is its channel type.",
+            "Unnamed channel: ${channel.label} contributes a Channel without a name, which is its channel type.",
         )
 
         name == ChatAddress.AGENTS.type.value -> problems += Problem(
@@ -55,9 +56,7 @@ internal fun pluginChannel(id: String, bindings: List<Binding<*>>): PluginChanne
 
 private val CHANNEL = key<Channel>()
 
-private fun label(binding: Binding<*>): String = "${binding.origin} (plugin ${binding.plugin})"
-
-private fun labels(bindings: List<Binding<*>>): String = bindings.joinToString(" and ", transform = ::label)
+private fun labels(bindings: List<Binding<*>>): String = bindings.joinToString(" and ") { it.label }
 
 private fun problem(plugin: String, message: String): Problem =
     Problem(RuntimeProblemKind.CHANNEL_CONTRIBUTIONS, message, plugin)

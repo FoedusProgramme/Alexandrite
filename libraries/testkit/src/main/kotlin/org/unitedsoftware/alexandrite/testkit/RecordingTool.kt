@@ -34,7 +34,7 @@ public class RecordingTool internal constructor(
     public fun hold(): RecordingTool = apply { synchronized(lock) { if (gate == null) gate = CompletableDeferred() } }
 
     /** Lets the waiting calls and every later one run. */
-    public fun release() {
+    public fun release(): RecordingTool = apply {
         synchronized(lock) {
             gate?.complete(Unit)
             gate = null

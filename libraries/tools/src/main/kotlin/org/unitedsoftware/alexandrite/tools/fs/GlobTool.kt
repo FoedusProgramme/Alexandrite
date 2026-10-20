@@ -44,7 +44,7 @@ internal class GlobTool(private val floor: HardFloor) : ReviewedTool {
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.string("path"), context)
     } catch (e: Refusal) {
-        CallReview()
+        CallReview.builder().build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {

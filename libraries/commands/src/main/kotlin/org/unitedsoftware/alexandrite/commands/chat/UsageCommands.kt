@@ -13,7 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
+import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.BudgetStatus
 import org.unitedsoftware.alexandrite.sdk.turn.BudgetUnit
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.sdk.turn.ModelUsage
 import org.unitedsoftware.alexandrite.sdk.turn.PeriodUsage
+import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import org.unitedsoftware.alexandrite.sdk.turn.rebuild
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -30,7 +31,11 @@ import java.math.RoundingMode
 /** `/usage`, and `/usage all` for operators. */
 @Singleton
 @Contribute(CommandHandler::class)
-internal class UsageCommands(private val control: AgentControl, private val texts: Texts) : CommandHandler {
+internal class UsageCommands(
+    private val catalog: AgentCatalog,
+    private val usage: UsageReports,
+    private val texts: Texts,
+) : CommandHandler {
     override val commands: List<CommandSpec> =
         listOf(texts.spec(USAGE).rebuild { operatorsOnly(CommandForms.WITH_ARGUMENTS) })
 
@@ -44,8 +49,8 @@ internal class UsageCommands(private val control: AgentControl, private val text
             context.reply(replies.usage(USAGE))
             return
         }
-        val report = context.refusing { control.usage(invocation.chat, all) } ?: return
-        val names = control.agents(invocation.chat.instance).associate { it.id to it.name }
+        val report = context.refusing { usage.report(invocation.chat, all) } ?: return
+        val names = catalog.agents(invocation.chat.instance).associate { it.id to it.name }
         fun name(agent: AgentId) = names[agent] ?: agent.value
         val lines = mutableListOf<String>()
         for ((index, usage) in report.agents.withIndex()) {

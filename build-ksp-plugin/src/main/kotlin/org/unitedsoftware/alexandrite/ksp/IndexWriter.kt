@@ -129,14 +129,23 @@ internal class IndexWriter(
                 append("}")
             }
         }
-        val own = binding(component.key, component, component.dependencies.map { it.code }, create)
+        val itself = component.ownContribution
+        val own = binding(
+            component.key,
+            component,
+            component.dependencies.map { it.code },
+            create,
+            itself?.let(::contributionFlags).orEmpty(),
+        )
         return listOf(own) +
             component.binds.map { alias(component, it.key, BINDS) } +
-            component.contributes.map { bound ->
-                val flags = listOfNotNull("multi = true", bound.name?.let { "name = ${literal(it)}" })
-                alias(component, bound.key, CONTRIBUTE, flags)
+            component.contributes.filter { it !== itself }.map { bound ->
+                alias(component, bound.key, CONTRIBUTE, contributionFlags(bound))
             }
     }
+
+    private fun contributionFlags(bound: Bound): List<String> =
+        listOfNotNull("multi = true", bound.name?.let { "name = ${literal(it)}" })
 
     private fun alias(component: Component, key: Key, annotation: String, flags: List<String> = emptyList()): String =
         binding(

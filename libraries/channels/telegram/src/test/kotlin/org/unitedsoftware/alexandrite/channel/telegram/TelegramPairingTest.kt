@@ -31,13 +31,13 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.instanceBinding
 import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
@@ -72,7 +72,7 @@ class TelegramPairingTest {
 
     /** The harness of the instance `work` over [store], whose config file declares the chats [allowed] paired. */
     private fun builder(allowed: String = "[$ADA]", harness: TelegramHarness = telegram): PluginHarness.Builder =
-        harness.builder("work" to harness.instance(allowed = allowed)).writeConfigFile(file).store(store)
+        harness.builder("work" to harness.instance(allowed = allowed)).keptConfigFile(file).store(store)
 
     private fun PluginHarness.Running.desk(): PairingDesk = getAll<PairingDesk>().single()
 
@@ -259,9 +259,9 @@ class TelegramPairingTest {
         val elsewhere = ChatAddress(ChannelInstanceId(ChannelType("telegram"), "home"), "7")
         runBlocking {
             val home = ChatSettingsUpdate.builder().home().build()
-            telegram.control.updateSettings(telegram.address(GROUP, 5), home, null)
+            telegram.control.settings.update(telegram.address(GROUP, 5), home, null)
             for (member in listOf(telegram.address(BOB), telegram.address(GROUP), elsewhere)) {
-                telegram.control.link(AgentId.MAIN, telegram.address(ADA), member, null)
+                telegram.control.links.link(AgentId.MAIN, telegram.address(ADA), member, null)
             }
         }
 

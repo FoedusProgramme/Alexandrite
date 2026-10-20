@@ -191,15 +191,8 @@ internal class SqliteTranscriptStore(private val database: StoreDatabase, privat
     private class Row(val record: EntryRecord, val format: Int, val type: String, val body: String) {
         /** The stored entry, an [UnknownEntry] when its format or its content is not one this version reads. */
         fun entry(): TranscriptEntry {
-            val entry = if (format <= TranscriptCodec.FORMAT_VERSION) {
-                try {
-                    TranscriptCodec.decode(body)
-                } catch (e: IllegalArgumentException) {
-                    logger.warn("Entry {} cannot be read and counts as unknown", record.id, e)
-                    null
-                }
-            } else {
-                null
+            val entry = decodeStoredEntry(format, body) { e ->
+                logger.warn("Entry {} cannot be read and counts as unknown", record.id, e)
             }
             return (entry ?: UnknownEntry(null, type, raw())).withRecord(record)
         }

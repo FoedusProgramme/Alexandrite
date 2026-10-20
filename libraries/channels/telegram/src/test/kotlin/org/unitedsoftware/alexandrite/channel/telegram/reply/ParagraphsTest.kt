@@ -23,6 +23,12 @@ class ParagraphsTest {
     }
 
     @Test
+    fun `a tilde fence, or a shorter run inside a longer fence, keeps its blank lines in one paragraph`() {
+        assertEquals(listOf("~~~\na\n\nb\n~~~", "After"), paragraphs("~~~\na\n\nb\n~~~\n\nAfter"))
+        assertEquals(listOf("````\n```\n\nb\n````", "After"), paragraphs("````\n```\n\nb\n````\n\nAfter"))
+    }
+
+    @Test
     fun `runs of blank lines and surrounding space make no empty paragraphs`() {
         assertEquals(listOf("A", "B"), paragraphs("\n\nA\n\n\n\n  B  \n\n"))
         assertEquals(emptyList(), paragraphs("  \n\n "))

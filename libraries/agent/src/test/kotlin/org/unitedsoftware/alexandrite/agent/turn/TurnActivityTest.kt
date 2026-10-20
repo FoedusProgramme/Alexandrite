@@ -142,10 +142,10 @@ class TurnActivityTest {
                 titleArguments = listOf("path"),
             )
 
-            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
-                preview = ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"),
-                snapshot = "sha256:1",
-            )
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
+                .preview(ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"))
+                .snapshot("sha256:1")
+                .build()
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
                 ToolResult("Edited.")
@@ -188,11 +188,11 @@ class TurnActivityTest {
                 titleArguments = listOf("path"),
             )
 
-            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview(
-                preview = ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"),
-                snapshot = "sha256:1",
-                exempt = true,
-            )
+            override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
+                .preview(ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"))
+                .snapshot("sha256:1")
+                .exempt(true)
+                .build()
 
             override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult =
                 ToolResult("Edited.")

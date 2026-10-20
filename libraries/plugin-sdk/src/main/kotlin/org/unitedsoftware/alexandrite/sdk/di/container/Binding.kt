@@ -70,6 +70,10 @@ public interface Binding<T : Any> {
     public fun create(resolver: Resolver): T
 }
 
+/** [Binding.origin] with its plugin, as problems name the binding. */
+@InternalAlexandriteApi
+public val Binding<*>.label: String get() = "$origin (plugin $plugin)"
+
 @InternalAlexandriteApi
 public fun <T : Any> binding(
     key: Key<T>,

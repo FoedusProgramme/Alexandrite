@@ -26,6 +26,8 @@ import org.unitedsoftware.alexandrite.sdk.channel.TurnEventKind
 import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
@@ -62,10 +64,9 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.AgentControl
 import org.unitedsoftware.alexandrite.sdk.turn.AgentRunLifecycle
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.JobLifecycle
+import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
@@ -189,7 +190,7 @@ class DelegationTurnsTest {
 
     private suspend fun PluginHarness.Running.mode(mode: PermissionMode?) {
         val update = ChatSettingsUpdate.builder().apply { if (mode == null) resetMode() else mode(mode) }.build()
-        get<AgentControl>().updateSettings(channel().chat(), update, channel().user("operator"))
+        get<ChatSettings>().update(channel().chat(), update, channel().user("operator"))
     }
 
     /** The tool results of the current conversation of [key]. */
@@ -346,7 +347,7 @@ class DelegationTurnsTest {
                     invalid to
                         "No profile 'nobody'. Choose one of reviewer, writer, planner, doer, runner, reader, " +
                         "hurried, nester, general.",
-                    invalid to "'background' must be a boolean.",
+                    invalid to "'background' must be true or false.",
                     invalid to "'context' is \"fresh\" or \"fork\".",
                 ),
                 rootResults().map { it.shown() }.toSet(),
@@ -717,7 +718,7 @@ class DelegationTurnsTest {
             val turn = ask()
             read.awaitCalls(1)
             delay(1_500)
-            assertEquals(emptyList(), get<AgentControl>().jobs(channel().chat()))
+            assertEquals(emptyList(), get<TurnControl>().jobs(channel().chat()))
             read.release()
             turn.ticket.outcome()
 
@@ -738,7 +739,7 @@ class DelegationTurnsTest {
             val turn = ask()
             val request = channel().awaitApprovals(1).single()
 
-            assertTrue(get<AgentControl>().cancel(channel().chat(), channel().user("operator")))
+            assertTrue(get<TurnControl>().cancel(channel().chat(), channel().user("operator")))
 
             assertEquals(TurnOutcome.Cancelled, turn.ticket.outcome())
             channel().awaitEvent { it == RecordingChannel.Event.ApprovalWithdrawn(request.id) }
@@ -750,7 +751,7 @@ class DelegationTurnsTest {
             )
             assertEquals(listOf(ToolOutcome.Cancelled to CANCELLED_RESULT), rootResults().map { it.shown() })
             assertEquals(ConversationState.SEALED, store.conversations.conversation(child.conversation)?.state)
-            assertTrue(get<AgentControl>().turns().none { it.turn.kind == TurnKind.DELEGATED })
+            assertTrue(get<TurnControl>().turns().none { it.turn.kind == TurnKind.DELEGATED })
             assertEquals(emptyList(), write.calls)
         }
     }
@@ -791,7 +792,7 @@ class DelegationTurnsTest {
         harness().execute {
             val turn = ask()
             read.awaitCalls(1)
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             val runs = control.turns().filter { it.turn.kind == TurnKind.DELEGATED }
             assertEquals(listOf(1, 2), runs.map { checkNotNull(it.turn.lineage).depth }.sorted())
             assertEquals(List(2) { TurnPhase.RUNNING to channel().chat() }, runs.map { it.phase to it.turn.chat })
@@ -895,11 +896,11 @@ class DelegationTurnsTest {
             val results = rootResults()
             assertEquals(4, results.count { it.outcome is ToolOutcome.Detached })
             assertEquals(1, results.count { it.outcome == ToolOutcome.NotRun(NotRunReason.BACKGROUND_FULL) })
-            val jobs = get<AgentControl>().jobs(channel().chat())
+            val jobs = get<TurnControl>().jobs(channel().chat())
             assertEquals(4, jobs.size)
             assertEquals(4, jobs.map { it.id }.toSet().size)
             readGate?.complete(Unit)
-            while (get<AgentControl>().jobs(channel().chat()).isNotEmpty()) delay(5)
+            while (get<TurnControl>().jobs(channel().chat()).isNotEmpty()) delay(5)
             while (jobResultCount() < 4) delay(5)
             while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
             for (job in jobs) {
@@ -929,7 +930,7 @@ class DelegationTurnsTest {
         harness().execute {
             ask().ticket.outcome()
             while (read.calls.size < 4) delay(5)
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             assertTrue(control.cancel(channel().chat(), channel().user("operator")))
             while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
             while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
@@ -1020,7 +1021,7 @@ class DelegationTurnsTest {
         harness().execute {
             assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
             withTimeout(5_000) {
-                while (read.cancelled.isEmpty() || get<AgentControl>().jobs(channel().chat()).isNotEmpty()) delay(5)
+                while (read.cancelled.isEmpty() || get<TurnControl>().jobs(channel().chat()).isNotEmpty()) delay(5)
             }
 
             assertEquals(1, read.cancelled.size)
@@ -1042,7 +1043,7 @@ class DelegationTurnsTest {
 
         harness(maxBackgroundRuns = maxBackgroundRuns).execute {
             assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
-            val control = get<AgentControl>()
+            val control = get<TurnControl>()
             withTimeout(5_000) {
                 read.awaitCalls(expectedReads)
                 while (control.jobs(channel().chat()).size < 2) delay(5)
