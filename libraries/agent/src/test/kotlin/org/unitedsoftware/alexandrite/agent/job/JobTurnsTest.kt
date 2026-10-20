@@ -186,7 +186,7 @@ class JobTurnsTest {
             assertEquals(UserOrigin.SystemWritten("alexandrite.job"), (entries[4] as UserEntry).origin)
             assertEquals(listOf(reply.turn.id, reply.turn.id), entries.drop(4).map { it.record?.turn })
             assertEquals(entries.take(5), model.requests[2].history)
-            assertEquals(emptyList(), control.jobs(channel().chat()))
+            until { control.jobs(channel().chat()).isEmpty() }
             assertEquals(emptySet(), recorded())
             assertEquals(1, slow.calls.size)
         }
@@ -305,13 +305,12 @@ class JobTurnsTest {
             until { slow.cancelled.size == 1 }
             ask("Stop the other one.").ticket.outcome()
 
-            until { slow.cancelled.size == 2 }
+            until { slow.cancelled.size == 2 && recorded().isEmpty() }
             val results = stored().filterIsInstance<ToolResultEntry>().drop(2).map(::text)
             assertTrue(results[0]!!.startsWith("Jobs that run in this chat:\n- $second: fs.slow b (running since "))
             assertEquals("Job $second is stopped; its result will not come.", results[1])
             assertEquals(emptyList(), control.jobs(channel().chat()))
             assertFalse(control.cancelRun(second, tree = false, by = null))
-            assertEquals(emptySet(), recorded())
         }
     }
 

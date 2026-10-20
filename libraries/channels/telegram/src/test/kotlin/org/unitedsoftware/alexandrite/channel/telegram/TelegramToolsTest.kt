@@ -102,6 +102,7 @@ class TelegramToolsTest {
             val first = fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot pin this").messageId()
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot pin that", replyTo = first)
             telegram.submitted(2)
+            telegram.consumed(2)
             val (plain, reply) = telegram.submitter.tickets.map { it.turn }
             val group = telegram.address(GROUP)
 

@@ -28,6 +28,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -113,7 +114,17 @@ class McpSandboxTest {
                 assertEquals("http://127.0.0.1:$proxy", boundary.environment["HTTP_PROXY"])
             }
         }
-        assertFailsWith<IOException> { Socket(InetAddress.getLoopbackAddress(), proxy).close() }
+        assertFalse(listens(proxy))
+    }
+
+    /**
+     * Whether something accepts connections on [port]. Linux may connect a client to itself when it picks the closed
+     * port as its own ephemeral one, which is no listener.
+     */
+    private fun listens(port: Int): Boolean = try {
+        Socket(InetAddress.getLoopbackAddress(), port).use { it.localPort != it.port }
+    } catch (e: IOException) {
+        false
     }
 
     @Test

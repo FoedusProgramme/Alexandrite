@@ -119,6 +119,16 @@ class NetworkProxyTest {
         assertFalse(listens(lease.port))
     }
 
+    @Test
+    fun `a lease listens no more once its close returns, though its thread still waited for a connection`() {
+        repeat(20) {
+            val lease = lease("127.0.0.1:$port")
+            exchange(lease, "nonsense\r\n\r\n")
+            lease.close()
+            assertFalse(listens(lease.port), "lease ${it + 1}")
+        }
+    }
+
     /**
      * Whether something accepts connections on [port]. Linux may connect a client to itself when it picks the closed
      * port as its own ephemeral one, which is no listener.

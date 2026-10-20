@@ -201,12 +201,11 @@ class MonitorTest {
     fun `lines the agent has not taken go out with the next batch`() = runBlocking {
         val fs = ExecFixture(directory)
         val updates = CopyOnWriteArrayList<ToolResult>()
-        var busy = true
-        val context = monitorContext(fs, updates) { !busy }
+        val refused = CompletableDeferred<Unit>()
+        val context = monitorContext(fs, updates) { !refused.complete(Unit) }
         monitoring(MonitorOptions("MATCH", 10.milliseconds, 10.milliseconds, 1.seconds), context) { onLine ->
             onLine!!("MATCH one")
-            delay(50)
-            busy = false
+            refused.await()
             onLine("MATCH two")
             delay(50)
         }

@@ -90,14 +90,15 @@ class McpHubTest {
     fun `a server that dies has its tools withdrawn and offered again once it is back`() = withHub("files" to fake()) {
         connected("files")
         val counts = CopyOnWriteArrayList<Int>()
-        val watching = launch(Dispatchers.Default) { hub.tools.collect { counts += it.size } }
+        // Unconfined, the collector sees each list as it is set, the empty one between included.
+        val watching = launch(Dispatchers.Unconfined) { hub.tools.collect { counts += it.size } }
         until("watched") { counts.isNotEmpty() }
 
         val result = tool("mcp.files.exit").execute(JsonObject(emptyMap()), testToolContext())
         assertTrue(result.isError, result.text)
         until("down") { server("files").status.value.lastError?.contains("exited with code 4") == true }
         connected("files")
-        until("offered again") { names.size == 8 }
+        until("offered again") { counts.last() == 8 }
         watching.cancel()
 
         assertTrue(0 in counts, "$counts")
@@ -235,7 +236,9 @@ class McpHubTest {
             withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {
                 connected("web")
                 val errors = CopyOnWriteArrayList<String?>()
-                val watching = launch(Dispatchers.Default) { server("web").status.collect { errors += it.lastError } }
+                val watching = launch(Dispatchers.Unconfined) {
+                    server("web").status.collect { errors += it.lastError }
+                }
                 web.listingFails = true
 
                 until("down") { server("web").status.value.state == ServerState.DOWN }

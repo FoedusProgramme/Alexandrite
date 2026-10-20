@@ -5,6 +5,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.api.Message
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.channel.telegram.replay.Replay
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
+import org.unitedsoftware.alexandrite.channel.telegram.tools.TurnMessages
 import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -37,6 +38,7 @@ internal class Admissions(
     private val submitter: TurnSubmitter,
     private val outbox: Outbox,
     private val replay: Replay,
+    private val turns: TurnMessages,
     private val clock: Clock,
 ) {
     private val queueFull = Throttle<ChatAddress>(Duration.ofMinutes(1))
@@ -57,6 +59,7 @@ internal class Admissions(
         ended: (TurnOutcome) -> Unit = {},
     ): Dispatch {
         val chat = submission.chat
+        turns.submitted(trigger, parts.first())
         when (val admission = submitter.submit(submission)) {
             is Admission.Accepted -> replay.watch(admission.ticket, trigger, kind == ChatKind.DIRECT, parts, ended)
 

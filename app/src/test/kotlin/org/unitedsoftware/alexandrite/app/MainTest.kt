@@ -280,6 +280,8 @@ class MainTest {
         val texts = Files.createDirectories(directory.resolve("i18n/greeter")).resolve("zh-CN.properties")
         Files.writeString(texts, "greeting=你好，{name}！\n")
         val seen = mutableListOf<String>()
+        var logging: List<String> = emptyList()
+        val reloaded = "INFO Texts reloaded from ${directory.resolve("i18n")}: greeter/zh-CN.properties"
         val execute: Execute = { spec, block ->
             AlexandriteRuntime.run(spec) {
                 coroutineScope {
@@ -290,12 +292,15 @@ class MainTest {
                     replace(texts, "greeting=嗨，{name}！\n")
                     withTimeout(10.seconds) { while (greeting(null) == seen.last()) delay(10.milliseconds) }
                     seen += listOf(greeting(null), greeting(LanguageTag("en")))
+                    // The reload is logged once its texts are in place.
+                    withTimeout(10.seconds) { while (reloaded !in logging) delay(10.milliseconds) }
                     stop(StopRequest.shutdown("requested by the test"))
                 }
             }
         }
 
-        val lines = logged {
+        val lines = logged { live ->
+            logging = live
             val code =
                 host("--config", "$file", "--data-dir", "$dataDir", execute = execute, textsInterval = 20.milliseconds)
 
@@ -303,7 +308,7 @@ class MainTest {
         }
 
         assertEquals(listOf("你好，Ada！", "嗨，Ada！", "Hello, Ada!"), seen)
-        assertContains(lines, "INFO Texts reloaded from ${directory.resolve("i18n")}: greeter/zh-CN.properties")
+        assertContains(lines, reloaded)
     }
 
     @Test

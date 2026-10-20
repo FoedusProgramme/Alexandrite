@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.CommandRules
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Deliveries
 import org.unitedsoftware.alexandrite.channel.telegram.reply.MAX_PARTS_PER_REPLY
 import org.unitedsoftware.alexandrite.channel.telegram.reply.MAX_UPLOAD_BYTES
+import org.unitedsoftware.alexandrite.channel.telegram.tools.TurnMessages
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
@@ -39,6 +40,7 @@ internal class TelegramChannel(
     private val approvals: ApprovalDesk,
     private val rules: CommandRules,
     private val titles: ChatTitles,
+    private val turns: TurnMessages,
 ) : Channel,
     Lifecycle {
     override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities = ChannelCapabilities.builder()
@@ -55,7 +57,10 @@ internal class TelegramChannel(
     override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int =
         formatted(text, markup).parts().size
 
-    override suspend fun openReply(request: ReplyRequest): ReplySink = deliveries.openReply(request)
+    override suspend fun openReply(request: ReplyRequest): ReplySink {
+        if (request.run == null) request.trigger?.let { turns.opened(request.turn.id, it) }
+        return deliveries.openReply(request)
+    }
 
     override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = deliveries.send(chat, message)
 

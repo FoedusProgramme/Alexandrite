@@ -93,6 +93,9 @@ internal class Output(
     /** The titles of the groups the bot heard from. */
     val titles = ChatTitles()
 
+    /** The message that started each turn, as the intake and the opened replies note it. */
+    val turns = TurnMessages()
+
     /** The desk where the Telegram tools act on this output. */
     val desk = ChatDesk(
         instance,
@@ -103,7 +106,7 @@ internal class Output(
         gate,
         pairings,
         titles,
-        TurnMessages(),
+        turns,
         KnownUsers(),
         TelegramDesks(),
     )
@@ -115,6 +118,7 @@ internal class Output(
         approvals,
         CommandRules(emptyList(), null),
         titles,
+        turns,
     )
 
     /** Opens the reply of a turn in [chat], or its [thread], that answers the message [trigger]. */

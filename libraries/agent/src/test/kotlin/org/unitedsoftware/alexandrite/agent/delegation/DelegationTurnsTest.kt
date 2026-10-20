@@ -958,13 +958,20 @@ class DelegationTurnsTest {
 
     @Test
     fun `a run waits for the background run it started and answers with its report, which never reaches the root`() {
+        // The review ends once the run has asked again, so that the run waits for its report.
+        val waiting = CompletableDeferred<Unit>()
         model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("nester", "Parent")) }
             .reply(ROOT) { text("Done.") }
         model.reply(task("Parent")) {
             toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Grandchild","background":true}""")
-        }.reply(task("Parent")) { text("Waiting for the review.") }
-            .reply(task("Parent")) { text("The review says it is done.") }
-        model.reply(profile(REVIEWER)) { text("Review done.") }
+        }.reply(task("Parent")) {
+            pause { waiting.complete(Unit) }
+            text("Waiting for the review.")
+        }.reply(task("Parent")) { text("The review says it is done.") }
+        model.reply(profile(REVIEWER)) {
+            pause { waiting.await() }
+            text("Review done.")
+        }
 
         harness().execute {
             assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
@@ -1014,7 +1021,10 @@ class DelegationTurnsTest {
             .reply(ROOT) { text("Done.") }
         model.reply(task("Hurry")) {
             toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Grandchild","background":true}""")
-        }.reply(task("Hurry")) { text("Out of rounds.") }
+        }.reply(task("Hurry")) {
+            pause { read.awaitCalls(1) }
+            text("Out of rounds.")
+        }
         model.reply(profile(REVIEWER)) { toolCall("test.read", "{}") }
 
         harness().execute {

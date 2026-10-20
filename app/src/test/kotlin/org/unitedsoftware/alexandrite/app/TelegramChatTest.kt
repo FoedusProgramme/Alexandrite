@@ -147,6 +147,8 @@ class TelegramChatTest {
             app.send(app.ada, app.group, "/link $code")
             app.message(app.group, "This chat now shares the conversation of coder with telegram:work:$ADA.")
             app.message(app.adaChat, "telegram:work:$GROUP now shares the conversation of coder with this chat.")
+            // The group's command records itself for the model after it replies.
+            idle()
             app.send(app.ada, app.adaChat, "Remember: the release is on Friday.")
             app.message(app.adaChat, "Noted: the release is on Friday.")
             val asked = app.send(app.bob, app.group, "$BOT_MENTION when is the release?")
