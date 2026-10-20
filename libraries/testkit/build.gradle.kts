@@ -4,6 +4,8 @@ plugins {
     id("alexandrite.poko")
 }
 
+description = "Test doubles and a plugin harness for testing Alexandrite plugins"
+
 dependencies {
     api(project(":libraries:plugin-sdk"))
     api(project(":libraries:runtime"))

@@ -1,0 +1,364 @@
+package org.unitedsoftware.alexandrite.testkit.store
+
+import kotlinx.coroutines.delay
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
+import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.RunId
+import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
+import org.unitedsoftware.alexandrite.sdk.chat.rebuild
+import org.unitedsoftware.alexandrite.sdk.store.ConversationKind
+import org.unitedsoftware.alexandrite.sdk.store.ConversationState
+import org.unitedsoftware.alexandrite.sdk.store.ForkPoint
+import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
+import org.unitedsoftware.alexandrite.sdk.store.TurnRecord
+import org.unitedsoftware.alexandrite.sdk.transcript.EntryId
+import org.unitedsoftware.alexandrite.testkit.StoreCheck
+import org.unitedsoftware.alexandrite.testkit.testChat
+import org.unitedsoftware.alexandrite.testkit.testUser
+import java.time.Instant
+import kotlin.time.Duration.Companion.milliseconds
+
+internal val CONVERSATION_CHECKS: List<StoreCheck> = listOf(
+    StoreCheck("the current conversation is created when first asked for and kept") {
+        open {
+            val before = Instant.now()
+            val first = conversations.current(main)
+            val after = Instant.now()
+
+            expectEqual(first, conversations.current(main), "the current conversation asked for again")
+            expectEqual(first, conversations.conversation(first.id), "the conversation read by its id")
+            expectEqual(ConversationKind.USER_LANE, first.kind, "its kind")
+            expectEqual(ConversationState.ACTIVE, first.state, "its state")
+            expectEqual(main, first.key, "its key")
+            expectWithin(first.createdAt, before, after, "its creation")
+            expectEqual(
+                listOf(null, null, null, null),
+                listOf(first.sealedAt, first.successor, first.lineage, first.fork),
+                "its seal, successor, lineage and fork",
+            )
+        }
+    },
+    StoreCheck("each agent and each thread of a chat has conversations of its own") {
+        open {
+            val keys = listOf(
+                main,
+                coder,
+                AgentChatKey(AgentId.MAIN, testChat(thread = "7")),
+                AgentChatKey(AgentId.MAIN, testChat("other")),
+            )
+
+            val current = keys.map { conversations.current(it) }
+            val bases = keys.map { conversations.heartbeatBase(it) }
+
+            expectEqual(8, (current + bases).map { it.id }.toSet().size, "the different conversations")
+            expectEqual(current, keys.map { conversations.current(it) }, "the current conversations asked for again")
+            expectEqual(bases, keys.map { conversations.heartbeatBase(it) }, "the heartbeat bases asked for again")
+            expectEqual(keys + keys, (current + bases).map { it.key }, "their keys")
+            expectEqual(List(4) { ConversationKind.HEARTBEAT_BASE }, bases.map { it.kind }, "the kinds of the bases")
+        }
+    },
+    StoreCheck("conversation ids are unique") {
+        open {
+            val ids = List(20) { conversations.newConversation(main).successor.id }
+
+            expectEqual(20, ids.toSet().size, "the different ids of 20 conversations")
+        }
+    },
+    StoreCheck("conversations outlive the store") {
+        val current = open { conversations.current(main) }
+        val base = open { conversations.heartbeatBase(main) }
+
+        open {
+            expectEqual(current, conversations.current(main), "the current conversation")
+            expectEqual(base, conversations.heartbeatBase(main), "the heartbeat base")
+        }
+    },
+    StoreCheck("a new conversation seals the current one and takes its place") {
+        open {
+            val old = conversations.current(main)
+            val before = Instant.now()
+            val rotation = conversations.newConversation(main)
+            val after = Instant.now()
+
+            val sealed = rotation.sealed ?: fail("A new conversation sealed nothing, but there was a current one.")
+            val successor = rotation.successor
+            expectWithin(sealed.sealedAt, before, after, "the seal")
+            expectEqual(
+                old.toBuilder().state(ConversationState.SEALED).sealedAt(sealed.sealedAt).successor(successor.id)
+                    .build(),
+                sealed,
+                "the sealed conversation",
+            )
+            expectEqual(sealed, conversations.conversation(old.id), "the sealed conversation read by its id")
+            expectEqual(successor, conversations.current(main), "the current conversation")
+            expectEqual(ConversationState.ACTIVE, successor.state, "the state of the successor")
+            expectEqual(ConversationKind.USER_LANE, successor.kind, "the kind of the successor")
+            expect(successor.id != old.id) { "The successor has the id ${old.id} of the sealed conversation." }
+        }
+    },
+    StoreCheck("a new conversation where there is none seals nothing") {
+        open {
+            val rotation = conversations.newConversation(main)
+
+            expectEqual(null, rotation.sealed, "the sealed conversation")
+            expectEqual(rotation.successor, conversations.current(main), "the current conversation")
+        }
+    },
+    StoreCheck("a new conversation keeps the heartbeat base and the conversations of other agents") {
+        open {
+            val base = conversations.heartbeatBase(main)
+            val other = conversations.current(coder)
+
+            conversations.newConversation(main)
+            conversations.newConversation(main)
+
+            expectEqual(base, conversations.heartbeatBase(main), "the heartbeat base")
+            expectEqual(base, conversations.conversation(base.id), "the heartbeat base read by its id")
+            expectEqual(other, conversations.current(coder), "the current conversation of another agent")
+        }
+    },
+    StoreCheck("a delegated conversation keeps its lineage and the history it forks") {
+        open {
+            val parent = conversations.current(main)
+            val lineage = lineage(startTurn(parent), "run-1")
+            val fork = ForkPoint(parent.id, EntryId(7))
+
+            val child = conversations.createDelegated(reviewer, lineage, fork)
+
+            expectEqual(ConversationKind.DELEGATED, child.kind, "its kind")
+            expectEqual(reviewer, child.key, "its key")
+            expectEqual(lineage, child.lineage, "its lineage")
+            expectEqual(fork, child.fork, "its fork")
+            expectEqual(child, conversations.conversation(child.id), "the conversation read by its id")
+            expect(conversations.current(reviewer).id != child.id) { "A delegated conversation became current." }
+            expectEqual(parent, conversations.current(main), "the parent's conversation")
+        }
+    },
+    StoreCheck("a delegated conversation of a delegated turn descends from the same root") {
+        open {
+            val root = startTurn(conversations.current(main))
+            val childLineage = lineage(root, "run-1")
+            val child = conversations.createDelegated(reviewer, childLineage)
+            val childTurn = startTurn(child, TurnKind.DELEGATED, childLineage)
+
+            val grandchild = conversations.createDelegated(coder, lineage(childTurn, "run-2"))
+
+            expectEqual(
+                TurnLineage(RunId("run-2"), childTurn.id, child.id, ToolCallId("call"), root.id, root.conversation, 2),
+                grandchild.lineage,
+                "the lineage of the grandchild",
+            )
+            expectEqual(childLineage, conversations.turn(childTurn.id)?.lineage, "the lineage of the child's turn")
+        }
+    },
+    StoreCheck("a delegated conversation is sealed once, takes no turn after and keeps its lineage") {
+        open {
+            val parent = conversations.current(main)
+            val lineage = lineage(startTurn(parent), "run-1")
+            val child = conversations.createDelegated(reviewer, lineage)
+            val before = Instant.now()
+
+            expect(conversations.sealDelegated(child.id)) { "The delegated conversation was not sealed." }
+            val after = Instant.now()
+
+            expect(!conversations.sealDelegated(child.id)) { "A sealed delegated conversation was sealed again." }
+            val sealed = conversations.conversation(child.id)
+            expectEqual(ConversationState.SEALED, sealed?.state, "its state")
+            expectWithin(sealed?.sealedAt, before, after, "its seal")
+            expectEqual(listOf(null, lineage), listOf(sealed?.successor, sealed?.lineage), "its successor and lineage")
+            expectThrows<IllegalStateException>("A turn in a sealed delegated conversation") {
+                conversations.startTurn(newTurn(child, TurnKind.DELEGATED, lineage))
+            }
+            expectThrows<IllegalArgumentException>("Sealing a conversation of a chat as delegated") {
+                conversations.sealDelegated(parent.id)
+            }
+            expectThrows<IllegalArgumentException>("Sealing an unknown conversation") {
+                conversations.sealDelegated(ConversationId("unknown"))
+            }
+            expectEqual(ConversationState.ACTIVE, conversations.conversation(parent.id)?.state, "the parent's state")
+        }
+    },
+    StoreCheck("a delegated conversation must descend from a recorded parent turn of its chat") {
+        open {
+            val parentConversation = conversations.current(main)
+            val parent = startTurn(parentConversation)
+            val good = lineage(parent, "run-1")
+            val unrecorded = lineage(parent.toBuilder(TurnId("missing")).build(), "run-1")
+            val cases = mapOf(
+                "a parent turn that is not recorded" to (reviewer to unrecorded),
+                "a parent turn of another conversation" to (reviewer to good.with(ConversationId("other"))),
+                "a key of another chat" to (AgentChatKey(reviewer.agent, testChat("x")) to good),
+                "a wrong depth" to (reviewer to good.with(depth = 2)),
+                "a wrong root" to (reviewer to good.with(rootTurn = TurnId("elsewhere"))),
+            )
+
+            for ((case, delegation) in cases) {
+                expectThrows<IllegalArgumentException>("A delegated conversation with $case") {
+                    conversations.createDelegated(delegation.first, delegation.second)
+                }
+            }
+            expectThrows<IllegalArgumentException>("A delegated conversation forking an unknown one") {
+                conversations.createDelegated(reviewer, good, ForkPoint(ConversationId("unknown"), EntryId(1)))
+            }
+            expectEqual(parentConversation, conversations.current(main), "the parent's conversation")
+        }
+    },
+    StoreCheck("a turn is recorded with its actor and ends once") {
+        open {
+            val conversation = conversations.current(main)
+            val before = Instant.now()
+            val turn = startTurn(conversation)
+            val started = Instant.now()
+
+            expect(conversations.endTurn(turn.id, TurnEndKind.COMPLETED)) { "The turn did not end." }
+            val ended = Instant.now()
+            expect(!conversations.endTurn(turn.id, TurnEndKind.FAILED)) { "The turn ended twice." }
+            expect(!conversations.endTurn(TurnId("missing"), TurnEndKind.FAILED)) { "An unknown turn ended." }
+
+            val record = conversations.turn(turn.id) ?: fail("The turn is not recorded.")
+            expectWithin(record.startedAt, before, started, "its start")
+            expectWithin(record.endedAt, started, ended, "its end")
+            expectEqual(
+                TurnRecord.builder(turn.id, conversation.id, main, TurnKind.MESSAGE, record.startedAt)
+                    .actor(testUser().address)
+                    .endedAt(record.endedAt)
+                    .end(TurnEndKind.COMPLETED)
+                    .build(),
+                record,
+                "the turn",
+            )
+            expectEqual(null, conversations.turn(TurnId("missing")), "an unknown turn")
+        }
+    },
+    StoreCheck("a turn is recorded in a conversation of its own agent and chat, once") {
+        open {
+            val conversation = conversations.current(main)
+            val turn = startTurn(conversation, TurnKind.HEARTBEAT)
+            val record = conversations.turn(turn.id) ?: fail("The turn is not recorded.")
+
+            expectEqual(listOf(null, null, null), listOf(record.actor, record.endedAt, record.end), "its actor and end")
+            expectEqual(TurnKind.HEARTBEAT, record.kind, "its kind")
+            val cases = mapOf(
+                "a turn recorded already" to turn,
+                "a turn of another agent" to turn.toBuilder(TurnId("coder-turn")).agent(coder.agent).build(),
+                "a turn of an unknown conversation" to turn.toBuilder(
+                    TurnId("lost"),
+                    ConversationId("missing"),
+                ).build(),
+            )
+            for ((case, refused) in cases) {
+                expectThrows<IllegalArgumentException>("Starting $case") { conversations.startTurn(refused) }
+            }
+            expectEqual(null, conversations.turn(TurnId("lost")), "a refused turn")
+        }
+    },
+    StoreCheck("a linked chat's turn runs in the conversation of its group's anchor and keeps its own chat") {
+        val member = testChat("member", instance = ChannelInstanceId(ChannelType("other"), "main"))
+        val actor = testUser(instance = member.instance)
+        val started = open {
+            val anchor = conversations.current(main)
+            val turn = TurnInfo.builder(TurnId("linked"), member, anchor.id, TurnKind.MESSAGE)
+                .agent(main.agent)
+                .key(main)
+                .actor(actor)
+                .build()
+
+            conversations.startTurn(turn)
+
+            expectThrows<IllegalArgumentException>("Starting a turn of the linked chat's own key there") {
+                conversations.startTurn(
+                    turn.toBuilder(TurnId("unlinked")).key(null).build(),
+                )
+            }
+            conversations.turn(turn.id) ?: fail("The linked chat's turn is not recorded.")
+        }
+
+        open {
+            val record = conversations.turn(started.id) ?: fail("The linked chat's turn is not recorded.")
+            expectEqual(
+                TurnRecord.builder(started.id, started.conversation, main, TurnKind.MESSAGE, started.startedAt)
+                    .chat(member)
+                    .actor(actor.address)
+                    .build(),
+                record,
+                "the linked chat's turn",
+            )
+            expectEqual(listOf(record), conversations.unendedTurns(), "the turns that never ended")
+            expectEqual(listOf(chat), conversations.chats(main.agent), "the chats of the agent")
+        }
+    },
+    StoreCheck("a conversation that is not active takes no turns") {
+        open {
+            val old = conversations.current(main)
+            conversations.newConversation(main)
+            val turn = TurnInfo.builder(TurnId("late"), chat, old.id, TurnKind.MESSAGE).agent(main.agent).build()
+
+            expectThrows<IllegalStateException>("Starting a turn in a sealed conversation") {
+                conversations.startTurn(turn)
+            }
+            expectEqual(null, conversations.turn(turn.id), "the refused turn")
+            expectEqual(emptyList(), conversations.unendedTurns(), "the turns that never ended")
+        }
+    },
+    StoreCheck("the turns that never ended are listed oldest first, also after a restart") {
+        val started = open {
+            val first = startTurn(conversations.current(main))
+            delay(2.milliseconds)
+            val ended = startTurn(conversations.heartbeatBase(main), TurnKind.HEARTBEAT)
+            delay(2.milliseconds)
+            val last = startTurn(conversations.current(coder))
+            conversations.endTurn(ended.id, TurnEndKind.COMPLETED)
+            listOf(first, last).map { conversations.turn(it.id) ?: fail("Turn ${it.id} is not recorded.") }
+        }
+
+        open {
+            expectEqual(started, conversations.unendedTurns(), "the turns that never ended")
+            started.forEach { conversations.endTurn(it.id, TurnEndKind.SHUT_DOWN) }
+            expectEqual(emptyList(), conversations.unendedTurns(), "the turns that never ended once all ended")
+        }
+    },
+    StoreCheck("an agent's chats are those where it has a user-lane conversation") {
+        val thread = testChat(thread = "7")
+        val other = testChat("other")
+        open {
+            conversations.current(main)
+            conversations.newConversation(main)
+            conversations.newConversation(AgentChatKey(AgentId.MAIN, thread))
+            conversations.heartbeatBase(AgentChatKey(AgentId.MAIN, other))
+            val parent = startTurn(conversations.current(AgentChatKey(coder.agent, other)))
+            conversations.createDelegated(AgentChatKey(AgentId.MAIN, other), lineage(parent, "run-1"))
+        }
+
+        open {
+            val chats = conversations.chats(AgentId.MAIN)
+            expectEqual(setOf(chat, thread), chats.toSet(), "the chats of the main agent")
+            expectEqual(chats.distinct(), chats, "the chats of the main agent, each once")
+            expectEqual(listOf(other), conversations.chats(coder.agent), "the chats of another agent")
+            expectEqual(emptyList(), conversations.chats(AgentId("nobody")), "the chats of an agent without any")
+        }
+    },
+    StoreCheck("kinds and ends of turns this version does not know are kept as they are") {
+        open {
+            val turn = startTurn(conversations.current(main), TurnKind.of("vote"))
+
+            conversations.endTurn(turn.id, TurnEndKind.of("paused"))
+
+            val record = conversations.turn(turn.id) ?: fail("The turn is not recorded.")
+            expectEqual(TurnKind.of("vote"), record.kind, "its kind")
+            expectEqual(TurnEndKind.of("paused"), record.end, "its end")
+        }
+    },
+)
+
+private fun TurnLineage.with(
+    parentConversation: ConversationId = this.parentConversation,
+    rootTurn: TurnId = this.rootTurn,
+    depth: Int = this.depth,
+): TurnLineage = TurnLineage(run, parentTurn, parentConversation, parentCall, rootTurn, rootConversation, depth)

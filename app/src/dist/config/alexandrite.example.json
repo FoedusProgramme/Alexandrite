@@ -5,5 +5,28 @@
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
     "plugins": []
+  },
+  "mcp": {
+    "servers": {
+      "git": {
+        "command": "uvx",
+        "args": ["mcp-server-git", "--repository", "/srv/projects/app"],
+        "env": {},
+        "tools": {"allow": ["*"], "deny": ["git_reset"]},
+        "risk": {"git_status": "read_only", "git_diff*": "read_only", "git_log": "read_only", "git_show": "read_only", "git_branch": "read_only", "*": "workspace_write"},
+        "trustAnnotations": false,
+        "trusted": false,
+        "timeoutSeconds": 60,
+        "enabled": false
+      },
+      "docs": {
+        "url": "https://mcp.example.com/mcp",
+        "oauth": {"scopes": ["read"]},
+        "tools": {"allow": ["search_*", "fetch_*"]},
+        "risk": {"*": "network_read"},
+        "timeoutSeconds": 30,
+        "enabled": false
+      }
+    }
   }
 }

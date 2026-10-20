@@ -1,0 +1,102 @@
+package org.unitedsoftware.alexandrite.commands.chat
+
+import kotlinx.coroutines.test.runTest
+import org.unitedsoftware.alexandrite.commands.GUEST
+import org.unitedsoftware.alexandrite.commands.OPERATOR
+import org.unitedsoftware.alexandrite.commands.answer
+import org.unitedsoftware.alexandrite.commands.commandTexts
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
+import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
+import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
+import org.unitedsoftware.alexandrite.testkit.TEST_TIME
+import org.unitedsoftware.alexandrite.testkit.testChat
+import org.unitedsoftware.alexandrite.testkit.testCommand
+import org.unitedsoftware.alexandrite.testkit.testTurn
+import org.unitedsoftware.alexandrite.testkit.testUser
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class ConversationCommandsTest {
+    private val control = RecordingAgent()
+    private val commands = ConversationCommands(control.turns, control.conversations, control.links, commandTexts())
+    private val chat = testChat()
+
+    // /new.
+
+    @Test
+    fun `new seals the conversation of the chat on behalf of the issuer`() = runTest {
+        val reply = commands.answer(testCommand("new", issuer = GUEST))
+
+        assertEquals("A new conversation with main has started.", reply)
+        assertEquals(listOf(Call.NewConversation(chat, GUEST, ConversationId("conversation-1"))), control.calls)
+    }
+
+    @Test
+    fun `new in a linked chat says that the other chats share the new conversation`() = runTest {
+        control.links.link(AgentId.MAIN, testChat("anchor"), chat, OPERATOR)
+        control.links.link(AgentId.MAIN, testChat("anchor"), testChat("third"), OPERATOR)
+
+        val reply = commands.answer(testCommand("New", issuer = GUEST))
+
+        assertEquals(
+            "A new conversation with main has started. The linked chats share it too (2 besides this one).",
+            reply,
+        )
+    }
+
+    @Test
+    fun `a refused new replies with the agent's message`() = runTest {
+        control.refuseNext("No agent serves test:main:chat.")
+
+        val reply = commands.answer(testCommand("new"))
+
+        assertEquals("No agent serves test:main:chat.", reply)
+        assertEquals(listOf(Call.NewConversation(testChat(), GUEST, null)), control.calls)
+    }
+
+    @Test
+    fun `new and cancel take no arguments`() = runTest {
+        assertEquals("Send /new without anything after it.", commands.answer(testCommand("new", "now")))
+        assertEquals("Send /cancel without anything after it.", commands.answer(testCommand("cancel", "all")))
+        assertEquals(emptyList(), control.calls)
+    }
+
+    // /cancel.
+
+    @Test
+    fun `cancel cancels every running turn from the chat on behalf of the issuer, whoever it is`() = runTest {
+        control.statuses = listOf(running(testTurn(TurnKind.MESSAGE, chat) { actor(testUser("other")) }))
+
+        assertEquals(
+            "The answers and the jobs that were running in this chat are stopped.",
+            commands.answer(testCommand("cancel", issuer = GUEST)),
+        )
+        assertEquals(
+            "The answers and the jobs that were running in this chat are stopped.",
+            commands.answer(testCommand("cancel", issuer = OPERATOR)),
+        )
+        assertEquals(listOf(Call.Cancel(chat, GUEST), Call.Cancel(chat, OPERATOR)), control.calls)
+    }
+
+    @Test
+    fun `cancel with nothing running says so`() = runTest {
+        control.statuses = listOf(
+            TurnStatus.builder(testTurn(TurnKind.MESSAGE, chat), TurnPhase.QUEUED, TEST_TIME).build(),
+        )
+
+        val reply = commands.answer(testCommand("cancel", issuer = GUEST))
+
+        assertEquals("Nothing is running in this chat.", reply)
+        assertEquals(listOf(Call.Cancel(chat, GUEST)), control.calls)
+    }
+
+    private fun running(turn: TurnInfo): TurnStatus =
+        TurnStatus.builder(turn, TurnPhase.RUNNING, TEST_TIME).startedAt(TEST_TIME).build()
+}

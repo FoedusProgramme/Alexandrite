@@ -2,6 +2,8 @@ plugins {
     id("alexandrite.kotlin-library")
 }
 
+description = "The Alexandrite KSP processor that indexes a plugin's components"
+
 dependencies {
     implementation(libs.ksp.api)
 

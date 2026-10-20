@@ -7,7 +7,7 @@ kotlin {
     jvmToolchain(21)
 }
 
-group = "org.foedusprogramme.alexandrite.buildlogic"
+group = "org.unitedsoftware.alexandrite.buildlogic"
 version = "1.0"
 
 spotless {

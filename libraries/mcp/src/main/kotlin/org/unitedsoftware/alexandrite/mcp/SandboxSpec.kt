@@ -1,0 +1,123 @@
+package org.unitedsoftware.alexandrite.mcp
+
+import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.path.expandHome
+import org.unitedsoftware.alexandrite.internal.path.resolveConfigured
+import org.unitedsoftware.alexandrite.internal.sandbox.ALEXANDRITE_PLACES
+import org.unitedsoftware.alexandrite.internal.sandbox.DEFAULT_PROTECT
+import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
+import org.unitedsoftware.alexandrite.internal.sandbox.platformEnvironment
+import org.unitedsoftware.alexandrite.internal.sandbox.proxyVariables
+import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
+import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
+import org.unitedsoftware.alexandrite.sdk.sandbox.ExecutionEnvironment
+import org.unitedsoftware.alexandrite.sdk.sandbox.NetworkAccess
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
+
+/** The sandbox a server runs in: its [environment], its [boundary] while it has no network, and the hosts it may reach. */
+internal class SandboxSpec(
+    val environment: ExecutionEnvironment,
+    val boundary: Boundary,
+    val allowed: List<HostPattern>,
+) {
+    /** [boundary] with its network through the proxy on the loopback [port]. */
+    fun through(port: Int): Boundary = Boundary(
+        boundary.writable,
+        boundary.writeDenied,
+        boundary.protectedNames,
+        boundary.readDenied,
+        boundary.readable,
+        NetworkAccess.Proxy(port),
+        boundary.environment + proxyVariables(port),
+    )
+}
+
+/**
+ * The sandbox that [config] asks for the server at the config path [key] working in [cwd], null for none.
+ *
+ * Throws a [ConfigException] for an environment that is missing or unavailable, a host that is none, or a path that
+ * cannot be resolved.
+ */
+internal fun serverSandbox(
+    key: String,
+    config: ServerSandboxConfig,
+    cwd: Path?,
+    environments: List<ExecutionEnvironment>,
+    paths: HostPaths,
+): SandboxSpec? {
+    val environment = environment(key, config.type, environments) ?: return null
+    config.network.allowedDomains.firstOrNull { HostPattern.parse(it) == null }?.let {
+        throw ConfigException(
+            "$key.network.allowedDomains",
+            "'$it' is no host: write a name such as example.com or *.example.com, or an address such as 127.0.0.1, " +
+                "each with an optional :port.",
+        )
+    }
+    val entries = config.protect ?: DEFAULT_PROTECT
+    val (names, absolute) = entries.filterNot { it == ALEXANDRITE_PLACES }
+        .partition { !it.startsWith("/") && !it.startsWith("~") }
+    val own = listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
+        listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
+    val writable = listOfNotNull(cwd) + config.allowWrite.map { resolved(paths, "$key.allowWrite", it) }
+    val boundary = Boundary(
+        writable = writable,
+        writeDenied = absolute.map { resolved(paths, "$key.protect", it) } +
+            if (ALEXANDRITE_PLACES in entries) own else emptyList(),
+        protectedNames = names,
+        readDenied = own + config.denyRead.map { resolved(paths, "$key.denyRead", it) },
+        readable = writable,
+    )
+    logger.info("The MCP server at {} runs in the {} sandbox", key.removeSuffix(".sandbox"), environment.name)
+    return SandboxSpec(environment, boundary, config.network.allowedDomains.mapNotNull(HostPattern::parse))
+}
+
+/** The environment that [type] names, null for none or for `auto` on a platform without one. */
+private fun environment(key: String, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
+    when (type) {
+        ServerSandboxConfig.HOST -> null
+
+        ServerSandboxConfig.AUTO -> {
+            val name = platformEnvironment()
+            environments.firstOrNull { it.name == name && it.available() }.also { found ->
+                if (found == null) {
+                    logger.warn(
+                        "The MCP server at {} asks for the platform's sandbox, but {}: it runs on the host",
+                        key.removeSuffix(".sandbox"),
+                        name?.let { "the $it sandbox is not available" } ?: "this platform has none",
+                    )
+                }
+            }
+        }
+
+        else -> {
+            val named = environments.firstOrNull { it.name == type } ?: throw ConfigException(
+                "$key.type",
+                "no plugin contributes the sandbox '$type'. Sandboxes: " +
+                    environments.joinToString { it.name }.ifEmpty { "none" } + ".",
+            )
+            if (!named.available()) {
+                throw ConfigException(
+                    "$key.type",
+                    "the sandbox '$type' is not available on this host",
+                )
+            }
+            named
+        }
+    }
+
+/** [entry] as an absolute path: itself, under the home directory for `~/`, or relative to the config file. */
+private fun resolved(paths: HostPaths, key: String, entry: String): Path {
+    val path = try {
+        Path.of(expandHome(entry))
+    } catch (e: InvalidPathException) {
+        throw ConfigException(key, "'$entry' is no valid path", e)
+    }
+    return resolveConfigured(path.toString(), paths.configFile?.parent) ?: throw ConfigException(
+        key,
+        "'$entry' is relative, but the host read no config file to resolve it against: give an absolute path",
+    )
+}
+
+private val logger = LoggerFactory.getLogger(SandboxSpec::class.java)

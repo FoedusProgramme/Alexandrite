@@ -23,7 +23,8 @@ dependencies {
     implementation(libs.poko.gradle.plugin)
     implementation(libs.spotless.gradle.plugin)
     implementation(libs.ksp.gradle.plugin)
-    implementation("org.foedusprogramme.alexandrite.buildlogic:build-logic-settings")
+    implementation(libs.maven.publish.gradle.plugin)
+    implementation("org.unitedsoftware.alexandrite.buildlogic:build-logic-settings")
 
     testImplementation(gradleTestKit())
     testImplementation(kotlin("test"))

@@ -5,6 +5,8 @@ plugins {
     `java-test-fixtures`
 }
 
+description = "Shared building blocks for Alexandrite model providers"
+
 dependencies {
     api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))

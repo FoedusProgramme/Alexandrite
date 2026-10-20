@@ -1,4 +1,4 @@
-PRAGMA user_version = 5;
+PRAGMA user_version = 6;
 
 CREATE TABLE chat_states (
     plugin TEXT NOT NULL,
@@ -70,6 +70,18 @@ CREATE TABLE entry_media (
 ) WITHOUT ROWID;
 
 CREATE INDEX entry_media_media ON entry_media (media_id);
+
+CREATE VIRTUAL TABLE entry_text USING fts5(text, tokenize = 'trigram case_sensitive 0');
+
+CREATE TABLE 'entry_text_config'(k PRIMARY KEY, v) WITHOUT ROWID;
+
+CREATE TABLE 'entry_text_content'(id INTEGER PRIMARY KEY, c0);
+
+CREATE TABLE 'entry_text_data'(id INTEGER PRIMARY KEY, block BLOB);
+
+CREATE TABLE 'entry_text_docsize'(id INTEGER PRIMARY KEY, sz BLOB);
+
+CREATE TABLE 'entry_text_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
 
 CREATE TABLE media (
     id TEXT PRIMARY KEY,
