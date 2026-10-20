@@ -15,6 +15,7 @@ private const val CONFIGURATION = "area.config"
 private const val SECRETS = "area.secrets"
 private const val SHORTCUTS = "area.shortcuts"
 private const val CHATS = "area.chats"
+private const val HELP = "area.help"
 
 private fun noArguments(given: Given, name: String) = given.atMost(0, Text("usage.no_argument", "command" to name))
 
@@ -267,5 +268,14 @@ internal val COMMANDS: List<CliCommand> = listOf(
     CliCommand(listOf("chats"), "[$JSON]", CHATS, flags = setOf(JSON)) { given ->
         noArguments(given, "chats")
         CliAction.Act { chats(it, given.flag(JSON)) }
+    },
+    CliCommand(listOf("manual"), "[<topic>] [--search <words>]", HELP, options = setOf("--search")) { given ->
+        val search = given.option("--search")
+        if (search != null) {
+            CliAction.Act { manualSearch(it, (listOf(search) + given.operands).joinToString(" ")) }
+        } else {
+            given.atMost(1, Text("usage.manual"))
+            CliAction.Act { manual(it, given.operands.firstOrNull()) }
+        }
     },
 )

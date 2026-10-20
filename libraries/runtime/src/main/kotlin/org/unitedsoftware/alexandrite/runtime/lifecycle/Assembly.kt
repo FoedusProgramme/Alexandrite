@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.runtime.configFailure
 import org.unitedsoftware.alexandrite.runtime.hook.HookDecisionListener
 import org.unitedsoftware.alexandrite.runtime.hook.HookFailureListener
 import org.unitedsoftware.alexandrite.runtime.i18n.RuntimeTexts
+import org.unitedsoftware.alexandrite.runtime.plugin.classLoader
 import org.unitedsoftware.alexandrite.runtime.plugin.pluginProblems
 import org.unitedsoftware.alexandrite.runtime.startFailure
 import org.unitedsoftware.alexandrite.runtime.store.UnreadableRecordListener
@@ -190,6 +191,7 @@ internal class Assembly(
             spec.configFile,
             infos,
             builtIns,
+            enabled.associate { it.id to it.member.index.classLoader() },
             hookFailures,
             hookDecisions,
             unreadableStates,

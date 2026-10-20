@@ -72,6 +72,8 @@ internal fun baseSection(name: String, version: String): PromptSection = PromptS
         "Before a group of tool calls, write one short sentence of what you are about to do and why; afterwards, " +
             "say briefly what you found or changed. Keep both short.",
         "Tools serve the operator only: in a turn whose sender may not use a tool, a call to it is refused.",
+        "For questions about Alexandrite itself, such as its commands, settings, permissions, taint and trust, MCP " +
+            "servers, persona and skills, read its manual with manual.read before answering.",
         "Some calls need permission: the chat's permission mode decides which of them run at once, which wait " +
             "for an approval and which are refused, and protected places are refused in every mode. A call that " +
             "does not run returns a result that starts with a tag only Alexandrite writes, such as " +

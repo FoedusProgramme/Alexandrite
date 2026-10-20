@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime.lifecycle
 
+import org.unitedsoftware.alexandrite.internal.manual.Manual
 import org.unitedsoftware.alexandrite.internal.path.createOwnerOnly
 import org.unitedsoftware.alexandrite.runtime.RuntimeConfig
 import org.unitedsoftware.alexandrite.runtime.chat.MemoryChatStateStore
@@ -59,6 +60,8 @@ internal fun runtimeBindings(
     configFile: Path?,
     plugins: List<PluginInfo>,
     builtIns: Set<String>,
+    /** The class loader of each plugin's own resources, by plugin id. */
+    classLoaders: Map<String, ClassLoader>,
     hookFailures: HookFailureListener,
     hookDecisions: HookDecisionListener,
     unreadableStates: UnreadableStateListener,
@@ -114,6 +117,7 @@ internal fun runtimeBindings(
         binding(key<PluginOrigins>(), RUNTIME_PLUGIN, "PluginOrigins", managed = false) { r ->
             ResolvedOrigins(r, builtIns)
         },
+        binding(key<Manual>(), RUNTIME_PLUGIN, "Manual", managed = false) { Manual.read(classLoaders) },
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
