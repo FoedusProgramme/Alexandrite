@@ -49,11 +49,14 @@ and the operators get a notice with Keep and "Trust 〈root〉 and clear the tai
 
 ## Trust
 
-Trust means "its output does not taint"; it grants no permission and no authority.
+Trust means "its output does not taint"; it grants no permission and no authority. Folders, trust rules and people
+are trusted per agent: what an operator trusts in a chat holds for the chat's agent only.
 
 - Folders: a trusted folder and everything below it, outside the repositories nested in it, reads without tainting,
-  and its project instructions (`AGENTS.md`, `CLAUDE.md`) and project skills load. Host-wide: declared in
-  `agent.trustedFolders` or granted with `/trust <absolute path>`; `/untrust <path>` ends it.
+  and its project instructions (`AGENTS.md`, `CLAUDE.md`) and project skills load. `agent.trustedFolders` declares
+  folders for every agent; `/trust <absolute path>` trusts one for the chat's agent, and `/untrust <path>` ends that.
+  When a turn finds project instructions in a folder that is not trusted, an operator is offered to trust it for the
+  agent; "Not now" trusts nothing and changes no taint.
 - Trust rules, for the current conversation only: `/trust command.exec(git)` trusts a program's output,
   `/trust web.fetch(example.com)` a domain and its subdomains, `/trust mcp.<server>.*` an MCP server. Declared ones
   for every conversation go in `agent.agents.<id>.permission.trust`. A program rule trusts only the programs: paths
@@ -62,5 +65,6 @@ Trust means "its output does not taint"; it grants no permission and no authorit
   files for this agent; what they forward or quote still taints. A channel may trust people in its config, such as
   Telegram's `channels.telegram.instances.<name>.trustedUserIds`. Operators are always trusted.
 
-`/trust` alone lists the trusted folders, the trust rules of the conversation and the trusted people. Only operators run
+`/trust` alone lists the folders, the trust rules of the conversation and the people that the chat's agent trusts, and
+each `/trust` and `/untrust` names the agent it holds for. Only operators run
 `/trust`, `/untrust` and `/untaint`.

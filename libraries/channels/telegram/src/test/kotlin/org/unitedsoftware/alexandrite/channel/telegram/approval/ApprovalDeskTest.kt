@@ -31,6 +31,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -528,7 +529,8 @@ class ApprovalDeskTest {
         val shown = desk.shown(ADA).first()
         assertTrue(
             "\n⚠️ This call would bring the first untrusted content into this conversation, from: $source\n" +
-                "Trusting covers the folder, and what is in it outside the repositories nested in it: $folder\n" +
+                "Trusting covers, for main, the folder and what is in it outside the repositories nested in it: " +
+                "$folder\n" +
                 "⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from " +
                 "others, prefer marking the conversation tainted.\n" in shown,
             shown,
@@ -593,7 +595,7 @@ class ApprovalDeskTest {
             Trusting covers what the program prints: ./gradlew
             Trusting covers the pages of the domain and its subdomains: docs.example.com
             Trusting covers the output of the MCP server: files
-            Trusting covers the messages and files that this person writes: Bob
+            Trusting covers, for main, the messages and files that this person writes: Bob
             Trust is not authority: a trusted person gets no approvals and no operator commands.
             """.trimIndent() in shown,
             shown,
@@ -627,7 +629,7 @@ class ApprovalDeskTest {
             It came from: fs.read reached /srv/clone, a folder that is not trusted
             Agent: main
             Started by: a heartbeat, not by a message the requester sent now
-            Trusting covers the folder, and what is in it outside the repositories nested in it: /srv/clone
+            Trusting covers, for main, the folder and what is in it outside the repositories nested in it: /srv/clone
             ⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from others, prefer marking the conversation tainted. [Keep|Trust folder /srv/clone and clear the taint]
             """.trimIndent(),
             shown,
@@ -660,6 +662,47 @@ class ApprovalDeskTest {
         )
         assertEquals("Alexandrite's trust offer of1 (trusted by Ada)", desk.messages.quoted(ADA, 101))
     }
+
+    @Test
+    fun `an offer of project instructions names the agent and the folder, trust first, and not now trusts nothing`() =
+        runTest {
+            val desk = Desk(this)
+            val turn = turnOf(ada, ADA)
+            val folder = TrustRoot(TrustRootKind.FOLDER, "/srv/repo")
+            val instructions = { id: String ->
+                TrustOffer(id, turn, "/srv/repo (AGENTS.md)", listOf(folder), TrustOfferKind.INSTRUCTIONS)
+            }
+            val trusted = offering(desk, instructions("of1"))
+            val declined = offering(desk, instructions("of2"))
+            advanceTimeBy(5.seconds)
+
+            assertEquals(
+                """
+                Project instructions not loaded (#of1)
+                The agent works in telegram:work:$ADA in a folder that it does not trust, so the folder's project instructions were not loaded. Trusting the folder loads them the next time the agent touches it.
+                Not loaded: /srv/repo (AGENTS.md)
+                Agent: main
+                Trusting covers, for main, the folder and what is in it outside the repositories nested in it: /srv/repo
+                ⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from others, prefer marking the conversation tainted. [Trust folder /srv/repo (for main)|Not now]
+                """.trimIndent(),
+                desk.shown(ADA).first(),
+            )
+            desk.press(ada, "tro:of1:t", message = 101)
+            desk.press(ada, "tro:of2:k", message = 102)
+            advanceTimeBy(5.seconds)
+
+            assertEquals(ApprovalAnswer.Allowed(ada, trust = true), trusted.await())
+            assertEquals(ApprovalAnswer.Denied(ada), declined.await())
+            assertEquals(
+                listOf(
+                    "Trusted for main by Ada: /srv/repo. Their project instructions load the next time the agent " +
+                        "touches them.",
+                    "Ada answered not now: nothing is trusted.",
+                ),
+                desk.shown(ADA).map { it.substringAfterLast("\n") },
+            )
+            assertEquals("Alexandrite's trust offer of2 (declined by Ada)", desk.messages.quoted(ADA, 102))
+        }
 
     @Test
     fun `a guest's offer is to trust the person, and nobody answering keeps the conversation marked`() = runTest {

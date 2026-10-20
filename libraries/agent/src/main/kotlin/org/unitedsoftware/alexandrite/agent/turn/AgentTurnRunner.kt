@@ -1080,7 +1080,10 @@ internal class AgentTurnRunner(
             }
         }
 
-        /** Tells the chat in one notice that the turn did not load the project instructions of [folders]. */
+        /**
+         * Offers an operator to trust [folders], whose project instructions the turn did not load, else tells the chat
+         * in one notice.
+         */
         private suspend fun warn(turn: TurnInfo, folders: List<UntrustedFolder>) {
             val folder = folders.singleOrNull()
             val text = if (folder != null) {
@@ -1098,7 +1101,10 @@ internal class AgentTurnRunner(
                 val key = if (more > 0) TextKeys.UNTRUSTED_FOLDERS_MORE else TextKeys.UNTRUSTED_FOLDERS
                 notices.text(turn, key, "agent" to agent.name, "folders" to named, "count" to more)
             }
-            notify(NoticeKind.UNTRUSTED_FOLDER, text)
+            append(NoticeEntry(null, text, NoticeKind.UNTRUSTED_FOLDER))
+            val trigger = plan.trigger
+            val notice = notice(text, trigger, turn.conversation).takeIf { sink != null }
+            offers.offerInstructions(turn, folders, trigger?.chat ?: turn.chat, notice)
         }
 
         /** What makes the turn's next round its last after [toolRounds] tool rounds, null when nothing does. */

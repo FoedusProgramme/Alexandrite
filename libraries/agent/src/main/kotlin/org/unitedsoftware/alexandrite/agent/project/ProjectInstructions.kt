@@ -166,11 +166,11 @@ internal class ProjectInstructions(
                 val made = project.skills.mapNotNull { skills.skill(it, SkillScope.PROJECT, project.folder) }
                 if (made.isNotEmpty()) {
                     projectSkills.note(conversation, made)
-                    found += FolderSkills(project.folder, trust.covering(project.folder) != null, made)
+                    found += FolderSkills(project.folder, trust.covering(turn.agent, project.folder) != null, made)
                 }
             }
             if (project.files.isEmpty()) continue
-            val trusted = trust.covering(project.folder)
+            val trusted = trust.covering(turn.agent, project.folder)
             if (trusted == null) {
                 if (!claim(conversation) { warned.add(project.folder) }) continue
                 claimed.warned.add(project.folder)

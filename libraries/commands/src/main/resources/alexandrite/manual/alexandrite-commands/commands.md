@@ -44,10 +44,10 @@ arguments. A bot's `commands` config can change the rules (see alexandrite-chann
 ## Permissions and trust (operators only)
 
 - `/allow` — the allow rules in force here; `/allow revoke <number>` revokes one.
-- `/trust` — what is trusted; `/trust <folder>` trusts an absolute folder, `/trust <rule>` such as
-  `/trust command.exec(git)` trusts the output of some calls for the conversation, `/trust` in reply to someone or
-  naming them with @ trusts that person.
-- `/untrust <folder>`, `/untrust <rule>`, or in reply or with @ — stops trusting.
+- `/trust` — what the chat's agent trusts; `/trust <folder>` trusts an absolute folder for it, `/trust <rule>` such
+  as `/trust command.exec(git)` trusts the output of some calls for the conversation, `/trust` in reply to someone or
+  naming them with @ trusts that person for it. Each reply names the agent.
+- `/untrust <folder>`, `/untrust <rule>`, or in reply or with @ — stops trusting, for the chat's agent.
 - `/untaint` — clears the taint of every agent's conversation in this chat (each agent has its own here);
   `/untaint <agent>` clears one agent's; `/untaint heartbeat [<agent>]` clears an agent's heartbeat conversation.
 

@@ -222,7 +222,9 @@ class FakesTest {
                 blocking { control.conversations.newConversation(chat, operator) }
             }
         val folder =
-            assertFailsWith<ControlRefusedException> { blocking { control.trust.trustFolder(Path.of("/srv"), null) } }
+            assertFailsWith<ControlRefusedException> {
+                blocking { control.trust.trustFolder(chat, Path.of("/srv"), null) }
+            }
         val conversation = blocking { control.conversations.newConversation(chat, operator) }
 
         assertEquals("No agent serves $chat.", queued.message)
@@ -232,12 +234,12 @@ class FakesTest {
         assertEquals(
             listOf(
                 RecordingAgent.Call.NewConversation(chat, operator, null),
-                RecordingAgent.Call.TrustFolder(Path.of("/srv"), null),
+                RecordingAgent.Call.TrustFolder(chat, Path.of("/srv"), null),
                 RecordingAgent.Call.NewConversation(chat, operator, conversation),
             ),
             control.calls,
         )
-        assertEquals(emptyList(), control.trust.folders())
+        assertEquals(emptyList(), blocking { control.trust.folders(chat) })
     }
 
     @Test
@@ -246,29 +248,32 @@ class FakesTest {
         val operator = testUser("ada", isOperator = true)
         val repository = Path.of("/srv/repo")
         val declared = Path.of("/srv/config")
+        val chat = testChat()
         control.declareFolder(declared)
 
         val trusted = blocking {
             listOf(
-                control.trust.trustFolder(repository, operator),
-                control.trust.trustFolder(Path.of("/srv/repo/sub/../lib"), null),
+                control.trust.trustFolder(chat, repository, operator),
+                control.trust.trustFolder(chat, Path.of("/srv/repo/sub/../lib"), null),
             )
         }
 
         assertEquals(listOf(repository, repository), trusted)
         assertEquals(
             listOf(TrustedFolder(declared, true, null, null), TrustedFolder(repository, false, TEST_TIME, operator)),
-            control.trust.folders(),
+            blocking { control.trust.folders(chat) },
         )
         val revoked = blocking {
-            listOf(declared, Path.of("/srv"), repository, repository).map { control.trust.untrustFolder(it, null) }
+            listOf(declared, Path.of("/srv"), repository, repository).map {
+                control.trust.untrustFolder(chat, it, null)
+            }
         }
         assertEquals(
             listOf(true to false, false to false, false to true, false to false),
             revoked.map { it.declared to it.removed },
         )
-        assertEquals(listOf(declared), control.trust.folders().map { it.path })
-        assertEquals(RecordingAgent.Call.TrustFolder(repository, operator), control.calls.first())
+        assertEquals(listOf(declared), blocking { control.trust.folders(chat) }.map { it.path })
+        assertEquals(RecordingAgent.Call.TrustFolder(chat, repository, operator), control.calls.first())
 
         val guest = testUser("bob")
         val person = blocking { control.trust.trustPerson(testChat(), guest, operator) }

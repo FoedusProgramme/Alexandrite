@@ -92,7 +92,7 @@ internal class HostInstructionPlaces(
 
     /** The kind of a trusted folder's instruction place that [target] is, null when it is none. */
     private fun trusted(target: Path): String? {
-        val folder = trust.covering(target.parent ?: return null)?.path ?: return null
+        val folder = trust.coveringAny(target.parent ?: return null) ?: return null
         val inside = folder.relativize(target).map { it.toString() }
         return when {
             INSTRUCTION_FILES.any { it.equals(target.fileName.toString(), ignoreCase = true) } ->

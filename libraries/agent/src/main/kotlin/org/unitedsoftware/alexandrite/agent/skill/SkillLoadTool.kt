@@ -62,7 +62,7 @@ internal class SkillLoadTool(private val skills: Skills) :
             is Found.Missing -> return CallReview.builder().problem(found.why).build()
             is Found.Known -> found.skill
         }
-        if (skills.trusted(skill)) return CallReview.builder().build()
+        if (skills.trusted(context.turn.agent, skill)) return CallReview.builder().build()
         return CallReview.builder().untrusted(true).reads(listOfNotNull(skill.file)).build()
     }
 
@@ -74,7 +74,7 @@ internal class SkillLoadTool(private val skills: Skills) :
         val text = skill.file?.let { skills.text(it) }
         val body = skill.spec?.instructions ?: text?.body
             ?: return ToolResult("The file of skill ${skill.name} cannot be read.", isError = true)
-        if (skills.trusted(skill)) {
+        if (skills.trusted(context.turn.agent, skill)) {
             val agent = context as? AgentToolContext
                 ?: return ToolResult("Skills load only in an agent's turn.", isError = true)
             agent.load(skillEntry(skill, body))

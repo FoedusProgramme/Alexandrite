@@ -64,7 +64,7 @@ import java.time.ZoneOffset
  *
  * It records the calls that change something in [calls], lists the [statuses] and [jobStatuses] the test sets, reports
  * the [compaction] and contexts it is scripted with, mints conversations `conversation-<n>` and keeps chat settings per
- * agent and chat, home chats per agent and instance, linked groups, trusted folders, people per agent, trust rules
+ * agent and chat, home chats per agent and instance, linked groups, trusted folders and people per agent, trust rules
  * and allow rules, where [defaultAgent] serves every chat that is no other agent's home until an update switches it.
  * A bypass set without an end ends an hour after [clock]'s time.
  *
@@ -85,7 +85,8 @@ public class RecordingAgent(
     private val configuredHomes = HashMap<Pair<AgentId, ChannelInstanceId>, ChatAddress>()
     private val runtimeHomes = LinkedHashMap<Pair<AgentId, ChannelInstanceId>, RuntimeHome>()
     private val linked = LinkedHashMap<AgentId, List<ChatLinkGroup>>()
-    private val trusted = mutableListOf<TrustedFolder>()
+    private val declaredFolders = mutableListOf<TrustedFolder>()
+    private val trustedFolders = LinkedHashMap<AgentId, MutableList<TrustedFolder>>()
     private val declaredRules = mutableListOf<RuleSubject>()
     private val grantedRules = HashMap<ChatAddress, List<AllowRule>>()
     private val declaredTrust = mutableListOf<String>()
@@ -197,9 +198,9 @@ public class RecordingAgent(
         synchronized(lock) { declaredTrust += rule }
     }
 
-    /** Lists [folder] as a trusted folder that the config file declares. */
+    /** Lists [folder] as a trusted folder that the config file declares for every agent. */
     public fun declareFolder(folder: Path) {
-        synchronized(lock) { trusted += TrustedFolder(folder.normalize(), true, null, null) }
+        synchronized(lock) { declaredFolders += TrustedFolder(folder.normalize(), true, null, null) }
     }
 
     /** Lists [subject] as an allow rule that the config file declares, in force at every chat. */
@@ -404,25 +405,32 @@ public class RecordingAgent(
     }
 
     private inner class Trust : TrustControl {
-        override fun folders(): List<TrustedFolder> = synchronized(lock) { trusted.toList() }
+        /** The declared folders, then those trusted for the agent of [chat]. */
+        override suspend fun folders(chat: ChatAddress): List<TrustedFolder> = synchronized(lock) {
+            declaredFolders + trustedFolders[settingsAt(chat).agent].orEmpty()
+        }
 
-        /** Trusts [folder], normalized, at [TEST_TIME] unless a trusted folder covers it. */
-        override suspend fun trustFolder(folder: Path, by: ChatUser?): Path = synchronized(lock) {
-            recorded += Call.TrustFolder(folder, by)
+        /** Trusts [folder], normalized, for the agent of [chat] at [TEST_TIME] unless a folder it trusts covers it. */
+        override suspend fun trustFolder(chat: ChatAddress, folder: Path, by: ChatUser?): Path = synchronized(lock) {
+            recorded += Call.TrustFolder(chat, folder, by)
             refuseQueued()
             val normalized = folder.normalize()
-            trusted.firstOrNull { normalized.startsWith(it.path) }?.path
-                ?: normalized.also { trusted += TrustedFolder(it, false, TEST_TIME, by) }
+            val agent = settingsAt(chat).agent
+            (declaredFolders + trustedFolders[agent].orEmpty()).firstOrNull { normalized.startsWith(it.path) }?.path
+                ?: normalized.also {
+                    trustedFolders.getOrPut(agent, ::mutableListOf) += TrustedFolder(it, false, TEST_TIME, by)
+                }
         }
 
-        /** Stops trusting [folder] unless the config file declares it. */
-        override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation = synchronized(lock) {
-            recorded += Call.UntrustFolder(folder, by)
-            refuseQueued()
-            val found = trusted.firstOrNull { it.path == folder.normalize() }
-            if (found != null && !found.declared) trusted.remove(found)
-            Revocation(removed = found?.declared == false, declared = found?.declared == true)
-        }
+        /** Stops trusting [folder] for the agent of [chat], reporting whether the config file declares it. */
+        override suspend fun untrustFolder(chat: ChatAddress, folder: Path, by: ChatUser?): Revocation =
+            synchronized(lock) {
+                recorded += Call.UntrustFolder(chat, folder, by)
+                refuseQueued()
+                val normalized = folder.normalize()
+                val removed = trustedFolders[settingsAt(chat).agent]?.removeIf { it.path == normalized } == true
+                Revocation(removed = removed, declared = declaredFolders.any { it.path == normalized })
+            }
 
         /** The declared trust rules, then those granted at [chat]. */
         override suspend fun rules(chat: ChatAddress): List<TrustRule> = synchronized(lock) {
@@ -683,10 +691,11 @@ public class RecordingAgent(
         public class Unlink(public val agent: AgentId, public val member: ChatAddress, public val by: ChatUser?) : Call
 
         @Poko
-        public class TrustFolder(public val folder: Path, public val by: ChatUser?) : Call
+        public class TrustFolder(public val chat: ChatAddress, public val folder: Path, public val by: ChatUser?) : Call
 
         @Poko
-        public class UntrustFolder(public val folder: Path, public val by: ChatUser?) : Call
+        public class UntrustFolder(public val chat: ChatAddress, public val folder: Path, public val by: ChatUser?) :
+            Call
 
         @Poko
         public class Trust(public val chat: ChatAddress, public val rule: String, public val by: ChatUser?) : Call

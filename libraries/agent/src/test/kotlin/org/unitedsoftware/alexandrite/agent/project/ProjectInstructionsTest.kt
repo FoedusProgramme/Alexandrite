@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.project
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
@@ -10,8 +12,13 @@ import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.assertStartFails
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.runtime.StartStage
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
@@ -31,6 +38,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
+import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import java.nio.file.Files
@@ -43,6 +51,8 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.time.Duration.Companion.seconds
 
 class ProjectInstructionsTest {
     @TempDir
@@ -219,12 +229,71 @@ class ProjectInstructionsTest {
                 listOf(NoticeEntry(null, notice, NoticeKind.UNTRUSTED_FOLDER)),
                 entries.filterIsInstance<NoticeEntry>().map { NoticeEntry(null, it.text, it.kind) },
             )
+            channel().awaitEvent { it is RecordingChannel.Event.Sent }
             assertEquals(
                 listOf(MessageKind.NOTICE to notice),
                 channel().sent.map {
                     it.message.kind to it.message.text
                 },
             )
+        }
+    }
+
+    @Test
+    fun `an operator offered a folder whose instructions were not loaded trusts it, and they load on the next touch`() {
+        repository()
+        repeat(2) { reads(main) }
+
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = true))
+            ask()
+            val offer = channel().awaitOffers(1).single()
+            withTimeout(5.seconds) { while (get<TrustControl>().folders(key.chat).isEmpty()) delay(10) }
+            ask()
+
+            assertEquals(TrustOfferKind.INSTRUCTIONS, offer.kind)
+            assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$repository")), offer.roots)
+            assertEquals("$repository (AGENTS.md, src/CLAUDE.md)", offer.untrusted)
+            assertEquals(emptyList(), channel().sent)
+            assertEquals(listOf(NoticeKind.UNTRUSTED_FOLDER), stored().filterIsInstance<NoticeEntry>().map { it.kind })
+            assertEquals(
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), "Operator") },
+                projects(stored()).map { it.texts().first() },
+            )
+        }
+    }
+
+    @Test
+    fun `not now to the offer of a folder trusts nothing and leaves the conversation's taint as it was`() {
+        repository()
+        repeat(2) { reads(main) }
+
+        harness().execute {
+            channel().scriptOffers(ApprovalAnswer.Denied(channel().user("operator")))
+            ask()
+            val offer = channel().awaitOffers(1).single()
+            channel().awaitEvent { it is RecordingChannel.Event.OfferAnswered }
+            val taint = store.conversations.taint(conversation())
+            ask()
+
+            assertEquals(TrustOfferKind.INSTRUCTIONS, offer.kind)
+            assertEquals(emptyList(), get<TrustControl>().folders(key.chat))
+            assertEquals(taint, store.conversations.taint(conversation()))
+            assertEquals(emptyList(), projects(stored()))
+            assertEquals(emptyList(), channel().sent)
+        }
+    }
+
+    @Test
+    fun `a trusted folder's instructions are offered to nobody`() {
+        repository()
+        reads(main)
+
+        harness(trusted = listOf(repository)).execute {
+            ask()
+
+            assertEquals(emptyList(), channel().offers)
         }
     }
 
@@ -257,14 +326,14 @@ class ProjectInstructionsTest {
             val by = channel().user("operator")
             ask()
 
-            val trusted = control.trustFolder(repository, by)
-            val covered = control.trustFolder(repository.resolve("src"), null)
+            val trusted = control.trustFolder(key.chat, repository, by)
+            val covered = control.trustFolder(key.chat, repository.resolve("src"), null)
             ask()
 
             assertEquals(listOf(repository, repository), listOf(trusted, covered))
-            val grant = control.folders().single()
+            val grant = control.folders(key.chat).single()
             assertEquals(TrustedFolder(repository, false, grant.trustedAt, by), grant)
-            assertEquals(listOf("$repository by ${by.address}"), grants())
+            assertEquals(listOf("coder/$repository by ${by.address}"), grants())
             val loaded = projects(stored())
             assertEquals(
                 listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), operator) },
@@ -278,7 +347,7 @@ class ProjectInstructionsTest {
 
             assertEquals(
                 listOf(repository to "Operator"),
-                get<TrustControl>().folders().map {
+                get<TrustControl>().folders(key.chat).map {
                     it.path to
                         it.trustedBy?.displayName
                 },
@@ -293,19 +362,57 @@ class ProjectInstructionsTest {
     }
 
     @Test
+    fun `a folder trusted for one agent is not trusted for another, whose reads of it taint and load nothing`() {
+        repository()
+        repeat(2) { reads(main) }
+        val config = """
+            {
+              "previewIntervalMillis": 0,
+              "agents": {
+                "coder": {"model": "scripted/test-model", "channels": {"test:main": {"default": true}}},
+                "neko": {"model": "scripted/test-model", "channels": {"test:main": {"home": "home"}}}
+              }
+            }
+        """.trimIndent()
+
+        agentHarness(config, store) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
+            val control = get<TrustControl>()
+            val home = channel().chat("home")
+            control.trustFolder(key.chat, repository, channel().user("operator"))
+            val asked = channel().receive("Look.", home, channel().user("operator"))
+            assertIs<Admission.Accepted>(asked).ticket.outcome()
+            ask()
+            val neko = store.conversations.current(AgentChatKey(AgentId("neko"), home)).id
+
+            assertEquals(listOf(repository), control.folders(key.chat).map { it.path })
+            assertEquals(emptyList(), control.folders(home))
+            assertEquals(
+                "fs.read reached ${main.parent}, a folder that is not trusted",
+                store.conversations.taint(neko)?.reason,
+            )
+            assertEquals(emptyList(), projects(stored(neko)))
+            assertNull(store.conversations.taint(conversation()))
+            assertEquals(
+                listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it), "Operator") },
+                projects(stored()).map { it.texts().first() },
+            )
+        }
+    }
+
+    @Test
     fun `an untrusted folder stops loading`() {
         repository()
         reads(main)
 
         harness().execute {
             val control = get<TrustControl>()
-            control.trustFolder(repository, null)
+            control.trustFolder(key.chat, repository, null)
 
-            val untrusted = listOf(control.untrustFolder(repository, null), control.untrustFolder(repository, null))
+            val untrusted = List(2) { control.untrustFolder(key.chat, repository, null) }
             ask()
 
             assertEquals(listOf(Revocation(true, false), Revocation(false, false)), untrusted)
-            assertEquals(emptyList(), control.folders())
+            assertEquals(emptyList(), control.folders(key.chat))
             assertEquals(emptyList(), grants())
             assertEquals(emptyList(), projects(stored()))
             assertEquals(listOf(NoticeKind.UNTRUSTED_FOLDER), stored().filterIsInstance<NoticeEntry>().map { it.kind })
@@ -324,25 +431,25 @@ class ProjectInstructionsTest {
         harness(trusted = declared) { keptConfigFile(file) }.execute {
             config = Files.readString(file)
             val control = get<TrustControl>()
-            val absent = control.folders().last().path
+            val absent = control.folders(key.chat).last().path
 
-            val trusted = listOf(control.trustFolder(repository.resolve("src"), null), control.trustFolder(other, null))
-            val kept = listOf(repository, absent).map { control.untrustFolder(it, null) }
+            val trusted = listOf(repository.resolve("src"), other).map { control.trustFolder(key.chat, it, null) }
+            val kept = listOf(repository, absent).map { control.untrustFolder(key.chat, it, null) }
 
             assertEquals(listOf(repository, other), trusted)
             assertEquals(
                 listOf(true, true, true, false),
-                control.folders().map { it.declared },
+                control.folders(key.chat).map { it.declared },
             )
-            assertEquals(listOf(repository, shared, absent, other), control.folders().map { it.path })
+            assertEquals(listOf(repository, shared, absent, other), control.folders(key.chat).map { it.path })
             assertEquals(List(2) { Revocation(false, true) }, kept)
-            assertEquals(listOf("$other by null"), grants())
+            assertEquals(listOf("coder/$other by null"), grants())
         }
         harness(trusted = declared) { keptConfigFile(file) }.execute {
             val control = get<TrustControl>()
 
-            assertEquals(listOf(true, true, true, false), control.folders().map { it.declared })
-            assertEquals(Revocation(true, false), control.untrustFolder(other, null))
+            assertEquals(listOf(true, true, true, false), control.folders(key.chat).map { it.declared })
+            assertEquals(Revocation(true, false), control.untrustFolder(key.chat, other, null))
         }
 
         assertEquals(config, Files.readString(file))
@@ -355,19 +462,19 @@ class ProjectInstructionsTest {
 
         harness().execute {
             val control = get<TrustControl>()
-            val trusted = listOf(control.trustFolder(odd, null), control.trustFolder(malformed, null))
+            val trusted = listOf(odd, malformed).map { control.trustFolder(key.chat, it, null) }
 
             assertEquals(listOf(odd, malformed), trusted)
         }
         harness().execute {
             val control = get<TrustControl>()
-            val trusted = control.folders().map { it.path }
+            val trusted = control.folders(key.chat).map { it.path }
 
-            val untrusted = control.untrustFolder(odd, null)
+            val untrusted = control.untrustFolder(key.chat, odd, null)
 
             assertEquals(listOf(odd, malformed), trusted)
             assertEquals(Revocation(true, false), untrusted)
-            assertEquals(listOf("$malformed by null"), grants())
+            assertEquals(listOf("coder/$malformed by null"), grants())
         }
     }
 
@@ -382,17 +489,17 @@ class ProjectInstructionsTest {
                 assertFailsWith<IllegalArgumentException> { block() }.message
 
             val messages = listOf(
-                refused { control.trustFolder(Path.of("repo"), null) },
-                refused { control.untrustFolder(Path.of("repo"), null) },
-                refused { control.trustFolder(root.resolve("none"), null) },
-                refused { control.trustFolder(main, null) },
-                refused { control.trustFolder(secret.resolve("keys"), null) },
+                refused { control.trustFolder(key.chat, Path.of("repo"), null) },
+                refused { control.untrustFolder(key.chat, Path.of("repo"), null) },
+                refused { control.trustFolder(key.chat, root.resolve("none"), null) },
+                refused { control.trustFolder(key.chat, main, null) },
+                refused { control.trustFolder(key.chat, secret.resolve("keys"), null) },
             )
-            val untouched = control.folders()
+            val untouched = control.folders(key.chat)
             val permissions = Files.getPosixFilePermissions(file)
             Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("r--r--r--"))
             val trusted = try {
-                control.trustFolder(repository, null)
+                control.trustFolder(key.chat, repository, null)
             } finally {
                 Files.setPosixFilePermissions(file, permissions)
             }
@@ -410,22 +517,22 @@ class ProjectInstructionsTest {
             )
             assertEquals(emptyList(), untouched)
             assertEquals(repository, trusted)
-            assertEquals(listOf(repository), control.folders().map { it.path })
+            assertEquals(listOf(repository), control.folders(key.chat).map { it.path })
         }
     }
 
     @Test
     fun `a grant of a folder that the floor protects since is ignored at the start, and untrust removes it`() {
         repository()
-        harness().execute { get<TrustControl>().trustFolder(repository, null) }
+        harness().execute { get<TrustControl>().trustFolder(key.chat, repository, null) }
 
         harness { protect(repository) }.execute {
-            assertEquals(emptyList(), get<TrustControl>().folders())
-            assertEquals(listOf("$repository by null"), grants())
-            assertEquals(Revocation(true, false), get<TrustControl>().untrustFolder(repository, null))
+            assertEquals(emptyList(), get<TrustControl>().folders(key.chat))
+            assertEquals(listOf("coder/$repository by null"), grants())
+            assertEquals(Revocation(true, false), get<TrustControl>().untrustFolder(key.chat, repository, null))
         }
         harness().execute {
-            assertEquals(emptyList(), get<TrustControl>().folders())
+            assertEquals(emptyList(), get<TrustControl>().folders(key.chat))
             assertEquals(emptyList(), grants())
         }
     }
@@ -433,18 +540,18 @@ class ProjectInstructionsTest {
     @Test
     fun `untrusting a folder that the config declares since drops its grant, which no later start brings back`() {
         repository()
-        harness().execute { get<TrustControl>().trustFolder(repository, null) }
+        harness().execute { get<TrustControl>().trustFolder(key.chat, repository, null) }
 
         harness(trusted = listOf(repository)).execute {
             val control = get<TrustControl>()
-            val both = control.folders().single()
+            val both = control.folders(key.chat).single()
 
             assertEquals(listOf(repository, true, true), listOf(both.path, both.declared, both.trustedAt != null))
-            assertEquals(Revocation(true, true), control.untrustFolder(repository, null))
-            assertEquals(listOf(TrustedFolder(repository, true, null, null)), control.folders())
+            assertEquals(Revocation(true, true), control.untrustFolder(key.chat, repository, null))
+            assertEquals(listOf(TrustedFolder(repository, true, null, null)), control.folders(key.chat))
         }
         harness().execute {
-            assertEquals(emptyList(), get<TrustControl>().folders())
+            assertEquals(emptyList(), get<TrustControl>().folders(key.chat))
             assertEquals(emptyList(), grants())
         }
     }
@@ -453,7 +560,7 @@ class ProjectInstructionsTest {
     fun `untrusting a folder that moved behind a link removes the grant made under its old path`() {
         val old = root.resolve("old").createDirectories()
         old.resolve("repo").createDirectories()
-        harness().execute { get<TrustControl>().trustFolder(old.resolve("repo"), null) }
+        harness().execute { get<TrustControl>().trustFolder(key.chat, old.resolve("repo"), null) }
         val moved = Files.move(old, root.resolve("moved"))
         Files.createSymbolicLink(old, moved)
         val folder = moved.resolve("repo")
@@ -461,11 +568,11 @@ class ProjectInstructionsTest {
         harness().execute {
             val control = get<TrustControl>()
 
-            assertEquals(listOf(folder), control.folders().map { it.path })
-            assertEquals(Revocation(true, false), control.untrustFolder(folder, null))
+            assertEquals(listOf(folder), control.folders(key.chat).map { it.path })
+            assertEquals(Revocation(true, false), control.untrustFolder(key.chat, folder, null))
         }
         harness().execute {
-            assertEquals(emptyList(), get<TrustControl>().folders())
+            assertEquals(emptyList(), get<TrustControl>().folders(key.chat))
             assertEquals(emptyList(), grants())
         }
     }
@@ -569,12 +676,12 @@ class ProjectInstructionsTest {
             ask()
             val before = projects(stored())
 
-            val trusted = control.trustFolder(repository, null)
+            val trusted = control.trustFolder(key.chat, repository, null)
             ask()
 
             assertEquals(emptyList(), before)
             assertEquals(repository, trusted)
-            assertEquals(listOf(root, repository), control.folders().map { it.path })
+            assertEquals(listOf(root, repository), control.folders(key.chat).map { it.path })
             assertEquals(
                 listOf("AGENTS.md", "src/CLAUDE.md").map { header(repository.resolve(it)) },
                 projects(stored()).map { it.texts().first() },

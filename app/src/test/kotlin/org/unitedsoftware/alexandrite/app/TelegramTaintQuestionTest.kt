@@ -85,7 +85,7 @@ class TelegramTaintQuestionTest {
             app.message(app.adaChat, "Still a clone.")
             idle()
             still = taint()
-            trusted = get<TrustControl>().folders().map { it.path }
+            trusted = get<TrustControl>().folders(app.address(app.adaChat)).map { it.path }
         }
 
         val buttons = asked.buttons.map { row -> row.map { it.text } }
@@ -112,7 +112,7 @@ class TelegramTaintQuestionTest {
             app.message(app.adaChat, "It is a clone.")
             idle()
             marked = taint()
-            trusted = get<TrustControl>().folders().map { it.path }
+            trusted = get<TrustControl>().folders(app.address(app.adaChat)).map { it.path }
         }
 
         assertEquals("fs.read reached $project, a folder that is not trusted", marked?.reason)
@@ -176,7 +176,10 @@ class TelegramTaintQuestionTest {
             idle()
             clean = taint(app.group)
             app.send(app.ada, app.adaChat, "/trust")
-            listed = app.fake.await(WAIT) { botMessages(ADA).lastOrNull { "No folder is trusted." in it.text } }.text
+            listed =
+                app.fake.await(WAIT) {
+                    botMessages(ADA).lastOrNull { "No folder is trusted for coder." in it.text }
+                }.text
         }
 
         assertNull(clean)
@@ -194,16 +197,17 @@ class TelegramTaintQuestionTest {
             val written = app.send(app.bob, app.group, "Lunch at noon?")
             app.consumed(1)
             app.fake.send(app.ada, app.group, "/trust", replyTo = written)
-            trusted = app.fake.await(WAIT) { botMessages(app.group.id).lastOrNull { it.text.startsWith("Bob") } }.text
+            trusted =
+                app.fake.await(WAIT) { botMessages(app.group.id).lastOrNull { it.text.startsWith("Trusted") } }.text
             people = get<TrustControl>().people(app.address(app.group)).map { it.person.displayName }
             app.send(app.ada, app.group, "/untrust @bob_test")
             untrusted = app.fake.await(WAIT) {
-                botMessages(app.group.id).lastOrNull { it.text.startsWith("Bob") && it.text != trusted }
+                botMessages(app.group.id).lastOrNull { it.text.startsWith("No longer trusted") }
             }.text
         }
 
         assertEquals(listOf("Bob"), people)
-        assertContains(trusted, "is trusted")
-        assertContains(untrusted, "is no longer trusted")
+        assertContains(trusted, "Trusted for coder: Bob (@bob_test).")
+        assertContains(untrusted, "No longer trusted for coder: Bob (@bob_test).")
     }
 }

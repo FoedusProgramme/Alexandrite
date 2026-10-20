@@ -18,21 +18,24 @@ import java.time.Instant
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface TrustControl {
-    /** The trusted folders, each covering the folders below it outside the repositories nested in it. */
-    public fun folders(): List<TrustedFolder>
+    /**
+     * The folders that the agent of [chat] trusts, each covering the folders below it outside the repositories nested
+     * in it: those the config file declares for every agent, then those granted to the agent.
+     */
+    public suspend fun folders(chat: ChatAddress): List<TrustedFolder>
 
     /**
-     * Trusts the folder [folder] (absolute), so that its content does not taint and the project instructions in it and
-     * below it load outside the repositories nested in it, and returns the trusted folder that covers it, an ancestor
-     * when one covers it already.
+     * Trusts the folder [folder] (absolute) for the agent of [chat], so that its content does not taint and the project
+     * instructions in it and below it load outside the repositories nested in it, and returns the trusted folder that
+     * covers it, an ancestor when one covers it already.
      */
-    public suspend fun trustFolder(folder: Path, by: ChatUser?): Path
+    public suspend fun trustFolder(chat: ChatAddress, folder: Path, by: ChatUser?): Path
 
     /**
-     * Stops trusting [folder] at runtime, removing its grant whenever there is one, and tells whether the config file
-     * still trusts it.
+     * Stops trusting [folder] at runtime for the agent of [chat], removing its grant whenever there is one, and tells
+     * whether the config file still trusts it.
      */
-    public suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation
+    public suspend fun untrustFolder(chat: ChatAddress, folder: Path, by: ChatUser?): Revocation
 
     /**
      * The trust rules in force at [chat]: those the config file declares for its agent, then those granted in its

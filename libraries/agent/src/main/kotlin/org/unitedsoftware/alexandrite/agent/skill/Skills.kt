@@ -106,8 +106,9 @@ internal class Skills(
     /** The names of the skills that [turn] may load. */
     fun names(turn: TurnInfo): List<String> = (global(turn.agent).keys + projects.of(turn.conversation).keys).sorted()
 
-    /** Whether [skill] is trusted now: a plugin's and the host's always, a project's while its folder is trusted. */
-    fun trusted(skill: Skill): Boolean = skill.scope != SkillScope.PROJECT || skill.folder?.let(trust::covering) != null
+    /** Whether [agent] trusts [skill] now: a plugin's and the host's always, a project's while it trusts its folder. */
+    fun trusted(agent: AgentId, skill: Skill): Boolean =
+        skill.scope != SkillScope.PROJECT || skill.folder?.let { trust.covering(agent, it) } != null
 
     /** The skill whose file is [file] in [scope], null, with one warning, when the file does not make a skill. */
     fun skill(file: Path, scope: SkillScope, folder: Path? = null): Skill? {

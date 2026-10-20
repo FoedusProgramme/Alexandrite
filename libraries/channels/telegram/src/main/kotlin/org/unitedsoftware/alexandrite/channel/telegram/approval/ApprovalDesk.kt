@@ -37,8 +37,10 @@ import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundFile
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -178,7 +180,7 @@ internal class ApprovalDesk(
         request.note?.let { lines += Line(text(TextKeys.APPROVAL_NOTE, language), it) }
         if (request.taints) {
             request.untrusted?.let { lines += Line(text(TextKeys.APPROVAL_UNTRUSTED, language), it) }
-            lines += roots(request.roots, language)
+            lines += roots(request.roots, turn.agent, language)
         }
         val risk = request.risk.name.lowercase()
         lines += Line(text(TextKeys.APPROVAL_TOOL, language, "tool" to request.tool, "risk" to risk))
@@ -204,23 +206,31 @@ internal class ApprovalDesk(
     private fun render(offer: TrustOffer, language: LanguageTag?): Pair<String, List<Line>> {
         val turn = offer.turn
         val chat = named(turn.chat)
-        val title = text(TextKeys.OFFER_TITLE_MARKED, language, "id" to offer.id)
+        val (title, head, source) = when (offer.kind) {
+            TrustOfferKind.INSTRUCTIONS -> Triple(
+                TextKeys.OFFER_TITLE_INSTRUCTIONS,
+                TextKeys.OFFER_INSTRUCTIONS,
+                TextKeys.OFFER_INSTRUCTIONS_SOURCE,
+            )
+
+            TrustOfferKind.TAINTED -> Triple(TextKeys.OFFER_TITLE_MARKED, TextKeys.OFFER_MARKED, TextKeys.OFFER_SOURCE)
+        }
         val lines = mutableListOf(
-            Line(text(TextKeys.OFFER_MARKED, language, "chat" to chat)),
-            Line(text(TextKeys.OFFER_SOURCE, language), offer.untrusted),
+            Line(text(head, language, "chat" to chat)),
+            Line(text(source, language), offer.untrusted),
             Line(text(TextKeys.APPROVAL_AGENT, language, "agent" to turn.agent)),
         )
         startedBy(turn.kind)?.let { kind ->
             lines += Line(text(TextKeys.APPROVAL_STARTED_BY, language, "kind" to text(kind, language)))
         }
-        lines += roots(offer.roots, language)
-        return title to lines
+        lines += roots(offer.roots, turn.agent, language)
+        return text(title, language, "id" to offer.id) to lines
     }
 
-    /** What trusting [roots] covers, a line each, and the warnings that go with their kinds. */
-    private fun roots(roots: List<TrustRoot>, language: LanguageTag?): List<Line> {
+    /** What trusting [roots] for [agent] covers, a line each, and the warnings that go with their kinds. */
+    private fun roots(roots: List<TrustRoot>, agent: AgentId, language: LanguageTag?): List<Line> {
         val kinds = roots.map { it.kind }.toSet()
-        return roots.map { Line(text(covers(it.kind), language), it.name) } + listOfNotNull(
+        return roots.map { Line(text(covers(it.kind), language, "agent" to agent), it.name) } + listOfNotNull(
             Line(text(TextKeys.APPROVAL_TRUST_FOLDER_WARNING, language)).takeIf { TrustRootKind.FOLDER in kinds },
             Line(text(TextKeys.APPROVAL_TRUST_PERSON_WARNING, language)).takeIf { TrustRootKind.PERSON in kinds },
         )
@@ -393,10 +403,26 @@ internal class ApprovalDesk(
         return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), more?.let(::listOf)))
     }
 
-    /** Keeping first, then trusting. */
+    /** Keeping first, then trusting; for project instructions trusting first, then not now. */
     private fun keyboard(offer: TrustOffer, language: LanguageTag?): InlineKeyboardMarkup {
-        val keep = text(TextKeys.OFFER_KEEP, language)
         val roots = offer.roots
+        if (offer.kind == TrustOfferKind.INSTRUCTIONS) {
+            val agent = offer.turn.agent
+            val trust = if (roots.size > 1) {
+                text(TextKeys.OFFER_TRUST_FOLDERS, language, "count" to roots.size, "agent" to agent)
+            } else {
+                text(TextKeys.OFFER_TRUST_FOLDER, language, "root" to label(roots.single(), language), "agent" to agent)
+            }
+            return InlineKeyboardMarkup(
+                listOf(
+                    listOf(
+                        InlineKeyboardButton(trust, "$OFFER_PREFIX${offer.id}:$TRUST"),
+                        InlineKeyboardButton(text(TextKeys.OFFER_NOT_NOW, language), "$OFFER_PREFIX${offer.id}:$KEEP"),
+                    ),
+                ),
+            )
+        }
+        val keep = text(TextKeys.OFFER_KEEP, language)
         val trust = if (roots.size > 1) {
             text(TextKeys.OFFER_TRUST_CLEAR_ALL, language, "count" to roots.size)
         } else {
@@ -572,20 +598,44 @@ internal class ApprovalDesk(
         }
     }
 
-    private fun outcome(offer: TrustOffer, ending: Ending, language: LanguageTag?): String? = when (ending) {
-        Ending.Expired -> text(TextKeys.OFFER_EXPIRED_MARKED, language)
+    private fun outcome(offer: TrustOffer, ending: Ending, language: LanguageTag?): String? {
+        if (offer.kind == TrustOfferKind.INSTRUCTIONS) return instructionsOutcome(offer, ending, language)
+        return when (ending) {
+            Ending.Expired -> text(TextKeys.OFFER_EXPIRED_MARKED, language)
 
-        Ending.Withdrawn -> text(TextKeys.OFFER_WITHDRAWN, language)
+            Ending.Withdrawn -> text(TextKeys.OFFER_WITHDRAWN, language)
 
-        is Ending.Answered -> when (val answer = ending.answer) {
-            is ApprovalAnswer.Allowed ->
-                text(TextKeys.OFFER_TRUSTED, language, "name" to named(answer.by), "roots" to listed(offer.roots))
+            is Ending.Answered -> when (val answer = ending.answer) {
+                is ApprovalAnswer.Allowed ->
+                    text(TextKeys.OFFER_TRUSTED, language, "name" to named(answer.by), "roots" to listed(offer.roots))
 
-            is ApprovalAnswer.Denied -> text(TextKeys.OFFER_KEPT, language, "name" to named(answer.by))
+                is ApprovalAnswer.Denied -> text(TextKeys.OFFER_KEPT, language, "name" to named(answer.by))
 
-            else -> null
+                else -> null
+            }
         }
     }
+
+    private fun instructionsOutcome(offer: TrustOffer, ending: Ending, language: LanguageTag?): String? =
+        when (ending) {
+            Ending.Expired -> text(TextKeys.OFFER_EXPIRED_INSTRUCTIONS, language)
+
+            Ending.Withdrawn -> text(TextKeys.OFFER_WITHDRAWN, language)
+
+            is Ending.Answered -> when (val answer = ending.answer) {
+                is ApprovalAnswer.Allowed -> text(
+                    TextKeys.OFFER_TRUSTED_INSTRUCTIONS,
+                    language,
+                    "name" to named(answer.by),
+                    "roots" to listed(offer.roots),
+                    "agent" to offer.turn.agent,
+                )
+
+                is ApprovalAnswer.Denied -> text(TextKeys.OFFER_DECLINED, language, "name" to named(answer.by))
+
+                else -> null
+            }
+        }
 
     private fun text(key: String, language: LanguageTag?, vararg args: Pair<String, Any?>): String =
         texts.text(key, language, *args)
@@ -674,8 +724,11 @@ internal class ApprovalDesk(
                     else -> "allowed by "
                 } + named(answer.by)
 
-                is ApprovalAnswer.Denied ->
-                    (if (question is Question.Offer) "marked tainted by " else "denied by ") + named(answer.by)
+                is ApprovalAnswer.Denied -> when {
+                    question !is Question.Offer -> "denied by "
+                    question.offer.kind == TrustOfferKind.INSTRUCTIONS -> "declined by "
+                    else -> "marked tainted by "
+                } + named(answer.by)
 
                 else -> "no longer waiting"
             }

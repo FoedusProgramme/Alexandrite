@@ -27,7 +27,7 @@ class ProjectFoldersTest {
     }
 
     private fun folders(protected: List<Path> = emptyList(), trusted: Set<Path> = emptySet()) =
-        ProjectFolders(testHardFloor(protected), trusted::contains)
+        ProjectFolders(testHardFloor(protected)) { _, folder -> folder in trusted }
 
     private fun Project.found(): List<String> = files.map { folder.relativize(it.found).toString() }
 
@@ -106,7 +106,7 @@ class ProjectFoldersTest {
                 if (path.startsWith(workspace)) FloorCheck.Allowed(path) else floor.checkRead(path, agent, conversation)
         }
 
-        val projects = ProjectFolders(carved) { false }.projects(listOf(workspace.resolve("notes.md")), agent)
+        val projects = ProjectFolders(carved) { _, _ -> false }.projects(listOf(workspace.resolve("notes.md")), agent)
 
         assertEquals(listOf(workspace to listOf("AGENTS.md")), projects.map { it.folder to it.found() })
     }
@@ -122,7 +122,8 @@ class ProjectFoldersTest {
         }
 
         val projects = folders().projects(listOf(repository.resolve("README.md")), agent)
-        val unprotected = ProjectFolders(open) { false }.projects(listOf(repository.resolve("README.md")), agent)
+        val unprotected =
+            ProjectFolders(open) { _, _ -> false }.projects(listOf(repository.resolve("README.md")), agent)
 
         assertEquals(listOf(repository to emptyList<String>()), projects.map { it.folder to it.found() })
         assertEquals(listOf(repository to listOf("AGENTS.md")), unprotected.map { it.folder to it.found() })

@@ -167,18 +167,22 @@ public enum class TrustRootKind {
 }
 
 /**
- * The first untrusted content of a conversation of [turn] that nobody was asked about before it came in, offered to an
- * operator to trust, where every text is escaped for review.
+ * What a conversation of [turn] took in or left out because nobody trusts its source, offered to an operator to trust
+ * for the turn's agent, where every text is escaped for review.
  */
 @Poko
 public class TrustOffer private constructor(
     /** Up to 32 letters, digits, `-` and `_`. */
     public val id: String,
     public val turn: TurnInfo,
-    /** Where the content came from, in lower case without a closing full stop, in Alexandrite's own words. */
+    /**
+     * Where the content came from, or the folders whose project instructions were not loaded, in lower case without a
+     * closing full stop, in Alexandrite's own words.
+     */
     public val untrusted: String,
     /** What trusting the content trusts for good, never empty. */
     public val roots: List<TrustRoot>,
+    public val kind: TrustOfferKind,
 ) {
     init {
         require(ID.matches(id)) { "Malformed trust offer id '$id'." }
@@ -188,9 +192,23 @@ public class TrustOffer private constructor(
     public companion object {
         private val ID = Regex("[A-Za-z0-9_-]{1,32}")
 
-        public operator fun invoke(id: String, turn: TurnInfo, untrusted: String, roots: List<TrustRoot>): TrustOffer =
-            TrustOffer(id, turn, untrusted, roots.toList())
+        public operator fun invoke(
+            id: String,
+            turn: TurnInfo,
+            untrusted: String,
+            roots: List<TrustRoot>,
+            kind: TrustOfferKind = TrustOfferKind.TAINTED,
+        ): TrustOffer = TrustOffer(id, turn, untrusted, roots.toList(), kind)
     }
+}
+
+/** What a [TrustOffer] follows. */
+public enum class TrustOfferKind {
+    /** The first untrusted content marked the conversation tainted: trusting its roots clears the mark. */
+    TAINTED,
+
+    /** Project instructions were not loaded: trusting their folders loads them when the agent next touches them. */
+    INSTRUCTIONS,
 }
 
 /** How an approval request ended. */

@@ -21,13 +21,17 @@ internal class TrustControlImpl(
     private val conversations: ConversationStore,
     private val trust: TrustSources,
 ) : TrustControl {
-    override fun folders(): List<TrustedFolder> = trust.folders.folders()
+    override suspend fun folders(chat: ChatAddress): List<TrustedFolder> = trust.folders.folders(runner.key(chat).agent)
 
-    override suspend fun trustFolder(folder: Path, by: ChatUser?): Path =
-        runner.refusing(null) { trust.folders.trust(folder, by) }
+    override suspend fun trustFolder(chat: ChatAddress, folder: Path, by: ChatUser?): Path {
+        val key = runner.key(chat)
+        return runner.refusing(key) { trust.folders.trust(key.agent, folder, by) }
+    }
 
-    override suspend fun untrustFolder(folder: Path, by: ChatUser?): Revocation =
-        runner.refusing(null) { trust.folders.untrust(folder, by) }
+    override suspend fun untrustFolder(chat: ChatAddress, folder: Path, by: ChatUser?): Revocation {
+        val key = runner.key(chat)
+        return runner.refusing(key) { trust.folders.untrust(key.agent, folder, by) }
+    }
 
     override suspend fun rules(chat: ChatAddress): List<TrustRule> {
         val key = runner.key(chat)

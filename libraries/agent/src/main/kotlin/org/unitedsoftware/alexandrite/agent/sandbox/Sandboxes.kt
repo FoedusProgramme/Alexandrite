@@ -94,7 +94,7 @@ internal class Sandboxes(
         val allowed = allowed(turn, configured)
         val hosts = contained.hosts.mapNotNull(HostPattern::parse).filter { host -> allowed.none { it.covers(host) } }
         val directories = listOfNotNull(command?.cwd) + command?.segments.orEmpty().map { it.cwd }
-        val trusted = directories.isNotEmpty() && directories.all { trust.covering(real(it)) != null }
+        val trusted = directories.isNotEmpty() && directories.all { trust.covering(turn.agent, real(it)) != null }
         return Containment(
             configured.config.autoAllow && !variables,
             hosts.map { it.toString() }.distinct(),
@@ -143,7 +143,7 @@ internal class Sandboxes(
             val agent = turn.agent
             val workspace = workspaces.paths[agent]
             val conversation = this@Sandboxes.directories.path(turn)
-            val trusted = directories.mapNotNull { trust.covering(real(it))?.path }
+            val trusted = directories.mapNotNull { trust.covering(agent, real(it))?.path }
             val (denied, asked) = floor.sandboxPlaces()
             val closed = if (allowed) emptyList() else asked
             val steering = if (allowed) emptyList() else instructions.sandboxPaths()

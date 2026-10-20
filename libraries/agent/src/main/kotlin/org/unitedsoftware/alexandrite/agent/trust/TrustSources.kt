@@ -124,7 +124,7 @@ internal class TrustSources(
     override suspend fun grant(roots: List<Root>, turn: TurnInfo, by: ChatUser): List<Root> = roots.filter { root ->
         try {
             when (root) {
-                is Root.Folder -> folders.trust(root.path, by)
+                is Root.Folder -> folders.trust(turn.agent, root.path, by)
                 is Root.Rule -> rules.grant(turn.agent, session(turn), root.rule, by)
                 is Root.Person -> people.trust(turn.agent, root.person, by)
             }

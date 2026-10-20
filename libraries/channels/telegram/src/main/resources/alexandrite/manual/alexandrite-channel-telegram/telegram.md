@@ -51,7 +51,8 @@ every command everywhere. For others each command has a default rule, bare and w
 An approval request of an admin's turn is posted in its chat; one of anyone else's turn or of an automated turn goes to
 the admins' direct chats. Only admins can press its buttons (see alexandrite-agent/permissions); it expires after
 `approvalMinutes`. Offers to trust a source after an automated turn took it in come the same way, with Keep and Trust
-buttons.
+buttons, and so do offers to trust a folder whose project instructions were not loaded, with Trust (for the agent) and
+Not now.
 
 ## Telegram tools
 

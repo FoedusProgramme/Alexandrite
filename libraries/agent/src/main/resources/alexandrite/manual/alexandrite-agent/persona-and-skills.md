@@ -47,7 +47,7 @@ conversation a person decides.
 
 ## Project instructions
 
-When your file tools reach a folder that the operator trusts (`agent.trustedFolders` or `/trust <folder>`), its
+When your file tools reach a folder trusted for you (`agent.trustedFolders` or `/trust <folder>` in your chat), its
 `AGENTS.md` and `CLAUDE.md` load once per conversation as a separate message with an [alexandrite:project] header, after
-the round's tool results: follow them for work in that project. For a folder nobody trusts nothing loads; the chat is
-told it can trust the folder with `/trust <folder>`.
+the round's tool results: follow them for work in that project. For a folder not trusted for you nothing loads; an
+operator is offered to trust it for you, or, where the channel shows no buttons, the chat is told of `/trust <folder>`.

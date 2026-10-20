@@ -238,7 +238,7 @@ class TaintQuestionTurnsTest {
             assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$project")), request.roots)
             assertEquals("fs.read would reach $project, a folder that is not trusted", request.untrusted)
             assertEquals(emptyList(), request.alwaysRules)
-            assertTrue(get<TrustControl>().folders().any { it.path == project && it.trustedBy == operator })
+            assertTrue(get<TrustControl>().folders(key.chat).any { it.path == project && it.trustedBy == operator })
         }
     }
 
@@ -256,7 +256,7 @@ class TaintQuestionTurnsTest {
 
             assertEquals(1, channel().approvals.size)
             assertEquals("fs.read reached $project, a folder that is not trusted", mark()?.reason)
-            assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+            assertEquals(listOf(trusted), get<TrustControl>().folders(key.chat).map { it.path })
         }
     }
 
@@ -453,7 +453,7 @@ class TaintQuestionTurnsTest {
             assertTrue(outcome is TurnOutcome.Completed)
             assertEquals(emptyList(), channel().approvals)
             assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$project")), offer.roots)
-            assertTrue(get<TrustControl>().folders().any { it.path == project })
+            assertTrue(get<TrustControl>().folders(key.chat).any { it.path == project })
         }
     }
 
@@ -469,7 +469,7 @@ class TaintQuestionTurnsTest {
             channel().awaitOffers(1)
 
             assertEquals("fs.read would reach $project, a folder that is not trusted", mark()?.reason)
-            assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+            assertEquals(listOf(trusted), get<TrustControl>().folders(key.chat).map { it.path })
         }
     }
 
@@ -488,7 +488,7 @@ class TaintQuestionTurnsTest {
             }
             delay(300)
 
-            assertEquals(listOf(trusted), get<TrustControl>().folders().map { it.path })
+            assertEquals(listOf(trusted), get<TrustControl>().folders(key.chat).map { it.path })
             assertEquals("fs.consume would reach $project, a folder that is not trusted", mark()?.reason)
         }
     }

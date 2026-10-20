@@ -23,8 +23,8 @@ internal class Project(val folder: Path, val files: List<FoundInstructionFile>, 
 /** Finds the projects that the paths a tool call touched lie in. */
 internal class ProjectFolders(
     private val floor: HardFloor,
-    /** Whether a folder (canonical) is a trusted folder itself, which makes it a project folder. */
-    private val trusted: (Path) -> Boolean,
+    /** Whether an agent trusts a folder (canonical) itself, which makes it a project folder. */
+    private val trusted: (AgentId, Path) -> Boolean,
 ) {
     /**
      * The projects that [touched] (absolute) lie in for [agent], each once with the instruction files of all of them,
@@ -81,7 +81,7 @@ internal class ProjectFolders(
                     break
                 }
                 walked.add(current)
-                if (trusted(current) || isRepository(current)) {
+                if (trusted(agent, current) || isRepository(current)) {
                     mark = current
                     break
                 }

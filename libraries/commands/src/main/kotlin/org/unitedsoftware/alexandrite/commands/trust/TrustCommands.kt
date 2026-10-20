@@ -154,8 +154,8 @@ internal class TrustCommands(
 
     private suspend fun trust(text: String, invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val folder = folder(TRUST, text, context, replies) ?: return
-        val trusted = context.refusing { trust.trustFolder(folder, invocation.issuer) } ?: return
-        context.reply(replies.text(TextKeys.TRUST_DONE, "folder" to trusted))
+        val trusted = context.refusing { trust.trustFolder(invocation.chat, folder, invocation.issuer) } ?: return
+        context.reply(replies.text(TextKeys.TRUST_DONE, "folder" to trusted, "agent" to context.turn.agent))
     }
 
     private suspend fun trustRule(
@@ -165,7 +165,7 @@ internal class TrustCommands(
         replies: Replies,
     ) {
         val trusted = context.refusing { trust.trustRule(invocation.chat, rule, invocation.issuer) } ?: return
-        val done = replies.text(TextKeys.TRUST_RULE_DONE, "rule" to trusted.rule)
+        val done = replies.text(TextKeys.TRUST_RULE_DONE, "rule" to trusted.rule, "agent" to context.turn.agent)
         context.reply(if (trusted.anyCode) "$done ${replies.text(TextKeys.TRUST_RULE_ANY_CODE)}" else done)
     }
 
@@ -183,7 +183,7 @@ internal class TrustCommands(
             revocation.removed -> TextKeys.UNTRUST_RULE_DONE
             else -> TextKeys.UNTRUST_RULE_NOT_TRUSTED
         }
-        context.reply(replies.text(key, "rule" to rule.trim()))
+        context.reply(replies.text(key, "rule" to rule.trim(), "agent" to context.turn.agent))
     }
 
     private suspend fun untrust(
@@ -193,14 +193,14 @@ internal class TrustCommands(
         replies: Replies,
     ) {
         val folder = folder(UNTRUST, text, context, replies) ?: return
-        val revocation = context.refusing { trust.untrustFolder(folder, invocation.issuer) } ?: return
+        val revocation = context.refusing { trust.untrustFolder(invocation.chat, folder, invocation.issuer) } ?: return
         val key = when {
             revocation.declared && revocation.removed -> TextKeys.UNTRUST_DECLARED_REMOVED
             revocation.declared -> TextKeys.UNTRUST_DECLARED
             revocation.removed -> TextKeys.UNTRUST_DONE
             else -> TextKeys.UNTRUST_NOT_TRUSTED
         }
-        context.reply(replies.text(key, "folder" to folder))
+        context.reply(replies.text(key, "folder" to folder, "agent" to context.turn.agent))
     }
 
     private suspend fun trustPeople(
@@ -212,7 +212,7 @@ internal class TrustCommands(
         val lines = people.map { person ->
             answered {
                 trust.trustPerson(invocation.chat, person, invocation.issuer)
-                replies.text(TextKeys.TRUST_PERSON_DONE, "person" to named(person))
+                replies.text(TextKeys.TRUST_PERSON_DONE, "person" to named(person), "agent" to context.turn.agent)
             }
         }
         context.reply(lines.joinToString("\n"))
@@ -233,31 +233,34 @@ internal class TrustCommands(
                     revocation.removed -> TextKeys.UNTRUST_PERSON_DONE
                     else -> TextKeys.UNTRUST_PERSON_NOT_TRUSTED
                 }
-                replies.text(key, "person" to named(person))
+                replies.text(key, "person" to named(person), "agent" to context.turn.agent)
             }
         }
         context.reply(lines.joinToString("\n"))
     }
 
     private suspend fun trusted(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val folders = trust.folders()
+        val agent = context.turn.agent
+        val folders = context.refusing { trust.folders(invocation.chat) } ?: return
         val rules = context.refusing { trust.rules(invocation.chat) } ?: return
         val people = context.refusing { trust.people(invocation.chat) } ?: return
         val sections = mutableListOf(
             if (folders.isEmpty()) {
-                replies.text(TextKeys.TRUST_NONE)
+                replies.text(TextKeys.TRUST_NONE, "agent" to agent)
             } else {
-                replies.text(TextKeys.TRUST_LIST, "folders" to replies.list(folders.map { described(it, replies) }))
+                val list = replies.list(folders.map { described(it, replies) })
+                replies.text(TextKeys.TRUST_LIST, "folders" to list, "agent" to agent)
             },
         )
         if (rules.isNotEmpty()) {
-            sections +=
-                replies.text(TextKeys.TRUST_RULES, "rules" to replies.list(rules.map { described(it, replies) }))
+            val list = replies.list(rules.map { described(it, replies) })
+            sections += replies.text(TextKeys.TRUST_RULES, "rules" to list, "agent" to agent)
         }
         sections += if (people.isEmpty()) {
-            replies.text(TextKeys.TRUST_PEOPLE_NONE)
+            replies.text(TextKeys.TRUST_PEOPLE_NONE, "agent" to agent)
         } else {
-            replies.text(TextKeys.TRUST_PEOPLE, "people" to replies.list(people.map { described(it, replies) }))
+            val list = replies.list(people.map { described(it, replies) })
+            replies.text(TextKeys.TRUST_PEOPLE, "people" to list, "agent" to agent)
         }
         sections += replies.text(TextKeys.TRUST_PEOPLE_NOTE)
         context.reply(sections.joinToString("\n\n"))

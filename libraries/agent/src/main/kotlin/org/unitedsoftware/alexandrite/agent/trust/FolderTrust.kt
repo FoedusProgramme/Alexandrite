@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.permission.canonical
 import org.unitedsoftware.alexandrite.agent.project.isRepository
 import org.unitedsoftware.alexandrite.agent.who
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -27,9 +28,11 @@ import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolder
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
+import java.time.Instant
 
 /**
- * The trusted folders that the config declares and those granted at runtime, read without suspending.
+ * The trusted folders that the config declares for every agent and those granted at runtime to one agent, read without
+ * suspending.
  *
  * A change that breaks a rule throws [Refused].
  */
@@ -38,36 +41,49 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
     Lifecycle {
     private val grants = records.collection<FolderGrant>(COLLECTION)
 
+    private val agents = settings.agents.keys.map(::AgentId)
+
     /** Held from checking a change until it is applied. */
     private val writing = Mutex()
 
     private val declared: List<Path> = configured(settings.trustedFolders, paths, floor).distinct()
 
     @Volatile
-    private var folders: List<TrustedFolder> = declared.map { TrustedFolder(it, true, null, null) }
+    private var granted: Map<AgentId, List<TrustedFolder>> = emptyMap()
 
     override suspend fun onStart() {
-        val granted = grants.list().mapNotNull(::granted).associateBy { it.path }
         writing.withLock {
-            folders = declared.map { path ->
-                granted[path]?.let { TrustedFolder(path, true, it.trustedAt, it.trustedBy) }
-                    ?: TrustedFolder(path, true, null, null)
-            } + granted.values.filter { it.path !in declared }
+            migrate()
+            granted = grants.list().mapNotNull { record ->
+                record.value.agent?.let { agent -> granted(record)?.let { agent to it } }
+            }.groupBy({ it.first }, { it.second }).mapValues { (_, folders) -> folders.distinctBy { it.path } }
         }
     }
 
-    /** The trusted folders, the declared ones first. */
-    fun folders(): List<TrustedFolder> = folders
+    /** The folders that [agent] trusts, the declared ones first. */
+    fun folders(agent: AgentId): List<TrustedFolder> {
+        val own = granted[agent].orEmpty()
+        return declared.map { path ->
+            own.firstOrNull { it.path == path }?.let { TrustedFolder(path, true, it.trustedAt, it.trustedBy) }
+                ?: TrustedFolder(path, true, null, null)
+        } + own.filter { it.path !in declared }
+    }
 
-    /** The trusted folder nearest to [folder] (canonical) that is it or holds it, null when none does. */
-    fun covering(folder: Path): TrustedFolder? =
-        folders.filter { covers(it.path, folder) }.maxByOrNull { it.path.nameCount }
+    /** The folder nearest to [folder] (canonical) that [agent] trusts and that is it or holds it, else null. */
+    fun covering(agent: AgentId, folder: Path): TrustedFolder? =
+        folders(agent).filter { covers(it.path, folder) }.maxByOrNull { it.path.nameCount }
 
-    /** Whether [folder] (canonical) is a trusted folder itself. */
-    fun isTrusted(folder: Path): Boolean = folders.any { it.path == folder }
+    /** The folder nearest to [folder] (canonical) that any agent trusts and that is it or holds it, else null. */
+    fun coveringAny(folder: Path): Path? = (declared + granted.values.flatten().map { it.path })
+        .filter { covers(it, folder) }
+        .maxByOrNull { it.nameCount }
 
-    /** Trusts [folder] for [by] and returns the trusted folder that covers it. */
-    suspend fun trust(folder: Path, by: ChatUser?): Path {
+    /** Whether [folder] (canonical) is a folder that [agent] trusts itself. */
+    fun isTrusted(agent: AgentId, folder: Path): Boolean =
+        folder in declared || granted[agent].orEmpty().any { it.path == folder }
+
+    /** Trusts [folder] for [agent] as [by] asked, and returns the trusted folder that covers it. */
+    suspend fun trust(agent: AgentId, folder: Path, by: ChatUser?): Path {
         val canonical = when (val check = check(folder)) {
             is FloorCheck.Allowed -> check.canonical
 
@@ -78,36 +94,60 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
         }
         if (!Files.isDirectory(canonical)) throw Refused(TextKeys.FOLDER_MISSING, "folder" to folder)
         writing.withLock {
-            covering(canonical)?.let { return it.path }
-            val grant = grants.put("$canonical", FolderGrant(by?.let(::Granter)), by?.address)
-            folders = folders + TrustedFolder(canonical, false, grant.createdAt, by)
+            covering(agent, canonical)?.let { return it.path }
+            val grant = grants.put(key(agent, "$canonical"), FolderGrant(agent, by?.let(::Granter)), by?.address)
+            val trusted = TrustedFolder(canonical, false, grant.createdAt, by)
+            granted = granted + (agent to granted[agent].orEmpty() + trusted)
         }
-        logger.info("Folder {} is trusted by {}", canonical, who(by))
+        logger.info("Agent '{}' trusts folder {}, as {} asked", agent, canonical, who(by))
         return canonical
     }
 
     /**
-     * Stops trusting [folder] at runtime for [by], removing each grant of it as named or as it is canonical today, and
-     * tells whether the config still trusts it.
+     * Stops trusting [folder] at runtime for [agent] as [by] asked, removing each grant of it as named or as it is
+     * canonical today, and tells whether the config still trusts it.
      */
-    suspend fun untrust(folder: Path, by: ChatUser?): Revocation {
+    suspend fun untrust(agent: AgentId, folder: Path, by: ChatUser?): Revocation {
         val canonical = check(folder).canonical
         val revocation = writing.withLock {
-            val removed = grants.list().filter { isGrantOf(it.key, folder, canonical) }.count { grants.remove(it.key) }
-            val trusted = folders.firstOrNull { it.path == canonical }
-            if (trusted != null) {
-                val left = TrustedFolder(trusted.path, true, null, null).takeIf { trusted.declared }
-                folders = folders.mapNotNull { if (it === trusted) left else it }
-            }
-            Revocation(removed > 0 || trusted?.declared == false, trusted?.declared == true)
+            val removed = grants.list().filter { record ->
+                record.value.agent == agent && isGrantOf(grantedPath(record), folder, canonical)
+            }.count { grants.remove(it.key) }
+            val own = granted[agent].orEmpty()
+            val left = own.filterNot { it.path == canonical }
+            granted = granted + (agent to left)
+            Revocation(removed > 0 || left.size < own.size, canonical in declared)
         }
         when {
-            revocation.declared && revocation.removed ->
-                logger.info("The grant of folder {} is removed by {}: the config still trusts it", folder, who(by))
+            revocation.declared && revocation.removed -> logger.info(
+                "Agent '{}' no longer trusts folder {} at runtime, as {} asked: the config still trusts it",
+                agent,
+                folder,
+                who(by),
+            )
 
-            revocation.removed -> logger.info("Folder {} is no longer trusted, by {}", folder, who(by))
+            revocation.removed ->
+                logger.info("Agent '{}' no longer trusts folder {}, as {} asked", agent, folder, who(by))
         }
         return revocation
+    }
+
+    /**
+     * Rewrites each grant from when folders were trusted for every agent into one grant per configured agent, kept from
+     * when and by whom it was made.
+     */
+    private suspend fun migrate() {
+        if (agents.isEmpty()) return
+        for (record in grants.list().filter { it.value.agent == null }) {
+            for (agent in agents) {
+                val key = key(agent, record.key)
+                if (grants.get(key) != null) continue
+                val trustedAt = record.value.trustedAt ?: record.createdAt.toEpochMilli()
+                grants.put(key, FolderGrant(agent, record.value.by, trustedAt), record.createdBy)
+            }
+            grants.remove(record.key)
+            logger.info("The grant of folder {} now holds for each of the agents {}", record.key, agents)
+        }
     }
 
     private fun check(folder: Path): FloorCheck {
@@ -115,9 +155,9 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
         return floor.checkRead(folder)
     }
 
-    /** Whether the grant [key] is of [folder], as named or as the folder is canonical today, at [canonical]. */
-    private fun isGrantOf(key: String, folder: Path, canonical: Path?): Boolean {
-        val path = grantedPath(key) ?: return false
+    /** Whether the grant of [path] is of [folder], as named or as the folder is canonical today, at [canonical]. */
+    private fun isGrantOf(path: Path?, folder: Path, canonical: Path?): Boolean {
+        if (path == null) return false
         if (path.normalize() == folder.normalize()) return true
         if (canonical == null) return false
         return path == canonical || floor.checkRead(path).canonical == canonical
@@ -125,7 +165,7 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
 
     /** The folder that [grant] trusts, null when the floor now refuses it. */
     private fun granted(grant: StoredRecord<FolderGrant>): TrustedFolder? {
-        val path = grantedPath(grant.key)
+        val path = grantedPath(grant)
         val check = path?.let(floor::checkRead)
         val canonical = check?.canonical
         if (canonical == null) {
@@ -133,17 +173,26 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
             logger.warn("The grant of folder {} is ignored: {}", grant.key, reason)
             return null
         }
-        return TrustedFolder(canonical, false, grant.createdAt, grant.value.by?.user())
+        val trustedAt = grant.value.trustedAt?.let(Instant::ofEpochMilli) ?: grant.createdAt
+        return TrustedFolder(canonical, false, trustedAt, grant.value.by?.user())
     }
+
+    private fun key(agent: AgentId, folder: String): String = "$agent/$folder"
+
+    /** The absolute path that [grant] trusts, null when it names none. */
+    private fun grantedPath(grant: StoredRecord<FolderGrant>): Path? =
+        absolute(grant.value.agent?.let { grant.key.removePrefix("$it/") } ?: grant.key)
 }
 
-/** A folder trusted at runtime. */
+/**
+ * A folder trusted at runtime for [agent], null for a grant from when folders were trusted for every agent, since
+ * [trustedAt] (epoch milliseconds) when it was carried over from such a grant.
+ */
 @Serializable
-private class FolderGrant(val by: Granter? = null)
+private class FolderGrant(val agent: AgentId? = null, val by: Granter? = null, val trustedAt: Long? = null)
 
-/** The absolute path of the grant [key], null when it names none. */
-private fun grantedPath(key: String): Path? = try {
-    Path.of(key).takeIf { it.isAbsolute }
+private fun absolute(text: String): Path? = try {
+    Path.of(text).takeIf { it.isAbsolute }
 } catch (e: InvalidPathException) {
     null
 }

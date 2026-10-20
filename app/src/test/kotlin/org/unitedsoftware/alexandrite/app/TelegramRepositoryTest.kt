@@ -1,12 +1,15 @@
 package org.unitedsoftware.alexandrite.app
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.WAIT
+import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
@@ -21,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDate
@@ -31,6 +35,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class TelegramRepositoryTest {
@@ -206,7 +211,7 @@ class TelegramRepositoryTest {
     }
 
     @Test
-    fun `an admin trusts the folder the agent warned of, and its next file read there loads the project's AGENTS md`() {
+    fun `an admin trusts the folder from the offer of its instructions, and the next read there loads its AGENTS md`() {
         write(readme, "# Greeter\n")
         write(repository.resolve("AGENTS.md"), "Answer in one sentence.\n")
         repository.resolve(".git").createDirectories()
@@ -216,6 +221,8 @@ class TelegramRepositoryTest {
             .reply { toolCall("fs.read", arguments("path" to readme)) }
             .reply { text("Greeter greets.") }
         lateinit var config: String
+        lateinit var offered: FakeBotMessage
+        lateinit var answered: String
         var listed = ""
 
         app.run(app.builder(directory, sqlite = true)) {
@@ -224,32 +231,42 @@ class TelegramRepositoryTest {
             val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             app.fake.press(app.ada, asked, "Allow, mark tainted")
             app.message(app.adaChat, "The project is called Greeter.")
-            app.send(app.ada, app.adaChat, "/trust $repository")
-            app.message(app.adaChat, "$repository is trusted, and so are the folders below it.")
+            offered = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.text.startsWith(OFFERED) } }
+            app.fake.press(app.ada, offered, offered.buttons.flatten().first().text)
+            answered = app.fake.await(WAIT) {
+                botMessage(offered.chat, offered.id)?.takeIf { it.buttons.isEmpty() }
+            }.text.substringAfterLast("\n")
+            val chat = app.address(app.adaChat)
+            withTimeout(WAIT) { while (get<TrustControl>().folders(chat).isEmpty()) delay(10) }
             app.send(app.ada, app.adaChat, "What does it do?")
             app.message(app.adaChat, "Greeter greets.")
             idle()
         }
         app.run(app.builder(directory, sqlite = true)) {
             app.send(app.ada, app.adaChat, "/trust")
-            listed = app.bodyMessages(app.adaChat, 6).last().text
+            listed = app.fake.await(WAIT) {
+                botMessages(ADA).lastOrNull { it.text.startsWith("Trusted folders for coder") }
+            }.text
         }
 
+        val buttons = offered.buttons.single().map { it.text }
+        assertTrue(buttons.first().startsWith("Trust folder ") && buttons.first().endsWith(" (for coder)"), "$buttons")
+        assertEquals("Not now", buttons.last())
+        assertContains(offered.text, "Not loaded: $repository (AGENTS.md)")
+        assertContains(offered.text, "Agent: coder")
+        assertTrue(answered.startsWith("Trusted for coder by Ada Lovelace (@ada_test): "), answered)
+        assertTrue(answered.endsWith("/repo. Their project instructions load the next time the agent touches them."))
         assertEquals(
-            listOf(
-                "Coder is working in $repository, which has project instructions (AGENTS.md) that were not loaded. " +
-                    "An operator can trust the folder with /trust $repository; they load the next time the agent " +
-                    "touches it.",
-                "The project is called Greeter.",
-                "$repository is trusted, and so are the folders below it.",
-                "Greeter greets.",
-            ),
-            app.fake.botMessages(ADA).body().map { it.text }.filterNot { it.startsWith("Approval needed") }.take(4),
+            listOf("The project is called Greeter.", "Greeter greets."),
+            app.fake.botMessages(ADA).body().map { it.text }
+                .filterNot { it.startsWith("Approval needed") || it.startsWith(OFFERED) }
+                .take(2),
         )
         val today = LocalDate.now(ZoneOffset.UTC)
         assertContains(
             setOf(today, today.minusDays(1)).map {
-                "Trusted folders, each with the folders below it:\n- $repository (trusted by Ada Lovelace on $it)"
+                "Trusted folders for coder, each with the folders below it:\n" +
+                    "- $repository (trusted by Ada Lovelace on $it)"
             },
             listed.substringBefore("\n\n"),
         )
@@ -270,6 +287,7 @@ class TelegramRepositoryTest {
         this is UserEntry && (origin as? UserOrigin.SystemWritten)?.source == "alexandrite.project"
 
     private companion object {
+        const val OFFERED = "Project instructions not loaded"
         const val GREETER = "package demo\n\nfun greet(name: String) = \"Hello, \$name!\"\n"
         const val ANSWER = "greet(name) in Greeter.kt says hello.\n\nIt returns the greeting."
     }

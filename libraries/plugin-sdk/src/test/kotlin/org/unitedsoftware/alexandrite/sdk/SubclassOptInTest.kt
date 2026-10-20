@@ -340,12 +340,14 @@ class SubclassOptInTest {
         }
 
         class Trust : org.unitedsoftware.alexandrite.sdk.turn.TrustControl {
-            override fun folders() = TODO()
+            override suspend fun folders(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun trustFolder(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 folder: java.nio.file.Path,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
             override suspend fun untrustFolder(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 folder: java.nio.file.Path,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()

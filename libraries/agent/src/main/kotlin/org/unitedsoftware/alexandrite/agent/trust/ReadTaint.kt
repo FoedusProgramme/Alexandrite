@@ -5,7 +5,6 @@ import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.permission.canonical
-import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -70,7 +69,7 @@ internal class ReadTaint(
             is FloorCheck.Denied -> return UntrustedPlace(path, "a protected place (${check.reason})", null)
         }
         val folder = if (Files.isDirectory(canonical)) canonical else canonical.parent ?: canonical
-        val trusted = own.any(canonical::startsWith) || trust.covering(folder) != null
+        val trusted = own.any(canonical::startsWith) || trust.covering(agent, folder) != null
         if (!trusted) return UntrustedPlace(canonical, "$folder, a folder that is not trusted", folder)
         return ledger.reason(canonical)?.let {
             UntrustedPlace(canonical, "$canonical, written by a conversation that had taken in untrusted content", null)

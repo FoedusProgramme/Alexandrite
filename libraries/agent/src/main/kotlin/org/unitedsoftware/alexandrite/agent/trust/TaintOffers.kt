@@ -9,11 +9,16 @@ import kotlinx.coroutines.launch
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.ControlRunner
+import org.unitedsoftware.alexandrite.agent.delivery.delivered
+import org.unitedsoftware.alexandrite.agent.project.UntrustedFolder
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
+import org.unitedsoftware.alexandrite.sdk.channel.Delivery
+import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -26,7 +31,8 @@ import java.security.SecureRandom
 
 /**
  * Offers an operator to trust what tainted a conversation that nobody was asked about before: the call of an automated
- * turn, and a message of someone whom the agent does not trust.
+ * turn, and a message of someone whom the agent does not trust; and the folders whose project instructions a turn did
+ * not load.
  */
 @Singleton
 @Binds(MarkOffers::class)
@@ -90,15 +96,44 @@ internal class TaintOffers(
         }
     }
 
-    /** The answer to the offer of [roots] for [reason] in [turn], null when nobody could be asked. */
-    private suspend fun offer(turn: TurnInfo, reason: String, roots: List<Root>): ApprovalAnswer? {
+    /**
+     * Offers an operator to trust [folders] for the agent of [turn], which did not load their project instructions,
+     * and sends [notice] to [chat] instead when nobody can be offered them.
+     */
+    fun offerInstructions(turn: TurnInfo, folders: List<UntrustedFolder>, chat: ChatAddress, notice: OutboundMessage?) {
+        val roots = folders.map { Root.Folder(it.folder) }
+        val shown = folders.joinToString("; ") { "${it.folder} (${it.files.joinToString()})" }
+        scope.launch {
+            val answer = if (roots.size > MAX_FOLDERS) null else offer(turn, shown, roots, TrustOfferKind.INSTRUCTIONS)
+            if (answer == null || answer is ApprovalAnswer.Unavailable) {
+                if (notice != null) send(chat, notice)
+                return@launch
+            }
+            val by = answer.trusted() ?: return@launch
+            trust.grant(roots, turn, by)
+        }
+    }
+
+    private suspend fun send(chat: ChatAddress, notice: OutboundMessage) {
+        val channel = channels.channel(chat.instance) ?: return
+        val delivery = delivered { channel.send(chat, notice) }
+        if (delivery is Delivery.NotDelivered) logger.warn("The notice to {} was not delivered: {}", chat, delivery)
+    }
+
+    /** The answer to the offer of [roots] of [kind] for [reason] in [turn], null when nobody could be asked. */
+    private suspend fun offer(
+        turn: TurnInfo,
+        reason: String,
+        roots: List<Root>,
+        kind: TrustOfferKind = TrustOfferKind.TAINTED,
+    ): ApprovalAnswer? {
         val instance = if (turn.chat.instance == ChatAddress.AGENTS) {
             directory.agent(turn.agent)?.attachments?.firstOrNull()?.instance
         } else {
             turn.chat.instance
         }
         val channel = instance?.let(channels::channel) ?: return null
-        val offer = TrustOffer(newId(), turn, ReviewText.escape(reason), roots.map { it.shown })
+        val offer = TrustOffer(newId(), turn, ReviewText.escape(reason), roots.map { it.shown }, kind)
         logger.info("Trust offer {} of turn {} of {} is made", offer.id, turn.id, turn.key)
         return try {
             channel.offerTrust(offer).also { logger.info("Trust offer {} ends: {}", offer.id, described(it)) }
@@ -116,6 +151,9 @@ internal class TaintOffers(
         const val UNTRUSTED_SENDER = "a message from someone whom the agent does not trust"
         const val ID_CHARS = "abcdefghijkmnopqrstuvwxyz23456789"
         const val ID_LENGTH = 8
+
+        /** The most folders that one offer of project instructions names. */
+        const val MAX_FOLDERS = 3
     }
 }
 

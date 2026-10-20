@@ -118,10 +118,14 @@ internal object TextKeys {
 
     const val APPROVAL_TRUST_OPAQUE: String = "approval.trust_opaque"
     const val APPROVAL_UNTRUSTED: String = "approval.untrusted"
+
+    /** Takes `{agent}`. */
     const val APPROVAL_TRUSTS_FOLDER: String = "approval.trusts.folder"
     const val APPROVAL_TRUSTS_DOMAIN: String = "approval.trusts.domain"
     const val APPROVAL_TRUSTS_PROGRAM: String = "approval.trusts.program"
     const val APPROVAL_TRUSTS_SERVER: String = "approval.trusts.server"
+
+    /** Takes `{agent}`. */
     const val APPROVAL_TRUSTS_PERSON: String = "approval.trusts.person"
     const val APPROVAL_TRUST_FOLDER_WARNING: String = "approval.trust_folder_warning"
     const val APPROVAL_TRUST_PERSON_WARNING: String = "approval.trust_person_warning"
@@ -202,6 +206,30 @@ internal object TextKeys {
 
     const val OFFER_EXPIRED_MARKED: String = "offer.expired_marked"
     const val OFFER_WITHDRAWN: String = "offer.withdrawn"
+
+    /** Takes `{id}`. */
+    const val OFFER_TITLE_INSTRUCTIONS: String = "offer.title_instructions"
+
+    /** Takes `{chat}`. */
+    const val OFFER_INSTRUCTIONS: String = "offer.instructions"
+
+    const val OFFER_INSTRUCTIONS_SOURCE: String = "offer.instructions_source"
+
+    /** Takes `{root}` and `{agent}`. */
+    const val OFFER_TRUST_FOLDER: String = "offer.trust_folder"
+
+    /** Takes `{count}` and `{agent}`. */
+    const val OFFER_TRUST_FOLDERS: String = "offer.trust_folders"
+
+    const val OFFER_NOT_NOW: String = "offer.not_now"
+
+    /** Takes `{name}`, `{roots}` and `{agent}`. */
+    const val OFFER_TRUSTED_INSTRUCTIONS: String = "offer.trusted_instructions"
+
+    /** Takes `{name}`. */
+    const val OFFER_DECLINED: String = "offer.declined"
+
+    const val OFFER_EXPIRED_INSTRUCTIONS: String = "offer.expired_instructions"
 
     const val ACTIVITY_VERB_READ_PRESENT: String = "activity.verb.read.present"
     const val ACTIVITY_VERB_READ_PAST: String = "activity.verb.read.past"
