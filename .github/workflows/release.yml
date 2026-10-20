@@ -49,8 +49,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Before 1.0 every release is the latest, so that the install script finds it
           prerelease=
-          case "$VERSION" in *-*) prerelease=--prerelease ;; esac
+          case "$VERSION" in 0.*) ;; *-*) prerelease=--prerelease ;; esac
           gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes \
             --title "Alexandrite $VERSION" $prerelease
 
