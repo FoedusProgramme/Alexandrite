@@ -290,19 +290,6 @@ class PermissionGateTest {
         )
     }
 
-    @Test
-    fun `an operator's call held back by a taint that could not be read says so`() = runTest {
-        val persona = recordingTool("persona.edit", ToolRisk.PERSISTENT_STATE)
-        val taint = TurnTaint(operator.id, operator.key, clock, operator.conversation, unread = true)
-        val call = ToolCallPart(ToolCallId("call-1"), "persona.edit", "{}")
-        val context = testToolContext(operator)
-
-        gate(listOf(persona))
-            .admit(GateCall(operator, call, persona, JsonObject(emptyMap()), 5.seconds, taint, context, DirectCalls))
-
-        assertEquals(listOf("the conversation counts as tainted, as its mark could not be read"), approvals.reasons)
-    }
-
     // Modes.
 
     @Test

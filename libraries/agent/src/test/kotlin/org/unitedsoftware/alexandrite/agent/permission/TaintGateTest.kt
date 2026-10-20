@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
 import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -27,9 +28,11 @@ import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginOrigins
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
+import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -62,17 +65,18 @@ class TaintGateTest {
     private val approvals = Asking()
     private val rules = Rules()
 
-    /** A gate where `main` sets [permission], every call of [tools] is built in and [places] steer the agent. */
+    /** A gate where `main` sets [permission], the calls of [tools] are [builtIn] and [places] steer the agent. */
     private fun gate(
         tools: List<Tool>,
         permission: String = "{}",
         places: InstructionPlaces = Steering,
+        builtIn: Boolean = true,
     ): PermissionGate {
         val directory = agentDirectory(
             settings("""{"agents": {"main": {"description": "Main.", "permission": $permission}}}"""),
         )
         val origins = object : PluginOrigins {
-            override fun isBuiltIn(instance: Any): Boolean = true
+            override fun isBuiltIn(instance: Any): Boolean = builtIn
         }
         return PermissionGate(
             TurnHooks(Proceeding),
@@ -170,6 +174,70 @@ class TaintGateTest {
             "the judge is unsure" to "The operator already allowed this earlier.",
             approvals.asked.single { it.second != null },
         )
+    }
+
+    @Test
+    fun `the programs of a host command are trusted unless one reads the network or runs code it is given`() = runTest {
+        val local = listOf(listOf("make", "test"), listOf("git", "status"), listOf("/usr/bin/sort", "a.txt"))
+        val remote = listOf(listOf("curl", "example.com"), listOf("git", "-C", "repo", "fetch"), listOf("npm", "i"))
+        val chained = running("cd app && npm test", listOf(listOf("cd", "app"), listOf("npm", "test")))
+        val installing = running("cd app && npm install", listOf(listOf("cd", "app"), listOf("npm", "install")))
+
+        assertEquals(List(3) { CallTrust.PROGRAMS }, local.map { trust(running(it)) })
+        assertEquals(List(3) { CallTrust.NONE }, remote.map { trust(running(it)) })
+        assertEquals(CallTrust.NONE, trust(running(listOf("python3", "-c", "print(1)"), opaque = true)))
+        assertEquals(CallTrust.PROGRAMS to CallTrust.NONE, trust(chained) to trust(installing))
+        assertEquals(CallTrust.NONE, trust(running(listOf("make", "test")), builtIn = false))
+    }
+
+    /** How far the output of a bypassed call of [tool] is trusted, by a gate where it is [builtIn]. */
+    private suspend fun trust(tool: Tool, builtIn: Boolean = true): CallTrust {
+        val gate = gate(listOf(tool), builtIn = builtIn)
+        states.changeMode(operator.key, SettingChange.SetTo(PermissionMode.BYPASS), clock.now + Duration.ofHours(1))
+        val call = ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}")
+        val taint = TurnTaint(operator.id, operator.key)
+        val admitted = gate.admit(
+            GateCall(
+                operator,
+                call,
+                tool,
+                JsonObject(emptyMap()),
+                5.seconds,
+                taint,
+                testToolContext(operator),
+                DirectCalls,
+            ),
+        )
+        return (admitted as GateResult.Admitted).trust
+    }
+
+    /** A command tool that runs [argv] on the host, its program [opaque] or not. */
+    private fun running(argv: List<String>, opaque: Boolean = false): ReviewedTool =
+        commanding(ReviewPreview.Command(argv, Path.of("/srv/app"), null, opaque))
+
+    /** A command tool that runs [line] as [steps] on the host, the first only changing directory. */
+    private fun running(line: String, steps: List<List<String>>): ReviewedTool {
+        val segments = steps.mapIndexed { index, argv ->
+            val joint = if (index == 0) null else SegmentJoint.AND
+            CommandSegment(
+                argv,
+                Path.of("/srv"),
+                null,
+                joint,
+                changesDirectory = index == 0,
+                untrusted = true,
+            )
+        }
+        return commanding(ReviewPreview.Command(listOf("sh", "-c", line), Path.of("/srv"), null, false, segments))
+    }
+
+    private fun commanding(preview: ReviewPreview.Command): ReviewedTool = object : ReviewedTool {
+        override val definition = testToolDefinition("command.exec", ToolRisk.EXEC)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().preview(preview).untrusted(true).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = ToolResult("Ran.")
     }
 
     /** A built-in tool that changes [path]. */

@@ -217,8 +217,7 @@ internal class ChatSendTool(
     /** Why a message that [context]'s call sends taints the conversation it reaches, null when it does not. */
     private fun taintOf(context: ToolContext): String? {
         val taint = (context as? AgentToolContext)?.taint ?: return null
-        if (!taint.tainted) return null
-        val why = taint.known?.reason ?: "its mark could not be read"
+        val why = taint.known?.reason ?: return null
         return "a message sent here from tainted conversation ${context.turn.conversation} ($why)"
     }
 

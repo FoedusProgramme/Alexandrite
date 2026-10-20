@@ -9,7 +9,6 @@ import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.trust.Foreseen
 import org.unitedsoftware.alexandrite.agent.trust.Foresight
 import org.unitedsoftware.alexandrite.agent.trust.Root
-import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
@@ -27,7 +26,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import java.nio.file.Path
 import java.security.SecureRandom
-import java.time.Instant
 
 /** Asks a person about the gated calls that nothing else lets run. */
 internal interface Approvals {
@@ -76,7 +74,7 @@ internal class ChannelApprovals(
             )
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), Refusals.DENIED_IN_TREE)
         }
-        val grantable = if (call.review.person == null && question == null) {
+        val grantable = if (call.review.person == null && question?.unasked == null) {
             rules.grantable(call)
         } else {
             emptyList()
@@ -93,7 +91,7 @@ internal class ChannelApprovals(
             gate.calls.chain?.agents.orEmpty(),
             shown,
             question != null,
-            taint = taint(gate.taint)?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) },
+            taint = gate.taint.known?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) },
             note = note?.let { ReviewText.escape(it, keepNewlines = true) },
             contained = call.review.contained,
             background = call.review.background,
@@ -287,11 +285,5 @@ private fun escaped(preview: ReviewPreview): ReviewPreview? = when (preview) {
 }
 
 private fun escaped(path: Path): Path = Path.of(ReviewText.escapeName(path.toString()))
-
-/** The mark of the conversation that [taint] stands for, one of the time asked when its mark could not be read. */
-private fun taint(taint: TurnTaint): ConversationTaint? =
-    if (taint.tainted) taint.known ?: ConversationTaint(Instant.now(), UNREAD_MARK) else null
-
-private const val UNREAD_MARK = "the conversation's mark could not be read, so it counts as tainted"
 
 private val logger = LoggerFactory.getLogger(ChannelApprovals::class.java)

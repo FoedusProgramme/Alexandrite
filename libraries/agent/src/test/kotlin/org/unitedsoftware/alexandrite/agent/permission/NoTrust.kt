@@ -41,6 +41,6 @@ internal object NoForesight : Foresight {
 /** Marks the conversation and offers nothing. */
 internal object NoMarkOffers : MarkOffers {
     override suspend fun marked(call: GateCall, reason: String, roots: List<Root>) {
-        call.taint.mark(reason, call.call.id)
+        call.taint.mark(reason)
     }
 }

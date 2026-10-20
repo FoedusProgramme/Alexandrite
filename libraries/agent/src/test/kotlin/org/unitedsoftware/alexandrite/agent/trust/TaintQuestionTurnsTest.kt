@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -44,6 +45,7 @@ import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
+import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -77,6 +79,21 @@ class TaintQuestionTurnsTest {
         override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
             context.touched(path(arguments))
             return ToolResult("Read.")
+        }
+    }
+
+    /** fs.write as its review shows it: it creates the file of its `path`, which it reports touched when it runs. */
+    private val create = object : ReviewedTool {
+        override val definition: ToolDefinition = testToolDefinition("fs.write", ToolRisk.WORKSPACE_WRITE)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().preview(ReviewPreview.Diff(path(arguments), "+text\n")).reads(listOf(path(arguments)))
+                .build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+            file(path(arguments))
+            context.touched(path(arguments))
+            return ToolResult("Written.")
         }
     }
 
@@ -162,7 +179,7 @@ class TaintQuestionTurnsTest {
             channel(operators = setOf("operator"), trusted = trustedUsers).model(model).tool(read)
                 .tool(untrusted("mcp.files.read")).tool(untrusted("web.fetch", ToolRisk.NETWORK_READ))
                 .tool(untrusted("notes.paste")).tool(write).tool(search)
-                .tool(consume).tool(quiet)
+                .tool(consume).tool(quiet).tool(create)
         }
     }
 
@@ -295,7 +312,22 @@ class TaintQuestionTurnsTest {
     }
 
     @Test
-    fun `a call that would taint and needs an approval anyway offers no rule for good`() {
+    fun `writing a file outside the trusted places neither asks about nor brings in untrusted content`() {
+        val written = project.resolve("notes.md")
+        model.reply { toolCall("fs.write", reading(written)) }.reply { text("Written.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            ask()
+
+            assertEquals(listOf(false), channel().approvals.map { it.taints })
+            assertEquals("text\n", written.readText())
+            assertNull(mark())
+        }
+    }
+
+    @Test
+    fun `a call that would taint and needs an approval anyway offers its rule for good as usual`() {
         model.reply { toolCall("notes.write") }.reply { text("Written.") }
 
         harness().execute {
@@ -303,7 +335,7 @@ class TaintQuestionTurnsTest {
 
             val request = channel().approvals.single()
             assertTrue(request.taints)
-            assertEquals(emptyList(), request.alwaysRules)
+            assertEquals(listOf(RuleSubject("notes.write", emptyList(), "notes.write")), request.alwaysRules)
         }
     }
 
@@ -481,7 +513,7 @@ class TaintQuestionTurnsTest {
     }
 
     @Test
-    fun `a guest's mark stays when more untrusted content came in before the operator trusted them`() {
+    fun `trusting a guest clears the mark as untaint does, though more untrusted content came in since`() {
         model.reply { text("Hello.") }.reply { text("Seen.") }
 
         harness().execute {
@@ -489,11 +521,12 @@ class TaintQuestionTurnsTest {
             channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
             ask(user = "guest", text = "Hi.")
             ask(user = "operator", text = "Look.") { forwarded(ForwardOrigin(ForwardKind.USER, "Someone", null, null)) }
+            val before = mark()?.reason
             channel().releaseApprovals()
             withTimeout(5.seconds) { while (get<TrustControl>().people(channel().chat()).isEmpty()) delay(10) }
-            delay(300)
+            withTimeout(5.seconds) { while (mark() != null) delay(10) }
 
-            assertEquals("a message from someone whom the agent does not trust", mark()?.reason)
+            assertEquals("a message from someone whom the agent does not trust", before)
         }
     }
 

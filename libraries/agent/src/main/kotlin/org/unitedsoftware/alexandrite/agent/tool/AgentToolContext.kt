@@ -40,6 +40,8 @@ internal class AgentToolContext(
     private val granting: (suspend () -> Mandate?)? = null,
     /** How far the call's output is trusted. */
     val trust: CallTrust = CallTrust.NONE,
+    /** The file that the call writes, which brings nothing into the conversation, null when it writes none. */
+    private val written: Path? = null,
     sandboxes: CallSandboxes? = null,
 ) : ToolContext {
     @Volatile
@@ -70,7 +72,6 @@ internal class AgentToolContext(
     }
 
     private val reported = CopyOnWriteArrayList<Path>()
-    private val callId = call
 
     override val turn: TurnInfo = turn
         get() = field.also { checkOpen() }
@@ -107,8 +108,9 @@ internal class AgentToolContext(
     /** The paths that the call reported as touched, each once, in order. */
     val touchedPaths: List<Path> get() = reported.distinct()
 
-    /** The [touchedPaths] that may taint the conversation, none for a call trusted whole. */
-    val taintingPaths: List<Path> get() = if (trust == CallTrust.WHOLE) emptyList() else touchedPaths
+    /** The [touchedPaths] that may taint the conversation, the written file left out; none for a call trusted whole. */
+    val taintingPaths: List<Path>
+        get() = if (trust == CallTrust.WHOLE) emptyList() else touchedPaths.filterNot { it.isWritten(written) }
 
     private val loading = CopyOnWriteArrayList<UserEntry>()
 
@@ -145,7 +147,7 @@ internal class AgentToolContext(
 
     /** Counts [reason] as untrusted content that the call took in, whatever its trust. */
     fun report(reason: String) {
-        taint.note(reason, callId)
+        taint.note(reason)
         if (own.compareAndSet(null, reason)) detached?.invoke(reason)
     }
 
@@ -165,3 +167,6 @@ internal class AgentToolContext(
         check(open) { "A tool context is valid only while its call runs." }
     }
 }
+
+/** Whether this path is [written], the file that a call writes. */
+internal fun Path.isWritten(written: Path?): Boolean = written != null && normalize() == written.normalize()

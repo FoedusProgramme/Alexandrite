@@ -275,8 +275,8 @@ class SideModelJudgeTest {
     }
 
     @Test
-    fun `the judge is told that the conversation is tainted and why, and that an unread mark counts`() = runTest {
-        repeat(2) { answers("""{"verdict":"ask"}""") }
+    fun `the judge is told that the conversation is tainted and why`() = runTest {
+        answers("""{"verdict":"ask"}""")
         val tainted = TurnTaint(operator.id, operator.key).apply {
             note("a call of web.fetch, which reads the network")
         }
@@ -285,11 +285,6 @@ class SideModelJudgeTest {
         assertContains(
             sent(),
             "\n\n$TAINTED_INTRODUCTION\n<<<\na call of web.fetch, which reads the network\n>>>\n\nThe call:\n",
-        )
-        judge().judge(call(taint = TurnTaint(operator.id, operator.key, unread = true)))
-        assertContains(
-            sent(),
-            "$TAINTED_INTRODUCTION\n<<<\nits mark could not be read, so it counts as tainted\n>>>\n",
         )
         assertContains(model.requests.last().instructions.single().text, "When the conversation took in untrusted")
     }

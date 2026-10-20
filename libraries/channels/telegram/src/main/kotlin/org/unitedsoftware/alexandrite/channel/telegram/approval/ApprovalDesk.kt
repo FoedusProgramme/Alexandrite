@@ -184,7 +184,7 @@ internal class ApprovalDesk(
         lines += Line(text(TextKeys.APPROVAL_TOOL, language, "tool" to request.tool, "risk" to risk))
         val (introduction, body) = preview(request, language)
         lines += introduction
-        if (request.alwaysRules.size > 1 && offersAlways(request)) {
+        if (request.alwaysRules.size > 1) {
             lines += Line(text(TextKeys.APPROVAL_ALWAYS_RULES, language, "rules" to rules(request)))
         }
         val count = body.trimEnd().lines().size
@@ -367,7 +367,7 @@ internal class ApprovalDesk(
             }
             InlineKeyboardButton(label, "$PREFIX${request.id}:$TRUST")
         }
-        val always = request.always?.takeIf { offersAlways(request) }?.let {
+        val always = request.always?.let {
             val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
             InlineKeyboardButton(label, "$PREFIX${request.id}:$ALWAYS")
         }
@@ -439,9 +439,7 @@ internal class ApprovalDesk(
 
                 ALLOW -> ApprovalAnswer.Allowed(presser)
 
-                ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null).takeIf {
-                    offersAlways(request)
-                }
+                ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null)
 
                 TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf {
                     request.taints &&
@@ -697,9 +695,6 @@ private fun kindWord(kind: TrustRootKind): String = when (kind) {
     TrustRootKind.SERVER -> TextKeys.TRUST_KIND_SERVER
     TrustRootKind.PERSON -> TextKeys.TRUST_KIND_PERSON
 }
-
-/** Whether [request] may offer to allow such calls for good: only in a clean conversation, for a call that keeps it clean. */
-private fun offersAlways(request: ApprovalRequest): Boolean = request.taint == null && !request.taints
 
 /** The names of [roots], each cut at its start, as one text. */
 private fun listed(roots: List<TrustRoot>): String = roots.joinToString(", ") { ending(it.name) }

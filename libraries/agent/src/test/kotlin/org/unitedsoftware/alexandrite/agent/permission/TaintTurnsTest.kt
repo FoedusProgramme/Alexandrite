@@ -14,7 +14,6 @@ import org.unitedsoftware.alexandrite.agent.turn.Interceptor
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ForwardKind
 import org.unitedsoftware.alexandrite.sdk.chat.ForwardOrigin
 import org.unitedsoftware.alexandrite.sdk.chat.Quote
@@ -40,9 +39,7 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
-import java.io.IOException
 import java.nio.file.Path
-import java.time.Instant
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.CopyOnWriteArrayList
@@ -331,65 +328,6 @@ class TaintTurnsTest {
             assertTrue(mark() != null)
         }
         assertEquals("I like coffee.\n", persona.readText())
-    }
-
-    // Failures.
-
-    @Test
-    fun `a mark that cannot be read counts as one, and the turn says why`() {
-        val unreadable = object : ConversationStore by store.conversations {
-            override suspend fun taint(conversation: ConversationId): ConversationTaint? = throw IOException("Gone.")
-        }
-        model.reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Not edited.") }
-        var turn: TurnId? = null
-
-        val lines = logged {
-            harness(conversations = unreadable).execute {
-                val admission = channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted
-                turn = admission.ticket.turn
-                admission.ticket.outcome()
-                assertEquals(
-                    listOf(
-                        "the call writes an instruction file of agent 'coder', and the conversation counts as " +
-                            "tainted, as its mark could not be read",
-                    ),
-                    channel().approvals.map { it.reason },
-                )
-            }
-        }
-
-        val conversation = blocking { store.conversations.current(key).id }
-        assertTrue(
-            "WARN The taint of conversation $conversation of $key could not be read, so turn $turn counts as " +
-                "tainted: java.io.IOException: Gone." in lines,
-            "$lines",
-        )
-        assertEquals("I like tea.\n", persona.readText())
-    }
-
-    @Test
-    fun `a mark that cannot be stored keeps the conversation's later turns tainted too`() {
-        val unwritable = object : ConversationStore by store.conversations {
-            override suspend fun markTainted(conversation: ConversationId, reason: String, at: Instant): Boolean =
-                throw IOException("Read-only.")
-        }
-        model.reply { toolCall("notes.paste") }.reply { toolCall("persona.edit", edit("tea", "cake")) }
-            .reply { text("Not edited.") }
-            .reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Noted.") }
-
-        val lines = logged {
-            harness(conversations = unwritable).execute {
-                ask()
-                ask()
-            }
-        }
-
-        val refused = ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY)
-        val outcomes = blocking { results() }.map { it.outcome }
-        assertEquals(listOf(ToolOutcome.Succeeded, refused, refused), outcomes)
-        assertEquals(null, blocking { mark() })
-        assertTrue(lines.any { it.startsWith("WARN Conversation") && "could not be marked tainted" in it }, "$lines")
-        assertEquals("I like tea.\n", persona.readText())
     }
 
     // permission.status.

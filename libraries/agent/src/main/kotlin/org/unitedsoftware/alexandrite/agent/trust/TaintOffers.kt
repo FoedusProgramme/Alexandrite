@@ -16,7 +16,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
-import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -35,9 +34,7 @@ internal class TaintOffers(
     private val channels: ChannelDirectory,
     private val directory: AgentDirectory,
     private val trust: TrustSources,
-    private val notes: TaintNotes,
     private val conversations: ConversationStore,
-    private val unstored: UnstoredTaints,
     private val runner: Lazy<ControlRunner>,
     scope: PluginScope,
 ) : MarkOffers,
@@ -50,9 +47,8 @@ internal class TaintOffers(
         work.cancel()
     }
 
-    /** A trust answer clears the mark only when nothing else tainted the conversation since. */
     override suspend fun marked(call: GateCall, reason: String, roots: List<Root>) {
-        markAndOffer(call.turn, call.taint, reason, reason, roots, call.call.id)
+        markAndOffer(call.turn, call.taint, reason, reason, roots)
     }
 
     /**
@@ -61,12 +57,12 @@ internal class TaintOffers(
      */
     suspend fun markedSender(turn: TurnInfo, taint: TurnTaint, sender: ChatUser) {
         val shown = "a message from ${named(sender)}, whom the agent does not trust"
-        markAndOffer(turn, taint, UNTRUSTED_SENDER, shown, listOf(Root.Person(sender)), null)
+        markAndOffer(turn, taint, UNTRUSTED_SENDER, shown, listOf(Root.Person(sender)))
     }
 
     /**
-     * Marks [taint] for [reason], which [call] brought in, and offers to trust [roots] for [shown], clearing the mark
-     * once the turns queued at its key ended when nothing else came into the conversation since.
+     * Marks [taint] for [reason] and offers to trust [roots] for [shown], clearing the mark as `/untaint` does once the
+     * turns queued at its key ended.
      */
     private suspend fun markAndOffer(
         turn: TurnInfo,
@@ -74,11 +70,9 @@ internal class TaintOffers(
         reason: String,
         shown: String,
         roots: List<Root>,
-        call: ToolCallId?,
     ) {
         val conversation = taint.conversationId
-        val count = conversation?.let(notes::count) ?: 0
-        taint.mark(reason, call)
+        taint.mark(reason)
         if (roots.isEmpty() || conversation == null) return
         scope.launch {
             val answer = offer(turn, shown, roots) ?: return@launch
@@ -91,19 +85,8 @@ internal class TaintOffers(
                 )
                 return@launch
             }
-            runner.value.onWorker(turn.key) {
-                if (notes.onlyThrough(conversation, count, call)) {
-                    unstored.cleared(conversation)
-                    conversations.clearTaint(conversation)
-                    logger.info("The taint of conversation {} is cleared by {}", conversation, by.address)
-                } else {
-                    logger.info(
-                        "Conversation {} stays tainted although {} trusted its source: it took in more since",
-                        conversation,
-                        by.address,
-                    )
-                }
-            }
+            runner.value.onWorker(turn.key) { conversations.clearTaint(conversation) }
+            logger.info("The taint of conversation {} is cleared by {}", conversation, by.address)
         }
     }
 

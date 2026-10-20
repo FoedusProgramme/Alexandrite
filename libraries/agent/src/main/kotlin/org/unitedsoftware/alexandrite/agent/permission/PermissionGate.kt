@@ -19,7 +19,7 @@ import org.unitedsoftware.alexandrite.agent.trust.Foreseen
 import org.unitedsoftware.alexandrite.agent.trust.Foresight
 import org.unitedsoftware.alexandrite.agent.trust.MarkOffers
 import org.unitedsoftware.alexandrite.agent.trust.TrustRules
-import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
+import org.unitedsoftware.alexandrite.agent.trust.localTrust
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -99,7 +99,7 @@ internal class PermissionGate(
         val principal = Principal.of(call.turn)
         val tainted = call.taint.tainted
         val person =
-            review.person ?: instruction?.takeIf { tainted }?.let { "the call writes $it, and ${tainted(call.taint)}" }
+            review.person ?: instruction?.takeIf { tainted }?.let { "the call writes $it, and $TAINTED" }
         val foreseen = foresight.foresee(checked)
         val gated = required != null || person != null || isGated(risk, principal, tainted, gatesNetwork(call))
         if (!gated && !(risk.severity >= ToolRisk.PERSISTENT_STATE.severity && planned(call))) {
@@ -122,7 +122,7 @@ internal class PermissionGate(
                 cleared(checked, mode)?.let { return untrusted(checked, foreseen, it, mode) }
             }
             if (mode == PermissionMode.AUTO) {
-                if (tainted && checked.opaque) return ask(checked, "an opaque program, and ${tainted(call.taint)}")
+                if (tainted && checked.opaque) return ask(checked, "an opaque program, and $TAINTED")
                 when (val verdict = judge.judge(checked)) {
                     Verdict.Allow -> return untrusted(checked, foreseen, ClearanceKind.JUDGE, mode)
 
@@ -146,7 +146,7 @@ internal class PermissionGate(
         if (foreseen == null) return admitted(call, kind)
         val gate = call.call
         if (mode == PermissionMode.BYPASS) {
-            gate.taint.mark(foreseen.reason, gate.call.id)
+            gate.taint.mark(foreseen.reason)
             return admitted(call, kind)
         }
         if (Principal.of(gate.turn) == Principal.AUTOMATION) {
@@ -237,10 +237,11 @@ internal class PermissionGate(
     private suspend fun running(call: CheckedCall, result: GateResult): GateResult {
         if (result !is GateResult.Admitted) return result
         val gate = call.call
-        val trust = listOf(result.trust, trusts.trust(call), sandboxTrust(call)).maxBy { it.ordinal }
+        val local = localTrust(call, tools.isBuiltIn(gate.tool))
+        val trust = listOf(result.trust, trusts.trust(call), local).maxBy { it.ordinal }
         val network = ToolRisk.NETWORK_READ in setOf(gate.tool.definition.risk, call.risk)
         val untrusted = if (network && !tools.isBuiltIn(gate.tool) && trust != CallTrust.WHOLE) {
-            "a call of ${gate.tool.definition.name}, which reads the network".also { gate.taint.mark(it, gate.call.id) }
+            "a call of ${gate.tool.definition.name}, which reads the network".also { gate.taint.mark(it) }
         } else {
             null
         }
@@ -293,9 +294,9 @@ private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode
 
     call.instruction != null -> "the call writes ${call.instruction}"
 
-    call.risk == ToolRisk.PERSISTENT_STATE -> tainted(call.call.taint)
+    call.risk == ToolRisk.PERSISTENT_STATE -> TAINTED
 
-    call.risk == ToolRisk.NETWORK_READ -> "the call reads the network, and ${tainted(call.call.taint)}"
+    call.risk == ToolRisk.NETWORK_READ -> "the call reads the network, and $TAINTED"
 
     tightened -> "the sub-agent's profile sets $mode mode"
 
@@ -312,21 +313,8 @@ private val CONTAINED_MODES = setOf(PermissionMode.ASK, PermissionMode.ALLOW_EDI
 /** Whether the call runs a program whose code no safeguard inspects. */
 private val CheckedCall.opaque: Boolean get() = (review.preview as? ReviewPreview.Command)?.opaque == true
 
-/**
- * How far the sandbox makes the output of [call] trusted: its programs' own reports when it runs contained, reaches no
- * host and works in trusted folders only.
- */
-internal fun sandboxTrust(call: CheckedCall): CallTrust {
-    val containment = call.containment ?: return CallTrust.NONE
-    return if (!containment.network && containment.trustedFolder) CallTrust.PROGRAMS else CallTrust.NONE
-}
-
-/** Why [taint] gates an operator's call that a clean conversation would run, in Alexandrite's own words. */
-private fun tainted(taint: TurnTaint): String = if (taint.known != null) {
-    "the conversation took in untrusted content"
-} else {
-    "the conversation counts as tainted, as its mark could not be read"
-}
+/** Why taint gates an operator's call that a clean conversation would run, in Alexandrite's own words. */
+private const val TAINTED = "the conversation took in untrusted content"
 
 private const val UNTRUSTED_REASON = "the call would bring the first untrusted content into the conversation"
 

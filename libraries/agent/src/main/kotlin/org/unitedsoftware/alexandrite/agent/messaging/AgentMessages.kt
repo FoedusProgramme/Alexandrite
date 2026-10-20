@@ -1,8 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.messaging
 
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.delivery.visibleText
@@ -10,7 +8,6 @@ import org.unitedsoftware.alexandrite.agent.job.JobCarried
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
-import org.unitedsoftware.alexandrite.agent.trust.ConversationTaints
 import org.unitedsoftware.alexandrite.agent.turn.TurnPlan
 import org.unitedsoftware.alexandrite.agent.turn.TurnSource
 import org.unitedsoftware.alexandrite.agent.worker.AgentTicket
@@ -102,7 +99,6 @@ internal class AgentMessages(
     private val clock: Clock,
     private val records: MessageRecords,
     private val conversations: ConversationStore,
-    private val taints: ConversationTaints,
 ) {
     suspend fun send(agent: AgentId, text: String, context: AgentToolContext): InTurnResult {
         val turn = context.turn
@@ -123,9 +119,8 @@ internal class AgentMessages(
                 ToolOutcome.Failed,
             )
         }
-        val taint = context.taint.takeIf { it.tainted }?.let {
-            "a message from agent '${turn.agent}', whose conversation took in untrusted content " +
-                "(${it.known?.reason ?: "its mark could not be read"})"
+        val taint = context.taint.known?.let {
+            "a message from agent '${turn.agent}', whose conversation took in untrusted content (${it.reason})"
         }
         val message = AgentMessage(turn.key, turn.chat, text, taint, budget)
         val destination = topology.key(agent, chat)
@@ -194,14 +189,8 @@ internal class AgentMessages(
 
     /** Why the reply of [agent], whose turn [target] took the message, taints the sender, null when it does not. */
     private suspend fun replyTaint(agent: AgentId, target: TurnId): String? {
-        val why = try {
-            val conversation = conversations.turn(target)?.conversation ?: return null
-            taints.mark(conversation)?.reason ?: return null
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("The taint of agent {}'s turn {} could not be read: {}", agent, target, e.toString())
-            "its mark could not be read"
-        }
+        val conversation = conversations.turn(target)?.conversation ?: return null
+        val why = conversations.taint(conversation)?.reason ?: return null
         return "a reply from agent '$agent', whose conversation took in untrusted content ($why)"
     }
 
@@ -231,5 +220,3 @@ internal class AgentMessages(
 
 /** The agent messages that one root turn may send. */
 internal const val MAX_ROUND_TRIPS = 3
-
-private val logger = LoggerFactory.getLogger(AgentMessages::class.java)

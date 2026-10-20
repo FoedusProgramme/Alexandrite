@@ -45,7 +45,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutputPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import java.nio.file.Path
-import java.time.Instant
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -132,16 +131,16 @@ internal class ToolExecutor(
                     startsInBackground = admission.background && tool !is InTurnTool,
                     granting = { grants.grant(turn, tool) },
                     trust = admission.trust,
+                    written = (admission.preview as? ReviewPreview.Diff)?.path,
                     sandboxes = sandboxes,
                 )
                 admission.untrusted?.let(context::report)
-                val started = Instant.now()
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {
                     runTool(turn, call, tool, arguments, limit, context)
                 }
-                recordWrites(admission, result.outcome, taint, started)
+                recordWrites(admission, result.outcome, taint)
                 val content = contentOf(tool.definition.activity, admission.preview, result, admission.scratch)
                 calls.ended(call.id, statusOf(result.outcome), content)
                 ToolCallEnd(result, null, context.touchedPaths, context.loads, context.taintingPaths)
@@ -149,18 +148,12 @@ internal class ToolExecutor(
         }
     }
 
-    /** Notes in the ledger what the call that [admission] let run wrote, when its turn [taint] counts as tainted. */
-    private suspend fun recordWrites(
-        admission: GateResult.Admitted,
-        outcome: ToolOutcome,
-        taint: TurnTaint,
-        from: Instant,
-    ) {
-        val preview = admission.preview ?: return
-        if (!taint.tainted || admission.clearance.kind == ClearanceKind.NONE || outcome is ToolOutcome.NotRun) return
-        if (preview is ReviewPreview.Diff && outcome != ToolOutcome.Succeeded) return
-        val reason = taint.known?.reason ?: "the conversation counted as tainted"
-        ledger.wrote(preview, from, Instant.now(), reason)
+    /** Notes in the ledger the file that the call that [admission] let run wrote, when its turn [taint] is tainted. */
+    private suspend fun recordWrites(admission: GateResult.Admitted, outcome: ToolOutcome, taint: TurnTaint) {
+        val preview = admission.preview as? ReviewPreview.Diff ?: return
+        val reason = taint.known?.reason ?: return
+        if (admission.clearance.kind == ClearanceKind.NONE || outcome != ToolOutcome.Succeeded) return
+        ledger.wrote(preview.path, reason)
     }
 
     private suspend fun runTool(

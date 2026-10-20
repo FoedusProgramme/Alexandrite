@@ -475,34 +475,38 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `no request of a tainted conversation or of a call that would taint offers to allow for good`() = runTest {
-        val desk = Desk(this)
-        val always = RuleSubject("fs.write", emptyList(), "fs.write")
-        val taints = asking(desk, request(always = always, taints = true))
-        val tainted = asking(
-            desk,
-            ApprovalRequest(
-                "tainted",
-                turnOf(ada, ADA),
-                "fs.write",
-                ToolRisk.WORKSPACE_WRITE,
-                "{}",
-                null,
-                "the chat is in ask mode",
-                alwaysRules = listOf(always),
-                taint = ConversationTaint(Instant.parse("2026-10-20T08:30:00Z"), "a web page"),
-            ),
-        )
-        advanceTimeBy(5.seconds)
+    fun `a request of a tainted conversation or of a call that would taint offers to allow for good as usual`() =
+        runTest {
+            val desk = Desk(this)
+            val always = RuleSubject("fs.write", emptyList(), "fs.write")
+            val taints = asking(desk, request(always = always, taints = true))
+            val tainted = asking(
+                desk,
+                ApprovalRequest(
+                    "tainted",
+                    turnOf(ada, ADA),
+                    "fs.write",
+                    ToolRisk.WORKSPACE_WRITE,
+                    "{}",
+                    null,
+                    "the chat is in ask mode",
+                    alwaysRules = listOf(always),
+                    taint = ConversationTaint(Instant.parse("2026-10-20T08:30:00Z"), "a web page"),
+                ),
+            )
+            advanceTimeBy(5.seconds)
 
-        desk.press(ada, "apv:k3x9:A", message = 101)
-        desk.press(ada, "apv:tainted:A", message = 102)
-        advanceTimeBy(5.seconds)
+            desk.press(ada, "apv:k3x9:A", message = 101)
+            desk.press(ada, "apv:tainted:A", message = 102)
+            advanceTimeBy(5.seconds)
 
-        assertTrue(taints.isActive && tainted.isActive, "${desk.shown(ADA)}")
-        assertEquals(List(2) { "This request no longer waits for an answer." }, desk.toasts())
-        assertTrue(desk.shown(ADA).none { "Always allow" in it }, "${desk.shown(ADA)}")
-    }
+            assertEquals(
+                List(2) {
+                    ApprovalAnswer.Allowed(ada, always = true)
+                },
+                listOf(taints.await(), tainted.await()),
+            )
+        }
 
     @Test
     fun `a call that would taint names its source and the root, and offers trust only after marking and denying`() =

@@ -41,8 +41,6 @@ internal class Delegation(
     val parent: DelegatingTurn,
     val chain: RunChain,
     val background: Boolean = false,
-    /** Why the run is tainted by the turn that delegated it, null when that turn is clean. */
-    val inherited: String? = null,
     /** Why the run is tainted by the earlier run it goes on from, null when there is none or it is clean. */
     val resumed: String? = null,
     /** Hands each untrusted content the run takes in to the call that delegated it, as it comes. */
@@ -58,9 +56,8 @@ internal class Delegation(
     var taint: TurnTaint? = null
         private set
 
-    /** Counts the run's marks in [taint], the taint of its turn, also when they could not be stored. */
+    /** Counts the taint of the earlier run that the run goes on from as its own in [taint], the taint of its turn. */
     fun opened(taint: TurnTaint) {
-        inherited?.let(taint::carry)
         resumed?.let(taint::note)
     }
 
@@ -68,7 +65,6 @@ internal class Delegation(
     fun started(turn: TurnInfo, taint: TurnTaint) {
         this.taint = taint
         this.turn = turn
-        if (taint.unread) report("its mark could not be read")
         taint.onNoted(report)
     }
 }

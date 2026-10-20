@@ -198,7 +198,7 @@ class SandboxGateTest {
     }
 
     @Test
-    fun `under taint a contained call that may reach a host goes the mode's way, offering nothing for good`() {
+    fun `under taint a contained call that may reach a host goes the mode's way, offering its host for good`() {
         harness("""{"type": "seatbelt", "network": {"allowedDomains": ["pypi.org"]}}""").execute {
             val gate = Gate(this)
 
@@ -215,7 +215,7 @@ class SandboxGateTest {
             val gate = Gate(this)
 
             assertEquals("ask", gate.decide(contained(hosts = listOf("example.com")), tainted = true))
-            assertEquals(emptyList(), gate.approvals.offered)
+            assertEquals(listOf(listOf("network: example.com")), gate.approvals.offered)
         }
     }
 

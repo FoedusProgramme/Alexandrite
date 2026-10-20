@@ -113,25 +113,15 @@ internal class PermissionStatusTool(
 
     private suspend fun taint(turn: TurnInfo, context: ToolContext): String {
         val known = (context as? AgentToolContext)?.taint
-        val taint = if (known != null) {
-            known.known
-        } else {
-            try {
-                conversations.taint(turn.conversation)
-            } catch (e: Exception) {
-                currentCoroutineContext().ensureActive()
-                return UNREAD
-            }
-        }
-        if (taint == null) return if (known?.unread == true) UNREAD else "Conversation: not tainted."
-        val unstored = if (known?.stored == false) " The mark could not be stored yet." else ""
+        val taint = (if (known != null) known.known else conversations.taint(turn.conversation))
+            ?: return "Conversation: not tainted."
         val effect = if (turn.kind == TurnKind.HEARTBEAT) {
             "Heartbeat turns share this conversation, which /new does not replace."
         } else {
             "Until /new starts a new conversation, calls that change your lasting state, such as persona.edit, need " +
                 "an approval."
         }
-        return "Conversation: tainted since ${time(taint.at, turn)} (${taint.reason}).$unstored $effect $CLEARING"
+        return "Conversation: tainted since ${time(taint.at, turn)} (${taint.reason}). $effect $CLEARING"
     }
 
     private fun time(instant: Instant, turn: TurnInfo): String = TIME.format(instant.atZone(turn.zone ?: clock.zone))
@@ -141,7 +131,6 @@ internal class PermissionStatusTool(
         const val RULES = "Allow rules (on an operator's turn, in ask, allowedit and auto modes, the calls they " +
             "cover run without asking; not in plan or manual mode, nor for an opaque program or a lasting-state " +
             "call):"
-        const val UNREAD = "Conversation: counted as tainted, as its mark could not be read."
         const val CLEARING = "An operator clears the mark with /untaint once sure of what came in, or trusts its " +
             "source with /trust so that it no longer taints."
         val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm XXX", Locale.ROOT)

@@ -7,7 +7,7 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
-import org.unitedsoftware.alexandrite.agent.trust.RecordTaintLedger
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -22,13 +22,11 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
-import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.FileTime
-import java.time.Instant
 import kotlin.io.path.createDirectories
+import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -71,6 +69,20 @@ class TaintLedgerTest {
         private fun path(arguments: JsonObject) = Path.of(arguments.getValue("path").jsonPrimitive.content)
     }
 
+    /** Runs a command in the workspace that writes `text` into its `path`. */
+    private val make = object : ReviewedTool {
+        override val definition = testToolDefinition("command.exec", ToolRisk.EXEC)
+
+        override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+            CallReview.builder().preview(ReviewPreview.Command(listOf("make"), workspace, null, opaque = false)).build()
+
+        override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+            val path = Path.of(arguments.getValue("path").jsonPrimitive.content)
+            Files.writeString(path, arguments.getValue("text").jsonPrimitive.content)
+            return ToolResult("Made.")
+        }
+    }
+
     private fun harness(): PluginHarness {
         workspace.createDirectories()
         return agentHarness(
@@ -88,7 +100,7 @@ class TaintLedgerTest {
             """.trimIndent(),
             store,
         ) {
-            channel(operators = setOf("operator")).model(model).tool(read).tool(paste).tool(write)
+            channel(operators = setOf("operator")).model(model).tool(read).tool(paste).tool(write).tool(make)
             configFile(root.resolve("config/alexandrite.json")).dataRoot(root.resolve("data"))
         }
     }
@@ -155,18 +167,21 @@ class TaintLedgerTest {
     }
 
     @Test
-    fun `a directory that a command of a tainted conversation ran in taints the files it changed meanwhile`() {
-        val ledger = RecordTaintLedger(testRecords())
-        val project = root.resolve("project").createDirectories()
-        val made = project.resolve("made.txt")
-        val before = project.resolve("before.txt").also { it.writeText("old") }
-        Files.setLastModifiedTime(before, FileTime.from(Instant.now().minusSeconds(60)))
-        val command = ReviewPreview.Command(listOf("make"), project, null, opaque = false)
+    fun `a file that a command of a tainted conversation changed does not taint a later conversation that reads it`() {
+        val made = workspace.resolve("made.txt")
+        model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+            .reply { toolCall("command.exec", writing(made, "Built.")) }.reply { text("Made.") }
+            .reply { toolCall("fs.read", reading(made)) }.reply { text("Read.") }
 
-        val from = Instant.now()
-        made.writeText("new")
-        blocking { ledger.wrote(command, from, Instant.now(), "a pasted page") }
+        harness().execute {
+            ask()
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            ask()
+            renew()
+            ask()
+        }
 
-        assertEquals(listOf("a pasted page", null), listOf(made, before).map(ledger::reason))
+        assertEquals("Built.", made.readText())
+        assertEquals(null, blocking { mark() })
     }
 }

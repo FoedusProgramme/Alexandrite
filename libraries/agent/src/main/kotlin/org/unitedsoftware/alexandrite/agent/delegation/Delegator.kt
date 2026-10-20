@@ -26,8 +26,6 @@ import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
 import org.unitedsoftware.alexandrite.agent.tool.shaped
-import org.unitedsoftware.alexandrite.agent.trust.ConversationTaints
-import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.turn.HistoryCache
 import org.unitedsoftware.alexandrite.agent.turn.TurnPermit
 import org.unitedsoftware.alexandrite.agent.turn.TurnPlan
@@ -87,7 +85,6 @@ internal class Delegator(
     private val inboxes: JobInboxes,
     private val runRecords: RunRecords,
     private val budgets: Budgets,
-    private val taints: ConversationTaints,
     settings: AgentSettings,
 ) {
     private val permits = Semaphore(settings.maxBackgroundRuns)
@@ -141,12 +138,11 @@ internal class Delegator(
             rootConversation = turn.lineage?.rootConversation ?: turn.conversation,
             depth = depth,
         )
-        var inherited: String? = null
         var resumed: String? = null
         val conversation = withContext(NonCancellable) {
             val from = earlier?.let { lastEntryOf(it.conversation) } ?: forkPoint(turn.conversation, call, fork)
             val created = conversations.createDelegated(turn.key, lineage, from)
-            inherited = if (context.taint.tainted) inherit(created.id, run, turn, context.taint) else null
+            context.taint.known?.let { inherit(created.id, run, turn, it.reason) }
             resumed = earlier?.let { carryTaint(checkNotNull(resume), it.conversation, created.id, run) }
             runRecords.put(run, RunRecord(created.id, root, profile.id.value))
             created
@@ -165,7 +161,6 @@ internal class Delegator(
             detachedParent ?: parent,
             chain(parent, profile, task),
             background,
-            inherited,
             resumed,
         ) { reason -> context.report("sub-agent run $run (${profile.id}) took in untrusted content: $reason") }
         val plan = TurnPlan(
@@ -362,7 +357,7 @@ internal class Delegator(
 
     /**
      * Marks [conversation] of [run] tainted when [earlier], the conversation of the run [resumed] it goes on from, is,
-     * and returns why, also when that mark cannot be read; null when it is clean.
+     * and returns why; null when it is clean.
      */
     private suspend fun carryTaint(
         resumed: RunId,
@@ -370,44 +365,16 @@ internal class Delegator(
         conversation: ConversationId,
         run: RunId,
     ): String? {
-        val why = try {
-            taints.mark(earlier)?.reason ?: return null
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn(
-                "The taint of run {} could not be read, so run {} counts as tainted: {}",
-                resumed,
-                run,
-                e.toString(),
-            )
-            "its mark could not be read"
-        }
+        val why = conversations.taint(earlier)?.reason ?: return null
         val reason = "run $run resumes run $resumed, whose conversation took in untrusted content ($why)"
-        mark(conversation, run, reason)
+        conversations.markTainted(conversation, reason, clock.instant())
         return reason
     }
 
-    /** Marks [conversation] of [run] tainted like [turn], which delegated it, and returns why. */
-    private suspend fun inherit(conversation: ConversationId, run: RunId, turn: TurnInfo, taint: TurnTaint): String {
-        val why = taint.known?.reason ?: "its mark could not be read"
+    /** Marks [conversation] of [run] tainted like [turn], which delegated it, tainted for [why]. */
+    private suspend fun inherit(conversation: ConversationId, run: RunId, turn: TurnInfo, why: String) {
         val reason = "run $run was delegated by a turn of tainted conversation ${turn.conversation} ($why)"
-        mark(conversation, run, reason)
-        return reason
-    }
-
-    /** Marks [conversation] of [run] tainted for [reason], which the run's turn counts as well when this fails. */
-    private suspend fun mark(conversation: ConversationId, run: RunId, reason: String) {
-        try {
-            conversations.markTainted(conversation, reason, clock.instant())
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn(
-                "The conversation {} of run {} could not be marked tainted, so only its turn counts it: {}",
-                conversation,
-                run,
-                e.toString(),
-            )
-        }
+        conversations.markTainted(conversation, reason, clock.instant())
     }
 
     /** Seals the conversation of [delegation], whose run ended. */

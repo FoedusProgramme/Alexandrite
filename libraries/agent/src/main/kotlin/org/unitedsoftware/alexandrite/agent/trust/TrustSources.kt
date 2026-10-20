@@ -7,10 +7,10 @@ import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
-import org.unitedsoftware.alexandrite.agent.permission.sandboxTrust
 import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.tool.isWritten
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -66,7 +66,7 @@ internal class TrustSources(
     override suspend fun foresee(call: CheckedCall): Foreseen? {
         val gate = call.call
         if (gate.taint.tainted) return null
-        val trust = maxOf(rules.trust(call), sandboxTrust(call))
+        val trust = maxOf(rules.trust(call), localTrust(call, tools.isBuiltIn(gate.tool)))
         if (trust == CallTrust.WHOLE) return null
         val name = gate.tool.definition.name
         val found = mutableListOf<Pair<String, Source?>>()
@@ -79,7 +79,8 @@ internal class TrustSources(
         } else if (call.review.untrusted || isNetworkRead(call)) {
             found += output(name, call.review.host, isNetworkRead(call))
         }
-        for (place in reads.places(gate.turn, call.review.reads)) {
+        val written = (call.review.preview as? ReviewPreview.Diff)?.path
+        for (place in reads.places(gate.turn, call.review.reads.filterNot { it.isWritten(written) })) {
             val folder = place.folder
             val source = if (folder != null &&
                 place.path != null

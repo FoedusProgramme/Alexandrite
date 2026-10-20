@@ -1,7 +1,5 @@
 package org.unitedsoftware.alexandrite.agent.history
 
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -123,8 +121,8 @@ internal class HistorySearchTool(
             Principal.of(turn) == Principal.OPERATOR
 
     /**
-     * Reports untrusted content for every other conversation found that took some in or whose mark is unread, and for
-     * a message found there from someone who is no operator.
+     * Reports untrusted content for every other conversation found that took some in, and for a message found there
+     * from someone who is no operator.
      */
     private suspend fun taintFrom(found: List<TranscriptMatch>, context: ToolContext) {
         val own = context.turn.conversation
@@ -137,13 +135,10 @@ internal class HistorySearchTool(
             context.untrusted("$NAME found a message from someone who is no operator in conversation $conversation")
         }
         for (conversation in others) {
-            val reason = try {
-                conversations.taint(conversation)?.let { "it took in untrusted content (${it.reason})" }
-            } catch (e: Exception) {
-                currentCoroutineContext().ensureActive()
-                "its taint mark could not be read"
-            } ?: continue
-            context.untrusted("$NAME found conversation ${conversation.value}, and $reason")
+            val taint = conversations.taint(conversation) ?: continue
+            context.untrusted(
+                "$NAME found conversation ${conversation.value}, and it took in untrusted content (${taint.reason})",
+            )
         }
     }
 

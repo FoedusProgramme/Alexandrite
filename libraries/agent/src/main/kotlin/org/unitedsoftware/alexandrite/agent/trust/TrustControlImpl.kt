@@ -20,7 +20,6 @@ internal class TrustControlImpl(
     private val runner: ControlRunner,
     private val conversations: ConversationStore,
     private val trust: TrustSources,
-    private val taints: ConversationTaints,
 ) : TrustControl {
     override fun folders(): List<TrustedFolder> = trust.folders.folders()
 
@@ -57,6 +56,6 @@ internal class TrustControlImpl(
 
     override suspend fun taint(chat: ChatAddress): ConversationTaint? {
         val key = runner.key(chat)
-        return taints.mark(conversations.current(key).id)
+        return conversations.taint(conversations.current(key).id)
     }
 }

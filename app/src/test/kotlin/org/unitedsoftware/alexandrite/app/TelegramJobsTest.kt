@@ -75,11 +75,7 @@ class TelegramJobsTest {
         assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job ${job.id}, command.exec sleep 6"))
         assertTrue(framing.endsWith(". It succeeded.\nExit code: 0\n[no output]\n[/alexandrite:job]"), framing)
         val work = directory.toRealPath().resolve("work")
-        assertEquals(
-            "command.exec runs sleep, which no safeguard vets; command.exec would reach $work, a folder that is not " +
-                "trusted",
-            tainted,
-        )
+        assertEquals("command.exec would reach $work, a folder that is not trusted", tainted)
         assertEquals(
             listOf(STARTED, FINISHED),
             app.fake.botMessages(app.adaChat.id).body().drop(1).map { it.text },

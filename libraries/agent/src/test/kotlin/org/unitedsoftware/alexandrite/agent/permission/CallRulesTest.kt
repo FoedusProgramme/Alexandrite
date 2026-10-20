@@ -307,21 +307,23 @@ class CallRulesTest {
     }
 
     @Test
-    fun `nothing is offered for good in a tainted conversation or for a write of an instruction place`() = runTest {
-        val rules = Setup("""{"allow": ["command.exec(make)"]}""").rules
-        val review = run("make", "test")
+    fun `rules are offered for good in a tainted conversation as in a clean one, not for an instruction write`() =
+        runTest {
+            val rules = Setup("""{"allow": ["command.exec(make)"]}""").rules
+            val review = run("make", "test")
 
-        val offered = listOf(
-            rules.grantable(checked(operator(), exec, review, tainted = true)),
-            rules.grantable(checked(operator(), exec, review, instruction = "a trusted folder's instruction file")),
-        )
+            val offered = listOf(
+                rules.grantable(checked(operator(), exec, review, tainted = true)),
+                rules.grantable(checked(operator(), exec, review, instruction = "a trusted folder's instruction file")),
+            )
 
-        assertEquals(List(2) { emptyList() }, offered)
-        val allowed = listOf(null, "a skill directory").map {
-            rules.allowed(checked(operator(), exec, review, instruction = it))
+            val make = RuleSubject("command.exec", listOf("make", "test"), "make test")
+            assertEquals(listOf(listOf(make), emptyList()), offered)
+            val allowed = listOf(null, "a skill directory").map {
+                rules.allowed(checked(operator(), exec, review, instruction = it))
+            }
+            assertEquals(listOf(true, false), allowed)
         }
-        assertEquals(listOf(true, false), allowed)
-    }
 
     // Session rules.
 

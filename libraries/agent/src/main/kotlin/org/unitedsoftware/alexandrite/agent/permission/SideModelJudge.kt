@@ -84,7 +84,7 @@ internal class SideModelJudge(private val endpoints: Endpoints, private val dire
             return Ruling.own("the call is too long for the judge to see whole")
         }
         val model = agent.judgeModel ?: return Ruling.own("agent '${agent.id}' has no model for the judge")
-        val taint = call.call.taint.takeIf { it.tainted }?.let { escaped(it.known?.reason ?: UNREAD_TAINT) }
+        val taint = call.call.taint.known?.let { escaped(it.reason) }
         return consult(model, turn, prompt(words, tasks, taint, shown), permission.judgeTimeoutSeconds.seconds)
     }
 
@@ -287,8 +287,6 @@ private fun sentence(reason: String): String? {
 private const val SOURCE = "permission-judge"
 
 private const val UNSURE = "the judge is unsure"
-
-private const val UNREAD_TAINT = "its mark could not be read, so it counts as tainted"
 
 /** The model's asks in a row after which the judge stops asking it about a tool in a chat. */
 private const val MAX_ASKS = 3

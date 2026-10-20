@@ -183,23 +183,9 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `always allow lets the same trusted command run unasked in the conversation, not another or elsewhere`() {
+    fun `always allow lets the same command run unasked in the conversation, but not another one or another repo's`() {
         val first = script("first")
         val second = script("second")
-        val trusting = """
-            {
-              "previewIntervalMillis": 0,
-              "trustedFolders": ["$first"],
-              "agents": {
-                "coder": {
-                  "name": "Coder",
-                  "model": "scripted/test-model",
-                  "channels": {"telegram:work": {}},
-                  "permission": {"trust": ["command.exec(./gradlew)"]}
-                }
-              }
-            }
-        """.trimIndent()
         app.model
             .reply { toolCall("command.exec", gradle("test", first)) }.reply { text("Tested.") }
             .reply { toolCall("command.exec", gradle("test", first)) }.reply { text("Tested again.") }
@@ -208,7 +194,7 @@ class TelegramPermissionTest {
         lateinit var always: String
         lateinit var rules: String
 
-        app.run(app.builder(directory).config(trusting)) {
+        app.run(app.builder(directory)) {
             app.send(app.ada, app.adaChat, "Run the tests.")
             always = press { it.startsWith("Always allow") }
             app.message(app.adaChat, "Tested.")
@@ -246,7 +232,7 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `allow and trust trusts the program and its folder for good, allow and mark taints`() {
+    fun `allow and trust trusts the folder of a local program for good, allow and mark taints`() {
         val folder = script("first")
         val other = script("second")
         app.model
@@ -286,7 +272,8 @@ class TelegramPermissionTest {
         }
 
         assertEquals(listOf("Allow, mark tainted", "Deny"), buttons.first())
-        assertEquals(listOf("Allow and trust these 2"), buttons[1])
+        val trust = buttons[1].single()
+        assertTrue(trust.startsWith("Allow and trust folder ") && trust.endsWith("/first"), trust)
         assertTrue(answered.substringAfterLast("\n").startsWith("Allowed by Ada Lovelace (@ada_test), who trusted "))
         assertEquals(listOf(listOf("Allow", "Deny")), plain.take(1))
         assertNull(trusted)

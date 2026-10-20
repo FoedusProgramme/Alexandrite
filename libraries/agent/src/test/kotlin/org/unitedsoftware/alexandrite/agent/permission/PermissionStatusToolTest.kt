@@ -183,15 +183,12 @@ class PermissionStatusToolTest {
         val heartbeat = testTurn(TurnKind.HEARTBEAT)
         fun recorded(turn: TurnInfo) =
             TurnTaint(turn.id, turn.key, clock, turn.conversation, store.conversations, forwarded)
-        val unstored = TurnTaint(operator.id, operator.key, clock).apply { note("a web page") }
-        val unread =
-            TurnTaint(operator.id, operator.key, clock, operator.conversation, store.conversations, unread = true)
+        val noted = TurnTaint(operator.id, operator.key, clock).apply { note("a web page") }
 
         val lines = listOf(
             status(context = context(operator, recorded(operator))).last(),
             status(turn = heartbeat, context = context(heartbeat, recorded(heartbeat))).last(),
-            status(context = context(operator, unstored)).last(),
-            status(context = context(operator, unread)).last(),
+            status(context = context(operator, noted)).last(),
         )
 
         val holds = "Until /new starts a new conversation, calls that change your lasting state, such as " +
@@ -201,8 +198,7 @@ class PermissionStatusToolTest {
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). $holds",
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). Heartbeat turns share this " +
                     "conversation, which /new does not replace. $CLEARING",
-                "Conversation: tainted since 2026-01-01 00:00 Z (a web page). The mark could not be stored yet. $holds",
-                "Conversation: counted as tainted, as its mark could not be read.",
+                "Conversation: tainted since 2026-01-01 00:00 Z (a web page). $holds",
             ),
             lines,
         )
