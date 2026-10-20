@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.BotSession
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
+import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundFile
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
@@ -77,9 +78,14 @@ internal class Outbox(
         }
     }
 
-    /** Sends [message] to [chat] outside any reply. */
-    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
-        deliver(chat, formatted(message.text, message.markup), message.replyTo, message.text)
+    /**
+     * Sends [message] to [chat] outside any reply, quoting the message it replies to in a group, and in a direct chat
+     * too where the model's reply names it.
+     */
+    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery {
+        val anyChat = message.kind == MessageKind.REPLY
+        return deliver(chat, formatted(message.text, message.markup), message.replyTo, message.text, anyChat)
+    }
 
     /**
      * Sends [message]'s files to [chat] at the chat's pace, each in a message of its own, the first with the message's
@@ -203,6 +209,7 @@ internal class Outbox(
         text: FormattedText,
         replyTo: ChannelMessageRef?,
         source: String = text.text,
+        anyChat: Boolean = false,
     ): Delivery {
         val target = targetOf(chat)
         if (target == null) {
@@ -210,7 +217,7 @@ internal class Outbox(
             return Delivery.NotDelivered(DeliveryFailure.CHAT_GONE)
         }
         val reply = replyParts(text, source)
-        return sendParts(chat, target, reply.parts, target.quoteOf(replyTo), whole = reply.whole)
+        return sendParts(chat, target, reply.parts, target.quoteOf(replyTo, anyChat), whole = reply.whole)
     }
 
     /** Uploads [file] to [target] as a photo where Telegram takes it as one, else as a document, and returns its id. */

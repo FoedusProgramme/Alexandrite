@@ -232,13 +232,13 @@ class ActivityTextTest {
         val sending = listOf(sent, call("chat.send_file", ToolActivity.SEND, "chart.png"))
         val catalog = TextCatalog.builder()
             .text(PLUGIN, LanguageTag("zh-CN"), "activity.verb.send.past", "发送了")
-            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.send.one", "{count} 个文件")
+            .text(PLUGIN, LanguageTag("zh-CN"), "activity.noun.send.one", "{count} 条消息")
             .build()
         val zh = testTexts(PLUGIN, LanguageTag("zh-CN"), catalog)
 
-        assertEquals("Sent 1 file\nreport.pdf", renderActivity(texts, null, listOf(sent)).text)
-        assertEquals("Sending 2 files\nreport.pdf\nchart.png", renderActivity(texts, null, sending).text)
-        assertEquals("发送了 1 个文件\nreport.pdf", renderActivity(zh, LanguageTag("zh-CN"), listOf(sent)).text)
+        assertEquals("Sent 1 message\nreport.pdf", renderActivity(texts, null, listOf(sent)).text)
+        assertEquals("Sending 2 messages\nreport.pdf\nchart.png", renderActivity(texts, null, sending).text)
+        assertEquals("发送了 1 条消息\nreport.pdf", renderActivity(zh, LanguageTag("zh-CN"), listOf(sent)).text)
     }
 
     @Test

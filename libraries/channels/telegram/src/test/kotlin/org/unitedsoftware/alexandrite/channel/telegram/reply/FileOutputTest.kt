@@ -124,9 +124,9 @@ class FileOutputTest {
             assertEquals(
                 listOf(
                     "sendMessage Here is the report.",
-                    "sendMessage Sending 1 file\nreport.pdf",
+                    "sendMessage Sending 1 message\nreport.pdf",
                     "sendDocument null",
-                    "editMessageText Sent 1 file\nreport.pdf",
+                    "editMessageText Sent 1 message\nreport.pdf",
                     "sendMessage Anything else?",
                 ),
                 output.shown(),

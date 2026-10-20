@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.BOT_MENTION
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODE
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.FAST_MODEL
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.GROUP
+import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
@@ -27,6 +28,33 @@ class TelegramChatTest {
     @AfterTest
     fun close() {
         app.close()
+    }
+
+    @Test
+    fun `chat send answers an earlier message of a direct chat as a reply to it`() {
+        app.model.reply { text("Noted.") }
+        lateinit var answer: FakeBotMessage
+        var first = 0L
+
+        app.run(app.builder(directory)) {
+            first = app.send(app.ada, app.adaChat, "First question.")
+            app.message(app.adaChat, "Noted.")
+            idle()
+            app.model
+                .reply { toolCall("chat.send", """{"to": "here", "replyTo": "$first", "text": "About that one."}""") }
+                .reply { text("") }
+            app.send(app.ada, app.adaChat, "Second question.")
+            answer = app.message(app.adaChat, "About that one.")
+            idle()
+        }
+
+        assertEquals(first, answer.replyTo)
+        assertEquals(
+            listOf("Noted.", "Sending 1 message\nhere", "About that one."),
+            app.fake.botMessages(ADA).map {
+                it.text
+            },
+        )
     }
 
     @Test

@@ -165,12 +165,17 @@ class TaintGateTest {
     @Test
     fun `the programs of a host command are trusted unless one reads the network or runs code it is given`() = runTest {
         val local = listOf(listOf("make", "test"), listOf("git", "status"), listOf("/usr/bin/sort", "a.txt"))
-        val remote = listOf(listOf("curl", "example.com"), listOf("git", "-C", "repo", "fetch"), listOf("npm", "i"))
+        val remote = listOf(
+            listOf("curl", "example.com"),
+            listOf("git", "-C", "repo", "fetch"),
+            listOf("npm", "i"),
+            listOf("docker", "exec", "app", "sh"),
+        )
         val chained = running("cd app && npm test", listOf(listOf("cd", "app"), listOf("npm", "test")))
         val installing = running("cd app && npm install", listOf(listOf("cd", "app"), listOf("npm", "install")))
 
         assertEquals(List(3) { CallTrust.PROGRAMS }, local.map { trust(running(it)) })
-        assertEquals(List(3) { CallTrust.NONE }, remote.map { trust(running(it)) })
+        assertEquals(List(4) { CallTrust.NONE }, remote.map { trust(running(it)) })
         assertEquals(CallTrust.NONE, trust(running(listOf("python3", "-c", "print(1)"), opaque = true)))
         assertEquals(CallTrust.PROGRAMS to CallTrust.NONE, trust(chained) to trust(installing))
         assertEquals(CallTrust.NONE, trust(running(listOf("make", "test")), builtIn = false))

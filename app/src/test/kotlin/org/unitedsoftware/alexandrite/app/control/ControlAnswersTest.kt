@@ -1,9 +1,15 @@
 package org.unitedsoftware.alexandrite.app.control
 
 import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.app.logged
+import org.unitedsoftware.alexandrite.channel.common.InternalChannelCommonApi
+import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDecision
 import org.unitedsoftware.alexandrite.channel.common.pairing.Unpairing
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
+import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
+import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -62,6 +68,26 @@ class ControlAnswersTest {
         }
     }
 
+    // Decisions.
+
+    @Test
+    fun `every decision of a desk reaches the client`() {
+        val desk = FakeDesk(bob)
+
+        served(directory, desk) { socket ->
+            suspend fun approve() = ask(socket, ControlRequest.Approve("BBBB-BBBB"))
+
+            desk.decision = PairingDecision.Failed(request("42", "NEWC-0DE0"), "The disk is full.")
+            val notKept = assertIs<ControlReply.NotKept>(approve())
+            assertEquals("NEWC-0DE0" to "The disk is full.", notKept.request.code to notKept.reason)
+
+            desk.decision = PairingDecision.Unknown
+            assertEquals(ControlReply.UnknownCode, approve())
+            desk.decision = PairingDecision.Malformed
+            assertEquals(ControlReply.MalformedCode, approve())
+        }
+    }
+
     // Unpairing.
 
     @Test
@@ -75,6 +101,39 @@ class ControlAnswersTest {
             assertEquals(listOf(chat("8")), second.paired.map { it.chat })
             val again = ask(socket, ControlRequest.Unpair("chat:work:9"))
             assertEquals("chat:work:9", assertIs<ControlReply.NotPaired>(again).chat)
+        }
+    }
+
+    @Test
+    fun `an unpairing that the config file keeps or that fails is reported`() {
+        served(directory, first) { socket ->
+            for (removed in listOf(false, true)) {
+                first.unpairing = Unpairing.Declared(approvalRemoved = removed)
+                val declared = assertIs<ControlReply.Declared>(ask(socket, ControlRequest.Unpair("chat:work:7")))
+                assertEquals("chat:work:7" to removed, declared.chat to declared.approvalRemoved)
+            }
+
+            first.unpairing = Unpairing.Failed("The file is read-only.")
+            val failed = assertIs<ControlReply.UnpairFailed>(ask(socket, ControlRequest.Unpair("chat:work:7")))
+            assertEquals("chat:work:7" to "The file is read-only.", failed.chat to failed.reason)
+        }
+    }
+
+    @Test
+    fun `an answer of a desk that this app does not know is a failure`() {
+        val desk = FakeDesk(request("42", "BBBB-BBBB"))
+        desk.decision = Expired
+        desk.unpairing = Revoked
+
+        served(directory, desk) { socket ->
+            assertEquals(
+                "A pairing desk answered Expired, which this Alexandrite does not know.",
+                assertIs<ControlReply.Failure>(ask(socket, ControlRequest.Approve("BBBB-BBBB"))).message,
+            )
+            assertEquals(
+                "A pairing desk answered Revoked, which this Alexandrite does not know.",
+                assertIs<ControlReply.Failure>(ask(socket, ControlRequest.Unpair("chat:work:42"))).message,
+            )
         }
     }
 
@@ -104,4 +163,10 @@ class ControlAnswersTest {
             assertIs<ControlReply.Pong>(ask(socket, ControlRequest.Ping))
         }
     }
+
+    @OptIn(InternalChannelCommonApi::class)
+    private data object Expired : PairingDecision
+
+    @OptIn(InternalChannelCommonApi::class)
+    private data object Revoked : Unpairing
 }

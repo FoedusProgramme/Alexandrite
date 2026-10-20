@@ -36,7 +36,10 @@ private val NETWORK_CLIENTS = setOf(
     "pipx", "kubectl", "helm", "aws", "gcloud", "az", "doctl", "flyctl", "heroku", "vercel", "netlify",
 )
 
-/** Tools that reach other hosts for the subcommands named here, and work locally otherwise. */
+/**
+ * Tools that reach other hosts for the subcommands named here, or run there what they are given, and work locally
+ * otherwise.
+ */
 private val FETCHING: Map<String, Set<String>> = run {
     val packages = setOf(
         "install", "i", "ci", "add", "update", "upgrade", "up", "fetch", "download", "get", "view", "info", "show",
@@ -45,8 +48,8 @@ private val FETCHING: Map<String, Set<String>> = run {
     mapOf(
         "git" to setOf("clone", "fetch", "pull", "push", "ls-remote", "submodule", "remote"),
         "go" to setOf("get", "install", "mod"),
-        "docker" to setOf("pull", "push", "run", "build", "login", "search"),
-        "podman" to setOf("pull", "push", "run", "build", "login", "search"),
+        "docker" to setOf("pull", "push", "run", "build", "login", "search", "exec", "compose"),
+        "podman" to setOf("pull", "push", "run", "build", "login", "search", "exec", "compose"),
     ) + listOf(
         "npm", "pnpm", "yarn", "bun", "pip", "pip3", "uv", "poetry", "pipenv", "cargo", "gem", "bundle", "composer",
         "brew", "apt", "apt-get", "dnf", "yum", "apk", "port", "conda", "mamba", "deno", "dotnet", "nuget",
