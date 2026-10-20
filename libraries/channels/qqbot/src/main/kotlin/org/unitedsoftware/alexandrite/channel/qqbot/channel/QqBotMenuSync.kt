@@ -47,19 +47,11 @@ internal class QqBotMenuSync(
     private suspend fun putMenu() {
         var items = commands.take(MENU_ITEMS)
         var answer = api.put("/v2/menu", menuBody(items))
-        if (answer is QqBotAnswer.Failed) {
-            val limit = answer.failure.limit
-            if (limit != null && limit in 1 until items.size) {
-                logger.info(
-                    "{}: the platform takes {} menu items, not {}: publishing {}",
-                    PLUGIN,
-                    limit,
-                    items.size,
-                    limit,
-                )
-                items = items.take(limit)
-                answer = api.put("/v2/menu", menuBody(items))
-            }
+        if (isOverLimit(answer) && items.size > 1) {
+            val count = fewerItems(answer, items.size, MENU_FALLBACK)
+            logger.info("{}: the platform takes {} menu items, not {}: publishing {}", PLUGIN, count, items.size, count)
+            items = items.take(count)
+            answer = api.put("/v2/menu", menuBody(items))
         }
         when (answer) {
             is QqBotAnswer.Ok ->
@@ -67,11 +59,12 @@ internal class QqBotMenuSync(
 
             is QqBotAnswer.Failed ->
                 logger.warn(
-                    "{}: could not publish the menu: {} {} (limit {})",
+                    "{}: could not publish the menu: {} {} (limit {}, {})",
                     PLUGIN,
                     answer.failure.code,
                     answer.failure.message,
                     answer.failure.limit,
+                    answer.failure.details,
                 )
         }
     }
@@ -80,20 +73,18 @@ internal class QqBotMenuSync(
         val listing = listing(scope)
         var items = entries.take(PANEL_ITEMS)
         var answer = writePanel(scope, items, listing.id)
-        if (answer is QqBotAnswer.Failed) {
-            val limit = answer.failure.limit
-            if (limit != null && limit in 1 until items.size) {
-                logger.info(
-                    "{}: the platform takes {} {} panel items, not {}: publishing {}",
-                    PLUGIN,
-                    limit,
-                    scope,
-                    items.size,
-                    limit,
-                )
-                items = items.take(limit)
-                answer = writePanel(scope, items, listing.id)
-            }
+        if (isOverLimit(answer) && items.size > 1) {
+            val count = fewerItems(answer, items.size, PANEL_FALLBACK)
+            logger.info(
+                "{}: the platform takes {} {} panel items, not {}: publishing {}",
+                PLUGIN,
+                count,
+                scope,
+                items.size,
+                count,
+            )
+            items = items.take(count)
+            answer = writePanel(scope, items, listing.id)
         }
         when (answer) {
             is QqBotAnswer.Ok ->
@@ -105,18 +96,36 @@ internal class QqBotMenuSync(
                     entries.size,
                 )
 
-            is QqBotAnswer.Failed ->
+            is QqBotAnswer.Failed -> {
                 logger.warn(
-                    "{}: could not publish the {} command panel: {} {} (limit {}, {} panels in this scope)",
+                    "{}: could not publish the {} command panel: {} {} (limit {}, {} panels in this scope, {})",
                     PLUGIN,
                     scope,
                     answer.failure.code,
                     answer.failure.message,
                     answer.failure.limit,
                     listing.count,
+                    answer.failure.details,
                 )
+                if (listing.id == null && (listing.count ?: 0) >= MAX_PANELS) {
+                    logger.warn(
+                        "{}: the bot already holds the {} panels the platform allows: delete the ones it no longer " +
+                            "needs in the open platform's console",
+                        PLUGIN,
+                        MAX_PANELS,
+                    )
+                }
+            }
         }
     }
+
+    /** Whether [answer] refuses the number of items that the call gave the platform. */
+    private fun isOverLimit(answer: QqBotAnswer): Boolean =
+        answer is QqBotAnswer.Failed && (answer.failure.code == OVER_LIMIT || answer.failure.limit != null)
+
+    /** How many items to give the platform after it refused [sent] of them: its `limit`, else [fallback]. */
+    private fun fewerItems(answer: QqBotAnswer, sent: Int, fallback: Int): Int =
+        ((answer as? QqBotAnswer.Failed)?.failure?.limit ?: fallback).coerceIn(1, sent - 1)
 
     /** Writes [items] as the [scope] panel of the bot, replacing the panel [existing], and creating one when null. */
     private suspend fun writePanel(
@@ -158,6 +167,16 @@ internal class QqBotMenuSync(
 
         /** How many items the platform's command panel takes, as its documentation says. */
         private const val PANEL_ITEMS = 20
+
+        /** How many items to try when the platform refuses the number without naming its limit. */
+        private const val MENU_FALLBACK = 5
+        private const val PANEL_FALLBACK = 5
+
+        /** The code with which the platform refuses the number of items, naming in `limit` how many it takes. */
+        private const val OVER_LIMIT = 40030013
+
+        /** How many command panels the platform keeps for one bot, as its documentation says. */
+        private const val MAX_PANELS = 20
 
         /** The platform's menu of [commands], a C2C menu of send-message items. */
         internal fun menuBody(commands: List<CommandSpec>): JsonObject = buildJsonObject {

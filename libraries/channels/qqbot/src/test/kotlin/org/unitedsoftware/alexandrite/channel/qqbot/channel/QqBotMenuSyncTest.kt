@@ -157,6 +157,63 @@ class QqBotMenuSyncTest {
         }
     }
 
+    @Test
+    fun `a menu the platform refuses without a limit is published with fewer items`() = runBlocking {
+        val platform = Platform()
+        try {
+            var menus = 0
+            platform.server.on("/v2/menu") { _ ->
+                menus++
+                if (menus == 1) {
+                    PlatformAnswer(400, """{"code":40030013,"message":"超出数量限制"}""")
+                } else {
+                    PlatformAnswer(200, """{"version":1}""")
+                }
+            }
+            platform.server.on("/v2/panels") { request ->
+                if (request.method == "GET") {
+                    PlatformAnswer(200, """{"records":[],"next_cursor":"","is_end":true}""")
+                } else {
+                    PlatformAnswer(200, """{"panel_id":"p1"}""")
+                }
+            }
+            QqBotMenuSync(platform.api, platform.config, listOf(ManyCommands)).onOpen()
+
+            val calls = platform.server.calls("/v2/menu")
+            assertEquals(2, calls.size, calls.joinToString("\n") { it.body })
+            assertEquals(5, "\"type\":\"send_message\"".toRegex().findAll(calls[1].body).count(), calls[1].body)
+        } finally {
+            platform.close()
+        }
+    }
+
+    @Test
+    fun `a command panel the platform refuses without a limit is published with fewer items`() = runBlocking {
+        val platform = Platform()
+        try {
+            val posts = mutableListOf<String>()
+            platform.server.on("/v2/panels") { request ->
+                if (request.method == "GET") {
+                    PlatformAnswer(200, """{"records":[],"next_cursor":"","is_end":true}""")
+                } else {
+                    posts += request.body
+                    if (posts.size % 2 == 1) {
+                        PlatformAnswer(400, """{"code":40030013,"message":"超出数量限制"}""")
+                    } else {
+                        PlatformAnswer(200, """{"panel_id":"p1"}""")
+                    }
+                }
+            }
+            platform.server.on("/v2/menu", """{"version":1}""")
+            QqBotMenuSync(platform.api, platform.config, listOf(Commands)).onOpen()
+
+            assertEquals(4, posts.size, posts.joinToString("\n"))
+            assertEquals(1, "\"type\":\"command\"".toRegex().findAll(posts[1]).count(), posts[1])
+        } finally {
+            platform.close()
+        }
+    }
+
     /** Twelve commands, so that the menu takes fewer than there are. */
     private object ManyCommands : CommandHandler {
         override val commands: List<CommandSpec> = (1..12).map { CommandSpec.builder("c$it", "Command $it").build() }
