@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
@@ -56,8 +57,11 @@ class SendFileToolTest {
     private val turn = testTurn()
     private val report: Path get() = root.resolve("out/report.pdf").also { it.parent.createDirectories() }
 
-    private fun tool(open: Boolean = true): SendFileTool {
-        val settings = settings("""{"floor": {"deny": ["credentials", "system", "alexandrite"]}}""")
+    private fun tool(
+        open: Boolean = true,
+        protecting: String = """{"deny": ["credentials", "system", "alexandrite"]}""",
+    ): SendFileTool {
+        val settings = settings("""{"floor": $protecting}""")
         val paths = hostPaths(null, data)
         val floor =
             AgentFloor(
@@ -118,7 +122,7 @@ class SendFileToolTest {
             review.preview,
         )
         assertEquals("sha256:${sha256(bytes)}", review.snapshot)
-        assertNull(review.rule)
+        assertEquals(RuleSubject("chat.send_file", emptyList(), "chat.send_file"), review.rule)
         assertNull(review.risk)
         assertEquals(false, review.exempt)
     }
@@ -146,6 +150,7 @@ class SendFileToolTest {
 
         assertTrue("is a directory" in review(arguments(root.resolve("folder"))).problem.orEmpty())
         assertTrue("more than one hard link" in review(arguments(link)).refusal.orEmpty())
+        assertNull(review(arguments(link), tool = tool(protecting = "{}")).refusal)
         Files.delete(link)
         channel.scriptCapabilities(FILES.rebuild { maxFileBytes(10) })
         assertEquals(

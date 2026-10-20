@@ -1,6 +1,6 @@
 package org.unitedsoftware.alexandrite.mcp.client
 
-/** The launches of stdio servers that are refused: shells running code, inline code and privileged containers. */
+/** The launches of stdio servers worth a warning: shells running code, inline code and privileged containers. */
 internal object LaunchCheck {
     private val SHELLS = setOf("sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "ash", "csh", "tcsh")
     private val WINDOWS_SHELLS = setOf("cmd")
@@ -12,9 +12,8 @@ internal object LaunchCheck {
     private val RUBY = Regex("ruby[0-9.]*")
     private val HOST_NAMESPACES = listOf("--pid", "--net", "--network", "--ipc", "--uts", "--userns")
 
-    /** Null when [command] with [args] may start a server, otherwise why it may not. */
-    fun problem(command: String, args: List<String>): String? {
-        if (command.isBlank()) return "The command is empty."
+    /** What is risky about starting a server with [command] and [args], null when nothing is. */
+    fun warning(command: String, args: List<String>): String? {
         if (command.any { it.isWhitespace() } && !isAbsolute(command)) {
             return "The command '$command' holds spaces: name the program alone and put its arguments in args."
         }
@@ -54,7 +53,7 @@ internal object LaunchCheck {
 
                 '=' in arg -> {}
 
-                else -> return problem(arg, args.drop(index + 1))
+                else -> return warning(arg, args.drop(index + 1))
             }
             index++
         }
@@ -212,7 +211,7 @@ internal object LaunchCheck {
 
                 else -> null
             }
-            if (problem != null) return "$name ${args[run]} with $arg is refused: $problem."
+            if (problem != null) return "$name ${args[run]} with $arg is risky: $problem."
         }
         return null
     }

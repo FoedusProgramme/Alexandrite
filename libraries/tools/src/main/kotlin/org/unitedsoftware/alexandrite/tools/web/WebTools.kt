@@ -26,7 +26,6 @@ import org.unitedsoftware.alexandrite.tools.fs.property
 import org.unitedsoftware.alexandrite.tools.fs.requiredString
 import org.unitedsoftware.alexandrite.tools.fs.schema
 import java.net.URI
-import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
 @Singleton
@@ -63,18 +62,10 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
         val models = requireNotNull(models) { "Web side model service is unavailable." }
         val url = arguments.text("url", 8192)
         val prompt = arguments.text("prompt", 16_000)
-        val host = checkedHost(URI(url), config.normalizedPrivateHosts)
+        checkedHost(URI(url), config.normalizedPrivateHosts)
         context.untrusted("web.fetch reads untrusted web content")
         withTimeout(definition.timeout!!) {
-            val page = try {
-                fetch.fetch(url)
-            } catch (e: RedirectedAway) {
-                return@withTimeout redirected(url, e.to)
-            }
-            val reached = page.url.host?.lowercase(Locale.ROOT)?.removeSuffix(".")
-            if (reached != null && !sameSite(host, reached, config.normalizedPrivateHosts)) {
-                return@withTimeout redirected(url, page.url)
-            }
+            val page = fetch.fetch(url)
             val question =
                 PageQuestion(context.turn, page.url.toString(), page.text, prompt, config.model?.let(ModelRef::parse))
             ToolResult(sideModel { models.answer(question) })
@@ -138,10 +129,6 @@ internal class SearchTool(
         }
     }
 }
-
-/** What the model reads of a fetch of [url] that a redirect would take to [to], on another site. */
-private fun redirected(url: String, to: URI): ToolResult =
-    ToolResult("$url redirects to $to, on another host: fetch that address itself to read it.", isError = true)
 
 private suspend fun webResult(block: suspend () -> ToolResult): ToolResult = try {
     block()

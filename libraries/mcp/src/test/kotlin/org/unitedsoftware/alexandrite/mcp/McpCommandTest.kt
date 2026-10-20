@@ -52,6 +52,17 @@ class McpCommandTest {
     }
 
     @Test
+    fun `a server launched in a risky way is listed with a warning, and still runs`() = withHub(
+        "wrapped" to ServerConfigBuilder(command = "bash", args = listOf("-c", "exit 1"), enabled = false).build(),
+    ) {
+        assertEquals(
+            "MCP servers:\nwrapped: disabled; warning: bash runs the code given in its arguments (-c); start the " +
+                "server program itself.",
+            run(""),
+        )
+    }
+
+    @Test
     fun `a connected server's run of server errors is shown`() {
         FakeHttpServer().use { web ->
             withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {

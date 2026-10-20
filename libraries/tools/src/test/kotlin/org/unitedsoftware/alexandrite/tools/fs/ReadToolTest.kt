@@ -101,7 +101,7 @@ class ReadToolTest {
 
     @Test
     @DisabledOnOs(OS.WINDOWS)
-    fun `a file with more than one hard link is refused`() {
+    fun `a file with more than one hard link is refused while the floor protects anything`() {
         val file = fs.write("repo/notes.md", "Notes.")
         Files.createLink(fs.root.resolve("repo/other.md"), file)
 
@@ -109,6 +109,7 @@ class ReadToolTest {
             "$file has more than one hard link, so it may be another name of a protected file: it is not read.",
             tool.call(fs.context(), "path" to file),
         )
+        assertEquals("1\tNotes.\n", ReadTool(fs.unprotected, ReadLedger()).call(fs.context(), "path" to file).text)
     }
 
     @Test

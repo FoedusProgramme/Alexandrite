@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.skill.SkillSource
 import org.unitedsoftware.alexandrite.sdk.skill.SkillSpec
+import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -76,6 +77,7 @@ internal class Skills(
     private val sources: List<SkillSource>,
     private val projects: ProjectSkills,
     private val trust: FolderTrust,
+    private val floor: HardFloor,
 ) {
     private val read = HashMap<Path, Cached>()
     private val warned = HashSet<Path>()
@@ -136,7 +138,7 @@ internal class Skills(
             return null
         }
         synchronized(read) { read[file]?.takeIf { it.modified == modified }?.let { return it.text } }
-        val text = readSkill(file)
+        val text = readSkill(file, floor.protectsAnything)
         synchronized(read) { read[file] = Cached(modified, text) }
         return text
     }

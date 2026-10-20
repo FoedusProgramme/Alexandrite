@@ -118,8 +118,8 @@ internal class PermissionStatusTool(
         val effect = if (turn.kind == TurnKind.HEARTBEAT) {
             "Heartbeat turns share this conversation, which /new does not replace."
         } else {
-            "Until /new starts a new conversation, calls that change your lasting state, such as persona.edit, need " +
-                "an approval."
+            "Until /new starts a new conversation, calls that change your lasting state, such as an edit of your " +
+                "persona, need an approval."
         }
         return "Conversation: tainted since ${time(taint.at, turn)} (${taint.reason}). $effect $CLEARING"
     }

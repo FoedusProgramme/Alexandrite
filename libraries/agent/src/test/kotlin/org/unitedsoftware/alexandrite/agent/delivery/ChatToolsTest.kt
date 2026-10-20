@@ -1,9 +1,12 @@
 package org.unitedsoftware.alexandrite.agent.delivery
 
+import kotlinx.serialization.json.JsonPrimitive
+import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
+import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
@@ -16,8 +19,11 @@ import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
+import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -31,6 +37,9 @@ private val CALL = Regex("call-t-[0-9A-Z]+-\\d+-\\d+")
 
 /** `chat.send` reaches the agent's other chats, and the conversation there learns what was sent. */
 class ChatToolsTest {
+    @TempDir
+    lateinit var directory: Path
+
     private val store = MemoryStore()
     private val model = ScriptedModel()
 
@@ -118,6 +127,26 @@ class ChatToolsTest {
             val asked = assertIs<ReviewPreview.Text>(channel().approvals.single().preview).text
             assertEquals("Send to test:main:home:\n\nRead this.", asked)
             assertEquals(ChatAddress.parse("test:main:home"), channel().sent.single().chat)
+        }
+    }
+
+    @Test
+    fun `a file goes to this chat unasked from a clean conversation, and a tainted one asks`() {
+        val report = Files.writeString(directory.resolve("report.txt"), "Passed.")
+        val send = """{"path": ${JsonPrimitive("$report")}}"""
+        model.reply { toolCall("chat.send_file", send) }.reply { text("Sent.") }
+            .reply { toolCall("web.fetch", "{}") }.reply { toolCall("chat.send_file", send) }.reply { text("Again.") }
+
+        harness().execute {
+            channel().scriptCapabilities(RecordingChannel.DEFAULT_CAPABILITIES.rebuild { files(true) })
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            ask("chat")
+
+            assertEquals(emptyList(), channel().approvals)
+            ask("chat")
+
+            assertIs<ReviewPreview.OutgoingFile>(channel().approvals.single().preview)
+            assertEquals(List(2) { "report.txt" }, channel().sent.map { it.message.files.single().name })
         }
     }
 

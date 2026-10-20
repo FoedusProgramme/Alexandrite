@@ -112,14 +112,19 @@ class ProjectFoldersTest {
     }
 
     @Test
-    fun `files with more than one hard link and directories are no instruction files`() {
+    fun `a hard-linked file counts only under a floor that protects anything, a directory never`() {
         repository.resolve(".git").createDirectories()
         write(root.resolve("elsewhere.md"))
         Files.createLink(repository.resolve("AGENTS.md"), root.resolve("elsewhere.md"))
         repository.resolve("CLAUDE.md").createDirectories()
+        val open = object : HardFloor by testHardFloor() {
+            override val protectsAnything: Boolean = false
+        }
 
         val projects = folders().projects(listOf(repository.resolve("README.md")), agent)
+        val unprotected = ProjectFolders(open) { false }.projects(listOf(repository.resolve("README.md")), agent)
 
         assertEquals(listOf(repository to emptyList<String>()), projects.map { it.folder to it.found() })
+        assertEquals(listOf(repository to listOf("AGENTS.md")), unprotected.map { it.folder to it.found() })
     }
 }

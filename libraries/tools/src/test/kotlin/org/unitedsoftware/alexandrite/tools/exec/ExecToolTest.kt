@@ -453,12 +453,12 @@ class ExecToolTest {
     }
 
     @Test
-    fun `file-reading and unknown options of vetted programs are refused`() {
-        val refused = "grep is given an option that reads its arguments from a file, or one that is not known: " +
-            "command.exec runs neither, as the floor cannot check what they read."
+    fun `file-reading and unknown options make a vetted program unvetted, gated as any other`() {
+        val reviews =
+            listOf(review("grep -f patterns.txt x"), review("grep -Q x notes.txt"), review("grep x notes.txt"))
 
-        assertEquals(refused, refusal("grep -f patterns.txt x"))
-        assertEquals(refused, refusal("grep -Q x notes.txt"))
+        assertEquals(listOf(null, null, null), reviews.map { it.refusal })
+        assertEquals(listOf(true, true, false), reviews.map { it.untrusted })
         assertEquals(
             reached(fs.home, "a recursive operation would reach SSH keys"),
             refusal("grep -r key ${fs.home}"),
@@ -594,15 +594,21 @@ class ExecToolTest {
     }
 
     @Test
-    fun `a file with several hard links is refused to a vetted program`() {
+    fun `a file with several hard links is refused to a vetted program while the floor protects anything`() {
         val notes = fs.write("workspace/notes.txt", "notes")
         Files.createLink(fs.workspace.resolve("other.txt"), notes)
+        val unprotected = fs.tool(
+            floor = object : HardFloor by fs.floor {
+                override val protectsAnything: Boolean = false
+            },
+        )
 
         assertEquals(
             "'notes.txt' has more than one hard link, so it may be another name of a protected file: " +
                 "command.exec does not run this call.",
             refusal("cat notes.txt"),
         )
+        assertNull(unprotected.check(fs.context(), "command" to "cat notes.txt").refusal)
     }
 
     // The environment.

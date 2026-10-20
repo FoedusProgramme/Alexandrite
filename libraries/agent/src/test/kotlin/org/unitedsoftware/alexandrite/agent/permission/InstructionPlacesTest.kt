@@ -41,7 +41,7 @@ class InstructionPlacesTest {
 
     @Test
     fun `the config, persona, skill, trusted instruction and protected places steer an agent, and others do not`() {
-        harness().execute {
+        harness("""{"type": "auto"}""").execute {
             val places = get<InstructionPlaces>()
             val kinds = listOf(
                 config.resolve("alexandrite.json"),
@@ -82,7 +82,7 @@ class InstructionPlacesTest {
 
     @Test
     fun `the agent's own protect list decides, and alexandrite spares its workspace and conversations`() {
-        harness("""{"protect": [".npmrc", "alexandrite"]}""").execute {
+        harness("""{"type": "auto", "protect": [".npmrc", "alexandrite"]}""").execute {
             val places = get<InstructionPlaces>()
             val data = root.resolve("data")
 
@@ -100,6 +100,22 @@ class InstructionPlacesTest {
                     data.resolve("alexandrite.db"),
                     data.resolve("workspaces/coder/notes.md"),
                     data.resolve("conversations/coder/c1/notes.md"),
+                ).map { places.kind(it, coder) },
+            )
+        }
+    }
+
+    @Test
+    fun `an agent without a sandbox has no protected places beside the instruction places`() {
+        harness("""{"protect": [".npmrc"]}""").execute {
+            val places = get<InstructionPlaces>()
+
+            assertEquals(
+                listOf(null, null, "a trusted folder's instruction file"),
+                listOf(
+                    elsewhere.resolve(".npmrc"),
+                    elsewhere.resolve(".git/hooks/pre-commit"),
+                    project.resolve("AGENTS.md"),
                 ).map { places.kind(it, coder) },
             )
         }

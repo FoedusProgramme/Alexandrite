@@ -32,13 +32,11 @@ class PromptAssemblerTest {
             "coder": {
               "name": "Coder",
               "description": "Codes.",
-              "instructions": ["Be brief."],
-              "tools": {"deny": ["persona.edit"]}
+              "instructions": ["Be brief."]
             },
             "helper": {
               "description": "Helps.",
-              "instructionFiles": [{"file": "private.md", "when": ["direct"]}],
-              "tools": {"deny": ["persona.edit"]}
+              "instructionFiles": [{"file": "private.md", "when": ["direct"]}]
             }
           }
         }

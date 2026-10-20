@@ -110,7 +110,8 @@ class TaintTurnsTest {
                     ),
                 )
             }
-            channel(operators = setOf("operator")).model(model).tool(read).tool(paste).tool(fetch).apply(configure)
+            channel(operators = setOf("operator")).model(model).tool(read).tool(paste).tool(fetch)
+                .tool(PersonaEdit(persona)).apply(configure)
             configFile(configFile).dataRoot(root.resolve("data"))
         }
     }
@@ -127,15 +128,6 @@ class TaintTurnsTest {
         store.transcripts.entries(store.conversations.current(key).id).filterIsInstance<ToolResultEntry>()
 
     private fun reading(path: Path): String = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
-
-    private fun edit(old: String, new: String): String = JsonObject(
-        mapOf(
-            "file" to JsonPrimitive("PERSONA.md"),
-            "operation" to JsonPrimitive("replace"),
-            "old" to JsonPrimitive(old),
-            "new" to JsonPrimitive(new),
-        ),
-    ).toString()
 
     private fun ToolResultEntry.text(): String = content.joinToString("") { (it as TextPart).text }
 
@@ -259,13 +251,13 @@ class TaintTurnsTest {
 
     @Test
     fun `an operator's persona edit runs in a clean conversation, asks in a tainted one, also after a restart`() {
-        model.reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Noted.") }
+        model.reply { toolCall("fs.edit", personaEdit("tea", "coffee")) }.reply { text("Noted.") }
             .reply { toolCall("fs.read", reading(outside.resolve("page.html"))) }.reply { text("Read.") }
         harness().execute {
             ask()
             ask()
         }
-        model.reply { toolCall("persona.edit", edit("coffee", "cake")) }.reply { text("Not edited.") }
+        model.reply { toolCall("fs.edit", personaEdit("coffee", "cake")) }.reply { text("Not edited.") }
 
         harness().execute {
             ask()
@@ -289,7 +281,7 @@ class TaintTurnsTest {
     @Test
     fun `a new conversation starts clean, and the one it seals keeps its mark`() {
         model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
-            .reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Noted.") }
+            .reply { toolCall("fs.edit", personaEdit("tea", "coffee")) }.reply { text("Noted.") }
 
         harness().execute {
             ask()
@@ -307,7 +299,7 @@ class TaintTurnsTest {
     @Test
     fun `untaint clears the mark after the queued turns, keeps the history, and a later source marks it again`() {
         model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
-            .reply { toolCall("persona.edit", edit("tea", "coffee")) }.reply { text("Noted.") }
+            .reply { toolCall("fs.edit", personaEdit("tea", "coffee")) }.reply { text("Noted.") }
             .reply { toolCall("notes.paste") }.reply { text("Pasted again.") }
 
         harness().execute {
@@ -350,8 +342,9 @@ class TaintTurnsTest {
                 "Allow rules: none.",
                 "Conversation: tainted since $since +08:00 (call call-1 reported " +
                     "untrusted content: a pasted page). Until /new starts a new conversation, calls that change your " +
-                    "lasting state, such as persona.edit, need an approval. An operator clears the mark with " +
-                    "/untaint once sure of what came in, or trusts its source with /trust so that it no longer taints.",
+                    "lasting state, such as an edit of your persona, need an approval. An operator clears the mark " +
+                    "with /untaint once sure of what came in, or trusts its source with /trust so that it no longer " +
+                    "taints.",
             ),
             status.text().lines(),
         )

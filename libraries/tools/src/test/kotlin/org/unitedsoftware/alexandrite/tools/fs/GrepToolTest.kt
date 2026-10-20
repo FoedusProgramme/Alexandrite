@@ -166,11 +166,22 @@ class GrepToolTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `a file with more than one hard link is searched under a floor that protects nothing`() {
+        val linked = fs.write("repo/linked.txt", "greet\n")
+        Files.createLink(fs.root.resolve("workspace/linked.txt"), linked)
+
+        val result = GrepTool(fs.unprotected).call(fs.context(), "pattern" to "greet", "path" to linked)
+
+        assertEquals("$linked\n  1: greet\n", result.text)
+    }
+
+    @Test
     fun `a file that vanishes during the walk is named as unreadable and the search goes on`() {
         val gone = fs.write("repo/gone.kt", "fun gone() {}\n")
         val entry = Entry(gone, "gone.kt", attributes(gone))
         Files.delete(gone)
-        val search = Search(Regex("fun"))
+        val search = Search(Regex("fun"), oneLink = true)
 
         search.entry(entry)
         search.entry(Entry(main, "src/Main.kt", attributes(main)))

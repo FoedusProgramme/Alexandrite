@@ -11,11 +11,15 @@ import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.testkit.testToolContext
+import org.unitedsoftware.alexandrite.testkit.testTurn
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -43,7 +47,7 @@ class EditToolTest {
         fs = FsFixture(directory)
         ledger = ReadLedger()
         reader = ReadTool(fs.floor, ledger)
-        tool = EditTool(fs.floor, ledger)
+        tool = EditTool(fs.floor, ledger, fs.places)
     }
 
     @Test
@@ -233,15 +237,47 @@ class EditToolTest {
 
     @Test
     @DisabledOnOs(OS.WINDOWS)
-    fun `a file with more than one hard link is refused`() {
+    fun `a file with more than one hard link is refused while the floor protects anything`() {
         val file = fs.write("repo/notes.md", "Notes.")
         Files.createLink(fs.root.resolve("repo/other.md"), file)
+        val unprotected = EditTool(fs.unprotected, ledger, fs.places)
+        ReadTool(fs.unprotected, ledger).call(fs.context(), "path" to file)
 
         assertEquals(
             "refused: $file has more than one hard link, so it may be another name of a protected file: it is not " +
                 "written.",
             edit(file, Edit("Notes", "More")),
         )
+        assertEquals(
+            "Edited $file: +1 -1 lines.",
+            fs.reviewedRun(unprotected, call(file, Edit("Notes", "More"))),
+        )
+        assertEquals("More.", file.readText())
+    }
+
+    // The persona.
+
+    @Test
+    fun `an edit of the agent's own persona file changes lasting state, outside a delegated run`() {
+        val persona = fs.write("persona/PERSONA.md", "I like tea.\n")
+        val notes = fs.write("workspace/notes.md", "Tea.\n")
+        read(persona)
+        read(notes)
+        val delegated = testTurn(conversation = ConversationId("test"), kind = TurnKind.DELEGATED)
+
+        val own = review(call(persona, Edit("tea", "coffee")))
+        val other = review(call(notes, Edit("Tea", "Coffee")))
+        val run = runBlocking {
+            tool.review(call(persona, Edit("tea", "coffee")), testToolContext(delegated, workspace = fs.workspace))
+        }
+
+        assertEquals(listOf(ToolRisk.PERSISTENT_STATE, null, null), listOf(own.risk, other.risk, run.risk))
+        assertEquals(
+            "Edited $persona: +1 -1 lines.",
+            fs.reviewedRun(tool, call(persona, Edit("tea", "coffee"))),
+        )
+        assertEquals("I like coffee.\n", persona.readText())
+        assertTrue("persona" in tool.definition.description)
     }
 
     @Test

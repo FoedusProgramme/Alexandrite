@@ -30,8 +30,8 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
             "'path' is a file, or a directory searched in name order; 'glob' keeps the files whose path relative " +
             "to it matches a glob as fs.glob takes it, where a glob without / matches the file name at any depth " +
             "(*.kt). Returns at most $MAX_GREP_MATCHES lines, each cut after $MAX_MATCH_CHARS characters. In a " +
-            "directory it skips binary files, files over ${MAX_GREP_FILE_BYTES / MIB} MiB, files with more than one " +
-            "hard link, symbolic links and .git, .hg and .svn directories, and names the protected places it skipped.",
+            "directory it skips binary files, files over ${MAX_GREP_FILE_BYTES / MIB} MiB, symbolic links and " +
+            ".git, .hg and .svn directories, and names the protected places it skipped.",
         parameters = schema("pattern") {
             property("pattern", "string", "The regular expression, or the text with 'literal'.")
             property("literal", "boolean", "Whether the pattern is plain text. Default false.")
@@ -56,7 +56,7 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
-        val search = Search(regex(arguments))
+        val search = Search(regex(arguments), floor.protectsAnything)
         val filter = arguments.string("glob")?.let(::filter)
         val path = context.searched(arguments.string("path"))
         blocking { grep(search, filter, path, context) }
@@ -76,7 +76,7 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
             search.files.forEach(context::touched)
             return ToolResult(search.result(path, walk.notes))
         }
-        checkReadable(root, path, attributes)
+        checkReadable(root, path, attributes, floor.protectsAnything)
         if (attributes.size() > MAX_GREP_FILE_BYTES) {
             throw ToolRefusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
         }
@@ -103,8 +103,8 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
     }
 }
 
-/** The lines that match [regex], by file. */
-internal class Search(private val regex: Regex) {
+/** The lines that match [regex], by file, skipping files with a second hard link when [oneLink]. */
+internal class Search(private val regex: Regex, private val oneLink: Boolean) {
     private val found = StringBuilder()
     private var matches = 0
     private var binary = 0
@@ -126,7 +126,7 @@ internal class Search(private val regex: Regex) {
         }
         try {
             when {
-                hardLinks(entry.path) > 1 -> multiLinked.add("${entry.path}")
+                oneLink && hardLinks(entry.path) > 1 -> multiLinked.add("${entry.path}")
                 !file(entry.path) -> binary++
             }
         } catch (e: IOException) {
@@ -138,7 +138,7 @@ internal class Search(private val regex: Regex) {
     fun file(file: Path): Boolean {
         val lines = mutableListOf<String>()
         try {
-            TextLines(file, MAX_GREP_LINE_CHARS, MAX_GREP_FILE_BYTES).use { text ->
+            TextLines(file, oneLink, MAX_GREP_LINE_CHARS, MAX_GREP_FILE_BYTES).use { text ->
                 var number = 0
                 while (matches + lines.size < MAX_GREP_MATCHES) {
                     val line = text.next() ?: break

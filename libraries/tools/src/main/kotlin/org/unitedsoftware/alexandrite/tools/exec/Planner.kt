@@ -216,16 +216,12 @@ internal class Planner(
         val real = executable.fileName.toString()
         val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
-        val vetted = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
-        val parsed = CommandOptions.parse(argv, withTable = vetted)
+        val listed = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
+        val tabled = if (listed) CommandOptions.parse(argv, withTable = true) else null
+        val vetted = tabled != null && !tabled.readsFromFile
+        val parsed = tabled?.takeIf { vetted } ?: CommandOptions.parse(argv, withTable = false)
         val reached = mutableListOf<Path>()
         if (vetted) {
-            if (parsed.readsFromFile) {
-                throw ToolRefusal.blocked(
-                    "$program is given an option that reads its arguments from a file, or one that is not known: " +
-                        "command.exec runs neither, as the floor cannot check what they read.",
-                )
-            }
             val candidates = parsed.operands + parsed.optionValues
             for (candidate in candidates) {
                 val canonical = checkVetted(candidate, directory, parsed.isRecursive)
@@ -285,7 +281,9 @@ internal class Planner(
             floor.checkRead(path, agent, conversation)
         }
         val canonical = allowed(check) { "'$candidate' reaches $it" }
-        if (Files.isRegularFile(canonical, LinkOption.NOFOLLOW_LINKS) && hardLinks(canonical) > 1) {
+        if (floor.protectsAnything && Files.isRegularFile(canonical, LinkOption.NOFOLLOW_LINKS) &&
+            hardLinks(canonical) > 1
+        ) {
             throw ToolRefusal.blocked(
                 "'$candidate' has more than one hard link, so it may be another name of a protected file: " +
                     "command.exec does not run this call.",

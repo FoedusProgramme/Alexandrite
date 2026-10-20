@@ -82,7 +82,7 @@ class FloorAskTest {
     fun `a write into a place the floor asks about shows its diff to a person`() {
         val file = asked.resolve("new.txt")
         Files.createDirectories(asked)
-        val write = WriteTool(floor, ReadLedger())
+        val write = WriteTool(floor, ReadLedger(), fs.places)
 
         val review = runBlocking { write.review(arguments("path" to file, "content" to "hi\n"), fs.context()) }
 

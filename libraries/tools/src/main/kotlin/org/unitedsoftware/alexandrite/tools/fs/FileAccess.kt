@@ -113,18 +113,21 @@ internal suspend fun HardFloor.readReview(argument: String?, context: ToolContex
 internal fun attributes(path: Path): BasicFileAttributes =
     Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
 
-/** Refuses [file], shown as [shown], unless it is a regular file with one hard link. */
-internal fun checkReadable(file: Path, shown: Path, attributes: BasicFileAttributes) {
+/** Refuses [file], shown as [shown], unless it is a regular file, with one hard link when [oneLink]. */
+internal fun checkReadable(file: Path, shown: Path, attributes: BasicFileAttributes, oneLink: Boolean) {
     if (attributes.isDirectory) throw ToolRefusal("$shown is a directory: list it with fs.glob.")
-    checkRegular(file, shown, attributes, "read")
+    checkRegular(file, shown, attributes, "read", oneLink)
 }
 
-/** Refuses [file], shown as [shown], unless it is a regular file with one hard link, which a file tool then [verb]. */
-internal fun checkRegular(file: Path, shown: Path, attributes: BasicFileAttributes, verb: String) {
+/**
+ * Refuses [file], shown as [shown], unless it is a regular file, with one hard link when [oneLink], which a file tool
+ * then [verb].
+ */
+internal fun checkRegular(file: Path, shown: Path, attributes: BasicFileAttributes, verb: String, oneLink: Boolean) {
     when {
         !attributes.isRegularFile -> throw ToolRefusal("$shown is no regular file, so it is not $verb.")
 
-        hardLinks(file) > 1 -> throw ToolRefusal.blocked(
+        oneLink && hardLinks(file) > 1 -> throw ToolRefusal.blocked(
             "$shown has more than one hard link, so it may be another name of a protected file: it is not $verb.",
         )
     }

@@ -70,9 +70,8 @@ class McpPluginTest {
             problem("""$launch, "risk": {"get_*": "cheap"}"""),
         )
         assertEquals(
-            "Invalid config at 'mcp.servers.files.command': bash runs the code given in its arguments (-c); start " +
-                "the server program itself.",
-            problem(""""command": "bash", "args": ["-c", "npx server"]"""),
+            "Invalid config at 'mcp.servers.files.command': is empty: name the program to run.",
+            problem(""""command": " """"),
         )
         assertEquals(
             "Invalid config at 'mcp.servers.files.headers': only a server with a url has headers.",

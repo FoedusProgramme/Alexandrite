@@ -91,8 +91,8 @@ class AgentFloorTest {
     }
 
     @Test
-    fun `the floor writes no persona directory and refuses a tree that would reach a protected place`() {
-        harness("""{"coder": {"description": "Codes."}}""").execute {
+    fun `each agent writes only its own persona files, and a tree that would reach a protected place is refused`() {
+        harness("""{"coder": {"description": "Codes."}, "helper": {"description": "Helps."}}""").execute {
             val floor = get<HardFloor>()
             val coder = AgentId("coder")
             val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
@@ -102,7 +102,11 @@ class AgentFloorTest {
             val reach = FloorCheck.Denied("a recursive operation would reach SSH keys")
 
             assertEquals(FloorCheck.Allowed(persona), floor.checkRead(persona, coder))
-            assertEquals(denied, floor.checkWrite(persona, coder))
+            assertEquals(FloorCheck.Allowed(persona), floor.checkWrite(persona, coder))
+            assertEquals(denied, floor.checkWrite(persona, AgentId("helper")))
+            assertEquals(denied, floor.checkWrite(persona))
+            assertEquals(denied, floor.checkWrite(persona.resolveSibling("settings.json"), coder))
+            assertEquals(denied, floor.checkWrite(configFile, coder))
             assertEquals(denied, floor.checkTree(persona.parent, coder))
             assertEquals(FloorCheck.Allowed(notes), floor.checkWrite(notes, coder))
             assertEquals(FloorCheck.Allowed(workspace), floor.checkTree(workspace, coder))
@@ -188,6 +192,10 @@ class AgentFloorTest {
                 assertIs<FloorCheck.Allowed>(floor.checkWrite(path), "$path")
             }
             assertIs<FloorCheck.Allowed>(floor.checkTree(home))
+            assertEquals(false, floor.protectsAnything)
+        }
+        harness("""{"coder": {"description": "Codes."}}""").execute {
+            assertEquals(true, get<HardFloor>().protectsAnything)
         }
     }
 

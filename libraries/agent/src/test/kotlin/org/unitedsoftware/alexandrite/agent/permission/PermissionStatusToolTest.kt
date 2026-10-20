@@ -191,8 +191,8 @@ class PermissionStatusToolTest {
             status(context = context(operator, noted)).last(),
         )
 
-        val holds = "Until /new starts a new conversation, calls that change your lasting state, such as " +
-            "persona.edit, need an approval. $CLEARING"
+        val holds = "Until /new starts a new conversation, calls that change your lasting state, such as an edit " +
+            "of your persona, need an approval. $CLEARING"
         assertEquals(
             listOf(
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). $holds",
@@ -214,7 +214,8 @@ class PermissionStatusToolTest {
 
         assertEquals(
             "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). Until /new starts a new " +
-                "conversation, calls that change your lasting state, such as persona.edit, need an approval. $CLEARING",
+                "conversation, calls that change your lasting state, such as an edit of your persona, need an " +
+                "approval. $CLEARING",
             line,
         )
     }

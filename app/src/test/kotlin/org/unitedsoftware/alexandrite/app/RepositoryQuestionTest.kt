@@ -111,7 +111,6 @@ class RepositoryQuestionTest {
                 "fs.write",
                 "history.search",
                 "permission.status",
-                "persona.edit",
                 "profile.create",
                 "profile.edit",
                 "profile.list",

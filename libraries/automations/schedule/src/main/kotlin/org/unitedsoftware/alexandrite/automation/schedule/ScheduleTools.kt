@@ -167,9 +167,6 @@ internal class ListTool(control: Lazy<ScheduleControl>, private val clock: Clock
             return problem("The schedule cannot be read now: $e")
         }
         if (tasks.isEmpty()) return ToolResult("No task is scheduled in this chat.")
-        tasks.firstOrNull { it.mandate == null }?.let { task ->
-            context.untrusted("schedule.list shows the prompt of task ${task.id}, which runs untrusted")
-        }
         val lines = tasks.map { task ->
             val repeat = when (val schedule = task.schedule) {
                 is When.Once -> "once"
@@ -188,7 +185,7 @@ internal class ListTool(control: Lazy<ScheduleControl>, private val clock: Clock
 
 @Singleton
 @Contribute(Tool::class)
-internal class CancelTool(control: Lazy<ScheduleControl>) : ReviewedTool {
+internal class CancelTool(control: Lazy<ScheduleControl>) : Tool {
     private val control by control
 
     override val definition = ToolDefinition(
@@ -199,17 +196,6 @@ internal class CancelTool(control: Lazy<ScheduleControl>) : ReviewedTool {
         risk = ToolRisk.AGENT_STATE,
         titleArguments = listOf("id"),
     )
-
-    /** Has a person see which task a tainted conversation asks to cancel. */
-    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
-        if (refusal(context.turn, "cancel") != null) return CallReview.builder().build()
-        if (!context.tainted) return LASTING
-        val id = arguments.text("id")?.trim()?.lowercase().orEmpty()
-        return LASTING.rebuild {
-            preview(ReviewPreview.Text("Cancel task $id of this chat."))
-            person(TAINTED)
-        }
-    }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn

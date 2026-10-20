@@ -71,6 +71,7 @@ internal class McpHub internal constructor(
 
     override suspend fun onOpen() {
         val enabled = servers.filter { it.spec.enabled }
+        for (server in enabled) server.spec.warning?.let { logger.warn("MCP server {}: {}", server.spec.name, it) }
         if (servers.isNotEmpty()) logger.info("Connecting to {} of {} MCP servers", enabled.size, servers.size)
         oauth.open()
         synchronized(jobs) { enabled.forEach { server -> jobs += scope.launch { server.run() } } }

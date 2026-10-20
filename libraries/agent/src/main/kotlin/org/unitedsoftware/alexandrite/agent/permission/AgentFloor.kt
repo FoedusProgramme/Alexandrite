@@ -28,10 +28,8 @@ import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
-import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 
 /** The hard floor of every tool, whose places follow `agent.floor` while the runtime runs. */
 @Singleton
@@ -62,11 +60,18 @@ internal class AgentFloor(
     override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         check(path, agent, conversation, tree = false) { it.checkRead(path, agent) }
 
-    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
-        check(path, agent, conversation, tree = false) { it.checkWrite(path) }
+    /** [agent]'s own persona files are carved out of a refusal. */
+    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck {
+        val check = check(path, agent, conversation, tree = false) { it.checkWrite(path) }
+        if (check !is FloorCheck.Denied || agent == null) return check
+        return checkPersonaWrite(path, agent).takeUnless { it is FloorCheck.Denied } ?: check
+    }
 
     override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         check(path, agent, conversation, tree = true) { it.checkTree(path) }
+
+    override val protectsAnything: Boolean
+        get() = levels.config.let { it.deny.isNotEmpty() || it.ask.isNotEmpty() }
 
     /** The groups and paths of the floor in force. */
     val entries: FloorConfig get() = levels.config
@@ -74,8 +79,8 @@ internal class AgentFloor(
     /** The places that a sandbox keeps commands out of: those the floor refuses, then those it asks a person about. */
     fun sandboxPlaces(): Pair<List<Path>, List<Path>> = levels.let { it.denied to it.asked }
 
-    /** [path] (absolute) made canonical and checked for a write by the persona tool of [agent]. */
-    fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck {
+    /** [path] (absolute) made canonical and checked for a write of a persona file of [agent]. */
+    private fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck {
         val levels = levels
         return leveled(levels.deny.checkPersonaWrite(path, agent)) { levels.ask.checkPersonaWrite(path, agent) }
             .toCheck()
@@ -323,18 +328,6 @@ internal fun alexandritePlaces(paths: HostPaths): List<Path> =
     listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
         listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
 
-/** [agent]'s persona directory as [places] gives it, created owner-only when missing, null where the host keeps none. */
-internal fun openPersonaDirectory(places: AgentPlaces, agent: AgentId): Path? {
-    val directory = places.personaDirectory(agent) ?: return null
-    if (Files.isDirectory(directory)) return directory
-    if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
-        Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)))
-    } else {
-        Files.createDirectories(directory)
-    }
-    return directory
-}
-
 /** The paths written at [key], each absolute, under `~/` (the [home]), or relative to the config's directory. */
 internal fun operatorPlaces(
     paths: HostPaths,
@@ -389,9 +382,6 @@ private const val FLOOR_PATH = "floor"
 private const val DENY_KEY = "agent.floor.deny"
 
 private const val ASK_KEY = "agent.floor.ask"
-
-/** Where the agents' persona directories lie in the config directory. */
-private const val OWNER = "rwx------"
 
 private const val UNKNOWN_HOME = "every path, as the home directory is unknown"
 

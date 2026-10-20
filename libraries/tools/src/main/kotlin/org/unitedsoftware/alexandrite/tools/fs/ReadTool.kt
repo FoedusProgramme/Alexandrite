@@ -27,8 +27,8 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
         name = "fs.read",
         description = "Reads a UTF-8 text file and returns its lines, each after its line number and a tab. " +
             "Returns at most $MAX_LINES lines from line 'offset' on, each cut after $MAX_LINE_CHARS characters, and " +
-            "says where to go on when more follow. Refuses directories (list them with fs.glob), binary files, files " +
-            "with more than one hard link and protected places.",
+            "says where to go on when more follow. Refuses directories (list them with fs.glob), binary files and " +
+            "protected places.",
         parameters = schema("path") {
             property("path", "string", "The file: an absolute path, or one relative to your workspace (~ is home).")
             property("offset", "integer", "The number of the first line to return, from 1. Default 1.")
@@ -53,10 +53,10 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
         blocking {
             val file = floor.allowed(path, context)
             val attributes = attributes(file)
-            checkReadable(file, path, attributes)
+            checkReadable(file, path, attributes, floor.protectsAnything)
             context.touched(file)
             val digest = sha256Digest()
-            DigestInputStream(openRegularFile(file), digest).use { input ->
+            DigestInputStream(openRegularFile(file, floor.protectsAnything), digest).use { input ->
                 val text = try {
                     rendered(TextLines(input, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
                 } catch (e: NotText) {

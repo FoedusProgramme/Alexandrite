@@ -94,14 +94,17 @@ internal class ProjectFolders(
         private fun files(directory: Path): List<FoundInstructionFile> =
             found.getOrPut(directory) { NAMES.mapNotNull { file(directory.resolve(it)) } }
 
-        /** The instruction file at [path], null when there is none, it is refused or it is no single-link file. */
+        /**
+         * The instruction file at [path], null when there is none, it is refused or it is no regular file, or one with
+         * a second hard link while the floor protects anything.
+         */
         private fun file(path: Path): FoundInstructionFile? {
             if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
             val canonical = allowed(path) ?: return null
             val single = try {
                 val attributes =
                     Files.readAttributes(canonical, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-                attributes.isRegularFile && hardLinks(canonical) == 1
+                attributes.isRegularFile && (!floor.protectsAnything || hardLinks(canonical) == 1)
             } catch (e: IOException) {
                 false
             }

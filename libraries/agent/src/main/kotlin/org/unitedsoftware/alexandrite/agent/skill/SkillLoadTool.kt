@@ -16,9 +16,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
-import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
-import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
@@ -34,7 +32,7 @@ internal const val SKILL_SOURCE: String = "alexandrite.skill"
 
 /**
  * Loads a skill: a trusted one's instructions join the conversation once the round ends, as project instructions do;
- * an untrusted project skill's come back as data once a person allowed it, and taint the conversation.
+ * an untrusted project skill's come back as data and taint the conversation, as a read of its file does.
  */
 @Singleton
 @Contribute(Tool::class)
@@ -65,19 +63,7 @@ internal class SkillLoadTool(private val skills: Skills) :
             is Found.Known -> found.skill
         }
         if (skills.trusted(skill)) return CallReview.builder().build()
-        val file = checkNotNull(skill.file)
-        val text = skills.text(file) ?: return CallReview.builder()
-            .problem("The file of skill ${skill.name} cannot be read.")
-            .build()
-        val preview = "Load the untrusted skill ${skill.name} of ${skill.folder}, a folder no one trusts\n" +
-            "File: $file\nSHA-256: ${text.sha256}\n\n${text.body}"
-        return CallReview.builder()
-            .risk(ToolRisk.EXEC)
-            .preview(ReviewPreview.Text(preview))
-            .snapshot(text.sha256)
-            .rule(RuleSubject(NAME, listOf(skill.name, text.sha256), "skill ${skill.name} as it reads now"))
-            .untrusted(true)
-            .build()
+        return CallReview.builder().untrusted(true).reads(listOfNotNull(skill.file)).build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
@@ -94,12 +80,6 @@ internal class SkillLoadTool(private val skills: Skills) :
             agent.load(skillEntry(skill, body))
             return ToolResult(
                 "Loaded skill ${skill.name}: its instructions follow as a separate [alexandrite:skill] message.",
-            )
-        }
-        if (context.clearance?.snapshot != text?.sha256) {
-            return ToolResult(
-                "Skill ${skill.name} changed since this call was reviewed: repeat the call if it still applies.",
-                isError = true,
             )
         }
         context.untrusted("the untrusted skill ${skill.name}")

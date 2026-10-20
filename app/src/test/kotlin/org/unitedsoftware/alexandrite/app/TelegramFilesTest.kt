@@ -4,8 +4,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
-import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.WAIT
-import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
@@ -32,9 +30,8 @@ class TelegramFilesTest {
     }
 
     @Test
-    fun `a document a user sends is in the agent's inbox, and a file the agent sends back goes out once allowed`() {
+    fun `a document a user sends is in the agent's inbox, and a file the agent sends back goes out unasked`() {
         lateinit var notes: Path
-        lateinit var asked: FakeBotMessage
 
         app.run(app.builder(directory)) {
             val conversation = app.store.conversations.current(app.key(app.adaChat)).id
@@ -44,8 +41,6 @@ class TelegramFilesTest {
                 .reply { text(DONE) }
 
             app.fake.sendDocument(app.ada, app.adaChat, "notes.txt", NOTES, "text/plain", "Send my notes back.")
-            asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
-            app.fake.press(app.ada, asked, "Allow")
             app.message(app.adaChat, DONE)
             idle()
         }
@@ -64,11 +59,8 @@ class TelegramFilesTest {
                 "(telegram:work:$ADA).",
             results[1].text,
         )
-        for (line in listOf("File: $notes", "Size: ${NOTES.size} bytes", "SHA-256: $sha256", "Destination: ")) {
-            assertTrue(line in asked.text, asked.text)
-        }
-        assertTrue(asked.text.endsWith("Caption:\n\nYour notes, back"), asked.text)
         val messages = app.fake.botMessages(ADA)
+        assertTrue(messages.none { it.buttons.isNotEmpty() }, messages.joinToString("\n"))
         val sent = messages.single { it.file != null }
         assertEquals(
             "sendDocument notes.txt text/plain",

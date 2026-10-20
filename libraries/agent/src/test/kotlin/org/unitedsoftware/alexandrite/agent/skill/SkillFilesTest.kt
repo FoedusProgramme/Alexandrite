@@ -66,7 +66,7 @@ class SkillFilesTest {
             override fun skills(): List<SkillSpec> = listOf(SkillSpec("review", "A plugin's review.", "Look."))
         }
         val trust = FolderTrust(settings("{}"), hostPaths(null), testHardFloor(), testRecords())
-        val registry = Skills(places, listOf(plugin), ProjectSkills(), trust)
+        val registry = Skills(places, listOf(plugin), ProjectSkills(), trust, testHardFloor())
 
         val found = registry.global(AgentId("coder"))
 

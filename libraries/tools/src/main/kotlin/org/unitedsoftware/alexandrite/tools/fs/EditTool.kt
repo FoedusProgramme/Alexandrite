@@ -8,6 +8,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
@@ -20,14 +21,18 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 
 @Singleton
 @Contribute(Tool::class)
-internal class EditTool(private val floor: HardFloor, private val ledger: ReadLedger) : ReviewedTool {
+internal class EditTool(
+    private val floor: HardFloor,
+    private val ledger: ReadLedger,
+    private val places: AgentPlaces,
+) : ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "fs.edit",
         description = "Replaces exact text in a UTF-8 text file that you read with fs.read in this conversation and " +
             "that has not changed since. Each edit replaces its 'old' text, which must occur exactly once (every " +
             "occurrence, at least one, with 'all'), by its 'new' text. The edits apply in order, each to the text " +
             "the ones before it left, and all or none of them. New text takes the file's line breaks. Refuses " +
-            "files with more than one hard link and protected places.",
+            "protected places. Edit your persona files in your persona directory this way.",
         parameters = schema("path", "edits") {
             property("path", "string", "The file: an absolute path, or one relative to your workspace (~ is home).")
             putJsonObject("edits") {
@@ -54,7 +59,7 @@ internal class EditTool(private val floor: HardFloor, private val ledger: ReadLe
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = reviewing {
         val edits = edits(arguments)
         val target = floor.target(arguments.requiredString("path"), context)
-        target.review(edited(target, edits, context))
+        target.review(edited(target, edits, context), places.personaRisk(target, context))
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {

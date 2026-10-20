@@ -25,7 +25,8 @@ internal val INSTRUCTION_NAMES: List<String> = listOf("AGENTS.md", "CLAUDE.md", 
 
 /**
  * The places whose files steer an agent once written: the config and secrets files, the persona and skill directories,
- * the agents' instruction files, a trusted folder's instructions and skills, and what an agent's sandbox protects.
+ * the agents' instruction files, a trusted folder's instructions and skills, and what the sandbox of an agent that has
+ * one protects.
  */
 internal interface InstructionPlaces {
     /**
@@ -56,9 +57,9 @@ internal class HostInstructionPlaces(
 ) : InstructionPlaces {
     private val canonicalizer = PathCanonicalizer()
 
-    private val protects: Map<AgentId, Protected> = directory.agents.associate { agent ->
-        agent.id to protectedBy(agent.id, agent.config.sandbox)
-    }
+    private val protects: Map<AgentId, Protected> = directory.agents
+        .filter { it.config.sandbox.type != SandboxConfig.HOST }
+        .associate { agent -> agent.id to protectedBy(agent.id, agent.config.sandbox) }
 
     override fun kind(path: Path, agent: AgentId): String? {
         val target = real(path)

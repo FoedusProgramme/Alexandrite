@@ -32,11 +32,8 @@ class TelegramToolsTest {
     /** A call of [tool] with [arguments], whose approval shows [shown] and which calls [method] of the Bot API. */
     private class Case(val tool: String, val arguments: String, val shown: (Long) -> String, val method: String)
 
-    /** The visible actions, each asked for in the group by a message whose id their approval names. */
+    /** The visible actions that are gated, each asked for in the group by a message whose id their approval names. */
     private val cases = listOf(
-        Case("telegram.react", """{"emoji": "👍"}""", {
-            "React with 👍 to message $it in \"Backend\""
-        }, "setMessageReaction"),
         Case("telegram.pin", """{"message": "this"}""", {
             "Pin message $it in \"Backend\", quietly"
         }, "pinChatMessage"),
@@ -49,7 +46,6 @@ class TelegramToolsTest {
             { "Send a poll to \"Backend\": Lunch?\n- Noon\n- One\n(anonymous, one answer)" },
             "sendPoll",
         ),
-        Case("telegram.sticker", """{"sticker": "CAAC"}""", { "Send sticker CAAC to \"Backend\"" }, "sendSticker"),
     )
 
     private fun builder(mode: String? = null) = app.builder(directory).config(
@@ -62,7 +58,7 @@ class TelegramToolsTest {
               "model": "scripted/test-model",
               "channels": {"telegram:work": {}},
               "permission": {${mode?.let { "\"mode\": \"$it\", " }.orEmpty()}"judge": "scripted/$FAST_MODEL"},
-              "tools": {"forGuests": ["telegram.react"]}
+              "tools": {"forGuests": ["telegram.react", "telegram.sticker", "telegram.pin"]}
             }
           }
         }
@@ -142,21 +138,42 @@ class TelegramToolsTest {
 
     @Test
     fun `a member's visible action is asked about in the admin's direct chat, even in auto mode`() {
-        app.model.reply(turn) { toolCall("telegram.react", """{"emoji": "👍"}""") }.reply(turn) { text("Reacted.") }
+        app.model.reply(turn) { toolCall("telegram.pin", """{"message": "this"}""") }.reply(turn) { text("Pinned.") }
 
         app.run(builder("auto")) {
-            val asking = app.send(app.bob, app.group, "$BOT_MENTION react")
+            val asking = app.send(app.bob, app.group, "$BOT_MENTION pin")
             val asked = app.fake.await(WAIT) {
                 botMessages(ADA).lastOrNull { it.buttons.isNotEmpty() && it.text.startsWith("Approval needed") }
             }
-            assertTrue("React with 👍 to message $asking in \"Backend\"" in asked.text, asked.text)
+            assertTrue("Pin message $asking in \"Backend\", quietly" in asked.text, asked.text)
             assertTrue("Requested by: Bob" in asked.text, asked.text)
             app.fake.press(app.ada, asked, "Allow")
-            app.message(app.group, "Reacted.")
+            app.message(app.group, "Pinned.")
             idle()
         }
 
-        assertEquals(1, calls("setMessageReaction"))
+        assertEquals(1, calls("pinChatMessage"))
         assertEquals(0, app.model.requests.count { it.model.model == FAST_MODEL })
+    }
+
+    @Test
+    fun `reactions and stickers of an admin and of a member run unasked in ask mode`() {
+        for (user in 1..2) {
+            app.model.reply(turn) { toolCall("telegram.react", """{"emoji": "👍"}""") }
+                .reply(turn) { toolCall("telegram.sticker", """{"sticker": "CAAC"}""") }
+                .reply(turn) { text("Done $user.") }
+        }
+
+        app.run(builder()) {
+            app.send(app.ada, app.group, "$BOT_MENTION react")
+            app.message(app.group, "Done 1.")
+            idle()
+            app.send(app.bob, app.group, "$BOT_MENTION react")
+            app.message(app.group, "Done 2.")
+            idle()
+        }
+
+        assertEquals(2 to 2, calls("setMessageReaction") to calls("sendSticker"))
+        assertTrue(app.fake.botMessages().none { it.buttons.isNotEmpty() })
     }
 }

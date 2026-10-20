@@ -93,7 +93,7 @@ class WebTest {
     }
 
     @Test
-    fun `a redirect to another site, or between a private host and any other, is never requested`() {
+    fun `a redirect to another public site is followed, one between a private host and any other never requested`() {
         val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
         val requested = mutableListOf<URI>()
         fun fetch(start: String, location: String) = fetchPage(
@@ -111,22 +111,21 @@ class WebTest {
             }
         }
         val refused = listOf(
-            "https://example.com/a" to "https://elsewhere.test/b",
             "https://internal.example/a" to "https://evil.internal.example/b",
             "https://example.com/a" to "https://internal.example.com/b",
+            "https://internal.example/a" to "https://example.com/b",
         )
 
         for ((start, location) in refused) {
             requested.clear()
-            val away = assertFailsWith<RedirectedAway> { fetch(start, location) }
+            assertFailsWith<IllegalArgumentException> { fetch(start, location) }
             assertEquals(listOf(URI(start)), requested)
-            assertEquals(URI(location), away.to)
         }
-        requested.clear()
-        assertEquals(
-            "https://docs.example.com/b",
-            fetch("https://example.com/a", "https://docs.example.com/b").first.toString(),
-        )
+        for (location in listOf("https://docs.example.com/b", "https://elsewhere.test/b")) {
+            requested.clear()
+            assertEquals(location, fetch("https://example.com/a", location).first.toString())
+            assertEquals(listOf(URI("https://example.com/a"), URI(location)), requested)
+        }
     }
 
     @Test
@@ -325,22 +324,15 @@ class WebTest {
     }
 
     @Test
-    fun `a fetch that a redirect takes to another site returns nothing of it`() = runBlocking {
+    fun `a fetch that a redirect takes to another site answers from the page it reached`() = runBlocking {
         val context = testToolContext()
         val answers = Answers()
         fun tool(to: String) = FetchTool(WebConfig(), WebPages { WebPage(URI(to), "page") }, answers)
         suspend fun FetchTool.result() = execute(args("url" to "https://example.com/a", "prompt" to "q"), context)
 
-        val elsewhere = tool("https://elsewhere.test/b").result()
-        val same = listOf("https://www.example.com/b", "https://docs.example.com/b").map { tool(it).result().isError }
+        val results = listOf("https://elsewhere.test/b", "https://docs.example.com/b").map { tool(it).result() }
 
-        assertTrue(elsewhere.isError)
-        assertEquals(
-            "https://example.com/a redirects to https://elsewhere.test/b, on another host: fetch that address itself " +
-                "to read it.",
-            elsewhere.content.filterIsInstance<TextPart>().single().text,
-        )
-        assertEquals(listOf(false, false), same)
+        assertEquals(listOf(false, false), results.map { it.isError })
     }
 
     @Test
