@@ -510,67 +510,69 @@ class ApprovalDeskTest {
         }
 
     @Test
-    fun `a call that would taint names its source and the root, and offers trust only after marking and denying`() =
-        runTest {
-            val desk = Desk(this)
-            val folder = "/home/dev/src/some-very-long-project-name/with/deep/folders"
-            val source = "fs.read reaches $folder/x.kt, outside the trusted places"
-            val rooted = asking(
-                desk,
-                request(
-                    taints = true,
-                    untrusted = source,
-                    roots = listOf(TrustRoot(TrustRootKind.FOLDER, folder)),
-                ),
-            )
-            val rootless = asking(desk, request(id = "bare", taints = true, untrusted = "web.search reads the web"))
-            advanceTimeBy(5.seconds)
+    fun `a call that would taint names its source and offers to trust its root, or else its output once`() = runTest {
+        val desk = Desk(this)
+        val folder = "/home/dev/src/some-very-long-project-name/with/deep/folders"
+        val source = "fs.read reaches $folder/x.kt, outside the trusted places"
+        val rooted = asking(
+            desk,
+            request(
+                taints = true,
+                untrusted = source,
+                roots = listOf(TrustRoot(TrustRootKind.FOLDER, folder)),
+            ),
+        )
+        val rootless = asking(desk, request(id = "bare", taints = true, untrusted = "web.search reads the web"))
+        advanceTimeBy(5.seconds)
 
-            val (shown, bare) = desk.shown(ADA)
-            assertTrue(
-                "\n⚠️ This call would bring the first untrusted content into this conversation, from: $source\n" +
-                    "Trusting covers the folder, and what is in it outside the repositories nested in it: $folder\n" +
-                    "⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from " +
-                    "others, prefer marking the conversation tainted.\n" in shown,
-                shown,
-            )
-            val sent = desk.api.calls("sendMessage").first()
-            val text = checkNotNull(sent.text)
-            assertTrue("code ${text.lastIndexOf(folder)}+${folder.length}" in sent.entities, "${sent.entities}")
-            assertEquals(
-                listOf(
-                    listOf("Allow, mark tainted" to "apv:k3x9:a", "Deny" to "apv:k3x9:d"),
-                    listOf("Allow and trust folder …g-project-name/with/deep/folders" to "apv:k3x9:t"),
-                ),
-                desk.api.keyboards.getValue(ADA to 101L).inlineKeyboard.map { row ->
-                    row.map { it.text to it.callbackData }
-                },
-            )
-            assertTrue(bare.endsWith(" [Allow, mark tainted|Deny]"), bare)
+        val shown = desk.shown(ADA).first()
+        assertTrue(
+            "\n⚠️ This call would bring the first untrusted content into this conversation, from: $source\n" +
+                "Trusting covers the folder, and what is in it outside the repositories nested in it: $folder\n" +
+                "⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from " +
+                "others, prefer marking the conversation tainted.\n" in shown,
+            shown,
+        )
+        val sent = desk.api.calls("sendMessage").first()
+        val text = checkNotNull(sent.text)
+        assertTrue("code ${text.lastIndexOf(folder)}+${folder.length}" in sent.entities, "${sent.entities}")
+        assertEquals(
+            listOf(
+                listOf("Allow, mark tainted" to "apv:k3x9:a", "Deny" to "apv:k3x9:d"),
+                listOf("Allow and trust folder …g-project-name/with/deep/folders" to "apv:k3x9:t"),
+            ),
+            desk.api.keyboards.getValue(ADA to 101L).inlineKeyboard.map { row ->
+                row.map { it.text to it.callbackData }
+            },
+        )
+        assertEquals(
+            listOf(
+                listOf("Allow, mark tainted" to "apv:bare:a", "Deny" to "apv:bare:d"),
+                listOf("Allow, keep clean" to "apv:bare:t"),
+            ),
+            desk.api.keyboards.getValue(ADA to 102L).inlineKeyboard.map { row ->
+                row.map { it.text to it.callbackData }
+            },
+        )
 
-            desk.press(ada, "apv:bare:t", message = 102)
-            runCurrent()
-            val stillWaiting = rootless.isActive
-            desk.press(ada, "apv:k3x9:t", message = 101)
-            desk.press(ada, "apv:bare:a", message = 102)
-            advanceTimeBy(5.seconds)
+        desk.press(ada, "apv:k3x9:t", message = 101)
+        desk.press(ada, "apv:bare:t", message = 102)
+        advanceTimeBy(5.seconds)
 
-            assertTrue(stillWaiting)
-            assertEquals(ApprovalAnswer.Allowed(ada, trust = true), rooted.await())
-            assertEquals(ApprovalAnswer.Allowed(ada), rootless.await())
-            assertEquals("This request no longer waits for an answer.", desk.toasts().first())
-            assertEquals(
-                listOf(
-                    "Allowed by Ada, who trusted $folder.",
-                    "Allowed by Ada; the conversation is marked tainted.",
-                ),
-                desk.shown(ADA).map { it.substringAfterLast("\n") },
-            )
-            assertEquals(
-                "Alexandrite's approval request k3x9 for fs.write (allowed and trusted by Ada)",
-                desk.messages.quoted(ADA, 101),
-            )
-        }
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), rooted.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), rootless.await())
+        assertEquals(
+            listOf(
+                "Allowed by Ada, who trusted $folder.",
+                "Allowed by Ada, who vouched for its output this once.",
+            ),
+            desk.shown(ADA).map { it.substringAfterLast("\n") },
+        )
+        assertEquals(
+            "Alexandrite's approval request k3x9 for fs.write (allowed and trusted by Ada)",
+            desk.messages.quoted(ADA, 101),
+        )
+    }
 
     @Test
     fun `several roots are trusted together, and a person's root says trust is no authority`() = runTest {

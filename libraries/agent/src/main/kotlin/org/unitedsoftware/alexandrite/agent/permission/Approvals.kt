@@ -6,6 +6,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
 import org.unitedsoftware.alexandrite.agent.trust.Foreseen
 import org.unitedsoftware.alexandrite.agent.trust.Foresight
 import org.unitedsoftware.alexandrite.agent.trust.Root
@@ -160,15 +161,18 @@ internal class ChannelApprovals(
             is ApprovalAnswer.Allowed -> {
                 val always = grantable.takeIf { answer.always }.orEmpty()
                 val roots = question?.roots.orEmpty().takeIf { answer.trust }.orEmpty()
+                val once = question != null && question.roots.isEmpty() && answer.trust
                 val how = (if (always.isNotEmpty()) " for good" else "") +
                     (if (roots.isNotEmpty()) ", trusting its source" else "") +
-                    (if (question != null && roots.isEmpty()) ", marking the conversation tainted" else "")
+                    (if (once) ", trusting its output this once" else "") +
+                    (if (question != null && roots.isEmpty() && !once) ", marking the conversation tainted" else "")
                 logged(request, "is allowed by ${answer.by.address}$how")
                 if (always.isNotEmpty()) rules.grant(call, always, answer.by)
                 if (roots.isNotEmpty()) foresight.grant(roots, request.turn, answer.by)
                 judge.allowedByOperator(request.turn.key, request.tool)
                 val clearance = Clearance(ClearanceKind.HUMAN, answer.by, call.review.snapshot)
-                GateResult.Admitted(clearance, call.review.preview, call.review.exempt)
+                val trust = if (once) CallTrust.WHOLE else CallTrust.NONE
+                GateResult.Admitted(clearance, call.review.preview, call.review.exempt, trust = trust)
             }
 
             is ApprovalAnswer.Denied -> {

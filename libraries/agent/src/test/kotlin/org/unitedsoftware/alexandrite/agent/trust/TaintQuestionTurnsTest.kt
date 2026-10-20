@@ -413,14 +413,19 @@ class TaintQuestionTurnsTest {
     }
 
     @Test
-    fun `untrusted output with no root to trust is asked about without a trust choice`() {
+    fun `untrusted output with no root to trust is marked, or kept clean once when the answer vouches for it`() {
         model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+            .reply { toolCall("notes.paste") }.reply { text("Pasted again.") }
 
         harness().execute {
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, trust = true), ApprovalAnswer.Allowed(operator))
+            ask()
+            val clean = mark()
             ask()
 
-            val request = channel().approvals.single()
+            val request = channel().approvals.first()
+            assertEquals(null, clean)
             assertEquals(true to emptyList(), request.taints to request.roots)
             assertEquals("the output of notes.paste is untrusted", request.untrusted)
             assertEquals(

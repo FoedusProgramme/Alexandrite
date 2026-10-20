@@ -198,7 +198,8 @@ public class TrustOffer private constructor(
 public interface ApprovalAnswer {
     /**
      * [by] allowed the call, and the calls that the request's rules cover too when [always], trusting the roots of the
-     * request or the [TrustOffer] when [trust].
+     * request or the [TrustOffer] when [trust] — or, for a request that would taint and offers no roots, the call's
+     * output this once.
      */
     @OptIn(InternalAlexandriteApi::class)
     @Poko

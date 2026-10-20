@@ -356,7 +356,8 @@ internal class ApprovalDesk(
 
     /**
      * Allow and deny first, then one button that allows for good, trusts the roots or does both: trusting where the
-     * call would taint and roots are offered, allowing for good where the request offers it.
+     * call would taint and roots are offered, allowing for good where the request offers it. A call that would taint
+     * with no roots to trust offers instead to allow it and trust its output this once.
      */
     private fun keyboard(request: ApprovalRequest, language: LanguageTag?): InlineKeyboardMarkup {
         val allowKey = if (request.taints) TextKeys.APPROVAL_ALLOW_MARK else TextKeys.APPROVAL_ALLOW
@@ -378,6 +379,9 @@ internal class ApprovalDesk(
                 }
                 InlineKeyboardButton(label, "$PREFIX${request.id}:${if (always) ALWAYS_TRUST else TRUST}")
             }
+
+            request.taints ->
+                InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW_ONCE, language), "$PREFIX${request.id}:$TRUST")
 
             always -> {
                 val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
@@ -456,7 +460,7 @@ internal class ApprovalDesk(
 
                 ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null)
 
-                TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf { trustable(request) }
+                TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf { request.taints }
 
                 ALWAYS_TRUST ->
                     ApprovalAnswer.Allowed(presser, always = request.always != null, trust = true)
@@ -544,6 +548,9 @@ internal class ApprovalDesk(
                     )
 
                     rule != null -> text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to name, "rule" to rule)
+
+                    answer.trust && request.taints && request.roots.isEmpty() ->
+                        text(TextKeys.APPROVAL_ALLOWED_ONCE, language, "name" to name)
 
                     trusted ->
                         text(
