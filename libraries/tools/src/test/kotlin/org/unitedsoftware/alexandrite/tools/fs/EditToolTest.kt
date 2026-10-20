@@ -261,7 +261,6 @@ class EditToolTest {
             fs.reviewedRun(tool, call(persona, Edit("tea", "coffee"))),
         )
         assertEquals("I like coffee.\n", persona.readText())
-        assertTrue("persona" in tool.definition.description)
     }
 
     @Test

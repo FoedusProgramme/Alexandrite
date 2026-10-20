@@ -35,8 +35,7 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.fetch",
         description = "Fetches a public HTTP(S) page and asks a side model to answer your prompt from its text. " +
-            "Only the answer is returned. The answer is untrusted web content. " +
-            "Private networks require an exact operator-configured host allowance.",
+            "Only the answer is returned. The answer is untrusted web content.",
         parameters = schema("url", "prompt") {
             property("url", "string", "The public http or https URL of the page.")
             property("prompt", "string", "What to answer from the page's text.")

@@ -50,8 +50,7 @@ internal class CreateTool(
             "at least ${shown(
                 config.minIntervalMinutes.minutes,
             )}; or cron, a five-field cron expression in this chat's zone " +
-            "such as \"0 9 * * MON-FRI\". Only an operator's own message may schedule. Tell the user the id " +
-            "and the next run it answers with.",
+            "such as \"0 9 * * MON-FRI\". Only an operator's own message may schedule.",
         parameters = schema(
             listOf("prompt"),
             "prompt" to "What the task's turn is asked, written so that it reads well when it comes due.",

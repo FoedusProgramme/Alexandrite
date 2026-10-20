@@ -32,7 +32,7 @@ internal class EditTool(
             "that has not changed since. Each edit replaces its 'old' text, which must occur exactly once (every " +
             "occurrence, at least one, with 'all'), by its 'new' text. The edits apply in order, each to the text " +
             "the ones before it left, and all or none of them. New text takes the file's line breaks. Refuses " +
-            "protected places. Edit your persona files in your persona directory this way.",
+            "protected places.",
         parameters = schema("path", "edits") {
             property("path", "string", "The file: an absolute path, or one relative to your workspace (~ is home).")
             putJsonObject("edits") {
