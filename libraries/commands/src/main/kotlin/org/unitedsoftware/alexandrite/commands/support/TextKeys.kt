@@ -9,6 +9,8 @@ internal object TextKeys {
 
     const val CANCEL_DONE: String = "cancel.done"
     const val CANCEL_NONE: String = "cancel.none"
+    const val CANCEL_AGENT_DONE: String = "cancel.agent_done"
+    const val CANCEL_AGENT_NONE: String = "cancel.agent_none"
 
     const val COMPACT_DONE: String = "compact.done"
 
@@ -28,6 +30,14 @@ internal object TextKeys {
     const val JOBS_ITEM_BY: String = "jobs.item_by"
     const val JOBS_STOPPED: String = "jobs.stopped"
     const val JOBS_UNKNOWN: String = "jobs.unknown"
+    const val JOBS_UNKNOWN_ANY: String = "jobs.unknown_any"
+    const val JOBS_STOPPED_IN: String = "jobs.stopped_in"
+    const val JOBS_LABEL: String = "jobs.label"
+    const val JOBS_LABEL_IN: String = "jobs.label_in"
+    const val JOBS_LIST_ALL: String = "jobs.list_all"
+    const val JOBS_NONE_ALL: String = "jobs.none_all"
+    const val JOBS_ALL_DIRECT: String = "jobs.all_direct"
+    const val JOBS_ALL_OPERATOR: String = "jobs.all_operator"
 
     const val USED_CHAT: String = "used.chat"
     const val USED_AGENT: String = "used.agent"

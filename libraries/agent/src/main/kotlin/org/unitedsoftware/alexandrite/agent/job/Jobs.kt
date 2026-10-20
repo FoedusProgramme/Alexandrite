@@ -256,9 +256,9 @@ internal class Jobs(
         }
     }
 
-    /** The jobs of [chat] that run and are not being stopped, oldest first. */
-    fun list(chat: ChatAddress): List<JobStatus> = synchronized(lock) {
-        active.values.filter { it.job.turn.chat == chat && it.cause == null }.map { it.status }
+    /** The jobs of [chat], or of every chat when it is null, that run and are not being stopped, oldest first. */
+    fun list(chat: ChatAddress?): List<JobStatus> = synchronized(lock) {
+        active.values.filter { (chat == null || it.job.turn.chat == chat) && it.cause == null }.map { it.status }
     }.sortedBy { it.startedAt }
 
     /** Stops the job [id] for [by], when [chat] runs it or [chat] is null, and returns whether it ran. */
@@ -273,17 +273,6 @@ internal class Jobs(
             logger.info("Job {} ({}) of {} is stopped by {}", it.job.id, described(it.job), it.job.turn.chat, who(by))
         }
         return stopped.isNotEmpty()
-    }
-
-    /** Stops the jobs of [chat] for [by] and returns how many ran. */
-    fun stopAll(chat: ChatAddress, by: ChatUser?): Int {
-        val stopped = synchronized(lock) {
-            active.values.filter { it.job.turn.chat == chat && it.stop(TurnCancelled(by)) }
-        }
-        if (stopped.isNotEmpty()) {
-            logger.info("The jobs {} of {} are stopped by {}", stopped.joinToString { "${it.job.id}" }, chat, who(by))
-        }
-        return stopped.size
     }
 
     /** Forgets the record of [job], whose result is stored or dropped. */
@@ -464,7 +453,15 @@ private class Active(
     var pendingUpdate: Boolean = false
 
     val status: JobStatus
-        get() = JobStatus(job.id, job.turn.chat, job.call.name, job.title, job.startedAt, job.turn.actor)
+        get() = JobStatus(
+            job.id,
+            job.turn.chat,
+            job.turn.agent,
+            job.call.name,
+            job.title,
+            job.startedAt,
+            job.turn.actor,
+        )
 
     /** Stops the job with [cause] unless it is being stopped, and returns whether it was not. */
     fun stop(cause: CancellationException): Boolean {

@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.agent.turn.withoutRecord
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -259,7 +260,7 @@ class JobTurnsTest {
     // Stopping.
 
     @Test
-    fun `cancel stops the chat's jobs, whose tools are cancelled and whose results never come`() {
+    fun `cancel leaves the chat's jobs, and a stopped job's tool is cancelled and its result never comes`() {
         model.reply { toolCall("fs.slow") }.reply { text("Running.") }
 
         harness().execute {
@@ -267,12 +268,14 @@ class JobTurnsTest {
             val control = get<TurnControl>()
             val operator = channel().user("operator")
 
-            assertTrue(control.cancel(channel().chat(), operator))
+            assertFalse(control.cancel(channel().chat(), operator))
+            val job = control.jobs(channel().chat()).single()
+            assertEquals(AgentId("coder"), job.agent)
+            assertTrue(control.stopJob(null, job.id, operator))
             until { slow.cancelled.size == 1 && recorded().isEmpty() }
             delay(200.milliseconds)
 
             assertEquals(emptyList(), control.jobs(channel().chat()))
-            assertFalse(control.cancel(channel().chat(), operator))
             assertEquals(2, model.requests.size)
             assertEquals(emptyList(), channel().sent)
         }

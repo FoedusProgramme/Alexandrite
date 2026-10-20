@@ -227,11 +227,12 @@ public class RecordingAgent(
         override suspend fun turns(chat: ChatAddress?): List<TurnStatus> =
             statuses.filter { chat == null || it.turn.chat == chat }
 
-        /** Whether a turn or a job at [chat] runs. */
-        override fun cancel(chat: ChatAddress, by: ChatUser?): Boolean {
-            record(Call.Cancel(chat, by))
-            return statuses.any { it.turn.chat == chat && it.phase == TurnPhase.RUNNING } ||
-                jobStatuses.any { it.chat == chat }
+        /** Whether a turn at [chat], of [agent] when it is given, runs. */
+        override fun cancel(chat: ChatAddress, by: ChatUser?, agent: AgentId?): Boolean {
+            record(Call.Cancel(chat, by, agent))
+            return statuses.any {
+                it.turn.chat == chat && it.phase == TurnPhase.RUNNING && (agent == null || it.turn.agent == agent)
+            }
         }
 
         /** Whether [turn] is listed. */
@@ -246,12 +247,12 @@ public class RecordingAgent(
             return statuses.any { it.turn.lineage?.run == run } || jobStatuses.any { it.id == run }
         }
 
-        override fun jobs(chat: ChatAddress): List<JobStatus> = jobStatuses.filter { it.chat == chat }
+        override fun jobs(chat: ChatAddress?): List<JobStatus> = jobStatuses.filter { chat == null || it.chat == chat }
 
-        /** Whether [job] is listed at [chat]. */
-        override fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean {
+        /** Whether [job] is listed at [chat], or anywhere when it is null. */
+        override fun stopJob(chat: ChatAddress?, job: RunId, by: ChatUser?): Boolean {
             record(Call.StopJob(chat, job, by))
-            return jobStatuses.any { it.chat == chat && it.id == job }
+            return jobStatuses.any { (chat == null || it.chat == chat) && it.id == job }
         }
     }
 
@@ -616,7 +617,11 @@ public class RecordingAgent(
     @SubclassOptInRequired(InternalAlexandriteApi::class)
     public interface Call {
         @Poko
-        public class Cancel(public val chat: ChatAddress, public val by: ChatUser?) : Call
+        public class Cancel(
+            public val chat: ChatAddress,
+            public val by: ChatUser?,
+            public val agent: AgentId? = null,
+        ) : Call
 
         @Poko
         public class CancelTurn(public val turn: TurnId, public val by: ChatUser?) : Call
@@ -625,7 +630,7 @@ public class RecordingAgent(
         public class CancelRun(public val run: RunId, public val tree: Boolean, public val by: ChatUser?) : Call
 
         @Poko
-        public class StopJob(public val chat: ChatAddress, public val job: RunId, public val by: ChatUser?) : Call
+        public class StopJob(public val chat: ChatAddress?, public val job: RunId, public val by: ChatUser?) : Call
 
         @Poko
         public class NewConversation(

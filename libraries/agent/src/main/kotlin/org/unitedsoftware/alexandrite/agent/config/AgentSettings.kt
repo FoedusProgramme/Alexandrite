@@ -15,6 +15,7 @@ internal class AgentSettings(
     /** Background sub-agent runs that one chat may have, counted among its jobs. */
     val maxBackgroundRunsPerChat: Int = 4,
     val queue: QueueConfig = QueueConfig(),
+    val messaging: MessagingConfig = MessagingConfig(),
     val shutdown: ShutdownConfig = ShutdownConfig(),
     val models: ModelCallConfig = ModelCallConfig(),
     /** The shortest time between two previews of one reply. */
@@ -82,6 +83,16 @@ internal class QueueConfig(
         require(perKey > 0) { "queue.perKey must be positive" }
         require(commandsPerChat > 0) { "queue.commandsPerChat must be positive" }
         require(commandGateSeconds > 0) { "queue.commandGateSeconds must be positive" }
+    }
+}
+
+@Serializable
+internal class MessagingConfig(
+    /** The agent messages that a root turn and every turn it leads to may send. */
+    val maxMessagesPerRoot: Int = 20,
+) {
+    init {
+        require(maxMessagesPerRoot > 0) { "messaging.maxMessagesPerRoot must be positive" }
     }
 }
 

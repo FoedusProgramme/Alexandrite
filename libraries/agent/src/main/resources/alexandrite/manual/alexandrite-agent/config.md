@@ -51,7 +51,8 @@ Host-wide, under `agent`:
 - `agent.floor.deny`, `agent.floor.ask`: the hard floor (see alexandrite-agent/permissions).
 - `agent.maxConcurrentTurns` (4), `agent.maxJobsPerChat` (4), `agent.maxBackgroundRuns` (4),
   `agent.maxBackgroundRunsPerChat` (4).
-- `agent.queue.perKey` (20 waiting turns per agent and chat), `agent.models.retries` (3),
+- `agent.queue.perKey` (20 waiting turns per agent and chat), `agent.messaging.maxMessagesPerRoot` (20 agent messages
+  per root turn), `agent.models.retries` (3),
   `agent.maxMediaBytes` (20000000), `agent.persona.maxFileChars`, `agent.persona.maxTotalChars`,
   `agent.conversationDirectory.maxBytes`, `agent.conversationDirectory.keepDays`.
 

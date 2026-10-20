@@ -84,10 +84,11 @@ internal fun initiatedEntry(
     text: String,
     zone: ZoneId,
     carried: List<UserPart> = emptyList(),
-    operator: ChatUser? = null,
+    actor: ChatUser? = null,
+    details: List<String> = emptyList(),
 ): UserEntry {
     val parts = buildList<UserPart> {
-        add(ContextPart(INITIATED_SOURCE, initiatedFraming(plugin, kind, trust, startedAt, zone, operator)))
+        add(ContextPart(INITIATED_SOURCE, initiatedFraming(plugin, kind, trust, startedAt, zone, actor, details)))
         addAll(carried)
         if (text.isNotEmpty()) add(TextPart(Escaper.HEADERS.text(text)))
     }
@@ -95,8 +96,8 @@ internal fun initiatedEntry(
 }
 
 /**
- * Initiated framing v1: which plugin started a turn, as what, whether its prompt is trusted, when, and the operator it
- * runs on behalf of, a line only a mandated turn has.
+ * Initiated framing v1: which plugin started a turn, as what, whether its prompt is trusted, when, the person it runs
+ * on behalf of, a line only a mandated turn or an agent message has, and the [details] of its kind.
  */
 internal fun initiatedFraming(
     plugin: String,
@@ -104,13 +105,17 @@ internal fun initiatedFraming(
     trust: Trust,
     startedAt: Instant,
     zone: ZoneId,
-    operator: ChatUser? = null,
+    actor: ChatUser? = null,
+    details: List<String> = emptyList(),
 ): String = buildString {
     appendLine("[alexandrite:initiated]")
     appendLine("Plugin: ${oneLine(plugin)}")
     appendLine("Kind: ${oneLine(kind.id)}")
     appendLine("Trust: ${if (trust == Trust.TRUSTED) "trusted" else "untrusted"}")
-    operator?.let { appendLine("On behalf of: ${oneLine(it.displayName)} (operator)") }
+    actor?.let {
+        appendLine("On behalf of: ${oneLine(it.displayName)} (${if (it.isOperator) "operator" else "guest"})")
+    }
+    details.forEach { appendLine(oneLine(it)) }
     appendLine("Started: ${TIME.format(startedAt.atZone(zone))}")
     append("[/alexandrite:initiated]")
 }

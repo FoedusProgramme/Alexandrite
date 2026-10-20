@@ -60,7 +60,7 @@ class HelpCommandsTest {
             assertEquals(
                 """
                 Commands you may run in this chat:
-                /cancel — Stops the answers and the jobs that are running in this chat.
+                /cancel — Stops the answer that the chat's agent, or the named one, is giving in this chat.
                 /help — Lists the commands you may run in this chat.
                 /notes — Lists the notes. (only without arguments)
                 """.trimIndent(),
@@ -69,7 +69,7 @@ class HelpCommandsTest {
             assertEquals(
                 """
                 Commands you may run in this chat:
-                /cancel — Stops the answers and the jobs that are running in this chat.
+                /cancel — Stops the answer that the chat's agent, or the named one, is giving in this chat.
                 /help — Lists the commands you may run in this chat.
                 /new — Starts a new conversation with the agent of this chat.
                 /notes — Lists the notes.

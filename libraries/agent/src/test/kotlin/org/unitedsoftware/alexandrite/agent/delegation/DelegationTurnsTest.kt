@@ -80,6 +80,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -948,7 +949,7 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `cancel after the parent completes stops its four background reviews without delivering reports`() {
+    fun `stopping the jobs after the parent completes ends its four background reviews without delivering reports`() {
         readGate = CompletableDeferred()
         model.reply(ROOT) {
             repeat(4) {
@@ -960,7 +961,10 @@ class DelegationTurnsTest {
             ask().ticket.outcome()
             while (read.calls.size < 4) delay(5)
             val control = get<TurnControl>()
-            assertTrue(control.cancel(channel().chat(), channel().user("operator")))
+            val operator = channel().user("operator")
+            assertFalse(control.cancel(channel().chat(), operator))
+            assertEquals(4, control.jobs(channel().chat()).size)
+            control.jobs(channel().chat()).forEach { assertTrue(control.stopJob(channel().chat(), it.id, operator)) }
             while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
             while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
             for (child in runs(REVIEWER).map { it.ids.conversation }.toSet()) {

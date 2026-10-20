@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.sdk.turn
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
@@ -24,9 +25,10 @@ public interface TurnControl {
     public suspend fun turns(chat: ChatAddress? = null): List<TurnStatus>
 
     /**
-     * Cancels the running turns at [chat] and every run they delegated and stops its jobs, leaving queued turns alone.
+     * Cancels the running turn from [chat] of [agent], else of the chat's agent, and every run it delegated, leaving
+     * its jobs and queued turns alone.
      */
-    public fun cancel(chat: ChatAddress, by: ChatUser?): Boolean
+    public fun cancel(chat: ChatAddress, by: ChatUser?, agent: AgentId? = null): Boolean
 
     /** Drops [turn] while it is queued, held or waiting, or cancels it while it runs. */
     public fun cancelTurn(turn: TurnId, by: ChatUser?): Boolean
@@ -34,11 +36,11 @@ public interface TurnControl {
     /** Cancels [run], and the runs it delegated when [tree] is true, or stops it when it is a job. */
     public fun cancelRun(run: RunId, tree: Boolean, by: ChatUser?): Boolean
 
-    /** The jobs that turns at [chat] moved to the background and that still run, oldest first. */
-    public fun jobs(chat: ChatAddress): List<JobStatus>
+    /** The jobs that turns at [chat], or at every chat when it is null, moved to the background and that still run. */
+    public fun jobs(chat: ChatAddress?): List<JobStatus>
 
-    /** Stops the job [job] of [chat], false when [chat] runs no such job. */
-    public fun stopJob(chat: ChatAddress, job: RunId, by: ChatUser?): Boolean
+    /** Stops the job [job] of [chat], or of any chat when it is null, false when no such job runs there. */
+    public fun stopJob(chat: ChatAddress?, job: RunId, by: ChatUser?): Boolean
 }
 
 /** A tool call that runs on in the background after its turn went on. */
@@ -47,6 +49,8 @@ public class JobStatus(
     public val id: RunId,
     /** The chat of the turn that made the call. */
     public val chat: ChatAddress,
+    /** The agent of the turn that made the call. */
+    public val agent: AgentId,
     public val tool: String,
     /** The call's main argument, such as its command line or path, empty when it has none. */
     public val title: String,

@@ -122,7 +122,7 @@ class JobsTest {
             assertTrue(end.result.text().startsWith("[alexandrite:background]"))
             val started = clock.now.minusSeconds(10)
             assertEquals(
-                listOf(JobStatus(id, turn.chat, "fs.slow", "/srv/big", started, turn.actor)),
+                listOf(JobStatus(id, turn.chat, turn.agent, "fs.slow", "/srv/big", started, turn.actor)),
                 jobs.list(turn.chat),
             )
             assertEquals(emptyList(), jobs.list(testChat("other")))

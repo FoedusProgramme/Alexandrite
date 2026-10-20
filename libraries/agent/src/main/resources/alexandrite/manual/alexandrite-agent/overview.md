@@ -54,13 +54,14 @@ A tool call that runs longer than `agent.agents.<id>.foregroundSeconds` (300 s) 
 command.exec and agent.delegate can start one at once with `background: true`. The turn goes on; the job's result comes
 later in a user message with an [alexandrite:job] header and starts a new turn. A chat runs at most
 `agent.maxJobsPerChat` (4) jobs at once. agent.jobs lists them and agent.stop stops one; people use `/jobs` and
-`/cancel`, which stops the running answer and every job of the chat.
+`/jobs stop <id>`, as `/cancel` stops only the running answer.
 
 ## Sub-agents and other agents
 
 agent.delegate hands one task to a sub-agent that runs a profile: a fresh conversation with its own instructions,
 model and tools, whose final reply is all that comes back (see alexandrite-agent/profiles-and-delegation). agent.send
-sends another configured agent an internal message and gets its reply; it grants that agent no authority.
+sends another configured agent a message that it takes for the person your turn acts for; its reply comes later as a
+separate turn of yours whose answer is not posted (see alexandrite-agent/messages).
 
 ## Finding out more
 

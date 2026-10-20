@@ -33,7 +33,7 @@ Relative paths resolve against the agent's workspace. Writes into the conversati
 - chat.send_file [external_action]: send a file to this chat.
 - chat.list [read_only]: the chats chat.send can reach.
 - history.search [read_only]: search the earlier conversations of this chat, or of every chat with scope `all`.
-- agent.send [agent_state]: send another configured agent an internal message and get its reply.
+- agent.send [agent_state]: send another configured agent a message; its reply comes later as a separate turn.
 
 ## Jobs, sub-agents and profiles (alexandrite-agent/profiles-and-delegation)
 

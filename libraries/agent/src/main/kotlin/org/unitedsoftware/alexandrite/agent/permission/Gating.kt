@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -14,7 +15,7 @@ import java.time.Clock
 
 /** Whose authority a turn carries. */
 internal enum class Principal {
-    /** An operator's message turn, the turn of a job that one started, or a sub-agent run under either. */
+    /** An operator's message turn, or the turn of a job, a sub-agent run or an agent message under one. */
     OPERATOR,
 
     /** A turn of any other person. */
@@ -31,6 +32,13 @@ internal enum class Principal {
             else -> GUEST
         }
     }
+}
+
+/** The actor of a turn that [turn] starts for another: its own, an operator only where [turn] is an operator's. */
+internal fun actorBelow(turn: TurnInfo): ChatUser? {
+    val actor = turn.actor ?: return null
+    if (!actor.isOperator || Principal.of(turn) == Principal.OPERATOR) return actor
+    return ChatUser(actor.address, actor.displayName, actor.username, actor.isBot, isOperator = false)
 }
 
 /**
@@ -83,10 +91,12 @@ internal fun strictest(modes: List<PermissionMode>): PermissionMode =
     STRICTNESS[modes.minOfOrNull { STRICTNESS.indexOf(it).coerceAtLeast(0) } ?: STRICTNESS.indexOf(PermissionMode.ASK)]
 
 /**
- * The kinds of turn whose operator actor makes them an operator's. A sub-agent run carries an operator actor only under
- * an operator's root turn, a reminder and its jobs and runs only under its operator's mandate while untainted.
+ * The kinds of turn whose operator actor makes them an operator's. A sub-agent run or an agent message carries an
+ * operator actor only under an operator's root turn, a reminder and its jobs and runs only under its operator's mandate
+ * while untainted.
  */
-private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED, TurnKind.REMINDER)
+private val OPERATOR_KINDS =
+    setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED, TurnKind.REMINDER, TurnKind.AGENT_MESSAGE)
 
 private val STRICTNESS = listOf(
     PermissionMode.PLAN,

@@ -96,7 +96,7 @@ class CommandsPluginTest {
     }
 
     private companion object {
-        val NO_ARGUMENTS = setOf("cancel", "context", "help", "new", "profiles", "settings")
+        val NO_ARGUMENTS = setOf("context", "help", "new", "profiles", "settings")
 
         val COMMANDS = listOf(
             "agent",

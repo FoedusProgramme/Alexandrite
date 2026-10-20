@@ -273,6 +273,7 @@ class SubclassOptInTest {
             override fun cancel(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+                agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?,
             ) = TODO()
             override fun cancelTurn(
                 turn: org.unitedsoftware.alexandrite.sdk.chat.TurnId,
@@ -283,9 +284,9 @@ class SubclassOptInTest {
                 tree: Boolean,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
-            override fun jobs(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override fun jobs(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress?) = TODO()
             override fun stopJob(
-                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress?,
                 job: org.unitedsoftware.alexandrite.sdk.chat.RunId,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()

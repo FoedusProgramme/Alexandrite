@@ -17,7 +17,7 @@ import org.unitedsoftware.alexandrite.agent.job.Detached
 import org.unitedsoftware.alexandrite.agent.job.JobInboxes
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.messaging.MessageBudget
-import org.unitedsoftware.alexandrite.agent.permission.Principal
+import org.unitedsoftware.alexandrite.agent.permission.actorBelow
 import org.unitedsoftware.alexandrite.agent.profile.Profiles
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
@@ -39,7 +39,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.DelegatedRun
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
@@ -403,13 +402,6 @@ private fun chain(parent: DelegatingTurn, profile: AgentProfile, task: String): 
         above?.modes.orEmpty() + listOfNotNull(profile.mode),
         above?.tasks.orEmpty() + DelegatedTask(agents[agents.size - 2], profile.id, task),
     )
-}
-
-/** The actor of a run below [turn]: its own, an operator only where [turn] is an operator's. */
-private fun actorBelow(turn: TurnInfo): ChatUser? {
-    val actor = turn.actor ?: return null
-    if (!actor.isOperator || Principal.of(turn) == Principal.OPERATOR) return actor
-    return ChatUser(actor.address, actor.displayName, actor.username, actor.isBot, isOperator = false)
 }
 
 private val logger = LoggerFactory.getLogger(Delegator::class.java)

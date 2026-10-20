@@ -118,7 +118,7 @@ class TurnWorkersTest {
     }
 
     @Test
-    fun `linked chats share one worker and a cancel stops only the turns that came from its chat`() = runTest {
+    fun `linked chats share one worker and a cancel stops only its agent's turns that came from its chat`() = runTest {
         val bench = bench()
         val anchor = bench.receive("test:main:7")
         val member = bench.receive("test:main:8")
@@ -129,11 +129,13 @@ class TurnWorkersTest {
         assertEquals(listOf(member.turn to TurnPhase.QUEUED), bench.phases("test:main:8"))
         assertEquals(ChatAddress.parse("test:main:8"), bench.workers.statuses(null)[1].turn.chat)
 
-        assertFalse(bench.workers.cancelRunning(ChatAddress.parse("test:main:8"), TurnCancelled(null)))
+        assertFalse(bench.workers.cancelRunning(ChatAddress.parse("test:main:8"), CODER, TurnCancelled(null)))
+        val other = AgentId("other")
+        assertFalse(bench.workers.cancelRunning(ChatAddress.parse("test:main:7"), other, TurnCancelled(null)))
         runCurrent()
         assertFalse(anchor.ticket.ended)
 
-        assertTrue(bench.workers.cancelRunning(ChatAddress.parse("test:main:7"), TurnCancelled(null)))
+        assertTrue(bench.workers.cancelRunning(ChatAddress.parse("test:main:7"), CODER, TurnCancelled(null)))
         runCurrent()
 
         assertEquals(TurnOutcome.Cancelled, anchor.ticket.outcome())
@@ -529,3 +531,5 @@ class TurnWorkersTest {
 
 /** An error that the barriers let through. */
 private class FatalError : VirtualMachineError("Fatal.")
+
+private val CODER = AgentId("coder")

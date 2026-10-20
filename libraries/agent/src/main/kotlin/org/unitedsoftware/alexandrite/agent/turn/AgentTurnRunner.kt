@@ -439,6 +439,7 @@ internal class AgentTurnRunner(
             mandated = when (input) {
                 is TurnSource.FromJob -> input.job.job.mandated
                 is TurnSource.FromDelegation -> input.delegation.parent.mandated
+                is TurnSource.FromAgentMessage -> input.message.mandated
                 else -> false
             }
             val actor = when {
@@ -601,11 +602,13 @@ internal class AgentTurnRunner(
                 initiatedEntry(
                     "alexandrite-agent",
                     turn.kind,
-                    Trust.UNTRUSTED,
+                    input.message.trust,
                     plan.queuedAt,
-                    "Agent ${input.message.sender.agent}:\n$text",
+                    text,
                     turn.zone ?: clock.zone,
                     baked,
+                    turn.actor,
+                    input.message.framing,
                 )
             }
 

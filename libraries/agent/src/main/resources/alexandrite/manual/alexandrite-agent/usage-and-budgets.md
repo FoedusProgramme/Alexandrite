@@ -20,7 +20,7 @@ and/or `money` (US dollars), counted in the agent's zone. A money budget needs a
 
 At 80 % and at 100 % of a period's budget the agent's home chat, else the chat at hand, gets a notice once. Once a
 budget is spent, until the period ends, the agent answers only operators' messages: scheduled tasks, heartbeats,
-background work and the messages of other people are refused, and a job's result is held for the next turn that runs.
+background work, other agents' messages and the messages of other people are refused, and a job's result is held for the next turn that runs.
 
 ## Limits of one turn
 

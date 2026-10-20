@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.delivery
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -10,6 +11,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.messaging.MessageBudget
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
@@ -223,7 +225,8 @@ internal class ChatSendTool(
         val turn = context.turn
         val request = requested(arguments, turn)
         val chat = request.target.chat
-        val root = turn.lineage?.rootTurn ?: turn.id
+        val top = turn.lineage?.rootTurn ?: turn.id
+        val root = currentCoroutineContext()[MessageBudget]?.root(top) ?: top
         synchronized(counts) {
             val count = counts[root] ?: 0
             if (count >= MAX_SENDS) throw ToolRefusal("This turn sent $MAX_SENDS messages already, the most it may.")

@@ -70,7 +70,7 @@ class TelegramChatTest {
             app.send(app.ada, app.adaChat, "Summarize the whole repository.")
             app.messages(app.adaChat, 1)
             app.send(app.ada, app.adaChat, "/cancel")
-            app.message(app.adaChat, "The answers and the jobs that were running in this chat are stopped.")
+            app.message(app.adaChat, CANCELLED)
             idle()
             app.send(app.ada, app.adaChat, "Are you there?")
             app.message(app.adaChat, "Still here.")
@@ -80,7 +80,7 @@ class TelegramChatTest {
         assertEquals(
             listOf(
                 "Reading every file of the repository first." to 0,
-                "The answers and the jobs that were running in this chat are stopped." to 0,
+                CANCELLED to 0,
                 "Still here." to 0,
             ),
             app.fake.botMessages(ADA).map { it.text to it.edits },
@@ -192,3 +192,6 @@ class TelegramChatTest {
         assertEquals(config, Files.readString(configFile))
     }
 }
+
+private const val CANCELLED = "The answer that was running in this chat is stopped. Messages that were waiting are " +
+    "answered next, and background jobs go on (stop one with /jobs stop <id>)."

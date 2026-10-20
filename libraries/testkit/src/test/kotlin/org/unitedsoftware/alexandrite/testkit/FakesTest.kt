@@ -134,7 +134,7 @@ class FakesTest {
         val operator = testUser("ada", isOperator = true)
         val running = TurnStatus.builder(testTurn(), TurnPhase.RUNNING, TEST_TIME).startedAt(TEST_TIME).build()
         val delegated = TurnStatus.builder(testDelegatedTurn(), TurnPhase.QUEUED, TEST_TIME).build()
-        val job = JobStatus(RunId("j-1"), chat, "command.exec", "./gradlew test", TEST_TIME, operator)
+        val job = JobStatus(RunId("j-1"), chat, AgentId.MAIN, "command.exec", "./gradlew test", TEST_TIME, operator)
         control.statuses = listOf(running, delegated)
         control.jobStatuses = listOf(job)
 

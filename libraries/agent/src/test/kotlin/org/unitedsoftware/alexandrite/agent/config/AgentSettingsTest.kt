@@ -284,6 +284,7 @@ class AgentSettingsTest {
             """{"queue": {"perKey": 0}}""" to "queue.perKey must be positive",
             """{"queue": {"commandsPerChat": 0}}""" to "queue.commandsPerChat must be positive",
             """{"queue": {"commandGateSeconds": 0}}""" to "queue.commandGateSeconds must be positive",
+            """{"messaging": {"maxMessagesPerRoot": 0}}""" to "messaging.maxMessagesPerRoot must be positive",
             """{"shutdown": {"turnGraceSeconds": -1}}""" to "shutdown.turnGraceSeconds may not be negative",
             """{"shutdown": {"cancelJoinSeconds": -1}}""" to "shutdown.cancelJoinSeconds may not be negative",
             """{"models": {"retries": -1}}""" to "models.retries may not be negative",

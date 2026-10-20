@@ -52,17 +52,13 @@ class ConversationCommandsTest {
     // /cancel.
 
     @Test
-    fun `cancel cancels every running turn from the chat on behalf of the issuer, whoever it is`() = runTest {
+    fun `cancel stops the running answer on behalf of the issuer, whoever it is`() = runTest {
         control.statuses = listOf(running(testTurn(TurnKind.MESSAGE, chat) { actor(testUser("other")) }))
+        val done = "The answer that was running in this chat is stopped. Messages that were waiting are answered " +
+            "next, and background jobs go on (stop one with /jobs stop <id>)."
 
-        assertEquals(
-            "The answers and the jobs that were running in this chat are stopped.",
-            commands.answer(testCommand("cancel", issuer = GUEST)),
-        )
-        assertEquals(
-            "The answers and the jobs that were running in this chat are stopped.",
-            commands.answer(testCommand("cancel", issuer = OPERATOR)),
-        )
+        assertEquals(done, commands.answer(testCommand("cancel", issuer = GUEST)))
+        assertEquals(done, commands.answer(testCommand("cancel", issuer = OPERATOR)))
         assertEquals(listOf(Call.Cancel(chat, GUEST), Call.Cancel(chat, OPERATOR)), control.calls)
     }
 
@@ -74,8 +70,31 @@ class ConversationCommandsTest {
 
         val reply = commands.answer(testCommand("cancel", issuer = GUEST))
 
-        assertEquals("Nothing is running in this chat.", reply)
+        assertEquals("No answer is running in this chat.", reply)
         assertEquals(listOf(Call.Cancel(chat, GUEST)), control.calls)
+    }
+
+    @Test
+    fun `cancel with an agent stops only that agent's answer`() = runTest {
+        val reviewer = AgentId("reviewer")
+        control.statuses = listOf(running(testTurn(TurnKind.AGENT_MESSAGE, chat) { agent(reviewer) }))
+
+        assertEquals(
+            "The answer that reviewer was giving in this chat is stopped. Messages waiting for it are answered next.",
+            commands.answer(testCommand("cancel", "reviewer", issuer = OPERATOR)),
+        )
+        assertEquals(
+            "main is not answering anything in this chat.",
+            commands.answer(testCommand("cancel", "main", issuer = OPERATOR)),
+        )
+        assertEquals(
+            "Send /cancel to stop the answer running in this chat, or /cancel <id> to stop that agent's.",
+            commands.answer(testCommand("cancel", "main reviewer", issuer = OPERATOR)),
+        )
+        assertEquals(
+            listOf(Call.Cancel(chat, OPERATOR, reviewer), Call.Cancel(chat, OPERATOR, AgentId.MAIN)),
+            control.calls,
+        )
     }
 
     private fun running(turn: TurnInfo): TurnStatus =

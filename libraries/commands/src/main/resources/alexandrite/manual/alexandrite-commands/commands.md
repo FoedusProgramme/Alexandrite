@@ -12,8 +12,10 @@ arguments. A bot's `commands` config can change the rules (see alexandrite-chann
 ## Conversation
 
 - `/new` — start a new conversation with this chat's agent; unlinked direct.
-- `/cancel` — stop the answers and the jobs running in this chat; direct.
-- `/jobs` — list the jobs running in this chat; `/jobs stop <id>` stops one; anyone, then admins.
+- `/cancel` — stop the answer that this chat's agent is giving here, `/cancel <id>` that of agent `<id>`; waiting
+  messages are answered next and jobs go on; direct.
+- `/jobs` — list the jobs running in this chat, each with its agent; `/jobs all` lists those of every chat, only in a
+  direct chat; `/jobs stop <id>` stops one, of any chat for an operator; anyone, then admins.
 - `/compact` — fold the older part of the conversation into its summary; `/compact <focus>` names what it should keep
   in view; unlinked direct.
 - `/context` — how much of the model's context the conversation takes; anyone.
