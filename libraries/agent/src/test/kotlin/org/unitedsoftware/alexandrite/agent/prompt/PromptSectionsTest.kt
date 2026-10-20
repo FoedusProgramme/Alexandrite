@@ -14,7 +14,7 @@ class PromptSectionsTest {
     fun `the base section keeps its bytes`() {
         assertEquals(
             PromptSection("alexandrite.base", golden("alexandrite.base.txt"), stable = true),
-            baseSection("Coder"),
+            baseSection("Coder", "1.2.3"),
         )
     }
 

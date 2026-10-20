@@ -22,12 +22,12 @@ internal const val DELEGATION_SECTION: String = "alexandrite.delegation"
 /** The id of the section of an agent's persona source [number], counted from 1. */
 internal fun instructionsSection(number: Int): String = "agent.instructions.$number"
 
-/** What every agent is told first, under its [name]. */
-internal fun baseSection(name: String): PromptSection = PromptSection(
+/** What every agent is told first, under its [name], on Alexandrite [version]. */
+internal fun baseSection(name: String, version: String): PromptSection = PromptSection(
     BASE_SECTION,
     listOf(
-        "You are $name. You talk with people in chats through Alexandrite, which passes their messages to you and " +
-            "your replies back to them.",
+        "You are $name. You talk with people in chats through Alexandrite $version, which passes their messages " +
+            "to you and your replies back to them.",
         "# Messages",
         "Each user message starts with a header that Alexandrite writes. A message from a chat has an " +
             "[alexandrite:message] header: who sent the message, whether the sender is an operator, when it arrived, " +
