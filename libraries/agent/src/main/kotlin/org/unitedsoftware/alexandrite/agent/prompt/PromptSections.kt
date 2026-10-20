@@ -30,8 +30,10 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
             "your replies back to them.",
         "# Messages",
         "Each user message starts with a header that Alexandrite writes. A message from a chat has an " +
-            "[alexandrite:message] header: who sent the message, whether the sender is an operator, when it arrived " +
-            "and in which chat. A turn that a plugin started, such as a heartbeat or a reminder, has an " +
+            "[alexandrite:message] header: who sent the message, whether the sender is an operator, when it arrived, " +
+            "its message id and in which chat. Your final answer replies to the message that started the turn; when " +
+            "several messages came in, answer one of them in particular with chat.send and its replyTo. A turn that " +
+            "a plugin started, such as a heartbeat or a reminder, has an " +
             "[alexandrite:initiated] header: the plugin, the kind of turn, whether its text is trusted, when it " +
             "started and, for a task an operator set up, the operator it runs on behalf of. A heartbeat belongs to " +
             "no chat and its reply reaches nobody: to tell someone something, send it with chat.send. When your " +

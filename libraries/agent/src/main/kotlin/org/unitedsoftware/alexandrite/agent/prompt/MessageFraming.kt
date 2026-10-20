@@ -43,7 +43,10 @@ internal fun messageEntry(
     return UserEntry(null, parts, origin)
 }
 
-/** Message framing v1: who sent [message], when and where, naming the chat's instance where it is [linked]. */
+/**
+ * Message framing v1: who sent [message], when, which message it is and where, naming the chat's instance where it is
+ * [linked].
+ */
 internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Boolean): String = buildString {
     val sender = message.sender
     appendLine("[alexandrite:message]")
@@ -52,6 +55,7 @@ internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Bool
     appendLine()
     appendLine("Operator: ${if (sender.isOperator) "yes" else "no"}")
     appendLine("Received: ${TIME.format(message.receivedAt.atZone(zone))}")
+    appendLine("Message: ${oneLine(message.ref.id)}")
     append("Chat: ").append(message.chatInfo.kind)
     message.chatInfo.title?.let { append(" \"").append(oneLine(it)).append('"') }
     if (linked) append(" on ").append(message.chat.instance)
@@ -59,7 +63,9 @@ internal fun messageFraming(message: IncomingMessage, zone: ZoneId, linked: Bool
     message.forwarded?.let { appendLine("Forwarded from: ${oneLine(it.name ?: UNKNOWN)} (${it.kind})") }
     message.quote?.let { quote ->
         val trust = if (quote.trust.live) "verified" else "unverified"
-        appendLine("Quoting: ${oneLine(quote.senderName ?: UNKNOWN)} ($trust)")
+        val target = quote.target?.takeIf { !quote.external && it.chat == message.chat }
+        val which = target?.let { ", message ${oneLine(it.id)}" }.orEmpty()
+        appendLine("Quoting: ${oneLine(quote.senderName ?: UNKNOWN)} ($trust$which)")
         lines(quote.text).forEach { appendLine(if (it.isEmpty()) ">" else "> $it") }
     }
     message.facts.forEach { appendLine("${factLabel(it.label)}: ${oneLine(it.value)}") }
@@ -181,11 +187,12 @@ private const val UNKNOWN = "unknown"
 private const val MAX_NAME_CHARS = 200
 
 /** The fields of message framing v1, as a label shows them without its invisible characters. */
-private val FRAMING_FIELDS = setOf("from", "operator", "received", "chat", "forwardedfrom", "quoting")
+private val FRAMING_FIELDS = setOf("from", "operator", "received", "message", "chat", "forwardedfrom", "quoting")
 
 private val INVISIBLE_RUN = Regex("$INVISIBLE+")
 
 /** A colon and the characters that look like one. */
 private val COLON = Regex("[:\\u02F8\\u05C3\\u2236\\uA789\\uFE13\\uFE55\\uFF1A]")
 
-private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mmXXX", Locale.ROOT)
+/** A time with its weekday, which models get wrong when they work it out themselves. */
+private val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mmXXX (EEEE)", Locale.ENGLISH)

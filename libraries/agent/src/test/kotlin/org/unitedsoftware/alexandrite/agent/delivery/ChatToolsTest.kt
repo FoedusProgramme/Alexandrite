@@ -11,7 +11,9 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
+import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
@@ -176,6 +178,22 @@ class ChatToolsTest {
     }
 
     @Test
+    fun `a message answers one of its own chat's with replyTo, after which a blank answer ends the turn quietly`() {
+        model.reply { toolCall("chat.send", """{"to": "here", "replyTo": "in-1", "text": "To that one."}""") }
+            .reply { reasoning("Answered.") }
+
+        harness().execute {
+            val admission = channel().receive("Go.", channel().chat("chat"), channel().user("operator"))
+            val ticket = assertIs<Admission.Accepted>(admission).ticket
+
+            assertIs<AssistantEntry>(assertIs<TurnOutcome.Completed>(ticket.outcome()).reply)
+            val sent = channel().sent.single()
+            assertEquals(channel().chat("chat") to "in-1", sent.chat to sent.message.replyTo?.id)
+            assertTrue(store.transcripts.turnEntries(ticket.turn).none { it is NoticeEntry })
+        }
+    }
+
+    @Test
     fun `chats are listed homes first, and a chat the agent does not serve or its own reply's chat is refused`() {
         model.reply { toolCall("chat.list", "{}") }
             .reply { toolCall("chat.send", """{"to": "test:main:stranger", "text": "Hi."}""") }
@@ -190,7 +208,8 @@ class ChatToolsTest {
                     "The chats you can send to:\n- test:main:home (home)\n- test:main:chat (this chat)",
                     "You cannot send to test:main:stranger: send only to a chat you serve, such as test:main:home, " +
                         "test:main:chat.",
-                    "Your reply already reaches test:main:chat: say it there instead.",
+                    "Your reply already reaches test:main:chat: say it there instead, or give 'replyTo' to answer a " +
+                        "particular message.",
                 ),
                 results("chat"),
             )

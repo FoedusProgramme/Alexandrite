@@ -262,7 +262,7 @@ internal class MemberTool(desks: TelegramDesks) : TelegramTool(desks) {
 }
 
 private const val MESSAGE = "Which message: \"$THIS\" (the message you answer), \"$QUOTED\" (the message it " +
-    "replies to), or a message id a tool gave."
+    "replies to), or a message id: a message's Message line, or one a tool gave."
 
 private const val MAX_TITLE = 128
 

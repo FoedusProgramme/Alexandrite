@@ -122,6 +122,7 @@ class TelegramPermissionTest {
             .reply { text("It ran.") }
             .reply { text("It did.") }
         lateinit var asked: FakeBotMessage
+        lateinit var noted: FakeBotMessage
         var afterRequest: ConversationTaint? = null
         var afterAnswer: ConversationTaint? = null
 
@@ -129,7 +130,7 @@ class TelegramPermissionTest {
             app.send(app.ada, app.adaChat, "Note that I need milk.")
             asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             app.fake.press(app.ada, asked, "Allow")
-            val noted = app.message(app.adaChat, "Noted.")
+            noted = app.message(app.adaChat, "Noted.")
             idle()
             val conversation = get<ConversationStore>().current(app.key(app.adaChat)).id
             app.fake.send(app.ada, app.adaChat, "Did it run?", replyTo = asked.id)
@@ -145,11 +146,14 @@ class TelegramPermissionTest {
         val id = Regex("#([a-z0-9]+)").find(asked.text)!!.groupValues[1]
         assertContains(
             framing("Did it run?"),
-            "\nQuoting: Alexandrite Test Bot (verified)\n" +
+            "\nQuoting: Alexandrite Test Bot (verified, message ${asked.id})\n" +
                 "> Alexandrite's approval request $id for notes.write (allowed by Ada Lovelace (@ada_test))\n",
         )
         assertNull(afterRequest)
-        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (verified)\n> Noted.\n")
+        assertContains(
+            framing("Really?"),
+            "\nQuoting: Alexandrite Test Bot (verified, message ${noted.id})\n> Noted.\n",
+        )
         assertNull(afterAnswer)
     }
 
@@ -214,7 +218,7 @@ class TelegramPermissionTest {
             assertEquals(1, unasked)
         }
 
-        assertTrue(always.startsWith("Always allow ") && always.endsWith("/gradlew test"), always)
+        assertTrue(always.startsWith("Always allow and trust folder ") && always.endsWith("/first"), always)
         val results = app.model.requests.map { it.history.last() }.filterIsInstance<ToolResultEntry>()
         assertEquals(
             listOf(ToolOutcome.Succeeded, ToolOutcome.Succeeded, NotRunReason.DENIED, NotRunReason.DENIED),
@@ -232,7 +236,7 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `allow and trust trusts the folder of a local program for good, allow and mark taints`() {
+    fun `always allow and trust trusts the folder of a local program for good, allow and mark taints`() {
         val folder = script("first")
         val other = script("second")
         app.model
@@ -240,7 +244,6 @@ class TelegramPermissionTest {
             .reply { toolCall("command.exec", gradle("test", folder)) }.reply { text("Tested again.") }
             .reply { toolCall("command.exec", gradle("test", other)) }.reply { text("Tested there.") }
         lateinit var buttons: List<List<String>>
-        lateinit var plain: List<List<String>>
         lateinit var answered: String
         var trusted: ConversationTaint? = null
         var again: ConversationTaint? = null
@@ -252,15 +255,12 @@ class TelegramPermissionTest {
             app.send(app.ada, app.adaChat, "Run the tests.")
             val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             buttons = asked.buttons.map { row -> row.map { it.text } }
-            press { it.startsWith("Allow and trust") }
+            press { it.startsWith("Always allow and trust") }
             app.message(app.adaChat, "Tested.")
             idle()
             answered = app.fake.botMessage(ADA, asked.id)!!.text
             trusted = taint()
             app.send(app.ada, app.adaChat, "Run them again.")
-            val second = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
-            plain = second.buttons.map { row -> row.map { it.text } }
-            press { it == "Allow" }
             app.message(app.adaChat, "Tested again.")
             idle()
             again = taint()
@@ -273,9 +273,9 @@ class TelegramPermissionTest {
 
         assertEquals(listOf("Allow, mark tainted", "Deny"), buttons.first())
         val trust = buttons[1].single()
-        assertTrue(trust.startsWith("Allow and trust folder ") && trust.endsWith("/first"), trust)
-        assertTrue(answered.substringAfterLast("\n").startsWith("Allowed by Ada Lovelace (@ada_test), who trusted "))
-        assertEquals(listOf(listOf("Allow", "Deny")), plain.take(1))
+        assertTrue(trust.startsWith("Always allow and trust folder ") && trust.endsWith("/first"), trust)
+        assertContains(answered.substringAfterLast("\n"), "Allowed by Ada Lovelace (@ada_test), from now on also ")
+        assertContains(answered.substringAfterLast("\n"), ", who trusted ")
         assertNull(trusted)
         assertNull(again)
         assertContains(marked?.reason.orEmpty(), other.toString())

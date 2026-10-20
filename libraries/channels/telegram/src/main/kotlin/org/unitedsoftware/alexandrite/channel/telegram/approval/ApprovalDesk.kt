@@ -184,7 +184,7 @@ internal class ApprovalDesk(
         lines += Line(text(TextKeys.APPROVAL_TOOL, language, "tool" to request.tool, "risk" to risk))
         val (introduction, body) = preview(request, language)
         lines += introduction
-        if (request.alwaysRules.size > 1) {
+        if (request.alwaysRules.size > 1 || (trustable(request) && request.alwaysRules.isNotEmpty())) {
             lines += Line(text(TextKeys.APPROVAL_ALWAYS_RULES, language, "rules" to rules(request)))
         }
         val count = body.trimEnd().lines().size
@@ -354,24 +354,39 @@ internal class ApprovalDesk(
         is Question.Offer -> keyboard(question.offer, language)
     }
 
-    /** Allow and deny first, then allow and trust where the call would taint and roots are offered, then always. */
+    /**
+     * Allow and deny first, then one button that allows for good, trusts the roots or does both: trusting where the
+     * call would taint and roots are offered, allowing for good where the request offers it.
+     */
     private fun keyboard(request: ApprovalRequest, language: LanguageTag?): InlineKeyboardMarkup {
         val allowKey = if (request.taints) TextKeys.APPROVAL_ALLOW_MARK else TextKeys.APPROVAL_ALLOW
         val allow = InlineKeyboardButton(text(allowKey, language), "$PREFIX${request.id}:$ALLOW")
         val deny = InlineKeyboardButton(text(TextKeys.APPROVAL_DENY, language), "$PREFIX${request.id}:$DENY")
-        val trust = request.roots.takeIf { request.taints && it.isNotEmpty() }?.let { roots ->
-            val label = if (roots.size == 1) {
-                text(TextKeys.APPROVAL_ALLOW_TRUST_ROOT, language, "root" to label(roots.single(), language))
-            } else {
-                text(TextKeys.APPROVAL_ALLOW_TRUST_ALL, language, "count" to roots.size)
+        val roots = request.roots.takeIf { trustable(request) }.orEmpty()
+        val always = request.always != null
+        val more = when {
+            roots.isNotEmpty() -> {
+                val (one, all) = if (always) {
+                    TextKeys.APPROVAL_ALWAYS_TRUST_ROOT to TextKeys.APPROVAL_ALWAYS_TRUST_ALL
+                } else {
+                    TextKeys.APPROVAL_ALLOW_TRUST_ROOT to TextKeys.APPROVAL_ALLOW_TRUST_ALL
+                }
+                val label = if (roots.size == 1) {
+                    text(one, language, "root" to label(roots.single(), language))
+                } else {
+                    text(all, language, "count" to roots.size)
+                }
+                InlineKeyboardButton(label, "$PREFIX${request.id}:${if (always) ALWAYS_TRUST else TRUST}")
             }
-            InlineKeyboardButton(label, "$PREFIX${request.id}:$TRUST")
+
+            always -> {
+                val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
+                InlineKeyboardButton(label, "$PREFIX${request.id}:$ALWAYS")
+            }
+
+            else -> null
         }
-        val always = request.always?.let {
-            val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
-            InlineKeyboardButton(label, "$PREFIX${request.id}:$ALWAYS")
-        }
-        return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), trust?.let(::listOf), always?.let(::listOf)))
+        return InlineKeyboardMarkup(listOfNotNull(listOf(allow, deny), more?.let(::listOf)))
     }
 
     /** Keeping first, then trusting. */
@@ -441,10 +456,11 @@ internal class ApprovalDesk(
 
                 ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null)
 
-                TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf {
-                    request.taints &&
-                        request.roots.isNotEmpty()
-                }
+                TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf { trustable(request) }
+
+                ALWAYS_TRUST ->
+                    ApprovalAnswer.Allowed(presser, always = request.always != null, trust = true)
+                        .takeIf { trustable(request) }
 
                 else -> null
             }
@@ -517,10 +533,19 @@ internal class ApprovalDesk(
             is ApprovalAnswer.Allowed -> {
                 val rule = request.always?.takeIf { answer.always }?.let { ending(rules(request)) }
                 val name = named(answer.by)
+                val trusted = answer.trust && trustable(request)
                 when {
+                    rule != null && trusted -> text(
+                        TextKeys.APPROVAL_ALLOWED_ALWAYS_TRUSTED,
+                        language,
+                        "name" to name,
+                        "rule" to rule,
+                        "roots" to listed(request.roots),
+                    )
+
                     rule != null -> text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to name, "rule" to rule)
 
-                    answer.trust && request.taints && request.roots.isNotEmpty() ->
+                    trusted ->
                         text(
                             TextKeys.APPROVAL_ALLOWED_TRUSTED,
                             language,
@@ -636,6 +661,7 @@ internal class ApprovalDesk(
             override fun state(question: Question): String = when (answer) {
                 is ApprovalAnswer.Allowed -> when {
                     question is Question.Offer -> "trusted by "
+                    answer.always && answer.trust -> "allowed for good and trusted by "
                     answer.always -> "allowed for good by "
                     answer.trust -> "allowed and trusted by "
                     else -> "allowed by "
@@ -663,15 +689,19 @@ internal class ApprovalDesk(
         }
     }
 
+    /** Whether [request] offers to trust its roots: it would taint, and offers some. */
+    private fun trustable(request: ApprovalRequest): Boolean = request.taints && request.roots.isNotEmpty()
+
     private companion object {
         const val PREFIX = "apv:"
         const val OFFER_PREFIX = "tro:"
         const val ALLOW = "a"
         const val ALWAYS = "A"
         const val TRUST = "t"
+        const val ALWAYS_TRUST = "T"
         const val DENY = "d"
         const val KEEP = "k"
-        val PRESS = Regex("(apv:|tro:)([A-Za-z0-9_-]{1,32}):([aAtdk])")
+        val PRESS = Regex("(apv:|tro:)([A-Za-z0-9_-]{1,32}):([aAtTdk])")
 
         val UNREACHABLE = ApprovalAnswer.Unavailable("no administrator can be reached")
         val TOO_LARGE = ApprovalAnswer.Unavailable("too large to review")

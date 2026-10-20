@@ -31,6 +31,7 @@ import org.unitedsoftware.alexandrite.agent.delegation.Delegation
 import org.unitedsoftware.alexandrite.agent.delegation.MAX_DEPTH
 import org.unitedsoftware.alexandrite.agent.delegation.delegationEntry
 import org.unitedsoftware.alexandrite.agent.delegation.delegator
+import org.unitedsoftware.alexandrite.agent.delivery.ChatReplies
 import org.unitedsoftware.alexandrite.agent.delivery.Notices
 import org.unitedsoftware.alexandrite.agent.delivery.ReplyStream
 import org.unitedsoftware.alexandrite.agent.delivery.Routes
@@ -203,6 +204,7 @@ internal class AgentTurnRunner(
     private val jobs: Jobs,
     private val interruptedJobs: InterruptedJobs,
     private val sentMessages: SentMessages,
+    private val chatReplies: ChatReplies,
     private val mandates: Mandates,
     private val projects: ProjectInstructions,
     private val taints: ConversationTaints,
@@ -811,7 +813,8 @@ internal class AgentTurnRunner(
                 val finish = response.finish.kind
                 val paused = finish == FinishKind.PAUSED && calls.isEmpty() && pauses < MAX_PAUSES
                 val first = pending.isNotEmpty()
-                val retries = retried < round && turn.kind !in SILENT_KINDS
+                val quiet = turn.kind in SILENT_KINDS || chatReplies.answered(turn.id)
+                val retries = retried < round && !quiet
                 when {
                     finish == FinishKind.CONTEXT_WINDOW_EXCEEDED -> return windowFull(parts.model)
 
@@ -835,8 +838,7 @@ internal class AgentTurnRunner(
                         continue
                     }
 
-                    message.blank && turn.kind !in SILENT_KINDS ->
-                        return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
+                    message.blank && !quiet -> return unanswered(first, NoticeKind.BLANK_REPLY, TextKeys.BLANK_REPLY)
                 }
                 val reply = withContext(NonCancellable) {
                     val entries = append(*(pending + message).toTypedArray())
@@ -1238,7 +1240,8 @@ internal class AgentTurnRunner(
         private suspend fun answer(reply: AssistantEntry, after: Pair<NoticeKind, String>?): TurnOutcome {
             val turn = checkNotNull(turn)
             val text = visibleText(reply)
-            if (text.isBlank() && turn.kind in SILENT_KINDS && after == null) {
+            val quiet = turn.kind in SILENT_KINDS || chatReplies.answered(turn.id)
+            if (text.isBlank() && quiet && after == null) {
                 return end(TurnOutcome.Completed(reply), TurnEndKind.COMPLETED)
             }
             if (text.isEmpty()) {

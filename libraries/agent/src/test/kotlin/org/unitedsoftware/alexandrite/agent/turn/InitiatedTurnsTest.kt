@@ -123,7 +123,7 @@ class InitiatedTurnsTest {
     /** The framing of a turn that `beat` started as [kind], whatever its start. */
     private fun framing(kind: TurnKind, trust: String): Regex = Regex(
         Regex.escape("[alexandrite:initiated]\nPlugin: beat\nKind: $kind\nTrust: $trust\nStarted: ") +
-            "\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\dZ" + Regex.escape("\n[/alexandrite:initiated]"),
+            "\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\dZ \\([A-Z][a-z]+day\\)" + Regex.escape("\n[/alexandrite:initiated]"),
     )
 
     /** Asserts that [entry] is the opening entry of a turn that `beat` started as [kind] with [prompt]. */

@@ -140,6 +140,12 @@ internal object TextKeys {
     /** Takes `{count}`. */
     const val APPROVAL_ALLOW_TRUST_ALL: String = "approval.allow_trust_all"
 
+    /** Takes `{root}`. */
+    const val APPROVAL_ALWAYS_TRUST_ROOT: String = "approval.always_trust_root"
+
+    /** Takes `{count}`. */
+    const val APPROVAL_ALWAYS_TRUST_ALL: String = "approval.always_trust_all"
+
     /** Takes `{rule}`. */
     const val APPROVAL_ALWAYS: String = "approval.always"
 
@@ -153,6 +159,9 @@ internal object TextKeys {
 
     /** Takes `{name}` and `{roots}`. */
     const val APPROVAL_ALLOWED_TRUSTED: String = "approval.allowed_trusted"
+
+    /** Takes `{name}`, `{rule}` and `{roots}`. */
+    const val APPROVAL_ALLOWED_ALWAYS_TRUSTED: String = "approval.allowed_always_trusted"
 
     /** Takes `{name}`. */
     const val APPROVAL_ALLOWED_MARKED: String = "approval.allowed_marked"

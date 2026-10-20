@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.agent.tool.text
+import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
@@ -23,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.Markup
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
@@ -115,6 +117,17 @@ internal class ChatTargets(
     }
 }
 
+/** The turns that answered a message of their own chat with `chat.send`, for whom a blank final answer is no failure. */
+@Singleton
+internal class ChatReplies {
+    private val turns = BoundedMap<TurnId, Unit>(KEPT_TURNS)
+
+    fun add(turn: TurnId): Unit = synchronized(turns) { turns[turn] = Unit }
+
+    /** Whether [turn] answered a message of its own chat with `chat.send`. */
+    fun answered(turn: TurnId): Boolean = synchronized(turns) { turn in turns }
+}
+
 /** Lists the chats that `chat.send` reaches. */
 @Singleton
 @Contribute(Tool::class)
@@ -159,6 +172,7 @@ internal class ChatSendTool(
     private val conversations: ConversationStore,
     private val channels: ChannelDirectory,
     private val sent: SentMessages,
+    private val replies: ChatReplies,
     private val clock: Clock,
 ) : ReviewedTool,
     CompanionTool {
@@ -166,13 +180,20 @@ internal class ChatSendTool(
         name = "chat.send",
         description = "Sends a message to one of your chats, on any channel: 'home' for your home chat, or a chat " +
             "address from chat.list. Your reply already reaches the chat you are answering: use this to reach " +
-            "another chat, or any chat from a turn whose reply goes nowhere, such as a heartbeat. The chat's next " +
-            "conversation turn is told what you sent.",
+            "another chat, any chat from a turn whose reply goes nowhere, such as a heartbeat, or to answer a " +
+            "particular message with 'replyTo', in this chat too. A chat's next conversation turn is told what you " +
+            "sent it.",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
                 property("to", "string", "'home', 'here' or a chat address such as telegram:main:1234.")
                 property("text", "string", "The message, in Markdown.")
+                property(
+                    "replyTo",
+                    "string",
+                    "The id of a message of that chat to answer, as its Message line gives it. Where you answer " +
+                        "every message there this way, your final answer may be empty.",
+                )
             }
             put("required", JsonArray(listOf(JsonPrimitive("to"), JsonPrimitive("text"))))
             put("additionalProperties", false)
@@ -183,16 +204,15 @@ internal class ChatSendTool(
     )
 
     /** How many messages each root turn sent, for the newest [KEPT_TURNS] turns. */
-    private val counts = object : LinkedHashMap<TurnId, Int>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TurnId, Int>) = size > KEPT_TURNS
-    }
+    private val counts = BoundedMap<TurnId, Int>(KEPT_TURNS)
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val request = requested(arguments, context.turn)
         val untainted = (context as? AgentToolContext)?.taint?.tainted == false
         val title = request.target.title?.let { " \"$it\"" }.orEmpty()
+        val answering = request.replyTo?.let { ", answering message ${it.id}" }.orEmpty()
         CallReview.builder()
-            .preview(ReviewPreview.Text("Send to ${request.target.chat}$title:\n\n${request.text}"))
+            .preview(ReviewPreview.Text("Send to ${request.target.chat}$title$answering:\n\n${request.text}"))
             .exempt(untainted && Principal.of(context.turn) != Principal.GUEST)
             .build()
     } catch (e: ToolRefusal) {
@@ -209,7 +229,7 @@ internal class ChatSendTool(
             if (count >= MAX_SENDS) throw ToolRefusal("This turn sent $MAX_SENDS messages already, the most it may.")
             counts[root] = count + 1
         }
-        send(turn, chat, request.text, taintOf(context))
+        send(turn, chat, request, taintOf(context))
     } catch (e: ToolRefusal) {
         ToolResult(e.message, isError = true)
     }
@@ -221,13 +241,15 @@ internal class ChatSendTool(
         return "a message sent here from tainted conversation ${context.turn.conversation} ($why)"
     }
 
-    private suspend fun send(turn: TurnInfo, chat: ChatAddress, text: String, taint: String?): ToolResult {
+    private suspend fun send(turn: TurnInfo, chat: ChatAddress, request: Request, taint: String?): ToolResult {
+        val text = request.text
         val channel = channels.channel(chat.instance)
             ?: return ToolResult("The channel of $chat is not open, so nothing was sent.", isError = true)
         val delivery = delivered {
             val markdown = Markup.MARKDOWN in channel.capabilities(chat).markups
             val message = OutboundMessage.builder(text, MessageKind.REPLY)
                 .markup(if (markdown) Markup.MARKDOWN else Markup.PLAIN)
+                .replyTo(request.replyTo)
                 .conversation(turn.conversation)
                 .build()
             channel.send(chat, message)
@@ -235,6 +257,7 @@ internal class ChatSendTool(
         return when (delivery) {
             is Delivery.Delivered -> {
                 logger.info("Turn {} of {} sent a message to {}", turn.id, turn.key, chat)
+                if (chat == turn.chat && request.replyTo != null) replies.add(turn.id)
                 val key = topology.key(turn.agent, chat)
                 if (key != turn.key) {
                     val at = clock.instant().toString()
@@ -258,13 +281,23 @@ internal class ChatSendTool(
         val text = arguments.text("text")?.takeIf { it.isNotBlank() }
             ?: throw ToolRefusal("Give 'text', the message to send.")
         val target = targets.resolve(turn, to)
-        if (target.chat == turn.chat && turn.replyTarget == ReplyTarget.CHAT) {
-            throw ToolRefusal("Your reply already reaches ${turn.chat}: say it there instead.")
+        val replyTo = arguments.text("replyTo")?.trim()?.ifEmpty { null }?.let { id ->
+            try {
+                ChannelMessageRef(target.chat, id)
+            } catch (e: IllegalArgumentException) {
+                throw ToolRefusal("'$id' is no message id: give one as a message's Message line gives it.")
+            }
+        }
+        if (target.chat == turn.chat && turn.replyTarget == ReplyTarget.CHAT && replyTo == null) {
+            throw ToolRefusal(
+                "Your reply already reaches ${turn.chat}: say it there instead, or give 'replyTo' to answer a " +
+                    "particular message.",
+            )
         }
         if (!channels.proactive(target.chat)) {
             throw ToolRefusal("${target.chat} takes no messages it did not ask for.")
         }
-        return Request(target, text)
+        return Request(target, text, replyTo)
     }
 
     /** Where [turn] sends from, as the chat it sends to is told. */
@@ -274,12 +307,14 @@ internal class ChatSendTool(
         else -> "your conversation in ${turn.chat}"
     }
 
-    private class Request(val target: ChatTarget, val text: String)
+    private class Request(val target: ChatTarget, val text: String, val replyTo: ChannelMessageRef?)
 
     private companion object {
         const val MAX_SENDS = 10
-        const val KEPT_TURNS = 1024
     }
 }
+
+/** How many turns `chat.send` keeps what it knows of. */
+private const val KEPT_TURNS = 1024
 
 private val logger = LoggerFactory.getLogger(ChatSendTool::class.java)
