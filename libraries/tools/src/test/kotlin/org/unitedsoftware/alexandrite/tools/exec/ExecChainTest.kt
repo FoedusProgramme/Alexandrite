@@ -114,13 +114,26 @@ class ExecChainTest {
     }
 
     @Test
-    fun `a script with a variable or a pipe stays one opaque program`() {
-        for (script in listOf("echo \$HOME && ls", "ls | wc -l")) {
+    fun `a script with a variable, a file redirect or a wildcard that matches a file stays one opaque program`() {
+        fs.write("workspace/notes.txt", "notes")
+        for (script in listOf("echo \$HOME && ls", "ls | wc -l > count", "ls *.txt")) {
             val review = tool.check(fs.context(turn = operatorTurn()), "argv" to listOf("sh", "-c", script))
             val preview = review.preview as ReviewPreview.Command
             assertEquals(true to emptyList(), preview.opaque to preview.segments, script)
             assertEquals(null, review.rule)
         }
+    }
+
+    @Test
+    fun `a pipeline is planned as its programs, and a wildcard that matches no file is passed as it is`() {
+        val review = tool.check(fs.context(turn = operatorTurn()), "argv" to listOf("sh", "-c", "ls *.md 2>&1 | wc -l"))
+
+        val preview = review.preview as ReviewPreview.Command
+        assertEquals(false to ToolRisk.READ_ONLY, preview.opaque to review.risk)
+        assertEquals(
+            listOf(null to listOf("ls", "*.md"), SegmentJoint.PIPE to listOf("wc", "-l")),
+            preview.segments.map { it.joint to it.argv },
+        )
     }
 
     // Running.
@@ -187,6 +200,39 @@ class ExecChainTest {
             )
         }
         assertTrue(took < 20.seconds, "$took")
+    }
+
+    @Test
+    fun `a pipeline and its redirects pass the streams on as the shell does`() {
+        fs.script("workspace/both", "echo out; echo err >&2")
+        val pipelines = listOf(
+            "./both 2>&1 | tr a-z A-Z",
+            "./both 2>/dev/null | tr a-z A-Z",
+            "./both >&2 2>/dev/null | tr a-z A-Z",
+            "./both 2>&1 >/dev/null | tr a-z A-Z",
+            "./both >/dev/null 2>&1 | tr a-z A-Z",
+            "seq 100000 | grep 9 | head -2",
+        )
+        for (pipeline in pipelines) {
+            val shell = ProcessBuilder("sh", "-c", pipeline).directory(fs.workspace.toFile()).redirectErrorStream(true)
+                .start().apply { outputStream.close() }
+            val expected = shell.inputStream.reader().readText().trimEnd()
+            shell.waitFor()
+
+            val result = tool.run(fs.allowed(), "argv" to listOf("sh", "-c", pipeline))
+
+            val ran = result.text.lines()
+            assertEquals("Exit code: 0" to "\$ $pipeline", ran[0] to ran[1], pipeline)
+            assertEquals(expected, ran.drop(2).joinToString("\n"), pipeline)
+        }
+        assertEquals(
+            "Exit code: 0\nerr",
+            tool.run(fs.allowed(), "argv" to listOf("bash", "-c", "./both >/dev/null")).text,
+        )
+        assertEquals(
+            "Exit code: 0\n[no output]",
+            tool.run(fs.allowed(), "argv" to listOf("bash", "-c", "./both &>/dev/null")).text,
+        )
     }
 
     @Test

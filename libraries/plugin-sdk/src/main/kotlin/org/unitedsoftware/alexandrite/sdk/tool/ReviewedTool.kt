@@ -258,6 +258,9 @@ public enum class SegmentJoint(
 
     /** It runs whatever the one before did. */
     THEN(";"),
+
+    /** It runs alongside the one before, reading its output. */
+    PIPE("|"),
 }
 
 /** The calls that an allow rule covers: those of [tool] whose subject starts with [tokens]. */

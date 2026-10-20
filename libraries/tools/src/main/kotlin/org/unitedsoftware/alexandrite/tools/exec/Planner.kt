@@ -56,7 +56,13 @@ internal class PlannedRun(
 }
 
 /** A step of a planned call: [run], or a change of directory to [cwd] when that is null. */
-internal class PlannedStep(val joint: SegmentJoint?, val words: List<String>, val cwd: Path, val run: PlannedRun?)
+internal class PlannedStep(
+    val joint: SegmentJoint?,
+    val words: List<String>,
+    val cwd: Path,
+    val run: PlannedRun?,
+    val redirects: List<Redirect> = emptyList(),
+)
 
 /** What a call runs once it is allowed: its [steps] in turn. */
 internal class PlannedCall(
@@ -126,7 +132,7 @@ internal class Planner(
         }
         val argv = request.argv
         val outer = unwrap(argv)
-        val chain = outer?.let { shellChain(it.argv, home) }
+        val chain = outer?.let { shellChain(it.argv, home) }?.takeUnless { globbing(it, directory) }
         if (outer == null || (chain == null && outer.argv == argv)) {
             val run = program(argv, directory, request.timeout)
             return PlannedCall(
@@ -167,7 +173,7 @@ internal class Planner(
                 val limit = listOfNotNull(outer.timeout, inner.timeout).minOrNull()
                 program(inner.argv, current, request.timeout, outer.environment + inner.environment, limit)
             }
-            PlannedStep(step.joint, step.words, current, run)
+            PlannedStep(step.joint, step.words, current, run, step.redirects)
         }
         return PlannedCall(argv, directory, steps, chain.errexit, true, named, request.timeout, asked.toList())
     }
@@ -393,6 +399,32 @@ private fun candidatePath(candidate: String, directory: Path): Path = try {
     throw ToolRefusal.blocked(
         "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
     )
+}
+
+/** Whether a pattern of [chain], whose first step runs in [directory], may match a file that a shell would put in. */
+private fun globbing(chain: Chain, directory: Path): Boolean {
+    var current = directory
+    return chain.steps.any { step ->
+        if (step.changesDirectory) current = candidatePath(step.words[1], current)
+        step.patterns.any { mayMatch(it, current) }
+    }
+}
+
+/** Whether an entry of the directory that leads to the first component of [pattern] with a wildcard matches it. */
+private fun mayMatch(pattern: String, directory: Path): Boolean {
+    val components = pattern.split('/')
+    val wild = components.indexOfFirst { '*' in it || '?' in it }
+    val parent = components.take(wild).joinToString("/").ifEmpty { if (pattern.startsWith('/')) "/" else "." }
+    val matcher = components[wild].split('*').joinToString(".*") { part ->
+        part.split('?').joinToString(".") { Regex.escape(it) }
+    }.toRegex()
+    return try {
+        Files.list(directory.resolve(parent)).use { entries -> entries.anyMatch { matcher.matches("${it.fileName}") } }
+    } catch (e: IOException) {
+        false
+    } catch (e: InvalidPathException) {
+        true
+    }
 }
 
 /**

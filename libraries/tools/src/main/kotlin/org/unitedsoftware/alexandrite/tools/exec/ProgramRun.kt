@@ -3,7 +3,9 @@ package org.unitedsoftware.alexandrite.tools.exec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.future.await
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -13,53 +15,187 @@ import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
-/** How a program run ended: [exitCode] is null when it timed out. */
-internal class ProgramOutcome(val exitCode: Int?, val output: String)
+/** How a program run ended: [exitCode] is null when it timed out, and its own limit stopped it when [limited]. */
+internal class ProgramOutcome(val exitCode: Int?, val output: String, val limited: Boolean = false)
+
+/** A program of a pipeline: [command] with [environment], its streams sent as [redirects] say, for [limit] at most. */
+internal class Stage(
+    val command: List<String>,
+    val environment: Map<String, String>,
+    val redirects: List<Redirect> = emptyList(),
+    val limit: Duration? = null,
+)
 
 /**
- * Runs [command] in [cwd] with [environment] and no input for at most [timeout], keeping [maxChars] of its output.
+ * Runs [stages] in [cwd] as a pipeline, each reading what the one before writes and the first no input, all for at most
+ * [timeout], keeping [maxChars] of what they show; the exit code is the last program's.
  *
- * The program and the processes it started are destroyed when it times out or the call is cancelled.
+ * A program and the processes it started are destroyed when its limit or [timeout] passes or the call is cancelled.
  */
-internal suspend fun runProgram(
-    command: List<String>,
+internal suspend fun runPipeline(
+    stages: List<Stage>,
     cwd: Path,
-    environment: Map<String, String>,
     timeout: Duration,
     maxChars: Int,
     onLine: ((String) -> Unit)? = null,
-    launch: (ProcessBuilder) -> Process = ProcessBuilder::start,
+    start: (ProcessBuilder) -> Process = ProcessBuilder::start,
 ): ProgramOutcome {
-    val builder = ProcessBuilder(command).directory(cwd.toFile()).redirectErrorStream(true)
-    builder.environment().apply {
-        clear()
-        putAll(environment)
-    }
-    val started = AtomicReference<Process>()
+    val sinks = stages.mapIndexed { index, stage -> sinks(stage.redirects, last = index == stages.lastIndex) }
+    val processes = mutableListOf<Process>()
     try {
-        withContext(Dispatchers.IO + NonCancellable) { started.set(launch(builder)) }
-        val process = started.get()
-        process.outputStream.close()
-        val output = OutputCollector(maxChars)
-        val reader = thread(isDaemon = true, name = "command.exec output ${process.pid()}") {
-            output.drain(process.inputStream, onLine)
+        withContext(Dispatchers.IO + NonCancellable) {
+            for ((index, stage) in stages.withIndex()) processes += start(builder(stage, cwd, sinks[index]))
         }
-        val exited = withTimeoutOrNull(timeout) { process.onExit().await() } != null
-        if (!exited) withContext(NonCancellable) { destroyTree(process, STOP_GRACE) }
-        runInterruptible(Dispatchers.IO) { reader.join(READER_WAIT.inWholeMilliseconds) }
-        return ProgramOutcome(if (exited) process.exitValue() else null, output.text())
+        val output = OutputCollector(maxChars)
+        val threads = connect(processes, stages, sinks, output, onLine)
+        val limited = BooleanArray(stages.size)
+        val finished = withTimeoutOrNull(timeout) {
+            coroutineScope {
+                for ((index, process) in processes.withIndex()) {
+                    val limit = stages[index].limit?.takeIf { it < timeout } ?: continue
+                    launch {
+                        if (withTimeoutOrNull(limit) { process.onExit().await() } == null) {
+                            limited[index] = true
+                            withContext(NonCancellable) { destroyTree(process, STOP_GRACE) }
+                        }
+                    }
+                }
+                for (process in processes) process.onExit().await()
+            }
+        } != null
+        if (!finished) stop(processes)
+        val read = TimeSource.Monotonic.markNow() + READER_WAIT
+        runInterruptible(Dispatchers.IO) {
+            for (thread in threads) thread.join((-read.elapsedNow()).inWholeMilliseconds.coerceAtLeast(1))
+        }
+        val code = when {
+            !finished -> null
+            limited.last() -> TIMED_OUT
+            else -> processes.last().exitValue()
+        }
+        return ProgramOutcome(code, output.text(), finished && limited.last())
     } catch (e: CancellationException) {
-        started.get()?.let { withContext(NonCancellable) { destroyTree(it, STOP_GRACE) } }
+        stop(processes)
+        throw e
+    } catch (e: IOException) {
+        stop(processes)
         throw e
     }
+}
+
+/** Where a program's stream goes: into the next program, into what the call shows, or nowhere. */
+private enum class Sink { NEXT, SHOWN, DISCARDED }
+
+/** Where the output and the errors of a program go after [redirects], when it is the [last] of its pipeline. */
+private fun sinks(redirects: List<Redirect>, last: Boolean): Pair<Sink, Sink> {
+    var output = if (last) Sink.SHOWN else Sink.NEXT
+    var errors = Sink.SHOWN
+    for (redirect in redirects) {
+        when (redirect) {
+            Redirect.ERRORS_TO_OUTPUT -> errors = output
+
+            Redirect.OUTPUT_TO_ERRORS -> output = errors
+
+            Redirect.OUTPUT_DISCARDED -> output = Sink.DISCARDED
+
+            Redirect.ERRORS_DISCARDED -> errors = Sink.DISCARDED
+
+            Redirect.BOTH_DISCARDED -> {
+                output = Sink.DISCARDED
+                errors = Sink.DISCARDED
+            }
+
+            Redirect.NO_INPUT -> Unit
+        }
+    }
+    return output to errors
+}
+
+/** What starts [stage] in [cwd], its output and errors joined where [sinks] sends both one way. */
+private fun builder(stage: Stage, cwd: Path, sinks: Pair<Sink, Sink>): ProcessBuilder {
+    val (output, errors) = sinks
+    val builder = ProcessBuilder(stage.command).directory(cwd.toFile())
+        .redirectErrorStream(output == errors && output != Sink.DISCARDED)
+    if (output == Sink.DISCARDED) builder.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+    if (errors == Sink.DISCARDED) builder.redirectError(ProcessBuilder.Redirect.DISCARD)
+    builder.environment().apply {
+        clear()
+        putAll(stage.environment)
+    }
+    return builder
+}
+
+/**
+ * Starts the threads that pass the streams of [processes] on as [sinks] say, into [output] or into the next program,
+ * whose input otherwise ends at once.
+ */
+private fun connect(
+    processes: List<Process>,
+    stages: List<Stage>,
+    sinks: List<Pair<Sink, Sink>>,
+    output: OutputCollector,
+    onLine: ((String) -> Unit)?,
+): List<Thread> {
+    val threads = mutableListOf<Thread>()
+    val feeds = arrayOfNulls<InputStream>(processes.size)
+    for ((index, process) in processes.withIndex()) {
+        fun route(stream: InputStream, sink: Sink) {
+            if (sink == Sink.NEXT) {
+                feeds[index + 1] = stream
+            } else {
+                threads += thread(isDaemon = true, name = "command.exec output ${process.pid()}") {
+                    output.drain(stream, onLine)
+                }
+            }
+        }
+        val (out, errors) = sinks[index]
+        if (out != Sink.DISCARDED) route(process.inputStream, out)
+        if (errors != Sink.DISCARDED && errors != out) route(process.errorStream, errors)
+    }
+    for ((index, process) in processes.withIndex()) {
+        val feed = feeds[index]
+        if (feed == null || Redirect.NO_INPUT in stages[index].redirects) {
+            feed?.close()
+            process.outputStream.close()
+        } else {
+            threads += thread(isDaemon = true, name = "command.exec pipe ${process.pid()}") {
+                pump(feed, process.outputStream)
+            }
+        }
+    }
+    return threads
+}
+
+/** Copies [input] to [output] as it comes, until either ends. */
+private fun pump(input: InputStream, output: OutputStream) {
+    try {
+        input.use {
+            output.use {
+                val buffer = ByteArray(CHUNK)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    output.flush()
+                }
+            }
+        }
+    } catch (e: IOException) {
+        // The reading program ended.
+    }
+}
+
+/** Destroys [processes] with the processes they started. */
+private suspend fun stop(processes: List<Process>) = withContext(NonCancellable) {
+    coroutineScope { for (process in processes) launch { destroyTree(process, STOP_GRACE) } }
 }
 
 /**
@@ -168,7 +304,8 @@ private const val CHUNK = 8192
  * Runs the steps of [call] in turn, without a shell, each program started by [launch] with [environment] and its own
  * variables, all of them for at most [timeout], keeping [maxChars] of their output.
  *
- * A step is checked again by [planner] right before it runs, and the call stops where the check finds a change.
+ * A step is checked again by [planner] right before it runs, and the call stops where the check finds a change. The
+ * steps of a pipeline run together, each checked before any starts.
  */
 internal suspend fun runSteps(
     call: PlannedCall,
@@ -184,8 +321,16 @@ internal suspend fun runSteps(
     val shown = mutableListOf<String>()
     var status = 0
     var cwd = call.cwd
-    for ((index, step) in call.steps.withIndex()) {
-        val header = "$ ${commandLine(step.words)}"
+    var index = 0
+    while (index < call.steps.size) {
+        val step = call.steps[index]
+        var end = index + 1
+        while (call.steps.getOrNull(end)?.joint == SegmentJoint.PIPE) end++
+        val pipeline = call.steps.subList(index, end)
+        index = end
+        val header = "$ " + pipeline.joinToString(" | ") { piped ->
+            (listOf(commandLine(piped.words)) + piped.redirects.map { it.text }).joinToString(" ")
+        }
         val runs = when (step.joint) {
             SegmentJoint.AND -> status == 0
             SegmentJoint.OR -> status != 0
@@ -214,27 +359,29 @@ internal suspend fun runSteps(
                 }
             }
         } else {
-            val checked = recheck(call, step, planner) {
-                planner.program(run.argv, cwd, run.timeout, run.environment, run.limit).executable
+            val programs = pipeline.mapNotNull { piped -> piped.run?.let { piped to it } }
+            for ((piped, program) in programs) {
+                val checked = recheck(call, piped, planner) {
+                    planner.program(program.argv, cwd, program.timeout, program.environment, program.limit).executable
+                }
+                if (checked is Checked.Stopped) return stopped(shown, header, checked.why, single, maxChars)
             }
-            if (checked is Checked.Stopped) return stopped(shown, header, checked.why, single, maxChars)
             val left = timeout - start.elapsedNow()
             if (!left.isPositive()) return ProgramOutcome(null, joined(shown, maxChars))
-            val limited = run.limit?.takeIf { it < left }
-            val outcome = runProgram(
-                listOf(run.resolved.toString()) + run.argv.drop(1),
-                cwd,
-                environment + run.environment,
-                limited ?: left,
-                maxChars,
-                onLine,
-                launch,
-            )
+            val stages = programs.map { (piped, program) ->
+                Stage(
+                    listOf(program.resolved.toString()) + program.argv.drop(1),
+                    environment + program.environment,
+                    piped.redirects,
+                    program.limit,
+                )
+            }
+            val outcome = runPipeline(stages, cwd, left, maxChars, onLine, launch)
             val output = outcome.output.trimEnd()
-            val code = outcome.exitCode ?: if (limited != null) TIMED_OUT else null
+            val code = outcome.exitCode
             if (single) {
-                val note = if (outcome.exitCode == null && code != null) {
-                    "\n[stopped by its timeout after ${limited?.inWholeSeconds} s]"
+                val note = if (outcome.limited) {
+                    "\n[stopped by its timeout after ${run.limit?.inWholeSeconds} s]"
                 } else {
                     ""
                 }
@@ -242,7 +389,7 @@ internal suspend fun runSteps(
             }
             val ending = when {
                 code == null -> " [timed out]"
-                outcome.exitCode == null -> " [stopped by its timeout, exit $code]"
+                outcome.limited -> " [stopped by its timeout, exit $code]"
                 code != 0 -> " [exit $code]"
                 else -> ""
             }
@@ -250,7 +397,7 @@ internal suspend fun runSteps(
             code ?: return ProgramOutcome(null, joined(shown, maxChars))
             status = code
         }
-        val next = call.steps.getOrNull(index + 1)?.joint
+        val next = call.steps.getOrNull(index)?.joint
         if (call.errexit && status != 0 && (next == null || next == SegmentJoint.THEN)) break
     }
     return ProgramOutcome(status, joined(shown, maxChars))

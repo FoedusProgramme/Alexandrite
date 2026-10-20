@@ -180,7 +180,7 @@ class JudgeTurnsTest {
             override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
                 .preview(
                     ReviewPreview.Command(
-                        listOf("sh", "-c", "ls | wc -l"),
+                        listOf("sh", "-c", "wc -l < files"),
                         Path.of("/srv"),
                         Path.of("/bin/sh"),
                         opaque = true,
@@ -193,16 +193,16 @@ class JudgeTurnsTest {
                 return ToolResult("3")
             }
         }
-        model.reply { toolCall("command.exec", """{"argv": ["sh", "-c", "ls | wc -l"]}""") }.reply { text("Three.") }
+        model.reply { toolCall("command.exec", """{"argv": ["sh", "-c", "wc -l < files"]}""") }.reply { text("Three.") }
         judgeAnswers("""{"verdict":"allow"}""")
 
         harness { tool(exec) }.execute {
-            ask("Count the files with sh -c 'ls | wc -l'.").ticket.outcome()
+            ask("Count the lines of files with sh -c 'wc -l < files'.").ticket.outcome()
 
             assertContains(
                 asked(),
                 "Program: /bin/sh\nOpaque: yes\nRuns in: no sandbox, on the host with the operator's full rights\n" +
-                    "Command line:\n| sh -c 'ls | wc -l'",
+                    "Command line:\n| sh -c 'wc -l < files'",
             )
             assertEquals(listOf(Clearance(ClearanceKind.JUDGE)), cleared.toList())
         }

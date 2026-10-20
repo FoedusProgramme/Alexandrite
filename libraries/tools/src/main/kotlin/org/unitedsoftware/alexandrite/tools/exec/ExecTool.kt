@@ -50,7 +50,8 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
             "one line split like a shell splits it (quotes and backslashes; a leading ~ is the home directory) but " +
             "with no pipes, redirects, chaining, variables, globs or substitutions, or 'argv'. Run programs " +
             "directly and set 'cwd' instead of using cd. Prefer separate calls, or a plain chain such as " +
-            "sh -c 'make && make test' (only words, quotes, &&, ||, ; and cd), which runs as plain programs; any " +
+            "sh -c 'make 2>&1 | tail -5 && make test' (only words, quotes, &&, ||, ;, |, cd, 2>&1, >&2 and " +
+            "redirects to /dev/null), which runs as plain programs; any " +
             "other shell script is opaque and needs a person's approval more often. The program gets no input and " +
             "a reduced environment, runs in 'cwd' and is stopped with every process it started after " +
             "'timeoutSeconds'. Refuses calls that reach protected places. Set background to true to start " +

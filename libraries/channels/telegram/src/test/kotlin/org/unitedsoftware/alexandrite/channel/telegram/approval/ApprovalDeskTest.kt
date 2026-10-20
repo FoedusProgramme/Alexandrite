@@ -806,7 +806,7 @@ class ApprovalDeskTest {
                 RuleSubject("command.exec", listOf("make"), "make"),
                 RuleSubject("command.exec", listOf("make", "test"), "make test"),
             )
-            val opaque = ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), Path.of("/srv"), null, opaque = true)
+            val opaque = ReviewPreview.Command(listOf("sh", "-c", "ls > list"), Path.of("/srv"), null, opaque = true)
             asking(desk, request(preview = chain, always = rules.first(), rules = rules))
             val program = listOf(TrustRoot(TrustRootKind.PROGRAM, "sh"))
             asking(desk, request(preview = opaque, id = "opaque", taints = true, roots = program))

@@ -213,7 +213,7 @@ class ChainRulesTest {
             val setup = Setup()
             setMode(PermissionMode.AUTO)
             val opaque = CallReview.builder()
-                .preview(ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), CWD, null, opaque = true))
+                .preview(ReviewPreview.Command(listOf("sh", "-c", "ls > list"), CWD, null, opaque = true))
                 .build()
 
             assertEquals("ask", setup.decide(chain(cd(), step("git", "status"), step("make")), tainted = true))
