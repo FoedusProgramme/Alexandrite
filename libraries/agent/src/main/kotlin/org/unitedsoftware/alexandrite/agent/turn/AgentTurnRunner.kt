@@ -981,7 +981,16 @@ internal class AgentTurnRunner(
                         launch {
                             slots.withPermit {
                                 val end =
-                                    executor.execute(turn, call, tools.offered, timeout, tools.callable, taint, tracked, plan.trigger)
+                                    executor.execute(
+                                        turn,
+                                        call,
+                                        tools.offered,
+                                        timeout,
+                                        tools.callable,
+                                        taint,
+                                        tracked,
+                                        plan.trigger,
+                                    )
                                 reads.reason(turn, call.name, end.tainting)?.let { taint.mark(it) }
                                 taint.record()
                                 val found = projects.inspect(turn, end.touched, budget)
