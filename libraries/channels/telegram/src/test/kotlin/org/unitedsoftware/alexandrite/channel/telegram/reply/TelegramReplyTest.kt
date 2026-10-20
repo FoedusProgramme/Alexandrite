@@ -10,8 +10,13 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.MemoryBotApi
 import org.unitedsoftware.alexandrite.channel.telegram.logged
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
+import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
+import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
+import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
+import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
+import org.unitedsoftware.alexandrite.testkit.testTurn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -136,6 +141,30 @@ class TelegramReplyTest {
 
         assertEquals(listOf("sendMessage One two"), output.shown())
     }
+
+    // Vouching.
+
+    @Test
+    fun `a quote is trusted of the final of a vouched reply that the agent vouches for, or of a vouched message`() =
+        runTest {
+            val output = output(streaming = false)
+            val chat = output.address()
+            val shown = mutableListOf<Delivery>()
+            for (final in listOf(markdown("Vouched.").rebuild { vouched(true) }, markdown("Changed since."))) {
+                val reply = output.channel.openReply(ReplyRequest(testTurn(chat = chat), null, vouched = true))
+                shown += reply.complete(final)
+            }
+            for (vouched in listOf(true, false)) {
+                shown +=
+                    output.channel.send(
+                        chat,
+                        OutboundMessage.builder("A notice.", MessageKind.NOTICE).vouched(vouched).build(),
+                    )
+            }
+
+            val ids = shown.map { assertIs<Delivery.Delivered>(it).messages.single().id.toLong() }
+            assertEquals(listOf(true, false, true, false), ids.map { output.vouched.contains(DIRECT, it) })
+        }
 
     // Segments.
 

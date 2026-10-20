@@ -133,6 +133,23 @@ class NoSilentTurnTest {
             assertEquals(undelivered to MessageKind.NOTICE, notice.message.text to notice.message.kind)
             assertIs<Delivery.Delivered>(notice.delivery)
             assertEquals(NoticeEntry(null, undelivered, NoticeKind.UNDELIVERED), stored().last())
+            assertEquals(listOf(false, true), channel.sent.map { it.message.vouched })
+        }
+    }
+
+    @Test
+    fun `a final reply sent again as plain text is vouched for where the turn's reply is`() {
+        val model = ScriptedModel(models = MODELS).reply { text("Hello") }.reply { text("Hello") }
+
+        agentHarness(CONFIG, MemoryStore()) { channel(operators = setOf("operator")).model(model) }.execute {
+            val channel = channel()
+            for (user in listOf("operator", "guest")) {
+                channel.scriptDeliveries(refused)
+                val admission = channel.receive("Hi", channel.chat(), channel.user(user)) as Admission.Accepted
+                admission.ticket.outcome()
+            }
+
+            assertEquals(listOf(true, false), channel.sent.map { it.message.vouched })
         }
     }
 

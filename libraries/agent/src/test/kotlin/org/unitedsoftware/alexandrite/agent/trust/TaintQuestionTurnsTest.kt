@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
@@ -226,7 +227,7 @@ class TaintQuestionTurnsTest {
 
         harness().execute {
             val operator = channel().user("operator")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, trust = true))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS))
             ask()
             val clean = mark()
             ask()
@@ -394,8 +395,8 @@ class TaintQuestionTurnsTest {
         harness().execute {
             val operator = channel().user("operator")
             channel().scriptApprovals(
-                ApprovalAnswer.Allowed(operator, trust = true),
-                ApprovalAnswer.Allowed(operator, trust = true),
+                ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS),
+                ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS),
             )
             repeat(4) { ask() }
 
@@ -419,7 +420,10 @@ class TaintQuestionTurnsTest {
 
         harness().execute {
             val operator = channel().user("operator")
-            channel().scriptApprovals(ApprovalAnswer.Allowed(operator, trust = true), ApprovalAnswer.Allowed(operator))
+            channel().scriptApprovals(
+                ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.OUTPUT_ONCE),
+                ApprovalAnswer.Allowed(operator),
+            )
             ask()
             val clean = mark()
             ask()
@@ -428,6 +432,21 @@ class TaintQuestionTurnsTest {
             assertEquals(null, clean)
             assertEquals(true to emptyList(), request.taints to request.roots)
             assertEquals("the output of notes.paste is untrusted", request.untrusted)
+            assertEquals(
+                "notes.paste brought in a page",
+                mark()?.reason?.substringAfter("reported untrusted content: "),
+            )
+        }
+    }
+
+    @Test
+    fun `an answer that trusts roots the request does not offer allows the call alone, which marks the conversation`() {
+        model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator"), trust = ApprovalTrust.ROOTS))
+            ask()
+
             assertEquals(
                 "notes.paste brought in a page",
                 mark()?.reason?.substringAfter("reported untrusted content: "),
@@ -444,7 +463,7 @@ class TaintQuestionTurnsTest {
 
         harness().execute {
             val operator = channel().user("operator")
-            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = true))
+            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS))
             val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Read the notes.").trust(Trust.TRUSTED).build()
             val outcome = (get<TurnInitiation>().initiate("beat", turn) as Admission.Accepted).ticket.outcome()
             val offer = channel().awaitOffers(1).single()
@@ -480,7 +499,7 @@ class TaintQuestionTurnsTest {
 
         harness().execute {
             channel().holdApprovals()
-            channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = ApprovalTrust.ROOTS))
             remind()
             channel().releaseApprovals()
             withTimeout(5.seconds) {
@@ -501,7 +520,7 @@ class TaintQuestionTurnsTest {
 
         harness().execute {
             val operator = channel().user("operator")
-            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = true))
+            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS))
             val outcome = ask(user = "guest", text = "Hi.")
             val offer = channel().awaitOffers(1).single()
             withTimeout(5.seconds) { while (mark() != null) delay(10) }
@@ -523,7 +542,7 @@ class TaintQuestionTurnsTest {
 
         harness().execute {
             channel().holdApprovals()
-            channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            channel().scriptOffers(ApprovalAnswer.Allowed(channel().user("operator"), trust = ApprovalTrust.ROOTS))
             ask(user = "guest", text = "Hi.")
             ask(user = "operator", text = "Look.") { forwarded(ForwardOrigin(ForwardKind.USER, "Someone", null, null)) }
             val before = mark()?.reason

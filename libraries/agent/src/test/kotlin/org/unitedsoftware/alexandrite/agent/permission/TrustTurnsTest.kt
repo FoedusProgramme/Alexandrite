@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
@@ -192,7 +193,7 @@ class TrustTurnsTest {
             .reply { text("Done.") }
 
         harness(listOf("command.exec(git)")).execute {
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator"), trust = true))
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator"), trust = ApprovalTrust.ROOTS))
             ask()
         }
 
@@ -200,6 +201,21 @@ class TrustTurnsTest {
     }
 
     // Allow and trust.
+
+    @Test
+    fun `an answer that trusts the output once where the request offers roots allows the call alone`() {
+        model.reply { toolCall("command.exec", running("make")) }.reply { text("Made.") }
+
+        harness().execute {
+            channel().scriptApprovals(
+                ApprovalAnswer.Allowed(channel().user("operator"), trust = ApprovalTrust.OUTPUT_ONCE),
+            )
+            ask()
+
+            assertEquals(emptyList(), get<TrustControl>().rules(channel().chat()))
+            assertEquals("command.exec ran make", reported())
+        }
+    }
 
     @Test
     fun `allow and trust trusts the program for the session, and allow alone marks the conversation`() {
@@ -210,7 +226,7 @@ class TrustTurnsTest {
         harness().execute {
             val operator = channel().user("operator")
             channel().scriptApprovals(
-                ApprovalAnswer.Allowed(operator, trust = true),
+                ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS),
                 ApprovalAnswer.Allowed(operator),
                 ApprovalAnswer.Allowed(operator),
             )

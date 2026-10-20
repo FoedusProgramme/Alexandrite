@@ -81,7 +81,7 @@ class ChatToolsTest {
         entries.flatMap { it.parts }.filterIsInstance<ContextPart>().filter { it.source == SENT_SOURCE }.map { it.text }
 
     @Test
-    fun `an operator's message reaches another chat unasked, and that chat's next turn alone is told of it`() {
+    fun `an operator's message reaches another chat unasked and vouched for, and its next turn alone learns of it`() {
         model.reply { text("Hi.") }
             .reply { toolCall("chat.send", """{"to": "test:main:other", "text": "The build passed."}""") }
             .reply { text("Sent.") }
@@ -97,6 +97,7 @@ class ChatToolsTest {
             val sent = channel().sent.single()
             assertEquals(ChatAddress.parse("test:main:other") to "The build passed.", sent.chat to sent.message.text)
             assertIs<Delivery.Delivered>(sent.delivery)
+            assertTrue(sent.message.vouched)
             assertEquals(emptyList(), channel().approvals)
             assertEquals(
                 listOf(
@@ -115,7 +116,7 @@ class ChatToolsTest {
     }
 
     @Test
-    fun `a tainted conversation asks before it sends`() {
+    fun `a tainted conversation asks before it sends, and the agent does not vouch for what it sends`() {
         model.reply { text("Hi.") }
             .reply { toolCall("web.fetch", "{}") }
             .reply { toolCall("chat.send", """{"to": "home", "text": "Read this."}""") }
@@ -128,7 +129,8 @@ class ChatToolsTest {
 
             val asked = assertIs<ReviewPreview.Text>(channel().approvals.single().preview).text
             assertEquals("Send to test:main:home:\n\nRead this.", asked)
-            assertEquals(ChatAddress.parse("test:main:home"), channel().sent.single().chat)
+            val sent = channel().sent.single()
+            assertEquals(ChatAddress.parse("test:main:home") to false, sent.chat to sent.message.vouched)
         }
     }
 

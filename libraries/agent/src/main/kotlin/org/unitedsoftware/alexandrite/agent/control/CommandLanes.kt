@@ -268,7 +268,8 @@ internal class CommandLanes(
                 invocation.info = turn
                 invocation.running = running
             }
-            val context = AgentCommandContext(turn, invocation.command.trigger, channels)
+            val trusted = people.isTrusted(turn.agent, invocation.command.issuer)
+            val context = AgentCommandContext(turn, invocation.command.trigger, channels, trusted)
             withContext(running) { invocation.handler.handle(invocation.command, context) }
             val recordedIn = recordedConversation(invocation, turn)
             val secret = registry.value.spec(invocation.command.name)?.secretArguments == true
@@ -277,7 +278,7 @@ internal class CommandLanes(
                 invocation.command.issuer,
                 commandLine(invocation.command, secret),
                 context.replies,
-                people.isTrusted(turn.agent, invocation.command.issuer),
+                trusted,
             )
             TurnOutcome.Completed(null, context.deliveries)
         } catch (e: CancellationException) {

@@ -5,7 +5,6 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.AccessGate
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
-import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
@@ -70,10 +69,9 @@ internal class Deliveries(
                 outbox.sendFiles(chat, message)
             }
         }
-        // A notice is Alexandrite's own text, such as a command's answer, which a quote may bring back as trusted
-        val target = targetOf(chat)
-        if (message.kind == MessageKind.NOTICE && delivery is Delivery.Delivered && target != null) {
-            vouched.note(target.chat, delivery.messages.mapNotNull { it.id.toLongOrNull() })
+        if (message.vouched && delivery is Delivery.Delivered) {
+            val target = targetOf(chat)
+            if (target != null) vouched.note(target.chat, delivery.messages.mapNotNull { it.id.toLongOrNull() })
         }
         return delivery
     }

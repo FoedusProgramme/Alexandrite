@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.agent.trust.Root
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.Binds
@@ -160,8 +161,17 @@ internal class ChannelApprovals(
 
             is ApprovalAnswer.Allowed -> {
                 val always = grantable.takeIf { answer.always }.orEmpty()
-                val roots = question?.roots.orEmpty().takeIf { answer.trust }.orEmpty()
-                val once = question != null && question.roots.isEmpty() && answer.trust
+                val offered = question?.roots.orEmpty()
+                val roots = offered.takeIf { answer.trust == ApprovalTrust.ROOTS }.orEmpty()
+                val once = question != null && offered.isEmpty() && answer.trust == ApprovalTrust.OUTPUT_ONCE
+                if (answer.trust != ApprovalTrust.NONE && roots.isEmpty() && !once) {
+                    logger.warn(
+                        "Approval {} in turn {} was answered with trust {}, which it does not offer: a plain allow",
+                        request.id,
+                        request.turn.id,
+                        answer.trust,
+                    )
+                }
                 val how = (if (always.isNotEmpty()) " for good" else "") +
                     (if (roots.isNotEmpty()) ", trusting its source" else "") +
                     (if (once) ", trusting its output this once" else "") +

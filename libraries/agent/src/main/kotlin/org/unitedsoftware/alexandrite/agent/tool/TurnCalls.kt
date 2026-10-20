@@ -72,6 +72,9 @@ internal interface DelegatingTurn : TurnCalls {
     /** Whether the turn or one it descends from used up its token budget. */
     val overBudget: Boolean
 
+    /** Whether the agent vouches for what the turn says now, as for its reply. */
+    val vouched: Boolean get() = false
+
     /** What [ask] returns, asked without the root turn's permit, or null once its principal follows up. */
     suspend fun <T : Any> asking(ask: suspend () -> T): T?
 

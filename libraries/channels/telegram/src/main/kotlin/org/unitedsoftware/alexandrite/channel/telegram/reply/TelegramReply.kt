@@ -213,7 +213,7 @@ internal class TelegramReply(
                 close()
                 showFrozen(all = false)
                 showFrozenActivities()
-                deliver(message).also { shownIn(bodyMessages(it)) }
+                deliver(message).also { if (message.vouched) shownIn(bodyMessages(it)) }
             } finally {
                 releaseReply()
             }

@@ -232,7 +232,7 @@ internal class ChatSendTool(
             if (count >= MAX_SENDS) throw ToolRefusal("This turn sent $MAX_SENDS messages already, the most it may.")
             counts[root] = count + 1
         }
-        send(turn, chat, request, taintOf(context))
+        send(turn, chat, request, taintOf(context), (context as? AgentToolContext)?.delegating?.vouched == true)
     } catch (e: ToolRefusal) {
         ToolResult(e.message, isError = true)
     }
@@ -244,7 +244,13 @@ internal class ChatSendTool(
         return "a message sent here from tainted conversation ${context.turn.conversation} ($why)"
     }
 
-    private suspend fun send(turn: TurnInfo, chat: ChatAddress, request: Request, taint: String?): ToolResult {
+    private suspend fun send(
+        turn: TurnInfo,
+        chat: ChatAddress,
+        request: Request,
+        taint: String?,
+        vouched: Boolean,
+    ): ToolResult {
         val text = request.text
         val channel = channels.channel(chat.instance)
             ?: return ToolResult("The channel of $chat is not open, so nothing was sent.", isError = true)
@@ -254,6 +260,7 @@ internal class ChatSendTool(
                 .markup(if (markdown) Markup.MARKDOWN else Markup.PLAIN)
                 .replyTo(request.replyTo)
                 .conversation(turn.conversation)
+                .vouched(vouched)
                 .build()
             channel.send(chat, message)
         }

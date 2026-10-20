@@ -49,6 +49,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.TrustedPerson
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPhase
 import org.unitedsoftware.alexandrite.sdk.turn.TurnStatus
+import org.unitedsoftware.alexandrite.sdk.turn.UntaintedConversation
 import org.unitedsoftware.alexandrite.sdk.turn.UsagePeriod
 import org.unitedsoftware.alexandrite.sdk.turn.UsageReport
 import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
@@ -294,15 +295,12 @@ public class RecordingAgent(
             )
         }
 
-        override suspend fun untaint(
-            chat: ChatAddress,
-            by: ChatUser?,
-            agent: AgentId?,
-        ): Map<AgentId, ConversationTaint> = synchronized(lock) {
-            recorded += Call.Untaint(chat, by, agent)
-            refuseQueued()
-            taints.remove(chat)?.let { mapOf((agent ?: AgentId.MAIN) to it) }.orEmpty()
-        }
+        override suspend fun untaint(chat: ChatAddress, by: ChatUser?, agent: AgentId?): List<UntaintedConversation> =
+            synchronized(lock) {
+                recorded += Call.Untaint(chat, by, agent)
+                refuseQueued()
+                listOfNotNull(taints.remove(chat)?.let { UntaintedConversation(agent ?: AgentId.MAIN, it) })
+            }
 
         override suspend fun untaintHeartbeat(chat: ChatAddress, by: ChatUser?, agent: AgentId?): ConversationTaint? =
             synchronized(lock) {

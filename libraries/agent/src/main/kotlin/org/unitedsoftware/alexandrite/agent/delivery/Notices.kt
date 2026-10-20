@@ -30,6 +30,14 @@ internal class Notices(
         texts.text(key, settings.language(chat) ?: directory.agent(chat.agent)?.language, *args)
 }
 
-/** A notice that replies to [trigger]. */
-internal fun notice(text: String, trigger: ChannelMessageRef?, conversation: ConversationId?): OutboundMessage =
-    OutboundMessage.builder(text, MessageKind.NOTICE).replyTo(trigger).conversation(conversation).build()
+/** A notice that replies to [trigger], vouched for unless its [text] holds words other than Alexandrite's. */
+internal fun notice(
+    text: String,
+    trigger: ChannelMessageRef?,
+    conversation: ConversationId?,
+    vouched: Boolean = true,
+): OutboundMessage = OutboundMessage.builder(text, MessageKind.NOTICE)
+    .replyTo(trigger)
+    .conversation(conversation)
+    .vouched(vouched)
+    .build()

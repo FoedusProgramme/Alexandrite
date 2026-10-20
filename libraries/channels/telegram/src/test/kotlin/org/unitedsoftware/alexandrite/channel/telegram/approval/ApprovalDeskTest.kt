@@ -30,6 +30,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
 import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
@@ -550,19 +551,23 @@ class ApprovalDeskTest {
         assertEquals(
             listOf(
                 listOf("Allow, mark tainted" to "apv:bare:a", "Deny" to "apv:bare:d"),
-                listOf("Allow, keep clean" to "apv:bare:t"),
+                listOf("Allow, keep clean" to "apv:bare:o"),
             ),
             desk.api.keyboards.getValue(ADA to 102L).inlineKeyboard.map { row ->
                 row.map { it.text to it.callbackData }
             },
         )
 
-        desk.press(ada, "apv:k3x9:t", message = 101)
+        desk.press(ada, "apv:k3x9:o", message = 101)
         desk.press(ada, "apv:bare:t", message = 102)
         advanceTimeBy(5.seconds)
+        assertEquals(false to false, rooted.isCompleted to rootless.isCompleted)
+        desk.press(ada, "apv:k3x9:t", message = 101)
+        desk.press(ada, "apv:bare:o", message = 102)
+        advanceTimeBy(5.seconds)
 
-        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), rooted.await())
-        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), rootless.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.ROOTS), rooted.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.OUTPUT_ONCE), rootless.await())
         assertEquals(
             listOf(
                 "Allowed by Ada, who trusted $folder.",
@@ -645,7 +650,7 @@ class ApprovalDeskTest {
         advanceTimeBy(5.seconds)
 
         assertTrue(afterBob)
-        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), trusted.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.ROOTS), trusted.await())
         assertEquals(ApprovalAnswer.Denied(ada), kept.await())
         assertEquals(
             listOf(
@@ -691,7 +696,7 @@ class ApprovalDeskTest {
             desk.press(ada, "tro:of2:k", message = 102)
             advanceTimeBy(5.seconds)
 
-            assertEquals(ApprovalAnswer.Allowed(ada, trust = true), trusted.await())
+            assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.ROOTS), trusted.await())
             assertEquals(ApprovalAnswer.Denied(ada), declined.await())
             assertEquals(
                 listOf(

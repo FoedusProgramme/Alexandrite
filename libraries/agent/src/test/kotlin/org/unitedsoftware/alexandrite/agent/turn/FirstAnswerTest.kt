@@ -236,7 +236,7 @@ class FirstAnswerTest {
     // Hooks.
 
     @Test
-    fun `a hook that stops the turn before the model answers ends it on a notice and stores nothing else`() {
+    fun `a hook that stops the turn before the model answers ends it on a notice, unvouched if the hook wrote it`() {
         val stoppers: List<Pair<Int, (String?) -> Hook>> = listOf(
             0 to { reply -> stopper(TurnPoints.TURN_START, reply) },
             0 to { reply -> stopper(TurnPoints.TURN_INPUT, reply) },
@@ -257,6 +257,7 @@ class FirstAnswerTest {
                 val text = reply ?: "This message was stopped by a plugin."
                 val notice = channel().reply(admission.turn).completed
                 assertEquals(text to MessageKind.NOTICE, notice?.text to notice?.kind)
+                assertEquals(reply == null, notice?.vouched, "hook $index")
                 val entries = store.transcripts.entries(store.conversations.current(coder).id)
                 assertEquals(
                     listOf(NoticeEntry(null, text, NoticeKind.HOOK_ABORTED)),

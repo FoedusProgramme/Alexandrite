@@ -211,20 +211,27 @@ public enum class TrustOfferKind {
     INSTRUCTIONS,
 }
 
+/** What an [ApprovalAnswer.Allowed] trusts besides allowing. */
+public enum class ApprovalTrust {
+    NONE,
+
+    /** The roots of the [ApprovalRequest] or the [TrustOffer], for good. */
+    ROOTS,
+
+    /** The call's output this once, for a request that would taint and offers no roots. */
+    OUTPUT_ONCE,
+}
+
 /** How an approval request ended. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ApprovalAnswer {
-    /**
-     * [by] allowed the call, and the calls that the request's rules cover too when [always], trusting the roots of the
-     * request or the [TrustOffer] when [trust] — or, for a request that would taint and offers no roots, the call's
-     * output this once.
-     */
+    /** [by] allowed the call, and the calls that the request's rules cover too when [always], trusting as [trust] says. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Allowed(
         public val by: ChatUser,
         public val always: Boolean = false,
-        public val trust: Boolean = false,
+        public val trust: ApprovalTrust = ApprovalTrust.NONE,
     ) : ApprovalAnswer
 
     @OptIn(InternalAlexandriteApi::class)

@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.turn.CompactionReport
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
+import org.unitedsoftware.alexandrite.sdk.turn.UntaintedConversation
 
 @Singleton
 @Binds(ConversationControl::class)
@@ -58,7 +59,7 @@ internal class ConversationControlImpl(
 
     override suspend fun context(chat: ChatAddress): ContextStatus = contexts.status(runner.key(chat))
 
-    override suspend fun untaint(chat: ChatAddress, by: ChatUser?, agent: AgentId?): Map<AgentId, ConversationTaint> {
+    override suspend fun untaint(chat: ChatAddress, by: ChatUser?, agent: AgentId?): List<UntaintedConversation> {
         val keys = if (agent != null) listOf(topology.key(attached(chat, agent), chat)) else spoken(chat)
         return keys.mapNotNull { key ->
             val cleared = runner.onWorker(key) { conversations.clearTaint(conversations.current(key).id) }
@@ -70,8 +71,8 @@ internal class ConversationControlImpl(
                 cleared.reason,
                 who(by),
             )
-            key.agent to cleared
-        }.toMap()
+            UntaintedConversation(key.agent, cleared)
+        }
     }
 
     override suspend fun untaintHeartbeat(chat: ChatAddress, by: ChatUser?, agent: AgentId?): ConversationTaint? {

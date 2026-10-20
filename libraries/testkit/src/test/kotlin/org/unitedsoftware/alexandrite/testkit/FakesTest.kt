@@ -122,9 +122,13 @@ class FakesTest {
         assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(invocation.chat, "reply-2"))), delivered)
         assertEquals(listOf("Started.", "Again."), context.replies.map { it.text })
         assertTrue(context.replies.all { it.kind == MessageKind.NOTICE && it.replyTo == invocation.trigger })
+        assertTrue(context.replies.all { it.vouched })
         assertEquals(Markup.MARKDOWN, context.replies.first().markup)
         assertFailsWith<IllegalArgumentException> { blocking { context.reply(" ") } }
         assertNull(TestCommandContext().replies.firstOrNull())
+        val guest = testCommandContext(testCommand("new", issuer = testUser("bob")))
+        blocking { guest.reply("Started.") }
+        assertEquals(listOf(false), guest.replies.map { it.vouched })
     }
 
     @Test

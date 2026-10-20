@@ -1278,7 +1278,7 @@ internal class AgentTurnRunner(
         }
 
         private suspend fun deliver(sink: ReplySink, turn: TurnInfo, text: String): Delivery {
-            val drafted = replyMessage(text, capabilities, plan.trigger, turn.conversation)
+            val drafted = replyMessage(text, capabilities, plan.trigger, turn.conversation, vouched(turn))
             val reply = hooks.responseBefore(turn, drafted, turn.chat)
             return fallBack(turn, turn.chat, reply, show(sink, reply))
         }
@@ -1332,7 +1332,8 @@ internal class AgentTurnRunner(
                 ).also { logger.warn("The reply of turn {} did not reach chat {}: {}", turn.id, destination, it) }
             var reply: OutboundMessage? = null
             val delivery = delivered {
-                val drafted = replyMessage(text, channel.capabilities(destination), null, turn.conversation)
+                val capabilities = channel.capabilities(destination)
+                val drafted = replyMessage(text, capabilities, null, turn.conversation, vouched(turn))
                 channel.send(destination, hooks.responseBefore(turn, drafted, destination).also { reply = it })
             }
             if (delivery is Delivery.NotDelivered) {
@@ -1362,8 +1363,10 @@ internal class AgentTurnRunner(
         }
 
         private suspend fun stopped(reply: String?): TurnOutcome {
-            val text = reply?.takeIf { it.isNotBlank() } ?: notices.text(checkNotNull(turn), TextKeys.HOOK_ABORTED)
-            return ended(NoticeKind.HOOK_ABORTED, text, TurnOutcome.Completed(null), TurnEndKind.COMPLETED)
+            val written = reply?.takeIf { it.isNotBlank() }
+            val text = written ?: notices.text(checkNotNull(turn), TextKeys.HOOK_ABORTED)
+            val completed = TurnOutcome.Completed(null)
+            return ended(NoticeKind.HOOK_ABORTED, text, completed, TurnEndKind.COMPLETED, vouched = written == null)
         }
 
         private suspend fun unknownModel(): TurnOutcome {
@@ -1400,16 +1403,21 @@ internal class AgentTurnRunner(
         }
 
         /** Stores a notice of [kind] with [text], shows it and ends the turn with [outcome] as [end]. */
-        private suspend fun ended(kind: NoticeKind, text: String, outcome: TurnOutcome, end: TurnEndKind): TurnOutcome =
-            withContext(NonCancellable) {
-                val turn = checkNotNull(turn)
-                append(NoticeEntry(null, text, kind))
-                sink?.let { showNotice(it, turn, notice(text, plan.trigger, turn.conversation)) }
-                if (sink == null && end == TurnEndKind.FAILED) {
-                    attempt("send its failure notice") { routeNotice(turn, text) }
-                }
-                end(outcome, end)
+        private suspend fun ended(
+            kind: NoticeKind,
+            text: String,
+            outcome: TurnOutcome,
+            end: TurnEndKind,
+            vouched: Boolean = true,
+        ): TurnOutcome = withContext(NonCancellable) {
+            val turn = checkNotNull(turn)
+            append(NoticeEntry(null, text, kind))
+            sink?.let { showNotice(it, turn, notice(text, plan.trigger, turn.conversation, vouched)) }
+            if (sink == null && end == TurnEndKind.FAILED) {
+                attempt("send its failure notice") { routeNotice(turn, text) }
             }
+            end(outcome, end)
+        }
 
         /** Sends the notice [text] to each destination of the turn's route that it may reach. */
         private suspend fun routeNotice(turn: TurnInfo, text: String) {
@@ -1502,6 +1510,8 @@ internal class AgentTurnRunner(
                 get() = delegation?.parent?.chatKind ?: plan.input.message?.chatInfo?.kind
 
             override val overBudget: Boolean get() = this@Run.overBudget()
+
+            override val vouched: Boolean get() = this@Run.vouched(turn)
 
             override val chain: RunChain? get() = delegation?.chain
 

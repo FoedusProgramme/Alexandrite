@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.agent.assertStartFails
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
@@ -246,7 +247,7 @@ class ProjectInstructionsTest {
 
         harness().execute {
             val operator = channel().user("operator")
-            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = true))
+            channel().scriptOffers(ApprovalAnswer.Allowed(operator, trust = ApprovalTrust.ROOTS))
             ask()
             val offer = channel().awaitOffers(1).single()
             withTimeout(5.seconds) { while (get<TrustControl>().folders(key.chat).isEmpty()) delay(10) }

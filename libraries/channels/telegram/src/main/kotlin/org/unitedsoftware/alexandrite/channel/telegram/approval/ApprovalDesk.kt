@@ -34,6 +34,7 @@ import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundFile
 import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
@@ -391,7 +392,7 @@ internal class ApprovalDesk(
             }
 
             request.taints ->
-                InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW_ONCE, language), "$PREFIX${request.id}:$TRUST")
+                InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW_ONCE, language), "$PREFIX${request.id}:$ONCE")
 
             always -> {
                 val label = text(TextKeys.APPROVAL_ALWAYS, language, "rule" to ending(rules(request)))
@@ -486,11 +487,14 @@ internal class ApprovalDesk(
 
                 ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null)
 
-                TRUST -> ApprovalAnswer.Allowed(presser, trust = true).takeIf { request.taints }
+                TRUST -> ApprovalAnswer.Allowed(presser, trust = ApprovalTrust.ROOTS).takeIf { trustable(request) }
 
                 ALWAYS_TRUST ->
-                    ApprovalAnswer.Allowed(presser, always = request.always != null, trust = true)
+                    ApprovalAnswer.Allowed(presser, always = request.always != null, trust = ApprovalTrust.ROOTS)
                         .takeIf { trustable(request) }
+
+                ONCE -> ApprovalAnswer.Allowed(presser, trust = ApprovalTrust.OUTPUT_ONCE)
+                    .takeIf { request.taints && !trustable(request) }
 
                 else -> null
             }
@@ -498,7 +502,7 @@ internal class ApprovalDesk(
 
         is Question.Offer -> when (action) {
             KEEP -> ApprovalAnswer.Denied(presser)
-            TRUST -> ApprovalAnswer.Allowed(presser, trust = true)
+            TRUST -> ApprovalAnswer.Allowed(presser, trust = ApprovalTrust.ROOTS)
             else -> null
         }
     }
@@ -563,7 +567,7 @@ internal class ApprovalDesk(
             is ApprovalAnswer.Allowed -> {
                 val rule = request.always?.takeIf { answer.always }?.let { ending(rules(request)) }
                 val name = named(answer.by)
-                val trusted = answer.trust && trustable(request)
+                val trusted = answer.trust == ApprovalTrust.ROOTS
                 when {
                     rule != null && trusted -> text(
                         TextKeys.APPROVAL_ALLOWED_ALWAYS_TRUSTED,
@@ -575,7 +579,7 @@ internal class ApprovalDesk(
 
                     rule != null -> text(TextKeys.APPROVAL_ALLOWED_ALWAYS, language, "name" to name, "rule" to rule)
 
-                    answer.trust && request.taints && request.roots.isEmpty() ->
+                    answer.trust == ApprovalTrust.OUTPUT_ONCE ->
                         text(TextKeys.APPROVAL_ALLOWED_ONCE, language, "name" to name)
 
                     trusted ->
@@ -708,7 +712,11 @@ internal class ApprovalDesk(
                 get() = when (answer) {
                     is ApprovalAnswer.Allowed ->
                         "is allowed by ${answer.by.address}" +
-                            if (answer.trust) ", trusted" else ""
+                            when (answer.trust) {
+                                ApprovalTrust.ROOTS -> ", trusted"
+                                ApprovalTrust.OUTPUT_ONCE -> ", its output trusted once"
+                                else -> ""
+                            }
 
                     is ApprovalAnswer.Denied -> "is denied by ${answer.by.address}"
 
@@ -718,9 +726,9 @@ internal class ApprovalDesk(
             override fun state(question: Question): String = when (answer) {
                 is ApprovalAnswer.Allowed -> when {
                     question is Question.Offer -> "trusted by "
-                    answer.always && answer.trust -> "allowed for good and trusted by "
+                    answer.always && answer.trust != ApprovalTrust.NONE -> "allowed for good and trusted by "
                     answer.always -> "allowed for good by "
-                    answer.trust -> "allowed and trusted by "
+                    answer.trust != ApprovalTrust.NONE -> "allowed and trusted by "
                     else -> "allowed by "
                 } + named(answer.by)
 
@@ -759,9 +767,10 @@ internal class ApprovalDesk(
         const val ALWAYS = "A"
         const val TRUST = "t"
         const val ALWAYS_TRUST = "T"
+        const val ONCE = "o"
         const val DENY = "d"
         const val KEEP = "k"
-        val PRESS = Regex("(apv:|tro:)([A-Za-z0-9_-]{1,32}):([aAtTdk])")
+        val PRESS = Regex("(apv:|tro:)([A-Za-z0-9_-]{1,32}):([aAtTodk])")
 
         val UNREACHABLE = ApprovalAnswer.Unavailable("no administrator can be reached")
         val TOO_LARGE = ApprovalAnswer.Unavailable("too large to review")

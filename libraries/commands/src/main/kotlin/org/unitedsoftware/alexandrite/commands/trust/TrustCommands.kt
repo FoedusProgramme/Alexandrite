@@ -128,23 +128,23 @@ internal class TrustCommands(
 
             cleared.isEmpty() -> replies.text(TextKeys.UNTAINT_CLEAN)
 
-            cleared.size == 1 -> cleared.entries.single().let { (id, taint) ->
+            cleared.size == 1 -> cleared.single().let {
                 replies.text(
                     TextKeys.UNTAINT_DONE,
-                    "agent" to id,
-                    "reason" to taint.reason,
-                    "date" to dateOf(taint.at, replies),
+                    "agent" to it.agent,
+                    "reason" to it.taint.reason,
+                    "date" to dateOf(it.taint.at, replies),
                 )
             }
 
             else -> replies.text(
                 TextKeys.UNTAINT_DONE_MANY,
-                "list" to cleared.entries.joinToString("\n") { (id, taint) ->
+                "list" to cleared.joinToString("\n") {
                     replies.text(
                         TextKeys.UNTAINT_ITEM,
-                        "agent" to id,
-                        "reason" to taint.reason,
-                        "date" to dateOf(taint.at, replies),
+                        "agent" to it.agent,
+                        "reason" to it.taint.reason,
+                        "date" to dateOf(it.taint.at, replies),
                     )
                 },
             )

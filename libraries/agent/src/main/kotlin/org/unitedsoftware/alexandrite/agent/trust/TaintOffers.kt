@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.agent.project.UntrustedFolder
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
@@ -159,15 +160,16 @@ internal class TaintOffers(
 
 /** The operator who trusted the offer, null for any other answer. */
 private fun ApprovalAnswer.trusted(): ChatUser? = (this as? ApprovalAnswer.Allowed)?.takeIf {
-    it.trust &&
+    it.trust == ApprovalTrust.ROOTS &&
         it.by.isOperator
 }?.by
 
-private fun described(answer: ApprovalAnswer): String = when (answer) {
-    is ApprovalAnswer.Allowed -> if (answer.trust) "trusted by ${answer.by.address}" else "kept by ${answer.by.address}"
-    is ApprovalAnswer.Denied -> "kept by ${answer.by.address}"
-    ApprovalAnswer.Expired -> "expired"
-    is ApprovalAnswer.Unavailable -> "unavailable: ${answer.reason}"
+private fun described(answer: ApprovalAnswer): String = when {
+    answer is ApprovalAnswer.Allowed && answer.trust == ApprovalTrust.ROOTS -> "trusted by ${answer.by.address}"
+    answer is ApprovalAnswer.Allowed -> "kept by ${answer.by.address}"
+    answer is ApprovalAnswer.Denied -> "kept by ${answer.by.address}"
+    answer == ApprovalAnswer.Expired -> "expired"
+    answer is ApprovalAnswer.Unavailable -> "unavailable: ${answer.reason}"
     else -> "$answer"
 }
 
