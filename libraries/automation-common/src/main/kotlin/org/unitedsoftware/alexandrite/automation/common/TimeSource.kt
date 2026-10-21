@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.automation.common
 
 import kotlinx.coroutines.delay
+import java.time.Clock
 import java.time.Instant
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -16,7 +17,10 @@ public interface TimeSource {
 
     public companion object {
         /** The system clock, re-read at least once a minute so a changed clock is noticed. */
-        public val system: TimeSource = DelayingTimeSource(Instant::now, poll = 1.minutes)
+        public val system: TimeSource = of(Clock.systemUTC())
+
+        /** [clock], re-read at least once a minute so a changed clock is noticed. */
+        public fun of(clock: Clock): TimeSource = DelayingTimeSource(clock::instant, poll = 1.minutes)
 
         /**
          * [clock] read for the time, slept on with `delay`.

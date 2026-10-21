@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.sandbox.bubblewrap
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.path.OsFamily
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
+import org.unitedsoftware.alexandrite.internal.sandbox.wrapped
 import org.unitedsoftware.alexandrite.internal.text.singleQuoted
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -64,18 +65,7 @@ internal class Bubblewrap : ExecutionEnvironment {
             arguments +=
                 listOf("--", SHELL, "-c", stageScript(tools.bwrap, tools.socat, inner, tools.filter), STAGE_NAME)
             arguments += command.command()
-            val wrapped = ProcessBuilder(arguments)
-                .directory(command.directory())
-                .redirectInput(command.redirectInput())
-                .redirectOutput(command.redirectOutput())
-                .redirectError(command.redirectError())
-                .redirectErrorStream(command.redirectErrorStream())
-            wrapped.environment().apply {
-                clear()
-                putAll(command.environment())
-                putAll(boundary.environment)
-            }
-            val process = start(wrapped)
+            val process = start(wrapped(command, arguments, boundary.environment))
             val placed = held
             process.onExit().whenComplete { _, _ ->
                 relay?.close()

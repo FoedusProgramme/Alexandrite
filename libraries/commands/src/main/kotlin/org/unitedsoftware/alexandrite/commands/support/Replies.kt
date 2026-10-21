@@ -46,7 +46,7 @@ internal class Replies(private val texts: Texts, private val language: LanguageT
     fun mode(snapshot: ChatSettingsSnapshot): Setting = when {
         snapshot.mode != null -> Setting("${snapshot.mode}", text(TextKeys.SOURCE_CHAT))
         snapshot.defaultMode != null -> Setting("${snapshot.defaultMode}", text(TextKeys.SOURCE_AGENT))
-        else -> Setting("${PermissionMode.ASK}", text(TextKeys.SOURCE_DEFAULT))
+        else -> Setting("${snapshot.effectiveMode}", text(TextKeys.SOURCE_DEFAULT))
     }
 
     /** How long the chat's bypass of [snapshot] lasts after [now], null when the chat is in no bypass. */

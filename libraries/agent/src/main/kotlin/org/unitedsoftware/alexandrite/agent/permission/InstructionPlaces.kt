@@ -119,7 +119,7 @@ internal class HostInstructionPlaces(
         if (!protect.alexandrite) return null
         val own = workspaces.paths.values + directory.agents.map { places.conversations(it.id) }
         if (own.any { under(target, real(it)) }) return null
-        return ALEXANDRITE.takeIf { alexandritePlaces(paths).any { under(target, real(it)) } }
+        return ALEXANDRITE.takeIf { paths.alexandritePlaces.any { under(target, real(it)) } }
     }
 
     private fun protectedBy(agent: AgentId, config: SandboxConfig): Protected {

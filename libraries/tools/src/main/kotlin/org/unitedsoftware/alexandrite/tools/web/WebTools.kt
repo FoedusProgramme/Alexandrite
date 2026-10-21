@@ -6,6 +6,8 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.countArgument
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -21,9 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.web.PageQuestion
 import org.unitedsoftware.alexandrite.sdk.web.WebModels
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
-import org.unitedsoftware.alexandrite.tools.fs.count
 import org.unitedsoftware.alexandrite.tools.fs.property
-import org.unitedsoftware.alexandrite.tools.fs.requiredString
 import org.unitedsoftware.alexandrite.tools.fs.schema
 import java.net.URI
 import kotlin.time.Duration.Companion.seconds
@@ -105,7 +105,7 @@ internal class SearchTool(
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("query", "limit") }) { "Unknown web.search argument." }
         val text = arguments.text("query", 2000)
-        val limit = arguments.count("limit") ?: 5
+        val limit = arguments.countArgument("limit") ?: 5
         require(limit <= 20) { "limit must be between 1 and 20." }
         val query = WebQuery(text, limit)
         context.untrusted("web.search reads untrusted web content")

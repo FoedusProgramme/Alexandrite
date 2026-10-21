@@ -22,15 +22,7 @@ internal class SandboxSpec(
     val allowed: List<HostPattern>,
 ) {
     /** [boundary] with its network through the proxy on the loopback [port]. */
-    fun through(port: Int): Boundary = Boundary(
-        boundary.writable,
-        boundary.writeDenied,
-        boundary.protectedNames,
-        boundary.readDenied,
-        boundary.readable,
-        NetworkAccess.Proxy(port),
-        boundary.environment + proxyVariables(port),
-    )
+    fun through(port: Int): Boundary = boundary.withNetwork(NetworkAccess.Proxy(port), proxyVariables(port))
 }
 
 /**
@@ -50,13 +42,11 @@ internal fun serverSandbox(
     config.network.allowedDomains.firstOrNull { HostPattern.parse(it) == null }?.let {
         throw ConfigException(
             "$key.network.allowedDomains",
-            "'$it' is no host: write a name such as example.com or *.example.com, or an address such as 127.0.0.1, " +
-                "each with an optional :port.",
+            HostPattern.notAHost(it),
         )
     }
     val protect = Protect.of(config.protect)
-    val own = listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
-        listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
+    val own = paths.alexandritePlaces
     val writable = listOfNotNull(cwd) + config.allowWrite.map { resolved(paths, "$key.allowWrite", it) }
     val boundary = Boundary(
         writable = writable,

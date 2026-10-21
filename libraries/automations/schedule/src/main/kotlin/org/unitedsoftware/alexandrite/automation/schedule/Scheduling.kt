@@ -30,6 +30,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.ReplyRoute
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnTicket
+import java.time.Clock
 import java.time.Instant
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -46,9 +47,10 @@ internal class Scheduling(
     private val initiator: TurnInitiator,
     private val notices: Notices,
     private val scope: PluginScope,
+    clock: Clock,
     time: TimeSource?,
 ) : Lifecycle {
-    val time: TimeSource = time ?: TimeSource.system
+    val time: TimeSource = time ?: TimeSource.of(clock)
 
     private val closing = MutableStateFlow(false)
     private val trigger = Trigger<String> { task, occurrence -> fire(task, occurrence) }

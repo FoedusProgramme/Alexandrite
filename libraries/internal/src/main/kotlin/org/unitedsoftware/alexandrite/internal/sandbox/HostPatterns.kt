@@ -57,6 +57,10 @@ public class HostPattern private constructor(
     override fun hashCode(): Int = toString().hashCode()
 
     public companion object {
+        /** Why [text], which [parse] does not take, is no host, as a config's reader is told. */
+        public fun notAHost(text: String): String = "'$text' is no host: write a name such as example.com or " +
+            "*.example.com, or an address such as 127.0.0.1, each with an optional :port."
+
         /** [text] as a pattern, null when it is none. */
         public fun parse(text: String): HostPattern? {
             val trimmed = text.trim().lowercase()

@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.sandbox.seatbelt
 
 import org.unitedsoftware.alexandrite.internal.path.OsFamily
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
+import org.unitedsoftware.alexandrite.internal.sandbox.wrapped
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
@@ -26,18 +27,8 @@ internal class Seatbelt : ExecutionEnvironment {
         } catch (e: IllegalArgumentException) {
             throw IOException("No Seatbelt profile can express the boundary: ${e.message}", e)
         }
-        val wrapped = ProcessBuilder(listOf(SANDBOX_EXEC.toString(), "-p", profile) + command.command())
-            .directory(command.directory())
-            .redirectInput(command.redirectInput())
-            .redirectOutput(command.redirectOutput())
-            .redirectError(command.redirectError())
-            .redirectErrorStream(command.redirectErrorStream())
-        wrapped.environment().apply {
-            clear()
-            putAll(command.environment())
-            putAll(boundary.environment)
-        }
-        return wrapped.start()
+        val argv = listOf(SANDBOX_EXEC.toString(), "-p", profile) + command.command()
+        return wrapped(command, argv, boundary.environment).start()
     }
 }
 

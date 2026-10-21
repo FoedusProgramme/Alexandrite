@@ -26,4 +26,9 @@ public interface HostPaths {
 
     /** The places the host declares off-limits. */
     public val protected: List<Path>
+
+    /** Every place of Alexandrite's own: the config's directory and files, the data and cache, and [protected]. */
+    public val alexandritePlaces: List<Path>
+        get() = listOfNotNull(configFile?.parent, configTarget, configBackup) +
+            listOf(dataRoot, pluginDataRoot, cacheRoot) + protected
 }

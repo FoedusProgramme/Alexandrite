@@ -13,7 +13,6 @@ import org.unitedsoftware.alexandrite.agent.permission.Containment
 import org.unitedsoftware.alexandrite.agent.permission.Containments
 import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_NAMES
 import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
-import org.unitedsoftware.alexandrite.agent.permission.alexandritePlaces
 import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
@@ -115,7 +114,7 @@ internal class Sandboxes(
         val protect = Protect.of(config.protect)
         val protectedPaths =
             protect.paths.map { configuredPath(paths, "$key.protect", "the protected path", expandHome(it)) } +
-                if (protect.alexandrite) alexandritePlaces(paths) else emptyList()
+                if (protect.alexandrite) paths.alexandritePlaces else emptyList()
         logger.info("Agent '{}' runs its commands in the {} sandbox", agent, environment.name)
         return Configured(
             environment,
@@ -160,22 +159,13 @@ internal class Sandboxes(
         override fun hostProblem(hosts: List<String>): String? {
             if (hosts.size > MAX_HOSTS) return "'network' names more than $MAX_HOSTS hosts."
             val wrong = hosts.firstOrNull { HostPattern.parse(it) == null } ?: return null
-            return "'$wrong' is no host: write a name such as example.com or *.example.com, or an address such as " +
-                "127.0.0.1, each with an optional :port."
+            return HostPattern.notAHost(wrong)
         }
 
         override suspend fun open(boundary: Boundary, hosts: List<String>): NetworkLease {
             val allowed = (allowed(turn, configured) + hosts.mapNotNull(HostPattern::parse)).distinct()
             val lease = withContext(Dispatchers.IO) { proxy.open(allowed) }
-            val opened = Boundary(
-                boundary.writable,
-                boundary.writeDenied,
-                boundary.protectedNames,
-                boundary.readDenied,
-                boundary.readable,
-                NetworkAccess.Proxy(lease.port),
-                boundary.environment + proxyVariables(lease.port),
-            )
+            val opened = boundary.withNetwork(NetworkAccess.Proxy(lease.port), proxyVariables(lease.port))
             return Lease(opened, lease)
         }
     }

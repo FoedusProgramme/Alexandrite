@@ -5,6 +5,8 @@ import org.unitedsoftware.alexandrite.internal.hash.hex
 import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.countArgument
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -47,8 +49,8 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val path = context.absolute(arguments.requiredString("path"))
-        val offset = arguments.count("offset") ?: 1
-        val limit = minOf(arguments.count("limit") ?: MAX_LINES, MAX_LINES)
+        val offset = arguments.countArgument("offset") ?: 1
+        val limit = minOf(arguments.countArgument("limit") ?: MAX_LINES, MAX_LINES)
         val conversation = context.turn.conversation
         blocking {
             val file = floor.allowed(path, context)

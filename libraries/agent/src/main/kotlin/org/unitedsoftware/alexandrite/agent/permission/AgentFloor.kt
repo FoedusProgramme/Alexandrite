@@ -130,7 +130,7 @@ internal class AgentFloor(
     /** The paths of the groups and paths in [entries], written at [key], but for the `system` group's. */
     private fun places(entries: List<String>, key: String): List<Path> = buildList {
         if (FloorConfig.CREDENTIALS in entries) addAll(credentialPlaces(userHome(), System.getenv()))
-        if (FloorConfig.ALEXANDRITE in entries) addAll(alexandritePlaces(hostPaths))
+        if (FloorConfig.ALEXANDRITE in entries) addAll(hostPaths.alexandritePlaces)
         addAll(operatorPlaces(hostPaths, entries.filterNot { it in FloorConfig.FLOOR_GROUPS }, userHome(), key))
     }
 
@@ -322,11 +322,6 @@ internal fun hostFloor(
     }
     return HostFloor(floor(emptyMap()), own, personas, withConversation)
 }
-
-/** Alexandrite's config, data, plugin data and cache, and the places the host protects. */
-internal fun alexandritePlaces(paths: HostPaths): List<Path> =
-    listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
-        listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
 
 /** The paths written at [key], each absolute, under `~/` (the [home]), or relative to the config's directory. */
 internal fun operatorPlaces(

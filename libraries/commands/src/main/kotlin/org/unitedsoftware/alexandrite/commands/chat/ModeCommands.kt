@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.commands.support.words
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
@@ -115,7 +116,7 @@ internal class ModeCommands(private val settings: ChatSettings, private val text
         val DURATION = Regex("([1-9][0-9]{0,5})([mhd])", RegexOption.IGNORE_CASE)
 
         /** The mode that applies once the bypass of [snapshot] ends. */
-        fun after(snapshot: ChatSettingsSnapshot): PermissionMode = snapshot.defaultMode ?: PermissionMode.ASK
+        fun after(snapshot: ChatSettingsSnapshot): PermissionMode = snapshot.rebuild { mode(null) }.effectiveMode
 
         /** [text] such as `30m`, `2h` or `1d` as a duration, null when it is none. */
         fun duration(text: String): Duration? {

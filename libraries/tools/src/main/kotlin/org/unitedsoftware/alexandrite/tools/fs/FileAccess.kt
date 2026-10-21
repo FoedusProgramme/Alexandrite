@@ -133,31 +133,6 @@ internal fun checkRegular(file: Path, shown: Path, attributes: BasicFileAttribut
     }
 }
 
-internal fun JsonObject.string(name: String): String? {
-    val value = this[name]
-    if (value == null || value == JsonNull) return null
-    return (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-        ?: throw ToolRefusal("'$name' must be a string.")
-}
-
-internal fun JsonObject.requiredString(name: String): String =
-    string(name)?.takeIf { it.isNotEmpty() } ?: throw ToolRefusal("Give '$name' as a non-empty string.")
-
-internal fun JsonObject.boolean(name: String): Boolean = when (val value = this[name]) {
-    null, JsonNull -> false
-
-    else -> (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-        ?: throw ToolRefusal("'$name' must be true or false.")
-}
-
-/** The whole number [name] of at least 1, null when it is not given. */
-internal fun JsonObject.count(name: String): Int? = when (val value = this[name]) {
-    null, JsonNull -> null
-
-    else -> (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
-        ?: throw ToolRefusal("'$name' must be a whole number of at least 1.")
-}
-
 /** A JSON Schema object of [properties], of which [required] must be given. */
 internal fun schema(vararg required: String, properties: JsonObjectBuilder.() -> Unit): JsonObject = buildJsonObject {
     put("type", "object")

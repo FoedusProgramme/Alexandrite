@@ -113,7 +113,7 @@ internal class Schedule(
     val texts = testTexts(PLUGIN)
     val tasks = TaskRecords(wrap(records.of(PLUGIN)), initiator)
     val scheduling =
-        Scheduling(config, tasks, initiator, Notices(directory, settings, texts, clock, scope), scope, time)
+        Scheduling(config, tasks, initiator, Notices(directory, settings, texts, clock, scope), scope, clock, time)
     val control = ScheduleControl(config, tasks, scheduling)
     val create = CreateTool(config, lazyOf(control), clock)
     val list = ListTool(lazyOf(control), clock)

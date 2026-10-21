@@ -4,6 +4,9 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -50,15 +53,15 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
     )
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
-        floor.readReview(arguments.string("path"), context)
+        floor.readReview(arguments.stringArgument("path"), context)
     } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val search = Search(regex(arguments), floor.protectsAnything)
-        val filter = arguments.string("glob")?.let(::filter)
-        val path = context.searched(arguments.string("path"))
+        val filter = arguments.stringArgument("glob")?.let(::filter)
+        val path = context.searched(arguments.stringArgument("path"))
         blocking { grep(search, filter, path, context) }
     }
 
@@ -87,8 +90,8 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
 
     private fun regex(arguments: JsonObject): Regex {
         val pattern = arguments.requiredString("pattern")
-        val options = setOfNotNull(RegexOption.IGNORE_CASE.takeIf { arguments.boolean("ignoreCase") })
-        if (arguments.boolean("literal")) return Regex(Regex.escape(pattern), options)
+        val options = setOfNotNull(RegexOption.IGNORE_CASE.takeIf { arguments.booleanArgument("ignoreCase") == true })
+        if (arguments.booleanArgument("literal") == true) return Regex(Regex.escape(pattern), options)
         return try {
             Regex(pattern, options)
         } catch (e: PatternSyntaxException) {

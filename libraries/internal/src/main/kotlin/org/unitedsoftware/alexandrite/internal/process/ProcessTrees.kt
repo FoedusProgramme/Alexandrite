@@ -23,6 +23,14 @@ public suspend fun destroyTree(process: Process, grace: Duration) {
     if (process.isAlive) process.destroyForcibly()
 }
 
+/** Asks [handles] to stop, and kills those still running after [grace]. */
+public suspend fun stopAll(handles: List<ProcessHandle>, grace: Duration) {
+    val alive = handles.filter { it.isAlive }
+    alive.forEach { stop(it, forcibly = false) }
+    withTimeoutOrNull(grace) { while (alive.any { it.isAlive }) delay(POLL) }
+    alive.filter { it.isAlive }.forEach { stop(it, forcibly = true) }
+}
+
 private fun stop(handle: ProcessHandle, forcibly: Boolean) {
     try {
         if (forcibly) handle.destroyForcibly() else handle.destroy()

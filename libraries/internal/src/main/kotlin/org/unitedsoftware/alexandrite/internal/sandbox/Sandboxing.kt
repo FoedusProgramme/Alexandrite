@@ -78,3 +78,22 @@ public fun proxyVariables(port: Int): Map<String, String> {
 }
 
 private val PROXY_VARIABLES = listOf("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+
+/**
+ * A process builder that runs [argv] in the place of [command]: in its directory, with its redirects and its variables,
+ * and [variables] beside them.
+ */
+public fun wrapped(command: ProcessBuilder, argv: List<String>, variables: Map<String, String>): ProcessBuilder {
+    val wrapped = ProcessBuilder(argv)
+        .directory(command.directory())
+        .redirectInput(command.redirectInput())
+        .redirectOutput(command.redirectOutput())
+        .redirectError(command.redirectError())
+        .redirectErrorStream(command.redirectErrorStream())
+    wrapped.environment().apply {
+        clear()
+        putAll(command.environment())
+        putAll(variables)
+    }
+    return wrapped
+}

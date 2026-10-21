@@ -2,6 +2,8 @@ package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
@@ -63,4 +65,4 @@ internal class WriteTool(
 }
 
 private fun content(arguments: JsonObject): String =
-    arguments.string("content") ?: throw ToolRefusal("Give 'content' as a string, the whole text of the file.")
+    arguments.stringArgument("content") ?: throw ToolRefusal("Give 'content' as a string, the whole text of the file.")

@@ -35,6 +35,10 @@ public class Boundary private constructor(
         }
     }
 
+    /** This boundary with [network], and [variables] beside its own. */
+    public fun withNetwork(network: NetworkAccess, variables: Map<String, String>): Boundary =
+        Boundary(writable, writeDenied, protectedNames, readDenied, readable, network, environment + variables)
+
     public companion object {
         public operator fun invoke(
             writable: List<Path>,
