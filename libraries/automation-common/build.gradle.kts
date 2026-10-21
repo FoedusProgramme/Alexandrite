@@ -3,6 +3,8 @@ plugins {
     id("alexandrite.poko")
 }
 
+description = "The scheduling core that Alexandrite's automations share"
+
 dependencies {
     api(libs.kotlinx.coroutines.core)
 

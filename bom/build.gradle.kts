@@ -10,7 +10,8 @@ description = "Aligns the versions of the Alexandrite modules a third-party plug
 
 dependencies {
     constraints {
-        for (published in AlexandriteLayout.publishedModules.filter { it.layer != Layer.BOM }) {
+        val modules = rootProject.subprojects.mapNotNull { AlexandriteLayout.moduleAt(it.path) }
+        for (published in modules.filter { it.published && it.layer != Layer.BOM }) {
             api(project(published.path))
         }
         api("org.unitedsoftware.alexandrite:alexandrite-gradle-plugin:$version")

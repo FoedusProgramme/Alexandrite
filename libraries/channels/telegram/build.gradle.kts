@@ -4,8 +4,10 @@ plugins {
     `java-test-fixtures`
 }
 
+description = "The Telegram channel of Alexandrite"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
     implementation(project(":libraries:channel-common"))
 

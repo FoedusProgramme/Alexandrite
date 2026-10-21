@@ -3,8 +3,10 @@ plugins {
     id("alexandrite.kotlin-serialization")
 }
 
+description = "The OpenRouter model provider of Alexandrite"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:provider-common"))
 
     testImplementation(project(":libraries:testkit"))

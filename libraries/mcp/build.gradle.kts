@@ -4,8 +4,10 @@ plugins {
     `java-test-fixtures`
 }
 
+description = "Alexandrite's MCP client, which offers the tools of MCP servers to the agent"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
 
     testFixturesImplementation(libs.kotlinx.serialization.json)

@@ -21,7 +21,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 
 @Plugin(name = "Agent", description = "Turn pipeline, permissions and automation")
-public class AgentPlugin internal constructor(
+internal class AgentPlugin(
     private val settings: AgentSettings,
     private val directory: AgentDirectory,
     private val endpoints: Endpoints,

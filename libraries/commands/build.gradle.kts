@@ -2,8 +2,10 @@ plugins {
     id("alexandrite.kotlin-library")
 }
 
+description = "Alexandrite's default chat commands"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
 
     testImplementation(project(":libraries:testkit"))

@@ -3,4 +3,4 @@ package org.unitedsoftware.alexandrite.provider.deepseek
 import org.unitedsoftware.alexandrite.sdk.plugin.Plugin
 
 @Plugin(name = "DeepSeek", description = "DeepSeek model provider")
-public class DeepSeekPlugin
+internal class DeepSeekPlugin

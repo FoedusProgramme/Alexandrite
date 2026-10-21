@@ -20,6 +20,9 @@ abstract class BuildFileScan : ValueSource<List<String>, BuildFileScan.Parameter
             override fun hasBuildFile(directory: String) =
                 File(root, "$directory/${AlexandriteLayout.BUILD_FILE}").isFile
 
+            override fun hasSettingsFile(directory: String) =
+                File(root, "$directory/${AlexandriteLayout.SETTINGS_FILE}").isFile
+
             override fun subdirectories(directory: String) =
                 File(root, directory).listFiles(File::isDirectory)?.map { it.name }.orEmpty()
         })

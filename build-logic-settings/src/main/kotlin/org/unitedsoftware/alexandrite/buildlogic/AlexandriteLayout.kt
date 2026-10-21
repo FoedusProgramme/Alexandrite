@@ -99,6 +99,9 @@ data class AlexandriteModule(
     /** The class name of its `PluginIndex`, null when the convention passes no package */
     val indexClass: String?
         get() = packageName?.let { "$it.${AlexandriteLayout.indexClassName(moduleName)}" }
+
+    val published: Boolean
+        get() = layer in AlexandriteLayout.PUBLISHED_LAYERS
 }
 
 data class Discovery(
@@ -109,11 +112,15 @@ data class Discovery(
     /** Null when the layout holds, otherwise the message settings evaluation fails with. */
     val failure: String?
         get() = AlexandriteLayout.placementFailure(misplaced, missingSlots) ?: AlexandriteLayout.idFailure(modules)
+            ?: AlexandriteLayout.jarNameFailure(modules)
 }
 
 interface ModuleTree {
     /** Whether [directory] holds a `build.gradle.kts` file */
     fun hasBuildFile(directory: String): Boolean
+
+    /** Whether [directory] holds a `settings.gradle.kts` file */
+    fun hasSettingsFile(directory: String): Boolean
 
     /** The names of [directory]'s direct subdirectories */
     fun subdirectories(directory: String): List<String>
@@ -133,10 +140,16 @@ object AlexandriteLayout {
     /** The file that makes a directory a module */
     const val BUILD_FILE = "build.gradle.kts"
 
+    /** The file that makes a directory a build of its own, which [scan] skips */
+    const val SETTINGS_FILE = "settings.gradle.kts"
+
     /** The trees [scan] walks for misplaced modules */
     val SCANNED_TREES: List<String> = listOf("libraries", "examples")
 
     private const val PACKAGE = "org.unitedsoftware.alexandrite"
+
+    /** The Maven group of every published module */
+    const val PUBLISHED_GROUP = PACKAGE
 
     val LOCATIONS: List<Location> = listOf(
         Location.Slot("libraries/plugin-sdk", Layer.SDK),
@@ -257,16 +270,10 @@ object AlexandriteLayout {
     val THIRD_PARTY_LAYERS: Set<Layer> = setOf(Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON, Layer.EXAMPLE)
 
     /** Layers whose modules are published to Maven Central */
-    val PUBLISHED_LAYERS: Set<Layer> = setOf(
-        Layer.SDK,
-        Layer.INTERNAL,
-        Layer.RUNTIME,
-        Layer.CHANNEL_COMMON,
-        Layer.PROVIDER_COMMON,
-        Layer.TESTKIT,
-        Layer.KSP,
-        Layer.BOM,
-    )
+    val PUBLISHED_LAYERS: Set<Layer> = Layer.entries.toSet() - setOf(Layer.EXAMPLE, Layer.APP)
+
+    /** Published layers that plugin authors build on, whose POM carries no implementation-module warning */
+    val AUTHOR_LAYERS: Set<Layer> = setOf(Layer.SDK, Layer.TESTKIT, Layer.KSP, Layer.BOM)
 
     /** Layers whose modules get a generated `PluginIndex` */
     val INDEXED_LAYERS: Set<Layer> = setOf(
@@ -286,10 +293,6 @@ object AlexandriteLayout {
     val PLUGIN_ID = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
 
     private val slots: List<Location.Slot> = LOCATIONS.filterIsInstance<Location.Slot>()
-
-    /** The modules of [PUBLISHED_LAYERS] */
-    val publishedModules: List<AlexandriteModule>
-        get() = slots.filter { it.layer in PUBLISHED_LAYERS }.mapNotNull { moduleIn(it.directory) }
 
     /** The simple name of the index of [moduleName]. */
     fun indexClassName(moduleName: String): String =
@@ -341,6 +344,7 @@ object AlexandriteLayout {
         val found = sortedSetOf<String>()
         slots.filter { tree.hasBuildFile(it.directory) }.mapTo(found) { it.directory }
         fun walk(directory: String) {
+            if (tree.hasSettingsFile(directory)) return
             if (tree.hasBuildFile(directory)) {
                 found += directory
                 if (moduleIn(directory) != null) return
@@ -382,6 +386,17 @@ object AlexandriteLayout {
             malformed.joinToString("\n") { "  - ${it.path} is named '${it.moduleName}'." } + "\n" +
             "A plugin id is lowercase words of letters and digits, each starting with a letter, joined by single " +
             "hyphens. Rename the module's directory."
+    }
+
+    /** Null when no two modules in [modules] share a jar name. */
+    fun jarNameFailure(modules: List<AlexandriteModule>): String? {
+        val shared = modules.groupBy { it.jarName }.filterValues { it.size > 1 }
+        if (shared.isEmpty()) return null
+        return "Modules share a jar name, which is also the artifact id they are published under:\n" +
+            shared.entries.joinToString("\n") { (name, sharing) ->
+                "  - ${sharing.joinToString(" and ") { it.path }} are named '$name'."
+            } + "\n" +
+            "Rename the directory of one of them."
     }
 
     fun noLocationMessage(path: String): String =

@@ -27,6 +27,9 @@ jobs:
       - name: Publish to Maven local
         run: ./gradlew publishToMavenLocal -Palexandrite.version=0.0.0-ci --console=plain
 
+      - name: Build a host of the runtime, the agent and the tools from the published artifacts
+        run: ./gradlew -p examples/host build -Palexandrite.version=0.0.0-ci --console=plain
+
       - name: Build the notes example as a third-party plugin
         run: ./gradlew -p examples/notes/standalone build -Palexandrite.version=0.0.0-ci --console=plain
 

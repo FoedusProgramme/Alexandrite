@@ -63,13 +63,18 @@ class AlexandriteLayoutTest {
     private fun assertForbidden(from: String, to: String, configuration: String = "implementation") =
         assertNotNull(violation(from, to, configuration), "$from -> $to ($configuration) should be forbidden")
 
-    private class FakeTree(private val buildFiles: Set<String>, emptyDirectories: Set<String> = emptySet()) :
-        ModuleTree {
-        private val directories = (buildFiles + emptyDirectories).flatMap { directory ->
+    private class FakeTree(
+        private val buildFiles: Set<String>,
+        emptyDirectories: Set<String> = emptySet(),
+        private val settingsFiles: Set<String> = emptySet(),
+    ) : ModuleTree {
+        private val directories = (buildFiles + emptyDirectories + settingsFiles).flatMap { directory ->
             directory.split('/').runningReduce { parent, name -> "$parent/$name" }
         }.toSet()
 
         override fun hasBuildFile(directory: String) = directory in buildFiles
+
+        override fun hasSettingsFile(directory: String) = directory in settingsFiles
 
         override fun subdirectories(directory: String) =
             directories.filter { it.substringBeforeLast('/', "") == directory }.map { it.substringAfterLast('/') }
@@ -338,15 +343,16 @@ class AlexandriteLayoutTest {
     }
 
     @Test
-    fun `the published modules are the SDK, what the testkit needs, the common libraries, the processor and the BOM`() {
+    fun `every library is published with the processor and the BOM, the app and the examples are not`() {
+        for (location in AlexandriteLayout.LOCATIONS) {
+            val published = location.directory.startsWith("libraries/") || location.layer in setOf(Layer.KSP, Layer.BOM)
+            assertEquals(published, location.layer in AlexandriteLayout.PUBLISHED_LAYERS, location.directory)
+        }
+        assertEquals((libraries + ksp + bom).sorted(), all.filter { module(it).published }.sorted())
         assertEquals(
-            listOf(sdk, internals, runtime, channelCommon, providerCommon, testkit, ksp, bom).sorted(),
-            AlexandriteLayout.publishedModules.map { it.path }.sorted(),
-        )
-        assertEquals(
-            setOf("org.unitedsoftware.alexandrite"),
-            AlexandriteLayout.publishedModules.map {
-                it.group
+            setOf(sdk, testkit, ksp, bom),
+            all.filter {
+                module(it).layer in AlexandriteLayout.AUTHOR_LAYERS
             }.toSet(),
         )
     }
@@ -439,6 +445,13 @@ class AlexandriteLayoutTest {
     }
 
     @Test
+    fun `the scan skips a build of its own, whatever it holds`() {
+        val builds = setOf("examples/host", "examples/notes/standalone", "libraries/providers/standalone")
+        val buildFiles = today.toSet() + builds + "examples/host/nested"
+        assertEquals(today.sorted(), AlexandriteLayout.scan(FakeTree(buildFiles, settingsFiles = builds)))
+    }
+
+    @Test
     fun `the scan skips build output, hidden directories and everything outside the trees but the slots`() {
         val ignored = setOf(
             "libraries/tools/build/tmp/fixture",
@@ -527,6 +540,17 @@ class AlexandriteLayoutTest {
         assertContains(failure, ":examples:2fa is named '2fa'.")
         assertEquals(3, failure.lines().count { it.startsWith("  - ") }, failure)
         assertNull(discoverIn(today + "libraries/providers/open-router" + "examples/hello2").failure)
+    }
+
+    @Test
+    fun `two modules with one jar name fail`() {
+        val discovery = discoverIn(today + "libraries/channels/common")
+
+        val failure = assertNotNull(discovery.failure)
+        assertContains(
+            failure,
+            "  - :libraries:channel-common and :libraries:channels:common are named 'alexandrite-channel-common'.",
+        )
     }
 
     @Test

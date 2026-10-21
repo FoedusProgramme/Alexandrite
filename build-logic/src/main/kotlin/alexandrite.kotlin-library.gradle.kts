@@ -54,7 +54,7 @@ if (module.builtIn && module.layer in AlexandriteLayout.INDEXED_LAYERS) {
     apply(plugin = "alexandrite.ksp")
 }
 
-if (module.layer in AlexandriteLayout.PUBLISHED_LAYERS) {
+if (module.published) {
     apply(plugin = "alexandrite.publish")
 }
 
@@ -62,8 +62,9 @@ if (module.layer in AlexandriteLayout.PUBLISHED_LAYERS) {
 if (module.layer == Layer.EXAMPLE) {
     configurations.configureEach {
         resolutionStrategy.dependencySubstitution {
-            for (published in AlexandriteLayout.publishedModules.filter { findProject(it.path) != null }) {
-                val requested = module("${published.group}:${published.jarName}")
+            val modules = rootProject.subprojects.mapNotNull { AlexandriteLayout.moduleAt(it.path) }
+            for (published in modules.filter { it.published }) {
+                val requested = module("${AlexandriteLayout.PUBLISHED_GROUP}:${published.jarName}")
                 if (published.layer == Layer.BOM) {
                     substitute(platform(requested)).using(platform(project(published.path)))
                 } else {

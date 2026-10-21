@@ -3,8 +3,10 @@ plugins {
     id("alexandrite.kotlin-serialization")
 }
 
+description = "Alexandrite's built-in file and command tools"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
 
     testImplementation(project(":libraries:testkit"))
