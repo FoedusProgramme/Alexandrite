@@ -35,6 +35,17 @@ public enum class Platform {
         return file.dropLast(programExtension(file)?.length ?: 0).lowercase(Locale.ROOT)
     }
 
+    /** Whether this platform runs the program [path] through `cmd.exe`. */
+    public fun runsThroughCmd(path: String): Boolean =
+        this == WINDOWS && programExtension(fileName(path)) in BATCH_EXTENSIONS
+
+    /**
+     * The first of [arguments] that `cmd.exe` may read as its own syntax when this platform runs the program [path]
+     * through it, null when there is none.
+     */
+    public fun cmdSyntaxArgument(path: String, arguments: List<String>): String? =
+        if (runsThroughCmd(path)) arguments.firstOrNull { argument -> argument.any { it in CMD_SYNTAX } } else null
+
     public companion object {
         public val HOST: Platform = if (File.separatorChar == '\\') WINDOWS else POSIX
     }
@@ -44,3 +55,8 @@ public enum class Platform {
 public fun programName(argv0: String): String = Platform.HOST.programName(argv0)
 
 private val WINDOWS_PROGRAM_EXTENSIONS = setOf(".exe", ".com", ".bat", ".cmd")
+
+private val BATCH_EXTENSIONS = setOf(".bat", ".cmd")
+
+/** The characters that `cmd.exe` reads as its own syntax. */
+private const val CMD_SYNTAX = "%!\"^&|<>()\r\n"

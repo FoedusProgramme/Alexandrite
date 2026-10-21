@@ -72,6 +72,7 @@ public class TurnStatus private constructor(
     init {
         require(phase != TurnPhase.QUEUED || startedAt == null) { "A queued turn has not started." }
         require(phase != TurnPhase.RUNNING || startedAt != null) { "A running turn has a start time." }
+        require(phase != TurnPhase.FINISHING || startedAt != null) { "A finishing turn has a start time." }
     }
 
     public fun toBuilder(): Builder = Builder(turn, phase, queuedAt).startedAt(startedAt)
@@ -114,8 +115,11 @@ public value class TurnPhase internal constructor(public val id: String) {
 
         public val RUNNING: TurnPhase = TurnPhase("running")
 
+        /** The turn's outcome is decided, and it delivers and stores it out of a cancel's reach. */
+        public val FINISHING: TurnPhase = TurnPhase("finishing")
+
         /** The values this version knows. */
-        public val entries: List<TurnPhase> = listOf(QUEUED, RUNNING)
+        public val entries: List<TurnPhase> = listOf(QUEUED, RUNNING, FINISHING)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): TurnPhase = TurnPhase(id)

@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.WAIT
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
@@ -67,11 +68,12 @@ class TelegramWindowsTest {
     }
 
     @Test
-    fun `curl reads the network, so its output taints the conversation, and a local script's does not`() {
+    fun `curl reads the network, so its output taints the conversation, and a local program's does not`() {
         val repository = root.resolve("repo").createDirectories()
-        val script = repository.resolve("build.cmd").also { it.writeText("@echo off\r\necho built\r\n") }
+        val hostname = Path.of(System.getenv("SystemRoot") ?: "C:\\Windows", "System32", "hostname.exe")
+        val program = Files.copy(hostname, repository.resolve("build.exe"))
         app.model
-            .reply { toolCall("command.exec", exec(listOf("$script"), repository)) }.reply { text("Built.") }
+            .reply { toolCall("command.exec", exec(listOf("$program"), repository)) }.reply { text("Built.") }
             .reply { toolCall("command.exec", exec(listOf("curl.exe", "--version"), repository)) }
             .reply { text("Fetched.") }
         var local: ConversationTaint? = null

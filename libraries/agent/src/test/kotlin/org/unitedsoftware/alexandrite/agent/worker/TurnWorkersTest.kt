@@ -294,13 +294,16 @@ class TurnWorkersTest {
     }
 
     @Test
-    fun `a turn whose outcome is decided is no longer cancelled while it wraps up`() = runTest {
+    fun `a turn whose outcome is decided is listed as finishing and no longer cancelled while it wraps up`() = runTest {
         val bench = bench()
         val decided = bench.receive("test:main:1")
         val running = bench.receive("test:main:2")
         runCurrent()
+        assertEquals(listOf(decided.turn to TurnPhase.RUNNING), bench.phases("test:main:1"))
         bench.runner.decide(decided.turn)
 
+        assertEquals(listOf(decided.turn to TurnPhase.FINISHING), bench.phases("test:main:1"))
+        assertEquals(listOf(running.turn to TurnPhase.RUNNING), bench.phases("test:main:2"))
         assertFalse(bench.workers.cancelRunning(ChatAddress.parse("test:main:1"), CODER, TurnCancelled(null)))
         assertFalse(bench.workers.cancel(decided.turn, TurnCancelled(null)))
         assertFalse(decided.ticket.cancel())

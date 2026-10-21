@@ -13,6 +13,7 @@ dependencies {
     implementation(project(":libraries:commands"))
     implementation(project(":libraries:channels:telegram"))
     implementation(project(":libraries:channel-common"))
+    implementation(project(":libraries:provider-common"))
     implementation(project(":libraries:providers:openai-compatible"))
     implementation(project(":libraries:providers:openai-responses"))
     implementation(project(":libraries:providers:deepseek"))

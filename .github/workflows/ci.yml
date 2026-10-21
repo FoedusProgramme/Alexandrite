@@ -58,10 +58,10 @@ jobs:
       - name: Test what is meant for Windows
         run: >-
           ./gradlew --console=plain
-          :libraries:internal:test --tests "*Windows*" --tests "*PlatformTest"
-          :libraries:tools:test --tests "*Windows*" --tests "*ProgramsTest"
+          :libraries:internal:test --tests "*WindowsTest" --tests "*PlatformTest"
+          :libraries:tools:test --tests "*WindowsTest" --tests "*ProgramsTest"
           :libraries:agent:test --tests "*LocalRunsTest"
-          :app:test --tests "*Windows*"
+          :app:test --tests "*WindowsTest"
 
       - name: Upload test reports
         if: failure()

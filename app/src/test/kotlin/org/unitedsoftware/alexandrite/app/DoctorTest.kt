@@ -69,6 +69,19 @@ class DoctorTest {
     }
 
     @Test
+    fun `a baseUrl that ends with an API path is warned of`() {
+        cli.config(config.replace("https://llm.example.com", "https://llm.example.com/v1/messages"))
+
+        val printed = cli("doctor")
+
+        assertContains(
+            printed.out.lines(),
+            "warn  config: The baseUrl https://llm.example.com/v1/messages of endpoint claude ends with the API path " +
+                "/v1/messages: baseUrl is the API root, so leave out /v1/messages.",
+        )
+    }
+
+    @Test
     fun `refused keys and tokens, an unreachable endpoint, an old Java and open secrets fail`() {
         val machine = FakeMachine(java = Runtime.Version.parse("17.0.2"))
         cli = Commands(directory, machine, cli.environment)

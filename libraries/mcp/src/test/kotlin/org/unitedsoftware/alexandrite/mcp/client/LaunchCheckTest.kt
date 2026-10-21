@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.mcp.client
 
+import org.unitedsoftware.alexandrite.internal.path.Platform
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -12,6 +13,16 @@ class LaunchCheckTest {
 
     private fun quiet(command: String, vararg args: String) =
         assertNull(LaunchCheck.warning(command, args.toList()), "$command ${args.joinToString(" ")} is not warned of")
+
+    @Test
+    fun `a batch file on Windows is refused an argument that cmd would read as its own syntax`() {
+        val refusal = LaunchCheck.refusal("C:\\tools\\server.cmd", listOf("--root", "a&b"), Platform.WINDOWS)
+
+        assertContains(assertNotNull(refusal), "argument 'a&b'")
+        assertNull(LaunchCheck.refusal("npx.CMD", listOf("-y", "@scope/server", "C:\\data dir"), Platform.WINDOWS))
+        assertNull(LaunchCheck.refusal("server.exe", listOf("a&b"), Platform.WINDOWS))
+        assertNull(LaunchCheck.refusal("/srv/server.cmd", listOf("a&b"), Platform.POSIX))
+    }
 
     @Test
     fun `ordinary servers start`() {

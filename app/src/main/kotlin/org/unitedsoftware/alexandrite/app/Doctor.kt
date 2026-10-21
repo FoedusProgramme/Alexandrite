@@ -97,6 +97,7 @@ internal fun diagnose(cli: Cli): List<Finding> {
     findings += permissions(cli)
     findings += disk(cli)
     if (resolved != null) {
+        findings += baseUrlWarnings(cli, resolved).map { Finding("config", Verdict.WARN, it) }
         findings += endpoints(cli, resolved)
         findings += telegram(cli, resolved)
     }

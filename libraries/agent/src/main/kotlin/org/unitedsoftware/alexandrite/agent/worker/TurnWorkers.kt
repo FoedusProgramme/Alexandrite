@@ -206,7 +206,7 @@ internal class TurnWorkers(
             val conversation = turn.conversation
                 ?: read.getOrPut(plan.key to heartbeat) { conversation(plan.key, heartbeat) }
                 ?: return@mapNotNull null
-            status(plan, conversation, turn.startedAt)
+            status(plan, conversation, turn.startedAt, turn.finishing)
         }.sortedBy { it.queuedAt }
     }
 
@@ -482,7 +482,7 @@ private class Worker(val key: AgentChatKey) {
     /** The running and queued turns that came from [chat], or from every chat when it is null. */
     fun listed(chat: ChatAddress?): List<Listed> {
         val running = current?.let { current ->
-            current.turn?.let { Listed(it.plan, current.startedAt, current.conversation) }
+            current.turn?.let { Listed(it.plan, current.startedAt, current.conversation, current.ended) }
         }
         val queued = queue.filterIsInstance<WorkerJob.Turn>().map { turn ->
             val known = when (turn.plan.kind) {
@@ -490,14 +490,19 @@ private class Worker(val key: AgentChatKey) {
                 TurnKind.JOB -> turn.plan.jobConversation
                 else -> conversation
             }
-            Listed(turn.plan, null, known)
+            Listed(turn.plan, null, known, finishing = false)
         }
         return (listOfNotNull(running) + queued).filter { chat == null || it.plan.origin == chat }
     }
 }
 
 /** A turn that a worker runs or queues, with the conversation it runs in when the worker knows it. */
-private class Listed(val plan: TurnPlan, val startedAt: Instant?, val conversation: ConversationId?)
+private class Listed(
+    val plan: TurnPlan,
+    val startedAt: Instant?,
+    val conversation: ConversationId?,
+    val finishing: Boolean,
+)
 
 /** The job a worker took from its queue. */
 private class Current(val job: WorkerJob) {
@@ -539,14 +544,18 @@ private fun TurnPlan.isFollowUp(principal: UserAddress, chat: ChatAddress, since
         origin == chat &&
         !queuedAt.isBefore(since)
 
-private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Instant?): TurnStatus {
+private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Instant?, finishing: Boolean): TurnStatus {
     val turn = TurnInfo.builder(plan.id, plan.origin, conversation, plan.kind)
         .actor(plan.actor)
         .agent(plan.key.agent)
         .replyTarget(plan.replyTarget)
         .key(plan.key)
         .build()
-    val phase = if (startedAt == null) TurnPhase.QUEUED else TurnPhase.RUNNING
+    val phase = when {
+        startedAt == null -> TurnPhase.QUEUED
+        finishing -> TurnPhase.FINISHING
+        else -> TurnPhase.RUNNING
+    }
     return TurnStatus.builder(turn, phase, plan.queuedAt).startedAt(startedAt).build()
 }
 

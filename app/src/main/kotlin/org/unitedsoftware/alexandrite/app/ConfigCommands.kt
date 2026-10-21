@@ -15,6 +15,7 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
+import org.unitedsoftware.alexandrite.provider.common.apiPathIn
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
@@ -276,22 +277,42 @@ internal fun configCheck(cli: Cli, json: Boolean): Int {
     } catch (e: IOException) {
         listOf(cli.t("secret.unreadable", "file" to SECRETS_FILE, "reason" to (e.message ?: e)))
     }
+    val raw = try {
+        writtenConfig(Files.readString(file))
+    } catch (e: IOException) {
+        null
+    }
+    val warnings = raw?.let { baseUrlWarnings(cli, it) }.orEmpty()
     if (json) {
         cli.printJson(
             buildJsonObject {
                 put("file", "$file")
                 put("valid", problems.isEmpty())
                 put("problems", JsonArray(problems.map(::JsonPrimitive)))
+                put("warnings", JsonArray(warnings.map(::JsonPrimitive)))
             },
         )
-    } else if (problems.isEmpty()) {
-        cli.done(cli.t("check.passes", "file" to file))
     } else {
-        cli.fail(cli.t("check.fails", "file" to file))
-        problems.forEach(cli.ui::detail)
+        if (problems.isEmpty()) {
+            cli.done(cli.t("check.passes", "file" to file))
+        } else {
+            cli.fail(cli.t("check.fails", "file" to file))
+            problems.forEach(cli.ui::detail)
+        }
+        warnings.forEach(cli.ui::warn)
     }
     return if (problems.isEmpty()) ExitCode.OK else ExitCode.CONFIG
 }
+
+/** A warning for each endpoint of [config] whose baseUrl ends with an API path. */
+internal fun baseUrlWarnings(cli: Cli, config: JsonObject): List<String> =
+    config.objectAt("providers").values.flatMap { provider ->
+        (provider as? JsonObject)?.objectAt("endpoints").orEmpty().mapNotNull { (id, endpoint) ->
+            val base = (endpoint as? JsonObject)?.get("baseUrl").text ?: return@mapNotNull null
+            val path = apiPathIn(base) ?: return@mapNotNull null
+            cli.t("check.base_url_path", "base" to base, "endpoint" to id, "path" to path)
+        }
+    }
 
 internal fun configPath(cli: Cli, json: Boolean): Int {
     if (!json) return cli.done("${cli.locations.configFile}")

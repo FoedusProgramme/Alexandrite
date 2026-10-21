@@ -6,6 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.internal.path.Platform
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.programName
@@ -222,7 +223,9 @@ internal class Planner(
         val program = programName(name)
         val arguments = argv.drop(1)
         val real = programName(executable.fileName.toString())
-        val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
+        val batch = listOf(resolved, executable).map(Path::toString).firstOrNull(Platform.HOST::runsThroughCmd)
+        batch?.let { Platform.HOST.cmdSyntaxArgument(it, arguments) }?.let { throw cmdSyntaxRefusal(name, it) }
+        val opaque = batch != null || isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
         val listed = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
         val tabled = if (listed) CommandOptions.parse(argv, withTable = true) else null
@@ -343,6 +346,12 @@ internal class Planner(
         return RuleSubject("command.exec", tokens, tokens.joinToString(" "))
     }
 }
+
+private fun cmdSyntaxRefusal(name: String, argument: String) = ToolRefusal(
+    "$name is a batch file, which Windows runs through cmd.exe, and cmd would read the argument '$argument' as " +
+        "its own syntax: run it through cmd /c with your own quoting, or leave out the characters " +
+        "% ! \" ^ & | < > ( ) and line breaks.",
+)
 
 /** Whether a vetted call of [program] parsed as [parsed] still changes system state. */
 private fun setsState(program: String, parsed: ParsedCommand): Boolean = when (program) {

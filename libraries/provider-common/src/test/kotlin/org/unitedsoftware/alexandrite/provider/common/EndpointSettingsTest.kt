@@ -3,7 +3,9 @@ package org.unitedsoftware.alexandrite.provider.common
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EndpointSettingsTest {
@@ -18,6 +20,25 @@ class EndpointSettingsTest {
             refused("baseUrl must be") { EndpointSettings(url) }
         }
         EndpointSettings("http://127.0.0.1:1234/v1")
+    }
+
+    @Test
+    fun `a base URL that ends with an API path names the path to leave out`() {
+        val paths = mapOf(
+            "https://api.example.com/v1/chat/completions" to "/chat/completions",
+            "https://api.example.com/v1/responses/" to "/responses",
+            "https://api.example.com/anthropic/v1/messages" to "/v1/messages",
+            "https://api.example.com/messages" to "/messages",
+        )
+
+        for ((url, path) in paths) assertEquals(path, apiPathIn(url), url)
+        for (url in listOf(
+            "https://api.example.com/v1",
+            "https://api.example.com/anthropic",
+            "http://127.0.0.1:1234/",
+        )) {
+            assertNull(apiPathIn(url), url)
+        }
     }
 
     @Test

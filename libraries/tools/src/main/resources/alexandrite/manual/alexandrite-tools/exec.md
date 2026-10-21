@@ -24,6 +24,10 @@ program that runs code it is given (shells, interpreters with inline code, `xarg
 Alexandrite cannot see what it runs, so it needs approvals more often, no "always allow" is offered for it, and its
 output taints. Prefer separate calls or plain chains.
 
+On Windows, a `.bat` or `.cmd` file runs through `cmd.exe` and is opaque as well. cmd may read its arguments as its
+own syntax, so command.exec refuses a call that gives one any of `%`, `!`, `"`, `^`, `&`, `|`, `<`, `>`, `(`, `)` or a
+line break: run the script through `cmd /c` with your own quoting instead, or leave those characters out.
+
 ## Background and monitors
 
 `background: true` starts the call as a job at once; any call that runs past the agent's `foregroundSeconds` (300)

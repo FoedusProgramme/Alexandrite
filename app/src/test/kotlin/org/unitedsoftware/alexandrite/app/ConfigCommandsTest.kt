@@ -153,6 +153,24 @@ class ConfigCommandsTest {
     }
 
     @Test
+    fun `check warns of a baseUrl that ends with an API path and still passes`() {
+        val base = "https://api.deepseek.com/chat/completions/"
+        cli.config(original.replace("{\"apiKey\"", "{\"baseUrl\": \"$base\", \"apiKey\""))
+
+        val printed = cli("config", "check")
+        val json = Json.parseToJsonElement(cli("config", "check", "--json").out).jsonObject
+
+        val warning = "The baseUrl $base of endpoint deepseek ends with the API path /chat/completions: baseUrl is " +
+            "the API root, so leave out /chat/completions."
+        assertEquals(
+            Printed(0, "The config file ${cli.configFile} passes the checks of a start.\n$warning\n", ""),
+            printed,
+        )
+        assertEquals("true", "${json["valid"]}")
+        assertEquals("[${Json.encodeToString(warning)}]", "${json["warnings"]}")
+    }
+
+    @Test
     fun `path prints where the files are`() {
         assertEquals(Printed(0, "${cli.configFile}\n", ""), cli("config", "path"))
         val json = Json.parseToJsonElement(cli("config", "path", "--json").out).jsonObject

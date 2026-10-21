@@ -527,6 +527,7 @@ class SubclassOptInTest {
         fun phase(phase: org.unitedsoftware.alexandrite.sdk.turn.TurnPhase): Int = when (phase) {
             org.unitedsoftware.alexandrite.sdk.turn.TurnPhase.QUEUED -> 0
             org.unitedsoftware.alexandrite.sdk.turn.TurnPhase.RUNNING -> 1
+            org.unitedsoftware.alexandrite.sdk.turn.TurnPhase.FINISHING -> 2
             ELSE
         }
 

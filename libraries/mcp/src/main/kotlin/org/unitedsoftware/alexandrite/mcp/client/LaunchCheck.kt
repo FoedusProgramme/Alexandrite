@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.mcp.client
 
+import org.unitedsoftware.alexandrite.internal.path.Platform
+
 /** The launches of stdio servers worth a warning: shells running code, inline code and privileged containers. */
 internal object LaunchCheck {
     private val SHELLS = setOf("sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "ash", "csh", "tcsh")
@@ -36,6 +38,14 @@ internal object LaunchCheck {
             name in CONTAINERS -> container(name, args)
             else -> null
         }
+    }
+
+    /** Why [command] may not start with [args] on [platform], null when it may. */
+    fun refusal(command: String, args: List<String>, platform: Platform = Platform.HOST): String? {
+        val argument = platform.cmdSyntaxArgument(command, args) ?: return null
+        return "The command '$command' is a batch file, which Windows runs through cmd.exe, and cmd would read its " +
+            "argument '$argument' as its own syntax: start it through cmd /c with your own quoting, or leave out the " +
+            "characters % ! \" ^ & | < > ( ) and line breaks."
     }
 
     /** The program `env` runs, checked as if it were the command. */

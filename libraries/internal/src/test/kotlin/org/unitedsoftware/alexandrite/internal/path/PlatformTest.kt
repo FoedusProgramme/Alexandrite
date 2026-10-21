@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.internal.path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PlatformTest {
@@ -28,6 +29,31 @@ class PlatformTest {
         assertEquals("CMD.EXE", Platform.POSIX.programName("CMD.EXE"))
         assertEquals("curl.exe", Platform.POSIX.programName("/opt/curl.exe"))
         assertEquals("a\\b", Platform.POSIX.programName("a\\b"))
+    }
+
+    @Test
+    fun `Windows runs a batch file through cmd, whatever the case of its extension`() {
+        assertTrue(Platform.WINDOWS.runsThroughCmd("C:\\tools\\build.CMD"))
+        assertTrue(Platform.WINDOWS.runsThroughCmd("npx.cmd"))
+        assertTrue(Platform.WINDOWS.runsThroughCmd("tools/setup.bat"))
+        assertFalse(Platform.WINDOWS.runsThroughCmd("C:\\tools\\build.exe"))
+        assertFalse(Platform.WINDOWS.runsThroughCmd("C:\\cmd.d\\build"))
+        assertFalse(Platform.POSIX.runsThroughCmd("/srv/build.cmd"))
+    }
+
+    @Test
+    fun `an argument that cmd would read as its own syntax is found for a batch file only`() {
+        val safe = listOf("--out", "C:\\work\\out dir", "a=b,c;d", "*.txt", "~1")
+
+        val unsafes =
+            listOf("100%", "%PATH%", "!x!", "a\"b", "a^b", "a&calc", "a|b", "<in", ">out", "(x)", "a\r", "a\nb")
+
+        assertNull(Platform.WINDOWS.cmdSyntaxArgument("build.cmd", safe))
+        for (unsafe in unsafes) {
+            assertEquals(unsafe, Platform.WINDOWS.cmdSyntaxArgument("build.cmd", safe + unsafe), unsafe)
+            assertNull(Platform.WINDOWS.cmdSyntaxArgument("build.exe", listOf(unsafe)), unsafe)
+            assertNull(Platform.POSIX.cmdSyntaxArgument("build.cmd", listOf(unsafe)), unsafe)
+        }
     }
 
     @Test
