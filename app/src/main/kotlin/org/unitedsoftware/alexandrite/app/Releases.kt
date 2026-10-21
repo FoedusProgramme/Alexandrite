@@ -163,11 +163,4 @@ internal fun availableRelease(cli: Cli): String? {
 internal fun isDevelopmentBuild(version: String): Boolean = version.endsWith("-SNAPSHOT")
 
 /** Whether the config file leaves `app.updates.check` on, true when it cannot be read. */
-private fun updatesChecked(cli: Cli): Boolean {
-    val text = try {
-        Files.readString(cli.locations.configFile)
-    } catch (e: IOException) {
-        return true
-    }
-    return (writtenConfig(text)?.at("app.updates.check") as? JsonPrimitive)?.booleanOrNull != false
-}
+private fun updatesChecked(cli: Cli): Boolean = appConfig(cli)?.updates?.check ?: true

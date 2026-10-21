@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.app.tui.columns
 import org.unitedsoftware.alexandrite.app.tui.pad
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.io.IOException
 import java.nio.file.Files
@@ -324,7 +325,9 @@ private fun unknownWindows(
         if (WINDOW_FIELDS.any { (entry[it] as? JsonPrimitive)?.longOrNull?.let { tokens -> tokens > 0 } == true }) {
             return@mapNotNull null
         }
-        val key = "providers.$provider.endpoints.$id.models[\"${model.model}\"].contextWindow"
+        val key = ConfigPath.format(
+            listOf("providers", provider, "endpoints", id, "models", model.model, "contextWindow"),
+        )
         Finding("model $name", Verdict.WARN, cli.t("doctor.no_context_window", "key" to key))
     }
 }

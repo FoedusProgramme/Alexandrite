@@ -22,9 +22,11 @@ import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
 import org.unitedsoftware.alexandrite.runtime.config.referencedSecrets
 import org.unitedsoftware.alexandrite.runtime.config.splicedConfig
 import org.unitedsoftware.alexandrite.runtime.configProblems
+import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import java.io.IOException
@@ -247,21 +249,26 @@ internal fun localConfig(cli: Cli): HostConfig = HostConfigFile(
     "alexandrite",
 )
 
-/** The plugins the app runs with the config file as it is. */
+/** The app's section of the config file read with its secrets, null when the file or the section cannot be read. */
+internal fun appConfig(cli: Cli): AppConfig? = try {
+    ConfigFile.read(cli.locations.configFile, withSecrets(cli.environment, cli.secrets))
+        .decodeSection(APP_ROOT, AppConfig.serializer())
+} catch (e: IOException) {
+    null
+} catch (e: ConfigFileException) {
+    null
+} catch (e: ConfigException) {
+    null
+}
+
+/**
+ * The plugins the app runs with the config file as it is, warning on the error stream, which leaves a command's output
+ * as it is, about each named one that cannot load.
+ */
 internal fun plugins(cli: Cli): PluginSet {
-    val named = try {
-        val raw = writtenConfig(Files.readString(cli.locations.configFile))
-        (raw?.at("app.plugins") as? JsonArray)?.mapNotNull { it.text }.orEmpty()
-    } catch (e: IOException) {
-        emptyList()
-    }
-    return named.fold(PluginSet.builtIn()) { set, id ->
-        try {
-            set.named(id)
-        } catch (e: IllegalArgumentException) {
-            set
-        }
-    }
+    val loaded = appPlugins(appConfig(cli)?.plugins.orEmpty())
+    loaded.problems.forEach { cli.err.println("alexandrite: $it") }
+    return loaded.set
 }
 
 internal fun configGet(cli: Cli, key: String?, json: Boolean): Int {
@@ -274,7 +281,10 @@ internal fun configGet(cli: Cli, key: String?, json: Boolean): Int {
 
 /** The problems of the config file read with [environment], empty when it passes. */
 internal fun configFileProblems(cli: Cli, environment: Map<String, String>): List<String> = try {
-    configProblems(plugins(cli), ConfigFile.read(cli.locations.configFile, environment)).map { it.message }
+    val loaded = appPlugins(appConfig(cli)?.plugins.orEmpty())
+    loaded.problems + configProblems(loaded.set, ConfigFile.read(cli.locations.configFile, environment)).map {
+        it.message
+    }
 } catch (e: ConfigFileException) {
     listOf(e.message.orEmpty())
 }

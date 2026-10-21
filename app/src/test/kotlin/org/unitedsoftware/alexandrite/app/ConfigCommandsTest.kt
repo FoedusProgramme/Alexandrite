@@ -196,6 +196,18 @@ class ConfigCommandsTest {
     }
 
     @Test
+    fun `check fails a file that names a plugin which cannot load, and other commands warn of it`() {
+        cli.config(original.replace("\"UTC\"", "\"UTC\", \"plugins\": [\"weather\"]"))
+
+        val checked = cli("config", "check")
+        val read = cli("manual")
+
+        assertEquals(ExitCode.CONFIG, checked.code)
+        assertContains(checked.err, "Cannot load the plugin 'weather' that 'app.plugins' names")
+        assertContains(read.err, "Cannot load the plugin 'weather' that 'app.plugins' names")
+    }
+
+    @Test
     fun `check warns of a baseUrl that ends with an API path and still passes`() {
         val base = "https://api.deepseek.com/chat/completions/"
         cli.config(original.replace("{\"apiKey\"", "{\"baseUrl\": \"$base\", \"apiKey\""))
