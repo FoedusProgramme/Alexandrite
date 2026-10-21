@@ -345,7 +345,7 @@ internal class AgentTurnRunner(
             val view = contextView(inherited + history.entries(turn.conversation))
             tracked.history = view.loaded
             hooks.contextLoaded(turn, view.loaded)
-            val sections = hooks.promptSections(turn, sections(turn, message))
+            val sections = hooks.promptSections(turn, sections(turn, message, narrowed.toSet()))
             val summaryModel = agent.summaryModel ?: selected.ref
             val window = compactor.open(turn, agent.config.compaction, selected.ref, selected.info, summaryModel, view)
             val parts = RequestParts(selected, options, window, sections, definitions, context)
@@ -523,10 +523,14 @@ internal class AgentTurnRunner(
             return Toolset(offered, all - offered.toSet(), withheld)
         }
 
-        /** The system prompt sections of [turn], which answers [message]. */
-        private suspend fun sections(turn: TurnInfo, message: IncomingMessage?): List<PromptSection> {
-            val delegation = delegation ?: return prompt.sections(turn, message?.chatInfo?.kind)
-            return prompt.delegated(turn, delegation.profile, delegation.delegator)
+        /** The system prompt sections of [turn], which answers [message] and offers the tools [offered]. */
+        private suspend fun sections(
+            turn: TurnInfo,
+            message: IncomingMessage?,
+            offered: Set<String>,
+        ): List<PromptSection> {
+            val delegation = delegation ?: return prompt.sections(turn, offered, message?.chatInfo?.kind)
+            return prompt.delegated(turn, offered, delegation.profile, delegation.delegator)
         }
 
         /**

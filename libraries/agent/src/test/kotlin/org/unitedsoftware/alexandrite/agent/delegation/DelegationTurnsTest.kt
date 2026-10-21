@@ -7,17 +7,18 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
+import org.unitedsoftware.alexandrite.agent.directory.CONVERSATION_DIRECTORY_SECTION
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.job.JobRecord
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.permission.Refusals
+import org.unitedsoftware.alexandrite.agent.project.PROJECT_SECTION
 import org.unitedsoftware.alexandrite.agent.prompt.BASE_SECTION
-import org.unitedsoftware.alexandrite.agent.prompt.CONVERSATION_DIRECTORY_SECTION
 import org.unitedsoftware.alexandrite.agent.prompt.DELEGATION_SECTION
-import org.unitedsoftware.alexandrite.agent.prompt.SKILLS_SECTION
-import org.unitedsoftware.alexandrite.agent.prompt.WORKSPACE_SECTION
 import org.unitedsoftware.alexandrite.agent.startingInBackground
 import org.unitedsoftware.alexandrite.agent.tool.CANCELLED_RESULT
+import org.unitedsoftware.alexandrite.agent.tool.TOOLS_SECTION
+import org.unitedsoftware.alexandrite.agent.workspace.WORKSPACE_SECTION
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
@@ -245,9 +246,10 @@ class DelegationTurnsTest {
                     BASE_SECTION,
                     DELEGATION_SECTION,
                     "agent.instructions.1",
+                    TOOLS_SECTION,
                     WORKSPACE_SECTION,
                     CONVERSATION_DIRECTORY_SECTION,
-                    SKILLS_SECTION,
+                    PROJECT_SECTION,
                 ),
                 runs[0].instructions.map { it.id },
             )

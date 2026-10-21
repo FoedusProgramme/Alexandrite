@@ -1,6 +1,9 @@
 package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.unitedsoftware.alexandrite.agent.config.FloorConfig
+import org.unitedsoftware.alexandrite.agent.permission.floorSection
+import org.unitedsoftware.alexandrite.agent.tool.TOOLS
+import org.unitedsoftware.alexandrite.agent.workspace.workspaceSection
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 import java.nio.file.Path
 import kotlin.test.Test
@@ -19,6 +22,11 @@ class PromptSectionsTest {
     }
 
     @Test
+    fun `the tools section keeps its bytes`() {
+        assertEquals(PromptSection("alexandrite.tools", golden("alexandrite.tools.txt"), stable = true), TOOLS)
+    }
+
+    @Test
     fun `the workspace section keeps its bytes`() {
         assertEquals(
             PromptSection("workspace", golden("workspace.txt"), stable = true),
@@ -27,10 +35,10 @@ class PromptSectionsTest {
     }
 
     @Test
-    fun `the workspace section names the places the floor refuses and those it asks about, as configured`() {
+    fun `the floor section names the places the floor refuses and those it asks about, as configured`() {
         val floor = FloorConfig(deny = listOf("credentials", "~/vault"), ask = listOf("alexandrite"))
 
-        val text = workspaceSection(Path.of("/srv/coder"), floor).text
+        val text = checkNotNull(floorSection(floor)).text
 
         assertEquals(
             listOf(
@@ -39,7 +47,8 @@ class PromptSectionsTest {
                 "A person must allow each call that reaches Alexandrite's own configuration, data and installation, " +
                     "whatever the chat's permission mode.",
             ),
-            text.split("\n\n").drop(2),
+            text.split("\n\n").drop(1),
         )
+        assertEquals(null, floorSection(FloorConfig()))
     }
 }

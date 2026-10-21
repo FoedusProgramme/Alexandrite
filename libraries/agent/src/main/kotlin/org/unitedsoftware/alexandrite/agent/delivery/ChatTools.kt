@@ -179,7 +179,7 @@ internal class ChatSendTool(
 ) : ReviewedTool,
     CompanionTool {
     override val definition: ToolDefinition = ToolDefinition(
-        name = "chat.send",
+        name = SEND_TOOL,
         description = "Sends a message to one of your chats, on any channel: 'home' for your home chat, or a chat " +
             "address from chat.list. Your reply already reaches the chat you are answering: use this to reach " +
             "another chat, any chat from a turn whose reply goes nowhere, such as a heartbeat, or to answer a " +
@@ -328,3 +328,5 @@ internal class ChatSendTool(
 private const val KEPT_TURNS = 1024
 
 private val logger = LoggerFactory.getLogger(ChatSendTool::class.java)
+
+internal const val SEND_TOOL: String = "chat.send"

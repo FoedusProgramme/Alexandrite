@@ -2,8 +2,16 @@ package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
+import org.unitedsoftware.alexandrite.agent.delivery.DELIVERY_SECTION
+import org.unitedsoftware.alexandrite.agent.directory.CONVERSATION_DIRECTORY_SECTION
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
+import org.unitedsoftware.alexandrite.agent.directory.conversationDirectorySection
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.agent.project.PROJECT_SECTION
+import org.unitedsoftware.alexandrite.agent.skill.SKILLS_SECTION
+import org.unitedsoftware.alexandrite.agent.tool.TOOLS_SECTION
+import org.unitedsoftware.alexandrite.agent.workspace.WORKSPACE_SECTION
+import org.unitedsoftware.alexandrite.agent.workspace.workspaceSection
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -61,7 +69,7 @@ class PromptAssemblerTest {
             val coder = testTurn { agent(AgentId("coder")).language(LanguageTag("zh-CN")) }
             val helper = testTurn(TurnKind.HEARTBEAT) { agent(AgentId("helper")) }
 
-            val sections = assembler.sections(coder, ChatKind.GROUP)
+            val sections = assembler.sections(coder, emptySet(), ChatKind.GROUP)
             assertEquals(
                 listOf(
                     "alexandrite.base: You are Coder",
@@ -77,17 +85,17 @@ class PromptAssemblerTest {
                     "alexandrite.base: You are helper",
                     "agent.instructions.1: The operator likes tea.",
                 ),
-                assembler.sections(helper, ChatKind.DIRECT).map { it.line() },
+                assembler.sections(helper, emptySet(), ChatKind.DIRECT).map { it.line() },
             )
-            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, null).map { it.id })
+            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, emptySet(), null).map { it.id })
             assertFailsWith<IllegalArgumentException> {
-                assembler.sections(testTurn { agent(AgentId("other")) }, ChatKind.DIRECT)
+                assembler.sections(testTurn { agent(AgentId("other")) }, emptySet(), ChatKind.DIRECT)
             }
         }
     }
 
     @Test
-    fun `an agent that selects a tool is told of its workspace and conversation directory before the language`() {
+    fun `a turn is told of the parts that its offered tools use, in their order, and a turn offered none of none`() {
         val config = """
             {
               "agents": {
@@ -103,20 +111,27 @@ class PromptAssemblerTest {
             val helper = testTurn { agent(AgentId("helper")) }
             val conversationDirectory = get<ConversationDirectories>().path(AgentId("coder"), ConversationId("test"))
 
-            val sections = assembler.sections(coder, ChatKind.DIRECT)
+            val sections = assembler.sections(coder, setOf("fs.read", "skill.load", "chat.send"), ChatKind.DIRECT)
             assertEquals(
                 listOf(
                     BASE_SECTION,
+                    TOOLS_SECTION,
+                    DELIVERY_SECTION,
                     WORKSPACE_SECTION,
                     CONVERSATION_DIRECTORY_SECTION,
+                    PROJECT_SECTION,
                     SKILLS_SECTION,
                     LANGUAGE_SECTION,
                 ),
                 sections.map { it.id },
             )
-            assertEquals(workspaceSection(Path.of("/srv/coder")), sections[1])
-            assertEquals(conversationDirectorySection(conversationDirectory), sections[2])
-            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, ChatKind.DIRECT).map { it.id })
+            assertEquals(workspaceSection(Path.of("/srv/coder")), sections[3])
+            assertEquals(conversationDirectorySection(conversationDirectory), sections[4])
+            assertEquals(
+                listOf(BASE_SECTION, LANGUAGE_SECTION),
+                assembler.sections(coder, emptySet(), ChatKind.DIRECT).map { it.id },
+            )
+            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, emptySet(), ChatKind.DIRECT).map { it.id })
         }
     }
 }

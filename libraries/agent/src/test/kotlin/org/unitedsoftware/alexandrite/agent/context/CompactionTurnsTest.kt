@@ -493,7 +493,7 @@ class CompactionTurnsTest {
                 text("Hi.")
                 usage(Usage.builder().inputTokens(reported).contextTokens(reported).build())
             }.reply(turns) { text("Hello again.") }.reply(summarizer) { text("Said hi.") }
-            val config = """{"trigger": 0.2, "target": 0.1, "keepTurns": 0}"""
+            val config = """{"trigger": 0.08, "target": 0.03, "keepTurns": 0}"""
             agentHarness(
                 """{"previewIntervalMillis": 0, "agents": {"coder": {"model": "scripted/test-model", """ +
                     """"channels": {"test:main": {}}, "compaction": $config}}}""",
