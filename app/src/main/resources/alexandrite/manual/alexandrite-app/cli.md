@@ -25,6 +25,10 @@ places (`~/.config/alexandrite/alexandrite.json` on Linux).
 
 ## Config and secrets
 
+- `alexandrite config` — on a terminal, a menu that shows and changes the agents (name, default model, permission
+  mode, channels), the models and endpoints, the Telegram channels, the MCP servers, the heartbeats, the language and
+  zone, or any other key, each change made as `config set` makes it; Esc goes back, and at the end it offers to restart
+  Alexandrite when a change needs it. Without a terminal it prints its usage.
 - `alexandrite config get [<key>]` — print a value, or the whole file.
 - `alexandrite config set <key> <value> [--restart]` — set a value, given as JSON or as a plain string.
 - `alexandrite config unset <key> [--restart]` — remove a value so its default applies.

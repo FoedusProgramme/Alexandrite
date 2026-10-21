@@ -56,10 +56,16 @@ internal fun requireKey(key: String): String {
     return key
 }
 
+/** Tells the person how a written change came out, and returns the exit code. */
+internal typealias Report = (Written) -> Int
+
+/** The report of a command, which restarts Alexandrite after a change that needs it when [restart]. */
+internal fun Cli.reporting(restart: Boolean): Report = { reported(this, it, restart) }
+
 /** Makes [changes] through the running app, or in the file when none runs. */
-internal fun changeConfig(cli: Cli, changes: List<ConfigChangeView>, restart: Boolean): Int {
+internal fun changeConfig(cli: Cli, changes: List<ConfigChangeView>, report: Report): Int {
     val written = writeChanges(cli, changes) ?: return ExitCode.FAILURE
-    return reported(cli, written, restart)
+    return report(written)
 }
 
 /**
@@ -97,13 +103,13 @@ internal fun writeChanges(cli: Cli, changes: List<ConfigChangeView>): Written? {
  * Writes [text] as the whole config file as [changeConfig] writes changes, null when the change is refused. A secret
  * it adds as a value goes into the secrets file, and the config names it by reference.
  */
-internal fun replaceConfig(cli: Cli, text: String, restart: Boolean): Int? {
+internal fun replaceConfig(cli: Cli, text: String, report: Report): Int? {
     val moved = configText(cli)?.let { movedSecrets(cli, it, text) ?: return null }
     val replacing = moved?.text ?: text
     val outcome = change(cli, ControlRequest.ReplaceConfig(replacing)) { replace(replacing) }
     if (outcome !is Written) moved?.restore(cli)
     return when (outcome) {
-        is Written -> reported(cli, outcome, restart)
+        is Written -> report(outcome)
         is Failed -> outcome.code
         null -> null
     }
@@ -301,7 +307,7 @@ internal fun configPath(cli: Cli, json: Boolean): Int {
 }
 
 /** Opens a copy of the config file in the operator's editor and writes it once it passes, offering edits again. */
-internal fun configEdit(cli: Cli, restart: Boolean): Int {
+internal fun configEdit(cli: Cli, report: Report): Int {
     val file = cli.locations.configFile
     val original = try {
         Files.readString(file)
@@ -325,7 +331,7 @@ internal fun configEdit(cli: Cli, restart: Boolean): Int {
             if (code != 0) return cli.fail(cli.t("edit.editor_failed", "code" to code))
             val edited = Files.readString(copy)
             if (edited == original) return cli.done(cli.t("edit.no_change"))
-            val result = replaceConfig(cli, edited, restart)
+            val result = replaceConfig(cli, edited, report)
             if (result != null) return result
             if (!cli.confirm(cli.t("edit.again"), default = true)) {
                 return ExitCode.FAILURE

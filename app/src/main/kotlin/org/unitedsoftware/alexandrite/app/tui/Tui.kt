@@ -49,6 +49,10 @@ internal class Tui(private val console: Console, private val style: Style, priva
 
     private val lock = Any()
     private var last = Last.NONE
+
+    /** Whether the last prompt was cancelled by Ctrl-C or the end of the input. */
+    var interrupted: Boolean = false
+        private set
     private var spinner: Spinner? = null
 
     private val width: Int get() = (console.width - 1).coerceAtLeast(INDENT + 10)
@@ -251,7 +255,8 @@ internal class Tui(private val console: Console, private val style: Style, priva
                 var ended: Outcome<T>? = null
                 while (ended == null) {
                     val key = console.key()
-                    val outcome = if (key == Key.Interrupt || key == Key.End) Outcome.Cancel else prompt.press(key)
+                    interrupted = key == Key.Interrupt || key == Key.End
+                    val outcome = if (interrupted) Outcome.Cancel else prompt.press(key)
                     when (outcome) {
                         Outcome.Going -> problem = null
                         is Outcome.Invalid -> problem = outcome.problem

@@ -111,6 +111,17 @@ internal val COMMANDS: List<CliCommand> = listOf(
         noArguments(given, "uninstall")
         CliAction.Act { uninstall(it, given.flag("--keep-data"), given.flag("--yes")) }
     },
+    CliCommand(listOf("config"), "", CONFIGURATION) { given ->
+        given.operands.firstOrNull()?.let {
+            throw UsageException(
+                "usage.unknown_subcommand",
+                "command" to "config",
+                "given" to it,
+                "subcommands" to configSubcommands(),
+            )
+        }
+        CliAction.Act(::configMenu)
+    },
     CliCommand(listOf("config", "get"), "[<key>] [$JSON]", CONFIGURATION, flags = setOf(JSON)) { given ->
         given.atMost(1, Text("usage.config_get"))
         val key = given.operands.firstOrNull()?.let(::requireKey)
@@ -120,15 +131,17 @@ internal val COMMANDS: List<CliCommand> = listOf(
         if (given.operands.size < 2) throw UsageException("usage.config_set")
         val key = requireKey(given.operands.first())
         val value = valueOf(given.operands.drop(1).joinToString(" "))
-        CliAction.Act { changeConfig(it, listOf(ConfigChangeView(key, value)), given.flag(RESTART)) }
+        CliAction.Act { changeConfig(it, listOf(ConfigChangeView(key, value)), it.reporting(given.flag(RESTART))) }
     },
     CliCommand(listOf("config", "unset"), "<key> [$RESTART]", CONFIGURATION, flags = setOf(RESTART)) { given ->
         val key = requireKey(given.single(Text("usage.config_unset")))
-        CliAction.Act { changeConfig(it, listOf(ConfigChangeView(key, remove = true)), given.flag(RESTART)) }
+        CliAction.Act {
+            changeConfig(it, listOf(ConfigChangeView(key, remove = true)), it.reporting(given.flag(RESTART)))
+        }
     },
     CliCommand(listOf("config", "edit"), "[$RESTART]", CONFIGURATION, flags = setOf(RESTART)) { given ->
         noArguments(given, "config edit")
-        CliAction.Act { configEdit(it, given.flag(RESTART)) }
+        CliAction.Act { configEdit(it, it.reporting(given.flag(RESTART))) }
     },
     CliCommand(listOf("config", "check"), "[$JSON]", CONFIGURATION, flags = setOf(JSON)) { given ->
         noArguments(given, "config check")
@@ -173,13 +186,13 @@ internal val COMMANDS: List<CliCommand> = listOf(
                 model,
                 given.all("--channel"),
                 given.flag("--default"),
-                given.flag(RESTART),
+                it.reporting(given.flag(RESTART)),
             )
         }
     },
     CliCommand(listOf("agent", "remove"), "<id> [$RESTART]", SHORTCUTS, setOf(RESTART)) {
         val id = requireId(it.single(Text("usage.agent_remove")), "what.agent_id")
-        CliAction.Act { cli -> agentRemove(cli, id, it.flag(RESTART)) }
+        CliAction.Act { cli -> agentRemove(cli, id, cli.reporting(it.flag(RESTART))) }
     },
     CliCommand(
         listOf("model"),
@@ -223,7 +236,7 @@ internal val COMMANDS: List<CliCommand> = listOf(
         val url = given.option("--url")
         val command = given.operands.drop(1)
         if ((url == null) == command.isEmpty()) throw UsageException("usage.mcp_target")
-        CliAction.Act { mcpAdd(it, name, url, command, given.flag(RESTART)) }
+        CliAction.Act { mcpAdd(it, name, url, command, it.reporting(given.flag(RESTART))) }
     },
     CliCommand(listOf("mcp", "list"), "[$JSON]", SHORTCUTS, flags = setOf(JSON)) { given ->
         noArguments(given, "mcp list")
@@ -231,7 +244,7 @@ internal val COMMANDS: List<CliCommand> = listOf(
     },
     CliCommand(listOf("mcp", "remove"), "<name> [$RESTART]", SHORTCUTS, setOf(RESTART)) {
         val name = it.single(Text("usage.mcp_remove"))
-        CliAction.Act { cli -> mcpRemove(cli, name, it.flag(RESTART)) }
+        CliAction.Act { cli -> mcpRemove(cli, name, cli.reporting(it.flag(RESTART))) }
     },
     CliCommand(
         listOf("mcp", "login"),
