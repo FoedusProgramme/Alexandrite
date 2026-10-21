@@ -144,6 +144,28 @@ class TurnWorkersTest {
     }
 
     @Test
+    fun `a cancel that comes after a turn's answer finds no running turn`() = runTest {
+        val bench = bench()
+        val admission = bench.receive("test:main:1")
+        runCurrent()
+        var cancelled: Boolean? = null
+        var listed: List<Pair<TurnId, TurnPhase>>? = null
+
+        // Awaits the ticket so that the probe runs once the answer is handed on, while the worker still holds the turn.
+        backgroundScope.launch {
+            admission.ticket.outcome()
+            cancelled = bench.workers.cancelRunning(ChatAddress.parse("test:main:1"), CODER, TurnCancelled(null))
+            listed = bench.phases("test:main:1")
+        }
+        runCurrent()
+        bench.runner.finish(admission.turn)
+        runCurrent()
+
+        assertEquals(false, cancelled, "the turn ended with its answer")
+        assertEquals(emptyList(), listed, "an ended turn is no running turn")
+    }
+
+    @Test
     fun `a running turn takes its principal's messages queued since it started, up to a change of state`() = runTest {
         val bench = bench(perKey = 10)
         val key = AgentChatKey.parse("coder@test:main:1")

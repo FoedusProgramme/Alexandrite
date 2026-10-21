@@ -208,6 +208,8 @@ internal class Delegator(
                 withContext(messageBudget ?: EmptyCoroutineContext) {
                     val permit = PoolPermit(permits)
                     permit.acquire()
+                    // A job cancelled while it waited for a permit starts no run once one is free.
+                    currentCoroutineContext().ensureActive()
                     var status = ToolCallStatus.FAILED
                     try {
                         checkNotNull(detachedParent).open()

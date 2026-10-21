@@ -467,6 +467,9 @@ private class Active(
     fun stop(cause: CancellationException): Boolean {
         if (this.cause != null) return false
         this.cause = cause
+        // The job's tool is cancelled here, not once its watcher wakes: a job that waits for a permit must not take
+        // one before it is cancelled, even when the permit frees up first.
+        tool.cancel(cause)
         watcher.cancel(cause)
         return true
     }

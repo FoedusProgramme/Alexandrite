@@ -213,7 +213,7 @@ internal class TurnWorkers(
     /** Cancels the running turns of [agent] that came from [chat], and returns whether there was one. */
     fun cancelRunning(chat: ChatAddress, agent: AgentId, cause: CancellationException): Boolean = lock.locked {
         val running = workers.values.filter { it.key.agent == agent }.mapNotNull { it.current }
-            .filter { it.startedAt != null && it.turn?.plan?.origin == chat }
+            .filter { !it.finished && it.startedAt != null && it.turn?.plan?.origin == chat }
         running.forEach { it.cancel(cause) }
         running.isNotEmpty()
     }
@@ -227,7 +227,7 @@ internal class TurnWorkers(
                 queued.ticket.complete(notStarted(cause))
                 return@locked true
             }
-            val current = worker.current?.takeIf { it.turn?.plan?.id == turn }
+            val current = worker.current?.takeIf { it.turn?.plan?.id == turn && !it.finished }
             if (current != null) {
                 current.cancel(cause)
                 return@locked true
@@ -259,6 +259,7 @@ internal class TurnWorkers(
         lock.locked {
             for (current in running) {
                 val turn = current.turn ?: continue
+                current.finished = true
                 if (turn.ticket.complete(TurnOutcome.ShutDown(replayable = false))) {
                     logger.warn(
                         "Turn {} of {} did not end within {} of its cancellation: it is abandoned",
@@ -307,7 +308,7 @@ internal class TurnWorkers(
 
     private fun launch(worker: Worker, current: Current, turn: WorkerJob.Turn): Job {
         val child = lock.launch(RunningTurn(turn.plan.key)) { execute(worker, current, turn) }
-        child.invokeOnCompletion { error -> error?.let { turn.ticket.complete(interrupted(current, it)) } }
+        child.invokeOnCompletion { error -> error?.let { finish(current, interrupted(current, it)) } }
         return child
     }
 
@@ -336,12 +337,22 @@ internal class TurnWorkers(
         } catch (e: Throwable) {
             if (e is VirtualMachineError) throw e
             if (e is CancellationException && !currentCoroutineContext().isActive) {
-                turn.ticket.complete(interrupted(current, e))
+                finish(current, interrupted(current, e))
                 throw e
             }
             failed(turn, e)
         }
-        turn.ticket.complete(outcome)
+        finish(current, outcome)
+    }
+
+    /**
+     * Marks [current]'s turn finished before handing [outcome] on: the turn ends with the answer, so a cancel that
+     * comes after the answer does not report it cancelled, though the worker still holds it until its coroutine
+     * returns.
+     */
+    private fun finish(current: Current, outcome: TurnOutcome) {
+        current.finished = true
+        current.turn?.ticket?.complete(outcome)
     }
 
     private fun failed(turn: WorkerJob.Turn, error: Throwable): TurnOutcome {
@@ -478,7 +489,7 @@ private class Worker(val key: AgentChatKey) {
 
     /** The running and queued turns that came from [chat], or from every chat when it is null. */
     fun listed(chat: ChatAddress?): List<Listed> {
-        val running = current?.let { current ->
+        val running = current?.takeUnless { it.finished }?.let { current ->
             current.turn?.let { Listed(it.plan, current.startedAt, current.conversation) }
         }
         val queued = queue.filterIsInstance<WorkerJob.Turn>().map { turn ->
@@ -501,6 +512,12 @@ private class Current(val job: WorkerJob) {
     var child: Job? = null
     var startedAt: Instant? = null
     var cause: CancellationException? = null
+
+    /**
+     * Whether the turn's outcome was handed on, which ends it before its coroutine returns and the worker lets it go,
+     * so that a cancel that comes after the answer finds no running turn.
+     */
+    @Volatile var finished: Boolean = false
 
     /** The conversation that the runner of the turn read, null before then. */
     var conversation: ConversationId? = null

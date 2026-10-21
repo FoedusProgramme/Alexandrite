@@ -282,6 +282,20 @@ class JobTurnsTest {
     }
 
     @Test
+    fun `a cancel that comes after an answer does not report it cancelled`() {
+        repeat(20) { model.reply { text("Done.") } }
+
+        harness().execute {
+            val control = get<TurnControl>()
+            val operator = channel().user("operator")
+            repeat(20) { turn ->
+                ask().ticket.outcome()
+                assertFalse(control.cancel(channel().chat(), operator), "turn $turn ended before the cancel")
+            }
+        }
+    }
+
+    @Test
     fun `a job is stopped by its id from its own chat only, through the turn control or the agent's own tool`() {
         model.reply { toolCall("fs.slow", """{"path": "a"}""") }.reply { text("First.") }
             .reply { toolCall("fs.slow", """{"path": "b"}""") }.reply { text("Second.") }
