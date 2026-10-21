@@ -69,7 +69,8 @@ internal fun ModelException.masked(mask: (String) -> String): ModelException {
 internal fun ModelException.pointedToResponses(): ModelException {
     val body = (cause as? HttpException)?.body.orEmpty()
     if (error.status != 400 || RESPONSES_PATH !in body.lowercase()) return this
-    val message = "${error.message.trimEnd()} This model takes only the Responses API (/v1/responses)."
+    val message = "${error.message.trimEnd()} This model takes only the Responses API (/v1/responses): configure " +
+        "it on an endpoint that speaks that API."
     return ModelException(error.rebuild { message(message) }, cause).also { it.stackTrace = stackTrace }
 }
 

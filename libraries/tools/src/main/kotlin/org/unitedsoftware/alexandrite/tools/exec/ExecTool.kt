@@ -6,13 +6,16 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
+import org.unitedsoftware.alexandrite.internal.tool.countArgument
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
+import org.unitedsoftware.alexandrite.internal.tool.stringsArgument
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -294,21 +297,9 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
     }
 
     private fun request(arguments: JsonObject): ParsedRequest {
-        val background = arguments.optional("background")?.let { value ->
-            (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                ?: throw ToolRefusal("'background' must be a boolean.")
-        } ?: false
-        val command = arguments.optional("command")?.let { value ->
-            (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?: throw ToolRefusal("'command' must be a string.")
-        }
-        val argv = arguments.optional("argv")?.let { value ->
-            val items = value as? JsonArray ?: throw ToolRefusal("'argv' must be an array of strings.")
-            items.map { item ->
-                (item as? JsonPrimitive)?.takeIf { it.isString }?.content
-                    ?: throw ToolRefusal("'argv' must be an array of strings.")
-            }
-        }
+        val background = arguments.booleanArgument("background") ?: false
+        val command = arguments.stringArgument("command")
+        val argv = arguments.stringsArgument("argv")
         val words = when {
             command != null && argv != null -> throw ToolRefusal("Give either 'command' or 'argv', not both.")
 
@@ -323,28 +314,13 @@ internal class ExecTool(private val floor: HardFloor, private val config: ExecCo
         if (words.any { '\u0000' in it }) {
             throw ToolRefusal("An argument holds a NUL character, which no program takes.")
         }
-        val cwd = arguments.optional("cwd")?.let { value ->
-            (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?: throw ToolRefusal("'cwd' must be a string.")
-        }
-        val seconds = arguments.optional("timeoutSeconds")?.let { value ->
-            (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
-                ?: throw ToolRefusal("'timeoutSeconds' must be a whole number of at least 1.")
-        } ?: config.maxTimeoutSeconds
+        val cwd = arguments.stringArgument("cwd")
+        val seconds = arguments.countArgument("timeoutSeconds") ?: config.maxTimeoutSeconds
         if (seconds > config.maxTimeoutSeconds) {
             throw ToolRefusal("'timeoutSeconds' may be at most ${config.maxTimeoutSeconds}.")
         }
-        val contained = arguments.optional("sandbox")?.let { value ->
-            (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-                ?: throw ToolRefusal("'sandbox' must be a boolean.")
-        } ?: true
-        val hosts = arguments.optional("network")?.let { value ->
-            val items = value as? JsonArray ?: throw ToolRefusal("'network' must be an array of strings.")
-            items.map { item ->
-                (item as? JsonPrimitive)?.takeIf { it.isString }?.content
-                    ?: throw ToolRefusal("'network' must be an array of strings.")
-            }
-        }.orEmpty()
+        val contained = arguments.booleanArgument("sandbox") ?: true
+        val hosts = arguments.stringsArgument("network").orEmpty()
         return ParsedRequest(words, cwd, seconds.seconds, contained, hosts.distinct(), background)
     }
 

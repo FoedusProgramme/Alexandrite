@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.testModelRequest
@@ -34,7 +35,8 @@ class StreamCollectorTest {
     @Test
     fun `what the endpoint warns about is logged once, however often the same warning comes`() {
         val model = ScriptedModel().reply { text("One.") }.reply { text("Two.") }
-        val warning = Warning("unsupported_option", "Model test-model takes no reasoning effort; high is left out.")
+        val warning =
+            Warning(WarningKind.UNSUPPORTED_OPTION, "Model test-model takes no reasoning effort; high is left out.")
         val warns = object : ModelEndpoint by model {
             override fun stream(request: ModelRequest): Flow<ModelEvent> = model.stream(request).map { event ->
                 if (event is ModelEvent.ResponseStarted) {

@@ -2,7 +2,6 @@ package org.unitedsoftware.alexandrite.channel.telegram
 
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.ADA

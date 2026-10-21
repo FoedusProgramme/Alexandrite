@@ -25,15 +25,15 @@ class WritePlacesTest {
     lateinit var directory: Path
 
     @Test
-    fun `an agent's own places, trusted folders, allowWrite paths and temp hold its writes, through links too`() =
+    fun `own places, trusted folders, a sandbox's allowWrite paths and temp hold an agent's writes, through links`() =
         runTest {
             val root = directory.toRealPath()
             val extra = root.resolve("extra").createDirectories()
             val config = settings(
                 """
             {"agents": {
-              "main": {"description": "Main.", "sandbox": {"allowWrite": ["$extra"]}},
-              "neko": {"description": "Neko."}
+              "main": {"description": "Main.", "sandbox": {"type": "auto", "allowWrite": ["$extra"]}},
+              "neko": {"description": "Neko.", "sandbox": {"allowWrite": ["$extra"]}}
             }}
                 """.trimIndent(),
             )

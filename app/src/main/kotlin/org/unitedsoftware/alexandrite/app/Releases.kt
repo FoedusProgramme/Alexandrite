@@ -3,8 +3,6 @@ package org.unitedsoftware.alexandrite.app
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
 import java.io.IOException

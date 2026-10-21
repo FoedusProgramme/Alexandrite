@@ -3,13 +3,9 @@ package org.unitedsoftware.alexandrite.runtime.i18n
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import java.io.IOException
 import java.io.InputStreamReader
-import java.net.JarURLConnection
 import java.net.URL
 import java.nio.charset.CodingErrorAction
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.Properties
-import kotlin.io.path.isRegularFile
 
 /** The resource directory of the texts of [plugin]. */
 @InternalAlexandriteApi

@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
@@ -75,7 +76,10 @@ internal fun JsonObjectBuilder.putToolChoice(
             named(choice)
         }
 
-        else -> return Warning(Warning.UNSUPPORTED_OPTION, "The tool choice $choice is unknown, so the model decides.")
+        else -> return Warning(
+            WarningKind.UNSUPPORTED_OPTION,
+            "The tool choice $choice is unknown, so the model decides.",
+        )
     }
     return null
 }
@@ -93,7 +97,7 @@ internal val IMAGE_TYPES: Set<String> = setOf("image/jpeg", "image/png", "image/
 
 /** The warning that [info]'s model does not accept [effort], so the request leaves the effort out. */
 internal fun unsupportedEffort(effort: ReasoningEffort, info: ModelInfo): Warning = Warning(
-    Warning.UNSUPPORTED_OPTION,
+    WarningKind.UNSUPPORTED_OPTION,
     "Model '${info.id}' does not accept the reasoning effort '$effort', so the request leaves the effort out.",
 )
 

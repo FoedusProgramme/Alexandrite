@@ -76,7 +76,7 @@ public interface TrustControl {
 
 /** A trusted folder. */
 @Poko
-public class TrustedFolder(
+public class TrustedFolder @InternalAlexandriteApi constructor(
     public val path: Path,
     /** Whether the config file declares the folder. */
     public val declared: Boolean,

@@ -107,10 +107,6 @@ public class InitiatedTurn private constructor(
         public fun builder(chat: ChatAddress, kind: TurnKind, prompt: String): Builder =
             Builder(chat, null, kind, prompt)
 
-        /** A turn at [chat], run as [agent]. */
-        public fun builder(chat: ChatAddress, agent: AgentId, kind: TurnKind, prompt: String): Builder =
-            Builder(chat, agent, kind, prompt)
-
         /** A turn at the chat of [key], run as its agent. */
         public fun builder(key: AgentChatKey, kind: TurnKind, prompt: String): Builder =
             Builder(key.chat, key.agent, kind, prompt)

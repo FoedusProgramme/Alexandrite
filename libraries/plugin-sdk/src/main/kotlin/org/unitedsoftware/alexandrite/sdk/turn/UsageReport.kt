@@ -62,7 +62,7 @@ public class PeriodUsage private constructor(
 
 /** The tokens of one model's calls in a period. */
 @Poko
-public class ModelUsage(
+public class ModelUsage @InternalAlexandriteApi constructor(
     public val model: ModelRef,
     /** Prompt tokens, cached ones included. */
     public val inputTokens: Long,
@@ -102,7 +102,7 @@ public value class UsagePeriod internal constructor(public val id: String) {
 
 /** A budget of an agent and what it spent of it in the current [period]. */
 @Poko
-public class BudgetStatus(
+public class BudgetStatus @InternalAlexandriteApi constructor(
     /** [UsagePeriod.TODAY] or [UsagePeriod.THIS_MONTH]. */
     public val period: UsagePeriod,
     public val unit: BudgetUnit,

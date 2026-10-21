@@ -81,10 +81,8 @@ import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.RenderedTool
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
 import org.unitedsoftware.alexandrite.agent.tool.ToolExecutor
-import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.tool.Toolset
-import org.unitedsoftware.alexandrite.agent.tool.TurnCalls
 import org.unitedsoftware.alexandrite.agent.tool.relativized
 import org.unitedsoftware.alexandrite.agent.tool.textResult
 import org.unitedsoftware.alexandrite.agent.tool.toolTitle
@@ -112,7 +110,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEventKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
@@ -1024,13 +1021,8 @@ internal class AgentTurnRunner(
                         launch {
                             slots.withPermit {
                                 val acting = acting(turn)
-                                val callable = if (acting ===
-                                    turn
-                                ) {
-                                    tools.callable
-                                } else {
-                                    registry.callable(acting, tools.callable)
-                                }
+                                val callable =
+                                    if (acting === turn) tools.callable else registry.callable(acting, tools.callable)
                                 val end = executor.execute(
                                     acting,
                                     call,

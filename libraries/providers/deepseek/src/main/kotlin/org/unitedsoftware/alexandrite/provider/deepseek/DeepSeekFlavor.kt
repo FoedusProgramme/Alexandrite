@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -97,7 +98,7 @@ internal object DeepSeekReasoning : ChatReasoning() {
         body.put("reasoning_effort", level.id)
         if (level == effort) return null
         return Warning(
-            Warning.UNSUPPORTED_OPTION,
+            WarningKind.UNSUPPORTED_OPTION,
             "Model '${info.id}' does not accept the reasoning effort '$effort', so the request asks for '$level' " +
                 "instead.",
         )
@@ -123,7 +124,7 @@ internal object DeepSeekTools : ChatTools() {
         val forced = request.toolChoice == ToolChoice.Required || request.toolChoice is ToolChoice.Named
         if (!forced || !thinks(request)) return super.toolChoice(request, body)
         return Warning(
-            Warning.UNSUPPORTED_OPTION,
+            WarningKind.UNSUPPORTED_OPTION,
             "Model '${request.model.model}' takes no forced tool choice while it thinks, so the model decides.",
         )
     }

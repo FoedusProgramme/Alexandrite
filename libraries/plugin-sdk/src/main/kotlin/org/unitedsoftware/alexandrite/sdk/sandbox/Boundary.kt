@@ -63,7 +63,7 @@ public class Boundary private constructor(
     }
 }
 
-/** Where a program inside a [Boundary] may connect; a `when` over it needs an `else`, as later versions may add kinds. */
+/** Where a program inside a [Boundary] may connect. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface NetworkAccess {
     /** Nowhere. */

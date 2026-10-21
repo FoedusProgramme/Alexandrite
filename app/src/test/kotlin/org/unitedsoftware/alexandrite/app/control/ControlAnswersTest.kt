@@ -1,15 +1,11 @@
 package org.unitedsoftware.alexandrite.app.control
 
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.app.logged
 import org.unitedsoftware.alexandrite.channel.common.InternalChannelCommonApi
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDecision
 import org.unitedsoftware.alexandrite.channel.common.pairing.Unpairing
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals

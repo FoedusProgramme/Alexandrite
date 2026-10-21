@@ -40,6 +40,7 @@ import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.Usage
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantPart
@@ -223,7 +224,10 @@ internal class ReferenceEndpoint(private val base: String, private val flaw: Fla
         val effort = request.options.reasoning
         val warnings = listOfNotNull(
             effort?.takeIf { flaw != Flaw.SILENT_EFFORT }?.let {
-                Warning("unsupported_option", "Model ${request.model} takes no reasoning effort; $it is left out.")
+                Warning(
+                    WarningKind.UNSUPPORTED_OPTION,
+                    "Model ${request.model} takes no reasoning effort; $it is left out.",
+                )
             },
         )
         val reply = Reply(request, flaw, warnings)

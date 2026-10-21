@@ -62,7 +62,7 @@ public interface ConversationControl {
 
 /** The conversation of [agent] in a chat whose mark [ConversationControl.untaint] cleared. */
 @Poko
-public class UntaintedConversation(
+public class UntaintedConversation @InternalAlexandriteApi constructor(
     public val agent: AgentId,
     /** The mark it had. */
     public val taint: ConversationTaint,
@@ -70,7 +70,7 @@ public class UntaintedConversation(
 
 /** What a compaction folded into the rolling summary. */
 @Poko
-public class CompactionReport(
+public class CompactionReport @InternalAlexandriteApi constructor(
     /** The stored entries that the compaction folded into the summary. */
     public val folded: Int,
     /** The prompt tokens before the compaction, as the agent estimates them. */

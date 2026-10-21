@@ -55,8 +55,8 @@ class ModelResponseTest {
 
     @Test
     fun `a warning says what happened`() {
-        assertFailsWith<IllegalArgumentException> { Warning(" ", "Temperature ignored.") }
-        assertFailsWith<IllegalArgumentException> { Warning("unsupported_option", "") }
+        assertFailsWith<IllegalArgumentException> { WarningKind.of(" ") }
+        assertFailsWith<IllegalArgumentException> { Warning(WarningKind.UNSUPPORTED_OPTION, "") }
     }
 
     // Usage.

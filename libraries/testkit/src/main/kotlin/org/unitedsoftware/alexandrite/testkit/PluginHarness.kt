@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.testkit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime

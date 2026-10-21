@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
+import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
 import java.net.URI
 import java.net.URISyntaxException
 import java.util.Locale
@@ -36,6 +37,9 @@ internal class WebConfig(
         require(maxBytes in 1..10_000_000) { "maxBytes must be from 1 to 10000000" }
         require(maxTextChars in 1..1_000_000) { "maxTextChars must be from 1 to 1000000" }
         model?.let(ModelRef::parse)
+        require(searchBackend == null || WebSearchBackend.ID.matches(searchBackend)) {
+            "searchBackend '$searchBackend' is no backend id: lowercase letters, digits and '-', such as \"brave\""
+        }
         require(braveApiKey == null || braveApiKey.reveal().isNotBlank()) { "braveApiKey may not be blank" }
         require(tavilyApiKey == null || tavilyApiKey.reveal().isNotBlank()) { "tavilyApiKey may not be blank" }
     }

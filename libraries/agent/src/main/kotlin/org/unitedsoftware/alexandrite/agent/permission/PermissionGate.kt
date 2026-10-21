@@ -21,7 +21,6 @@ import org.unitedsoftware.alexandrite.agent.trust.Foresight
 import org.unitedsoftware.alexandrite.agent.trust.MarkOffers
 import org.unitedsoftware.alexandrite.agent.trust.TrustRules
 import org.unitedsoftware.alexandrite.agent.trust.localTrust
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance

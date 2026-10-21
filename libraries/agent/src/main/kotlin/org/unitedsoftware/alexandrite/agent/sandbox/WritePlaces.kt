@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.sandbox
 
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.config.SandboxConfig
 import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.permission.EditPlaces
@@ -18,7 +19,7 @@ import java.nio.file.Path
 /**
  * Where a turn's writes may land, the same for a sandbox's commands and for the file writes that `allowedit` runs: the
  * agent's workspace, the conversation's directory, the folders the agent trusts, the temp directory and the paths that
- * the agent's sandbox section allows writing.
+ * the sandbox section of a sandboxed agent allows writing.
  */
 @Singleton
 @Binds(EditPlaces::class)
@@ -31,7 +32,9 @@ internal class WritePlaces(
 ) : EditPlaces {
     private val canonicalizer = PathCanonicalizer()
 
-    private val allowWrite: Map<AgentId, List<Path>> = directory.agents.associate { agent ->
+    private val allowWrite: Map<AgentId, List<Path>> = directory.agents.filter {
+        it.config.sandbox.type != SandboxConfig.HOST
+    }.associate { agent ->
         val key = "agent.agents.${agent.id}.sandbox.allowWrite"
         agent.id to agent.config.sandbox.allowWrite.map {
             configuredPath(paths, key, "the writable path", expandHome(it))

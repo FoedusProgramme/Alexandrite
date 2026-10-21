@@ -193,7 +193,7 @@ internal class Sandboxes(
 private fun environment(agent: AgentId, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
     try {
         selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
-            logger.warn("Agent '{}' asks for the platform's sandbox, but {}: its commands run on the host", agent, why)
+            logger.warn("Agent '{}' asks for a sandbox, but {}: its commands run on the host", agent, why)
         }
     } catch (e: IllegalArgumentException) {
         throw ConfigException("agent.agents.$agent.sandbox.type", e.message.orEmpty(), e)

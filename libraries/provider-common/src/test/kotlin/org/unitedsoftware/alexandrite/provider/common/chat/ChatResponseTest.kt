@@ -24,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
@@ -147,7 +148,7 @@ class ChatResponseTest {
         assertEquals("/v1/chat/completions", recorded.path)
         val started = events.first() as ModelEvent.ResponseStarted
         assertEquals("resp-1" to "chat-model", started.responseId to started.model)
-        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind.id })
     }
 
     @Test

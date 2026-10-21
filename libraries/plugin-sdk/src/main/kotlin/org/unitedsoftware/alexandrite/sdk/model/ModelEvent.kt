@@ -164,17 +164,32 @@ public value class FinishKind internal constructor(public val id: String) {
 
 /** A problem that did not stop the call. */
 @Poko
-public class Warning(public val kind: String, public val message: String) {
+public class Warning(public val kind: WarningKind, public val message: String) {
     init {
-        require(kind.isNotBlank()) { "A warning's kind may not be blank." }
         require(message.isNotBlank()) { "A warning's message may not be blank." }
     }
+}
+
+/** What a [Warning] is about. */
+@JvmInline
+@Serializable
+public value class WarningKind internal constructor(public val id: String) {
+    override fun toString(): String = id
 
     public companion object {
-        /** The kind of a warning that the request leaves out an option the model or its API does not take. */
-        public const val UNSUPPORTED_OPTION: String = "unsupported_option"
+        /** The request leaves out an option the model or its API does not take. */
+        public val UNSUPPORTED_OPTION: WarningKind = WarningKind("unsupported_option")
 
-        /** The kind of a warning that the request leaves out media the model does not take. */
-        public const val UNSUPPORTED_MEDIA: String = "unsupported_media"
+        /** The request leaves out media the model does not take. */
+        public val UNSUPPORTED_MEDIA: WarningKind = WarningKind("unsupported_media")
+
+        /** The values this version knows. */
+        public val entries: List<WarningKind> = listOf(UNSUPPORTED_OPTION, UNSUPPORTED_MEDIA)
+
+        /** The value of [id], which keeps an id this version does not know; [id] may not be blank. */
+        public fun of(id: String): WarningKind {
+            require(id.isNotBlank()) { "A warning's kind may not be blank." }
+            return WarningKind(id)
+        }
     }
 }

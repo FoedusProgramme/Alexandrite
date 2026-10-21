@@ -10,6 +10,8 @@ package org.unitedsoftware.alexandrite.sdk
  * - an open enumeration, a value class with companion constants, gains constants, so a `when` over it needs an `else`
  *   branch;
  * - an enum whose values only plugins produce may gain constants, so a `when` over it needs an `else` branch too;
+ * - a value that Alexandrite alone produces, whose constructor is marked `@InternalAlexandriteApi`, gains properties,
+ *   and a plugin's tests build it with the testkit;
  * - an interface that plugins implement gains members only with default bodies;
  * - the stored JSON of transcript entries gains types and fields, and a version reads a type it does not know as its
  *   `Unknown` form;

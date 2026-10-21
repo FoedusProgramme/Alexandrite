@@ -63,7 +63,7 @@ public enum class Capacity {
     EXEMPT,
 }
 
-/** What the agent made of a submission; a `when` over it needs an `else`, as later versions may add kinds. */
+/** What the agent made of a submission. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface Admission {
     /** Queued as the turn of [ticket]. */

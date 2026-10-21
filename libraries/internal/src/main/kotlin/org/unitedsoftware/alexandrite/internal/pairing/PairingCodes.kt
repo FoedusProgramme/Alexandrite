@@ -132,8 +132,11 @@ public fun newPairingCode(): String {
 /** Whether [input] holds the eight characters of a code, however it is written. */
 public fun isPairingCode(input: String): Boolean = normalize(input) != null
 
-/** Whether [text] holds the code [code], however either is written. */
-public fun holdsPairingCode(text: String, code: String): Boolean = codeCharacters(code) in codeCharacters(text)
+/** Whether [text] holds the code [code], however either is written and whatever separates its characters. */
+public fun holdsPairingCode(text: String, code: String): Boolean = alphanumeric(code) in alphanumeric(text)
+
+/** The code characters of [text] without anything but ASCII letters and digits. */
+private fun alphanumeric(text: String): String = codeCharacters(text).filter { it in 'A'..'Z' || it in '0'..'9' }
 
 /** 40 random bits from [random] as 8 code characters. */
 private fun drawCode(random: SecureRandom): String {

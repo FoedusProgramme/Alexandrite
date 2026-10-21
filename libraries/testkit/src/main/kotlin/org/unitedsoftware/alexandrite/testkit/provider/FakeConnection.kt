@@ -5,7 +5,6 @@ import org.unitedsoftware.alexandrite.testkit.RecordedRequest
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.io.InputStream
 import java.net.Socket
 import java.net.SocketTimeoutException
 import kotlin.time.Duration

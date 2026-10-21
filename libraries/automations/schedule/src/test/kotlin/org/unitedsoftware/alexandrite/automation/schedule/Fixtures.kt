@@ -25,7 +25,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
-import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent

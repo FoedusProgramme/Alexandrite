@@ -12,7 +12,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
-import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.store.ConversationKind
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ForkPoint

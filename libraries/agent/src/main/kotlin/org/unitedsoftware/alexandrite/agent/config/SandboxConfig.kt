@@ -8,7 +8,7 @@ import org.unitedsoftware.alexandrite.internal.sandbox.HOST_SANDBOX
 /** The sandbox that an agent's commands run in. */
 @Serializable
 internal class SandboxConfig(
-    /** `host` for none, `auto` for the platform's, or the name of an environment such as `seatbelt`. */
+    /** `host` for none, `auto` for the first available on this host, or the name of an environment such as `seatbelt`. */
     val type: String = HOST,
     /** Places the commands may write beside the workspace, the conversation's directory, trusted folders and temp. */
     val allowWrite: List<String> = emptyList(),

@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.delivery
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -17,9 +16,9 @@ import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.property
-import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.Markup
@@ -287,11 +286,12 @@ internal class ChatSendTool(
 
     /** What the call of [arguments] in [turn] asks to send where, refused where it may not go. */
     private suspend fun requested(arguments: JsonObject, turn: TurnInfo): Request {
-        val to = arguments.text("to") ?: throw ToolRefusal("Give 'to': 'home', 'here' or a chat (see chat.list).")
-        val text = arguments.text("text")?.takeIf { it.isNotBlank() }
+        val to =
+            arguments.stringArgument("to") ?: throw ToolRefusal("Give 'to': 'home', 'here' or a chat (see chat.list).")
+        val text = arguments.stringArgument("text")?.takeIf { it.isNotBlank() }
             ?: throw ToolRefusal("Give 'text', the message to send.")
         val target = targets.resolve(turn, to)
-        val replyTo = arguments.text("replyTo")?.trim()?.ifEmpty { null }?.let { id ->
+        val replyTo = arguments.stringArgument("replyTo")?.trim()?.ifEmpty { null }?.let { id ->
             try {
                 ChannelMessageRef(target.chat, id)
             } catch (e: IllegalArgumentException) {

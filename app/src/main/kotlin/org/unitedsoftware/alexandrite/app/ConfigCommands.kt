@@ -30,6 +30,7 @@ import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
+import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -250,13 +251,22 @@ internal fun localConfig(cli: Cli): HostConfig = HostConfigFile(
     "alexandrite",
 )
 
-/** The app's section of the config file read with its secrets, null when the file or the section cannot be read. */
+/**
+ * The app's section of the config file read with its secrets apart from the other sections, whose values may refer to
+ * variables this shell does not set, null when the file or the section cannot be read.
+ */
 internal fun appConfig(cli: Cli): AppConfig? = try {
-    ConfigFile.read(cli.locations.configFile, withSecrets(cli.environment, cli.secrets))
-        .decodeSection(APP_ROOT, AppConfig.serializer())
+    val file = cli.locations.configFile
+    val written = writtenConfig(Files.readString(file))
+    val section = written?.get(APP_ROOT) ?: JsonObject(emptyMap())
+    if (written == null || section !is JsonObject) {
+        null
+    } else {
+        val environment = withSecrets(cli.environment, cli.secrets)
+        JsonConfigSource(ConfigFile.resolve(JsonObject(mapOf(APP_ROOT to section)), environment, "$file"))
+            .decodeSection(APP_ROOT, AppConfig.serializer())
+    }
 } catch (e: IOException) {
-    null
-} catch (e: ConfigFileException) {
     null
 } catch (e: ConfigException) {
     null

@@ -8,7 +8,6 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
-import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.web.PageQuestion

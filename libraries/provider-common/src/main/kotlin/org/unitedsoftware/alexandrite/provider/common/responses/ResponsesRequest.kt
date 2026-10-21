@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.provider.common.resultHeading
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
@@ -90,7 +91,7 @@ internal class ResponsesRequest(
         flavor.tools.toolChoice(request, this)?.let(warnings::add)
         val parallel = request.options.parallelToolCalls ?: return
         if (parallel && !info.parallelToolCalls) {
-            warnings += Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
+            warnings += Warning(WarningKind.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
         } else {
             put("parallel_tool_calls", parallel)
         }
@@ -114,20 +115,21 @@ internal class ResponsesRequest(
         options.temperature?.let { temperature ->
             if (thinks) {
                 warnings +=
-                    Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' takes no temperature while it reasons.")
+                    Warning(WarningKind.UNSUPPORTED_OPTION, "Model '${info.id}' takes no temperature while it reasons.")
             } else {
                 put("temperature", temperature)
             }
         }
         options.topP?.let { topP ->
             if (thinks) {
-                warnings += Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' takes no top-p while it reasons.")
+                warnings +=
+                    Warning(WarningKind.UNSUPPORTED_OPTION, "Model '${info.id}' takes no top-p while it reasons.")
             } else {
                 put("top_p", topP)
             }
         }
         if (options.stopSequences.isNotEmpty()) {
-            warnings += Warning(Warning.UNSUPPORTED_OPTION, "The Responses API takes no stop sequences.")
+            warnings += Warning(WarningKind.UNSUPPORTED_OPTION, "The Responses API takes no stop sequences.")
         }
     }
 
@@ -137,7 +139,7 @@ internal class ResponsesRequest(
         return when {
             limit != null && asked > limit -> {
                 warnings += Warning(
-                    Warning.UNSUPPORTED_OPTION,
+                    WarningKind.UNSUPPORTED_OPTION,
                     "Model '${info.id}' writes at most $limit tokens, so the request asks for that many.",
                 )
                 limit
@@ -145,7 +147,7 @@ internal class ResponsesRequest(
 
             asked < MIN_OUTPUT_TOKENS -> {
                 warnings += Warning(
-                    Warning.UNSUPPORTED_OPTION,
+                    WarningKind.UNSUPPORTED_OPTION,
                     "Model '${info.id}' writes at least $MIN_OUTPUT_TOKENS tokens, so the request asks for that many.",
                 )
                 MIN_OUTPUT_TOKENS
@@ -214,7 +216,8 @@ internal class ResponsesRequest(
                 }
             }
         }
-        warnings += Warning(Warning.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
+        warnings +=
+            Warning(WarningKind.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
         return text("[${part.kind} ${part.name ?: part.mediaType} not shown: the model cannot take it]")
     }
 

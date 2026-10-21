@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.OpaquePart
@@ -94,7 +95,7 @@ class MessagesResponseTest {
         assertEquals("true", recorded.json()["stream"].toString())
         val started = events.first() as ModelEvent.ResponseStarted
         assertEquals("msg_1" to "claude-model", started.responseId to started.model)
-        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind.id })
     }
 
     @Test

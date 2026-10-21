@@ -124,6 +124,7 @@ internal object TextKeys {
     const val APPROVAL_TRUSTS_DOMAIN: String = "approval.trusts.domain"
     const val APPROVAL_TRUSTS_PROGRAM: String = "approval.trusts.program"
     const val APPROVAL_TRUSTS_SOURCE: String = "approval.trusts.source"
+    const val APPROVAL_TRUSTS_OTHER: String = "approval.trusts.other"
 
     /** Takes `{agent}`. */
     const val APPROVAL_TRUSTS_PERSON: String = "approval.trusts.person"
@@ -133,6 +134,7 @@ internal object TextKeys {
     const val TRUST_KIND_DOMAIN: String = "trust.kind.domain"
     const val TRUST_KIND_PROGRAM: String = "trust.kind.program"
     const val TRUST_KIND_SOURCE: String = "trust.kind.source"
+    const val TRUST_KIND_OTHER: String = "trust.kind.other"
     const val TRUST_KIND_PERSON: String = "trust.kind.person"
     const val APPROVAL_ARGUMENTS: String = "approval.arguments"
     const val APPROVAL_ALLOW: String = "approval.allow"

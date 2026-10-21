@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.automation.common.TimeSource
 import org.unitedsoftware.alexandrite.automation.common.Trigger
 import org.unitedsoftware.alexandrite.automation.common.When
 import org.unitedsoftware.alexandrite.automation.common.restarting
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -106,7 +107,7 @@ internal class Scheduling(
             return Fired.DONE
         }
         val prompt = framing(task.id, record, occurrence)
-        val turn = InitiatedTurn.builder(record.chat, record.key.agent, TurnKind.REMINDER, prompt)
+        val turn = InitiatedTurn.builder(AgentChatKey(record.key.agent, record.chat), TurnKind.REMINDER, prompt)
             .route(ReplyRoute.ToChat(record.chat))
             .trust(if (record.mandate == null) Trust.UNTRUSTED else Trust.TRUSTED)
             .mandate(record.mandate)
@@ -124,6 +125,11 @@ internal class Scheduling(
                     }
                     if (closing.value || ++tries > OPEN_TRIES) return Fired.REPLAY
                     withTimeoutOrNull(1.seconds) { closing.first { it } }
+                }
+
+                else -> {
+                    logger.warn("Scheduled task {} was not taken in, as {}: skipped", task.id, admission)
+                    return Fired.DONE
                 }
             }
         }

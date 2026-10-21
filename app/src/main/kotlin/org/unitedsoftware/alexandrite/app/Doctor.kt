@@ -6,7 +6,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.tui.Mark
 import org.unitedsoftware.alexandrite.app.tui.columns

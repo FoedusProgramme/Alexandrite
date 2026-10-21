@@ -4,12 +4,7 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.resource.resourceTexts
 import org.unitedsoftware.alexandrite.internal.text.snippet
 import java.io.IOException
-import java.net.JarURLConnection
-import java.net.URL
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.Locale
-import kotlin.io.path.isRegularFile
 import kotlin.math.abs
 import kotlin.math.ln
 

@@ -9,7 +9,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
-import org.unitedsoftware.alexandrite.internal.path.writableByOthers
 import java.io.IOException
 import java.net.ConnectException
 import java.net.StandardProtocolFamily
@@ -131,14 +130,18 @@ internal class ControlSocket private constructor(
         private const val MAX_REQUEST_BYTES = 1024 * 1024
 
         private val SOCKET_PERMISSIONS = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
+        private val SHARED_WRITES = setOf(PosixFilePermission.GROUP_WRITE, PosixFilePermission.OTHERS_WRITE)
 
         /** Binds the socket at [path] in a directory only its owner writes, or throws why it cannot. */
         fun open(path: Path): ControlSocket {
             val directory = checkNotNull(path.parent) { "$path lies in no directory" }
             val view = Files.getFileAttributeView(directory, PosixFileAttributeView::class.java)
-            if (writableByOthers(directory)) {
-                val permissions = PosixFilePermissions.toString(Files.getPosixFilePermissions(directory))
-                throw IOException("Other users may write $directory ($permissions); run chmod go-w on it")
+            val permissions = view?.readAttributes()?.permissions()
+            if (permissions != null && permissions.any { it in SHARED_WRITES }) {
+                throw IOException(
+                    "Other users may write $directory (${PosixFilePermissions.toString(permissions)}); run chmod " +
+                        "go-w on it",
+                )
             }
             replaceStale(path)
             val server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)

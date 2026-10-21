@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeChat
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeUser
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
-import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.RuntimeConfig
 import org.unitedsoftware.alexandrite.runtime.RuntimeSpec
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet

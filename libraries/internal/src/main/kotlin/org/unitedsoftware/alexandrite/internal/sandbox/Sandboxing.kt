@@ -14,7 +14,7 @@ public val DEFAULT_PROTECT: List<String> = listOf(
 /** The sandbox type of no sandbox. */
 public const val HOST_SANDBOX: String = "host"
 
-/** The sandbox type of the platform's sandbox. */
+/** The sandbox type that takes the first sandbox available on this host. */
 public const val AUTO_SANDBOX: String = "auto"
 
 /** A sandbox's `protect` entries: [names] at any depth, [paths] as written, and whether they hold [ALEXANDRITE_PLACES]. */

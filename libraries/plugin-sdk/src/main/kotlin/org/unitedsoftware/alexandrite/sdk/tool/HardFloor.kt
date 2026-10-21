@@ -36,7 +36,7 @@ public interface HardFloor {
     public val protectsAnything: Boolean get() = true
 }
 
-/** What the [HardFloor] decided; a `when` over it needs an `else`, as later versions may add kinds. */
+/** What the [HardFloor] decided. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface FloorCheck {
     @OptIn(InternalAlexandriteApi::class)

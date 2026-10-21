@@ -51,7 +51,8 @@ class ErrorsTest {
 
     @Test
     fun `a 400 that says to use the Responses API adds that the model takes only that API`() {
-        val hint = "This model takes only the Responses API (/v1/responses)."
+        val hint = "This model takes only the Responses API (/v1/responses): configure it on an endpoint that " +
+            "speaks that API."
         val pointed =
             error(400, """{"error": {"message": "This model is only supported in v1/responses.", "type": "x"}}""")
         val used = error(400, """{"error": {"message": "Use /v1/responses for this model."}}""")

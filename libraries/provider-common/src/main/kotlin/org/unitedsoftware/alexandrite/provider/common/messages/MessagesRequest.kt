@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
@@ -148,7 +149,7 @@ internal class MessagesRequest(
             if (mode == TurnContextMode.TRANSIENT || mode == TurnContextMode.KEPT_UNRENDERED) continue
             for (item in items) {
                 warnings += Warning(
-                    Warning.UNSUPPORTED_OPTION,
+                    WarningKind.UNSUPPORTED_OPTION,
                     "The endpoint renders no turn context of trust ${item.trust} for model '${info.id}', so the " +
                         "request leaves '${item.source}' out.",
                 )
@@ -163,7 +164,7 @@ internal class MessagesRequest(
         val last = messages.lastOrNull()
         if (last !is Message.Turn || last.role != USER) {
             warnings += Warning(
-                Warning.UNSUPPORTED_OPTION,
+                WarningKind.UNSUPPORTED_OPTION,
                 "The request ends with no user message, so it leaves out its turn context " +
                     scoped.joinToString { "'${it.source}'" } + ".",
             )
@@ -185,7 +186,7 @@ internal class MessagesRequest(
         options.temperature?.let { temperature ->
             if (thinking) {
                 warnings +=
-                    Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' takes no temperature while it thinks.")
+                    Warning(WarningKind.UNSUPPORTED_OPTION, "Model '${info.id}' takes no temperature while it thinks.")
             } else {
                 put("temperature", temperature)
             }
@@ -193,7 +194,10 @@ internal class MessagesRequest(
         options.topP?.let { topP ->
             if (thinking && topP < MIN_THINKING_TOP_P) {
                 warnings +=
-                    Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' takes no top-p below 0.95 while it thinks.")
+                    Warning(
+                        WarningKind.UNSUPPORTED_OPTION,
+                        "Model '${info.id}' takes no top-p below 0.95 while it thinks.",
+                    )
             } else {
                 put("top_p", topP)
             }
@@ -208,7 +212,7 @@ internal class MessagesRequest(
         val asked = request.options.maxOutputTokens ?: return limit ?: DEFAULT_MAX_TOKENS
         if (limit == null || asked <= limit) return asked
         warnings += Warning(
-            Warning.UNSUPPORTED_OPTION,
+            WarningKind.UNSUPPORTED_OPTION,
             "Model '${info.id}' writes at most $limit tokens, so the request asks for that many.",
         )
         return limit
@@ -276,7 +280,8 @@ internal class MessagesRequest(
                 }
             }
         }
-        warnings += Warning(Warning.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
+        warnings +=
+            Warning(WarningKind.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
         return text("[${part.kind} ${part.name ?: part.mediaType} not shown: the model cannot take it]")
     }
 

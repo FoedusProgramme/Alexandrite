@@ -11,12 +11,12 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.property
-import org.unitedsoftware.alexandrite.agent.tool.requiredText
 import org.unitedsoftware.alexandrite.agent.tool.stringArrayProperty
-import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.text.UnifiedDiff
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -117,15 +117,15 @@ internal class ProfileCreateTool(private val profiles: Profiles) :
     }
 
     private fun draft(arguments: JsonObject): ProfileDraft = ProfileDraft(
-        id = arguments.requiredText("id"),
-        name = arguments.requiredText("name"),
-        description = arguments.requiredText("description"),
-        instructions = arguments.requiredText("instructions"),
-        model = arguments.text("model"),
-        reasoning = arguments.text("reasoning"),
+        id = arguments.requiredString("id"),
+        name = arguments.requiredString("name"),
+        description = arguments.requiredString("description"),
+        instructions = arguments.requiredString("instructions"),
+        model = arguments.stringArgument("model"),
+        reasoning = arguments.stringArgument("reasoning"),
         toolsAllow = arguments.strings("toolsAllow") ?: listOf("*"),
         toolsDeny = arguments.strings("toolsDeny") ?: emptyList(),
-        mode = arguments.text("mode"),
+        mode = arguments.stringArgument("mode"),
         maxRounds = arguments.int("maxRounds"),
         maxTurnTokens = arguments.long("maxTurnTokens"),
     )
@@ -168,12 +168,12 @@ internal class ProfileEditTool(private val profiles: Profiles) :
         ToolResult(e.message, isError = true)
     }
 
-    private fun id(arguments: JsonObject): AgentId = AgentId(arguments.requiredText("id"))
+    private fun id(arguments: JsonObject): AgentId = AgentId(arguments.requiredString("id"))
 
     private fun edit(arguments: JsonObject): ProfileEdit = ProfileEdit(
-        name = arguments.text("name"),
-        description = arguments.text("description"),
-        instructions = arguments.text("instructions"),
+        name = arguments.stringArgument("name"),
+        description = arguments.stringArgument("description"),
+        instructions = arguments.stringArgument("instructions"),
         model = arguments.change("model"),
         reasoning = arguments.change("reasoning"),
         toolsAllow = arguments.strings("toolsAllow"),
@@ -206,7 +206,7 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
     )
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
-        val id = AgentId(arguments.requiredText("id"))
+        val id = AgentId(arguments.requiredString("id"))
         val profile = profiles.plannedRemove(id)
         val preview = ReviewPreview.Text("Removing profile $id:\n\n${profileText(profile)}")
         CallReview.builder().preview(preview).snapshot(hash(profile)).build()
@@ -215,7 +215,7 @@ internal class ProfileRemoveTool(private val profiles: Profiles) :
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
-        val id = AgentId(arguments.requiredText("id"))
+        val id = AgentId(arguments.requiredString("id"))
         val profile = profiles.plannedRemove(id)
         val reviewed = context.clearance?.snapshot
         if (reviewed != null && reviewed != hash(profile)) throw ToolRefusal(changedSinceReviewed(id))
@@ -331,7 +331,7 @@ private fun JsonObject.long(name: String): Long? {
 private fun JsonObject.change(name: String): SettingChange<String> = when {
     name !in this -> SettingChange.Keep
     this[name] == JsonNull -> SettingChange.Reset
-    else -> SettingChange.SetTo(text(name) ?: throw ToolRefusal("'$name' must be a string."))
+    else -> SettingChange.SetTo(stringArgument(name) ?: throw ToolRefusal("'$name' must be a string."))
 }
 
 private fun JsonObject.intChange(name: String): SettingChange<Int> = when {

@@ -2,11 +2,9 @@ package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.automation.common.CronExpression

@@ -60,12 +60,12 @@ internal fun serverSandbox(
     return SandboxSpec(environment, boundary, config.network.allowedDomains.mapNotNull(HostPattern::parse))
 }
 
-/** The environment that [type] names, null for none or for `auto` on a platform without one. */
+/** The environment that [type] names, null for none or for `auto` on a host without one. */
 private fun environment(key: String, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
     try {
         selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
             logger.warn(
-                "The MCP server at {} asks for the platform's sandbox, but {}: it runs on the host",
+                "The MCP server at {} asks for a sandbox, but {}: it runs on the host",
                 key.removeSuffix(".sandbox"),
                 why,
             )

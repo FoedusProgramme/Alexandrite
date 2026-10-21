@@ -1,7 +1,6 @@
 package org.unitedsoftware.alexandrite.provider.common.responses
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject

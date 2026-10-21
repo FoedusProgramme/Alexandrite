@@ -42,7 +42,7 @@ internal class ServerConfig(
 /** The sandbox that a server with a command runs in. */
 @Serializable
 internal class ServerSandboxConfig(
-    /** `host` for none, `auto` for the platform's, or the name of an environment such as `bubblewrap`. */
+    /** `host` for none, `auto` for the first available on this host, or the name of an environment such as `bubblewrap`. */
     val type: String = HOST,
     /** Places the server may write beside its `cwd`: absolute, under `~/`, or relative to the config file. */
     val allowWrite: List<String> = emptyList(),

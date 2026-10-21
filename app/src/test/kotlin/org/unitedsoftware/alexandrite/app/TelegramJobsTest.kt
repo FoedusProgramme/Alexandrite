@@ -6,10 +6,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
-import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry

@@ -97,9 +97,7 @@ class OpenRouterFlavorTest {
         assertNull(plain["reasoning"])
         assertEquals(
             listOf("unsupported_option"),
-            (refused.first() as ModelEvent.ResponseStarted).warnings.map {
-                it.kind
-            },
+            (refused.first() as ModelEvent.ResponseStarted).warnings.map { it.kind.id },
         )
     }
 

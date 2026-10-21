@@ -89,7 +89,7 @@ public interface ReplySink {
 
 /** A sub-agent [run] that [agent] runs for the tool call [call] of the run [under], or of the turn itself. */
 @Poko
-public class DelegatedRun(
+public class DelegatedRun @InternalAlexandriteApi constructor(
     public val call: ToolCallId,
     public val run: RunId,
     public val agent: AgentId,

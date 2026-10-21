@@ -84,7 +84,8 @@ internal class FolderRoots(private val floor: HardFloor, private val home: Path?
         return SYSTEM.any { folder.startsWith(it) }
     }
 
-    private fun allowed(folder: Path, agent: AgentId): Boolean = floor.checkRead(folder, agent) !is FloorCheck.Denied
+    private fun allowed(folder: Path, agent: AgentId): Boolean =
+        floor.checkRead(folder, agent).let { it is FloorCheck.Allowed || it is FloorCheck.Ask }
 }
 
 private fun pathOf(text: String): Path? = try {

@@ -14,7 +14,6 @@ import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
-import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import java.math.BigDecimal
 import java.net.URI

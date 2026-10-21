@@ -143,7 +143,7 @@ public class TrustRoot private constructor(
     public val kind: TrustRootKind,
     /**
      * As people are shown it, escaped for review: the full path of a folder, a domain, a program as a command names
-     * it, an MCP server's name or a person's name.
+     * it, a tool source's group such as `mcp.files`, or a person's name.
      */
     public val name: String,
     /** The person, of a [TrustRootKind.PERSON] root, else null. */

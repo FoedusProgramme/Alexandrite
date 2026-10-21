@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.agent.directory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.permission.denial
 import org.unitedsoftware.alexandrite.internal.path.hasPosixPermissions
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
@@ -34,11 +35,8 @@ internal class Inbox(private val directories: ConversationDirectories, private v
             for (candidate in candidates(name)) {
                 val target = inbox.resolve(candidate)
                 when (val check = floor.checkWrite(target, turn.agent, turn.rootConversation)) {
-                    is FloorCheck.Denied -> return@withContext Saving.Refused(
-                        "the inbox is protected (${check.reason})",
-                    )
-
                     is FloorCheck.Allowed, is FloorCheck.Ask -> Unit
+                    else -> return@withContext Saving.Refused("the inbox is protected (${check.denial})")
                 }
                 if (write(target, bytes)) {
                     logger.info("Turn {} saved a received file of {} bytes as {}", turn.id, bytes.size, target)

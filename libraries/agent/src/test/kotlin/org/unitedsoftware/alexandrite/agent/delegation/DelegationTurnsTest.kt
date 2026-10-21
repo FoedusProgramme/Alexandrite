@@ -343,7 +343,7 @@ class DelegationTurnsTest {
     fun `an unknown profile, a malformed background flag and a bad context are refused as invalid arguments`() {
         model.reply(ROOT) {
             toolCall(DELEGATE_TOOL, delegate("nobody", "Do it."))
-            toolCall(DELEGATE_TOOL, """{"profile": "reviewer", "task": "Do it.", "background": "true"}""")
+            toolCall(DELEGATE_TOOL, """{"profile": "reviewer", "task": "Do it.", "background": "yes"}""")
             toolCall(DELEGATE_TOOL, """{"profile": "reviewer", "task": "Do it.", "context": "all"}""")
         }.reply(ROOT) { text("Nothing ran.") }
 

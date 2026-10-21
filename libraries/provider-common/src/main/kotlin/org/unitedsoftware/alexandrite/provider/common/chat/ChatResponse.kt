@@ -10,7 +10,6 @@ import org.unitedsoftware.alexandrite.provider.common.long
 import org.unitedsoftware.alexandrite.provider.common.modelException
 import org.unitedsoftware.alexandrite.provider.common.obj
 import org.unitedsoftware.alexandrite.provider.common.streamError
-import org.unitedsoftware.alexandrite.provider.common.string
 import org.unitedsoftware.alexandrite.provider.common.stringContent
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.model.FinishReason

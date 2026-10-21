@@ -19,8 +19,6 @@ import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
 import org.unitedsoftware.alexandrite.internal.tool.requiredText
 import org.unitedsoftware.alexandrite.internal.tool.textArgument
-import org.unitedsoftware.alexandrite.sdk.channel.Delivery
-import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton

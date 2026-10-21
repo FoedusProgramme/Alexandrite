@@ -11,8 +11,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnShutdown
 import org.unitedsoftware.alexandrite.agent.cancel.turnCause

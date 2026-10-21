@@ -56,4 +56,7 @@ public class AgentSummary @InternalAlexandriteApi constructor(
 
 /** A profile as [AgentCatalog.profiles] shows it. */
 @Poko
-public class ProfileSummary(public val profile: AgentProfile, public val source: ProfileSource)
+public class ProfileSummary @InternalAlexandriteApi constructor(
+    public val profile: AgentProfile,
+    public val source: ProfileSource,
+)

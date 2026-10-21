@@ -180,8 +180,8 @@ internal class ApprovalDesk(
         }
         lines += Line(text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason))
         request.note?.let { lines += Line(text(TextKeys.APPROVAL_NOTE, language), it) }
-        if (request.untrusted != null) {
-            request.untrusted?.let { lines += Line(text(TextKeys.APPROVAL_UNTRUSTED, language), it) }
+        request.untrusted?.let {
+            lines += Line(text(TextKeys.APPROVAL_UNTRUSTED, language), it)
             lines += roots(request.roots, turn.agent, language)
         }
         val risk = request.risk.name.lowercase()
@@ -789,7 +789,8 @@ private fun covers(kind: TrustRootKind): String = when (kind) {
     TrustRootKind.DOMAIN -> TextKeys.APPROVAL_TRUSTS_DOMAIN
     TrustRootKind.PROGRAM -> TextKeys.APPROVAL_TRUSTS_PROGRAM
     TrustRootKind.PERSON -> TextKeys.APPROVAL_TRUSTS_PERSON
-    else -> TextKeys.APPROVAL_TRUSTS_SOURCE
+    TrustRootKind.TOOL_SOURCE -> TextKeys.APPROVAL_TRUSTS_SOURCE
+    else -> TextKeys.APPROVAL_TRUSTS_OTHER
 }
 
 /** The text key of the word for a root of [kind]. */
@@ -798,7 +799,8 @@ private fun kindWord(kind: TrustRootKind): String = when (kind) {
     TrustRootKind.DOMAIN -> TextKeys.TRUST_KIND_DOMAIN
     TrustRootKind.PROGRAM -> TextKeys.TRUST_KIND_PROGRAM
     TrustRootKind.PERSON -> TextKeys.TRUST_KIND_PERSON
-    else -> TextKeys.TRUST_KIND_SOURCE
+    TrustRootKind.TOOL_SOURCE -> TextKeys.TRUST_KIND_SOURCE
+    else -> TextKeys.TRUST_KIND_OTHER
 }
 
 /** The names of [roots], each cut at its start, as one text. */

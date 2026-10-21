@@ -9,7 +9,6 @@ import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.hook.HookEffect
 import org.unitedsoftware.alexandrite.sdk.hook.HookFailure
 import org.unitedsoftware.alexandrite.sdk.hook.HookPoint
-import org.unitedsoftware.alexandrite.sdk.hook.Interception
 import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
 import org.unitedsoftware.alexandrite.sdk.hook.InterceptorPoint
 import org.unitedsoftware.alexandrite.sdk.hook.ObserverDelivery
