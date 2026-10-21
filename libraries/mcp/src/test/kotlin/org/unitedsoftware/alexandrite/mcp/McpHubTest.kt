@@ -113,7 +113,10 @@ class McpHubTest {
             val result = server("broken").call("echo", JsonObject(emptyMap()), context)
 
             assertTrue(result.isError)
-            assertContains(result.text, "MCP server broken is down (last error: Cannot start /nonexistent/mcp-server")
+            // It keeps retrying, so it may be connecting again by the time of the call
+            val down =
+                Regex("MCP server broken is (down|connecting) \\(last error: Cannot start /nonexistent/mcp-server.*")
+            assertTrue(down.matches(result.text), result.text)
             assertEquals(listOf("output of MCP server broken"), context.untrustedReasons)
             assertEquals(emptyList(), names)
         }
